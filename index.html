@@ -1060,8 +1060,15 @@ function renderChart(){
 	if(all.length<2){ $('chartPanel').style.display='none'; return; }
 	$('chartPanel').style.display='block';
 	const cv=$('chart'),dpr=window.devicePixelRatio||1,W=cv.clientWidth||320,H=150; cv.width=W*dpr; cv.height=H*dpr; const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
-	const pad={l:34,r:36,t:18,b:18}, t0=all[0].time,t1=all[all.length-1].time;
-	const X=(t)=>pad.l+(W-pad.l-pad.r)*((t-t0)/(t1-t0||1));
+	const pad={l:34,r:36,t:18,b:18};
+	// --- Segmente bilden: bei großen Zeitlücken (Pausen zwischen Tracks) trennen, statt die Pause auszufüllen ---
+	const _ts=all.map(p=>p.time); const _d=[]; for(let i=1;i<_ts.length;i++)_d.push(_ts[i]-_ts[i-1]); _d.sort((a,b)=>a-b); const medGap=_d[Math.floor(_d.length/2)]||0;
+	const GAP=Math.max(20*60000, medGap*8);
+	const segs=[]; let _s=0; for(let i=1;i<all.length;i++){ if(all[i].time-all[i-1].time>GAP){ segs.push({a:_s,b:i-1}); _s=i; } } segs.push({a:_s,b:all.length-1});
+	segs.forEach(s=>{ s.t0=all[s.a].time; s.t1=all[s.b].time; s.dur=Math.max(1,s.t1-s.t0); });
+	const totalDur=segs.reduce((a,s)=>a+s.dur,0)||1; const cutPx=segs.length>1?12:0; const avail=(W-pad.l-pad.r)-cutPx*(segs.length-1);
+	let _cx=pad.l; segs.forEach(s=>{ s.x0=_cx; s.w=avail*(s.dur/totalDur); s.x1=s.x0+s.w; _cx=s.x1+cutPx; });
+	const Xi=(i)=>{ let s=segs[0]; for(const q of segs){ if(i>=q.a&&i<=q.b){s=q;break;} } return s.x0+s.w*((all[i].time-s.t0)/s.dur); };
 	const niceCeil=(v,step)=>Math.max(step,Math.ceil(v/step)*step);
 	const maxWind=niceCeil(Math.max(12,...all.map(p=>Math.max(p._wx.wind||0,p._wx.gust||0))),5), maxWave=niceCeil(Math.max(2,...all.map(p=>p._wx.wave||0)),0.5);
 	const Yw=(v)=>H-pad.b-(H-pad.t-pad.b)*(v/maxWind), Yv=(v)=>H-pad.b-(H-pad.t-pad.b)*(v/maxWave);
@@ -1078,9 +1085,16 @@ function renderChart(){
 	});
 	ctx.fillStyle='#2783de'; ctx.textAlign='right'; ctx.fillText('kn',pad.l-4,pad.t-5);
 	ctx.fillStyle='#16a085'; ctx.textAlign='left'; ctx.fillText('m',W-pad.r+4,pad.t-5);
-	ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.textAlign='center'; for(let i=0;i<=3;i++){ const tt=t0+(t1-t0)*i/3; ctx.fillText(new Date(tt).toLocaleString('de-DE',{day:'2-digit',hour:'2-digit'}),X(tt),H-5); }
-	const line=(getY,key,color,width)=>{ ctx.strokeStyle=color; ctx.lineWidth=width; ctx.beginPath(); let st=false; all.forEach(p=>{ const v=p._wx[key]; if(v==null)return; const x=X(p.time),y=getY(v); if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y); }); ctx.stroke(); };
-	ctx.fillStyle='rgba(39,131,222,0.10)'; ctx.beginPath(); let _af=false,_lastx=pad.l; all.forEach(p=>{ const v=p._wx.wind; if(v==null)return; const x=X(p.time),y=Yw(v); if(!_af){ctx.moveTo(x,H-pad.b);ctx.lineTo(x,y);_af=true;}else ctx.lineTo(x,y); _lastx=x; }); if(_af){ ctx.lineTo(_lastx,H-pad.b); ctx.closePath(); ctx.fill(); }
+	// --- vertikale Trennlinien an den Schnittstellen (Pausen) ---
+	ctx.strokeStyle='rgba(0,0,0,0.22)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+	for(let i=0;i<segs.length-1;i++){ const xm=(segs[i].x1+segs[i+1].x0)/2; ctx.beginPath(); ctx.moveTo(xm,pad.t); ctx.lineTo(xm,H-pad.b); ctx.stroke(); }
+	ctx.setLineDash([]);
+	// --- Zeitlabels: Start je Segment + Ende des letzten ---
+	const fmtT=(t)=>new Date(t).toLocaleString('de-DE',{day:'2-digit',hour:'2-digit'}); ctx.fillStyle='rgba(0,0,0,0.5)';
+	let _lastLabelX=-1e9; segs.forEach(s=>{ if(s.x0-_lastLabelX<34)return; ctx.textAlign='left'; ctx.fillText(fmtT(s.t0), s.x0, H-5); _lastLabelX=s.x0; });
+	const _ls=segs[segs.length-1]; ctx.textAlign='right'; ctx.fillText(fmtT(_ls.t1), _ls.x1, H-5);
+	const line=(getY,key,color,width)=>{ ctx.strokeStyle=color; ctx.lineWidth=width; segs.forEach(s=>{ ctx.beginPath(); let st=false; for(let i=s.a;i<=s.b;i++){ const v=all[i]._wx[key]; if(v==null){st=false;continue;} const x=Xi(i),y=getY(v); if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y); } ctx.stroke(); }); };
+	ctx.fillStyle='rgba(39,131,222,0.10)'; segs.forEach(s=>{ ctx.beginPath(); let af=false,lx=0; for(let i=s.a;i<=s.b;i++){ const v=all[i]._wx.wind; if(v==null)continue; const x=Xi(i),y=Yw(v); if(!af){ctx.moveTo(x,H-pad.b);ctx.lineTo(x,y);af=true;}else ctx.lineTo(x,y); lx=x; } if(af){ ctx.lineTo(lx,H-pad.b); ctx.closePath(); ctx.fill(); } });
 	line(Yw,'gust','#e56458',1.5); line(Yw,'wind','#2783de',2); line(Yv,'wave','#16a085',2);
 }
 function renderTrackList(){ const fmt=(d)=>d?d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):null; $('trackList').innerHTML=tracks.map(t=>{ const s=t.stats; const st=fmt(s.start),en=fmt(s.end); const dur=(s.start&&s.end)?((s.end-s.start)/3600000).toFixed(1)+' h':null; const timeLine = st? `<div class='sub'>🕒 ${st} → ${en||'?'}${dur?' · '+dur:''}</div>` : `<div class='sub'>ohne Zeitstempel</div>`; return `<div class='track-row'><span class='track-swatch' style='background:${t.color}'></span><div class='track-meta'><div class='nm'>${t.name}</div><div class='sub'>${s.distNm.toFixed(1)} sm · ${s.nPts} Pkt.</div>${timeLine}</div></div>`; }).join(''); $('tracksPanel').style.display=tracks.length?'block':'none'; }
