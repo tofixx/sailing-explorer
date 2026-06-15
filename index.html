@@ -1107,10 +1107,31 @@ function shareLink(){
 	}catch(e){ toast('Teilen fehlgeschlagen: '+e.message); }
 }
 async function loadFromHash(){
-	const h=location.hash||''; const m=h.match(/[#&]g=([^&]+)/); if(!m)return;
-	if(typeof pako==='undefined'){ toast('Geteilter Track kann nicht geladen werden (offline?)'); return; }
+	const h=location.hash||''; const m=h.match(/[#&]g=([^&]+)/); if(!m)return false;
+	if(typeof pako==='undefined'){ toast('Geteilter Track kann nicht geladen werden (offline?)'); return true; }
 	try{ showLoading('Lade geteilten Track…'); const raws=JSON.parse(pako.inflate(b64urlToU8(m[1]),{to:'string'})); const items=raws.map((text,i)=>({name:'Geteilter Track '+(i+1), text})); await ingest(items); }
 	catch(e){ hideLoading(); toast('Geteilter Track ungültig: '+e.message); }
+	return true;
+}
+// Vorselektion per ?track=Datei.gpx (auch mehrfach oder kommagetrennt). Ohne Pfad wird im Unterordner tracks/ gesucht.
+const TRACK_DIR='tracks/';
+async function loadFromQuery(){
+	const params=new URLSearchParams(location.search);
+	let names=[];
+	['track','tracks','t'].forEach(k=>params.getAll(k).forEach(v=>names.push(...v.split(','))));
+	names=names.map(s=>decodeURIComponent(s.trim())).filter(Boolean);
+	if(!names.length)return false;
+	showLoading('Lade Track‑Dateien…');
+	const items=[];
+	for(let n of names){
+		let path = /\//.test(n)? n : (TRACK_DIR+n);
+		if(!/\.gpx$/i.test(path)) path+='.gpx';
+		try{ const r=await fetch(path,{cache:'no-cache'}); if(!r.ok)throw new Error('HTTP '+r.status); const text=await r.text(); const nm=decodeURIComponent((path.split('/').pop()||'Track').replace(/\.gpx$/i,'')); items.push({name:nm,text}); }
+		catch(e){ toast('Konnte „'+path+'“ nicht laden: '+e.message,6000); }
+	}
+	if(!items.length){ hideLoading(); return true; }
+	await ingest(items);
+	return true;
 }
 function clearAll(){ tracks=[]; weather=null; trackLayerGroup.clearLayers(); windLayerGroup.clearLayers(); if(hoverMarker){hoverMarker.remove();hoverMarker=null;} $('statsPanel').style.display='none'; $('chartPanel').style.display='none'; $('tracksPanel').style.display='none'; $('empty').style.display='flex'; setConditions('–',null); setStatus('','Noch kein Track geladen.'); }
 function wire(){
@@ -1126,7 +1147,7 @@ function wire(){
 	document.body.addEventListener('drop',e=>{ e.preventDefault(); if(e.dataTransfer.files.length)addFiles(e.dataTransfer.files); });
 	window.addEventListener('resize',()=>{ if(map)map.invalidateSize(); if(tracks.length)renderChart(); });
 }
-initMap(); wire(); loadFromHash();
+initMap(); wire(); (async()=>{ const viaQuery=await loadFromQuery(); if(!viaQuery) await loadFromHash(); })();
 //]]>
 </script>
 </body>
