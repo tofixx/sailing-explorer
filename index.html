@@ -987,8 +987,9 @@ function updateLegend(range,m){ $('legendBar').style.background=gradientCss(); i
 
 /* ---------- Hover / conditions ---------- */
 function compassSvg(deg, color, kind){
-	// kind 'from' (wind, arrow points downwind) or 'to' (wave travel dir)
-	const rot = kind==='from' ? (deg+180)%360 : deg%360;
+	// Pfeilspitze zeigt im SVG nach oben. Sowohl Wind (lee) als auch Wellen (Laufrichtung)
+	// zeigen in Bewegungsrichtung = deg+180 – konsistent mit dem Kartenpfeil (waveArrowSvg).
+	const rot = (deg+180)%360; void kind;
 	return `<svg class='compass' width=34 height=34 viewBox='0 0 34 34'>`+
 		`<circle cx=17 cy=17 r=15 fill='none' stroke='rgba(0,0,0,.12)' stroke-width='1.5'/>`+
 		`<text x=17 y=7 font-size=6 text-anchor='middle' fill='rgba(0,0,0,.45)'>N</text>`+
