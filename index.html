@@ -825,7 +825,10 @@ function initMap(){
 	baseLayers['CARTO hell'] = L.tileLayer('https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', { maxZoom:20, crossOrigin:true, attribution:'© OpenStreetMap, © CARTO' });
 	baseLayers['OpenStreetMap'].addTo(map);
 	seamarkLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom:18, crossOrigin:true, attribution:'© OpenSeaMap' }).addTo(map);
-	L.control.layers(baseLayers, {'OpenSeaMap Seezeichen': seamarkLayer}, {position:'topright', collapsed:true}).addTo(map);
+	const emodnetDepth = L.tileLayer.wms('https://ows.emodnet-bathymetry.eu/wms', { layers:'emodnet:mean_multicolour', format:'image/png', transparent:true, opacity:0.6, maxZoom:18, attribution:'© EMODnet Bathymetry' });
+	const emodnetContours = L.tileLayer.wms('https://ows.emodnet-bathymetry.eu/wms', { layers:'emodnet:contours', format:'image/png', transparent:true, opacity:0.85, maxZoom:18, attribution:'© EMODnet Bathymetry' });
+	emodnetDepth.on('tileerror', ()=>{ const b=$('tileBadge'); b.innerHTML='⚠️ Tiefendaten (EMODnet) konnten nicht geladen werden. In eingebetteten Rahmen werden externe Dienste oft blockiert – bitte die Datei in einem eigenen Browser‑Tab öffnen.'; b.classList.add('show'); });
+	L.control.layers(baseLayers, {'🌊 Wassertiefe (EMODnet)': emodnetDepth, '➿ Tiefenlinien (EMODnet)': emodnetContours, 'OpenSeaMap Seezeichen': seamarkLayer}, {position:'topright', collapsed:true}).addTo(map);
 	L.control.scale({imperial:false, metric:true}).addTo(map);
 	trackLayerGroup = L.layerGroup().addTo(map);
 	windLayerGroup = L.layerGroup().addTo(map);
