@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPX Sail Explorer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
+<style>
+/*
+ * _base.css — Global design tokens, element defaults, page shell, and tiny utilities.
+ * ALWAYS included in every page.
+ *
+ * Provides:
+ *   :root variables (light + dark), box-sizing, html/body,
+ *   element defaults (button, input, select, textarea, label, fieldset, legend,
+ *   a, hr, img, h1-h4, p, ul/ol/li, blockquote, table/th/td, details/summary,
+ *   pre/code), main / .notion-shell, utility classes, .notion-footer,
+ *   reduced-motion and responsive breakpoints for base elements.
+ */
+
+:root {
+	color-scheme: light dark;
+	--notion-bg: #ffffff;
+	--notion-bg-soft: #f9f9f8;
+	--notion-surface: #ffffff;
+	--notion-surface-hover: #f6f5f4;
+	--notion-text: #191918;
+	--notion-text-soft: rgba(0, 0, 0, 0.54);
+	--notion-text-faint: rgba(0, 0, 0, 0.3);
+	--notion-border: rgba(0, 0, 0, 0.1);
+	--notion-border-soft: rgba(0, 0, 0, 0.05);
+	--notion-shadow:
+		0px 0.7px 1.462px rgba(0, 0, 0, 0.015), 0px 3px 9px rgba(0, 0, 0, 0.03);
+	--notion-blue: #2783de;
+	--notion-orange: #d5803b;
+	--notion-red: #e56458;
+	--notion-blue-bg: #f3f9fd;
+	--notion-yellow-bg: #fcfaef;
+	--notion-orange-bg: #fcf7f4;
+	--notion-green-bg: #f6f9f7;
+	--notion-red-bg: #fdf6f6;
+	--notion-gray-bg: #f9f8f7;
+	--notion-radius: 8px;
+	--notion-page-width: 900px;
+	--notion-chart-1: #5e9fe8;
+	--notion-chart-2: #eac26b;
+	--notion-chart-3: #72bc8f;
+	--notion-chart-4: #bf8eda;
+	--notion-chart-5: #de9255;
+	--notion-chart-6: #df84a8;
+	--notion-chart-7: #4fb9c9;
+	--notion-chart-8: #e97366;
+	--diff-add: #47c1b6;
+	--diff-del: #f07070;
+	--pr-approved: #2b8a3e;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--notion-bg: #000000;
+		--notion-bg-soft: #191918;
+		--notion-surface: #191918;
+		--notion-surface-hover: #31302e;
+		--notion-text: #ffffff;
+		--notion-text-soft: rgba(255, 255, 255, 0.5);
+		--notion-text-faint: rgba(255, 255, 255, 0.3);
+		--notion-border: rgba(255, 255, 255, 0.2);
+		--notion-border-soft: rgba(255, 255, 255, 0.1);
+		--notion-shadow:
+			0px 0.7px 1.462px rgba(0, 0, 0, 0.06), 0px 3px 9px rgba(0, 0, 0, 0.12);
+		--notion-blue: #5e9fe8;
+		--notion-orange: #de9255;
+		--notion-red: #e97366;
+		--notion-blue-bg: rgba(41, 139, 253, 0.061);
+		--notion-yellow-bg: rgba(203, 145, 47, 0.08);
+		--notion-orange-bg: rgba(246, 126, 35, 0.08);
+		--notion-green-bg: rgba(42, 157, 118, 0.08);
+		--notion-red-bg: rgba(246, 73, 50, 0.08);
+		--notion-gray-bg: #31302e;
+		--diff-add: #5dd8cb;
+		--diff-del: #ff8a80;
+		--pr-approved: #69db7c;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+html {
+	scroll-behavior: smooth;
+}
+body {
+	margin: 0;
+	background: var(--notion-bg);
+	color: var(--notion-text);
+	font-family:
+		ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+		"Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+	font-size: 16px;
+	line-height: 1.5;
+	transition:
+		background 180ms ease,
+		color 180ms ease;
+}
+
+/* -- Base element defaults -------------------------------- */
+button,
+[type="button"],
+[type="submit"],
+[type="reset"] {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 8px 16px;
+	font: inherit;
+	font-size: 14px;
+	font-weight: 500;
+	line-height: 1.2;
+	color: #ffffff;
+	background: var(--notion-blue);
+	border: 1px solid transparent;
+	border-radius: 8px;
+	cursor: pointer;
+	transition: background 150ms;
+	white-space: nowrap;
+}
+button:hover,
+[type="button"]:hover,
+[type="submit"]:hover,
+[type="reset"]:hover {
+	background: color-mix(in srgb, var(--notion-blue) 82%, black);
+}
+button:focus-visible,
+[type="button"]:focus-visible,
+[type="submit"]:focus-visible,
+[type="reset"]:focus-visible {
+	outline: 2px solid var(--notion-blue);
+	outline-offset: 2px;
+}
+
+input,
+select,
+textarea {
+	font: inherit;
+	font-size: 14px;
+	line-height: 1.4;
+	color: var(--notion-text);
+	background: var(--notion-surface);
+	border: 1px solid var(--notion-border);
+	border-radius: 8px;
+	padding: 8px 12px;
+	transition: border-color 150ms;
+}
+input:focus,
+select:focus,
+textarea:focus {
+	outline: none;
+	border-color: var(--notion-blue);
+	box-shadow: 0 0 0 2px rgba(9, 127, 232, 0.15);
+}
+input::placeholder,
+textarea::placeholder {
+	color: var(--notion-text-faint);
+}
+select {
+	appearance: none;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 10px center;
+	padding-right: 30px;
+}
+textarea {
+	resize: vertical;
+	min-height: 80px;
+}
+input[type="range"] {
+	border: none;
+	padding: 0;
+	background: transparent;
+	accent-color: var(--notion-blue);
+	height: 18px;
+	cursor: pointer;
+	box-shadow: none;
+}
+input[type="range"]:focus {
+	box-shadow: none;
+}
+input[type="checkbox"],
+input[type="radio"] {
+	width: 16px;
+	height: 16px;
+	accent-color: var(--notion-blue);
+	border: 1px solid var(--notion-border);
+	padding: 0;
+	cursor: pointer;
+}
+label {
+	display: block;
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--notion-text);
+	margin-bottom: 6px;
+}
+fieldset {
+	border: 1px solid var(--notion-border-soft);
+	border-radius: 10px;
+	padding: 16px;
+	margin: 0;
+}
+legend {
+	font-weight: 600;
+	padding: 0 4px;
+}
+
+a {
+	color: var(--notion-text);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	text-decoration-color: var(--notion-border);
+}
+a:hover {
+	text-decoration-color: var(--notion-text);
+}
+
+hr {
+	height: 1px;
+	margin: 34px 0;
+	border: none;
+	background: var(--notion-border-soft);
+}
+
+img {
+	max-width: 100%;
+	height: auto;
+	border-radius: 8px;
+}
+
+h1,
+h2,
+h3,
+h4 {
+	text-wrap: balance;
+}
+h1 {
+	margin: 0 0 14px;
+	font-size: clamp(42px, 7vw, 72px);
+	line-height: 1.1;
+	letter-spacing: -0.035em;
+	font-weight: 700;
+}
+h2 {
+	margin: 44px 0 10px;
+	font-size: 32px;
+	line-height: 1.25;
+	letter-spacing: -0.025em;
+}
+h3 {
+	margin: 0 0 6px;
+	font-size: 18px;
+	line-height: 1.556;
+	letter-spacing: -0.007em;
+}
+p {
+	margin: 0 0 10px;
+}
+
+ul,
+ol {
+	margin: 8px 0 16px;
+	padding-left: 24px;
+}
+li {
+	margin-bottom: 4px;
+}
+li::marker {
+	color: var(--notion-text-faint);
+}
+
+blockquote {
+	border-left: 3px solid var(--notion-text);
+	padding: 4px 0 4px 16px;
+	margin: 24px 0;
+}
+blockquote p {
+	font-size: 18px;
+	line-height: 1.5;
+	margin: 0;
+}
+
+table {
+	width: 100%;
+	margin: 14px 0;
+	border-collapse: separate;
+	border-spacing: 0;
+	border: 1px solid var(--notion-border-soft);
+	border-radius: 10px;
+	overflow: hidden;
+	background: var(--notion-surface);
+	font-size: 14px;
+}
+th,
+td {
+	padding: 12px 14px;
+	vertical-align: top;
+	text-align: left;
+	border-right: 1px solid var(--notion-border-soft);
+	border-bottom: 1px solid var(--notion-border-soft);
+}
+th:last-child,
+td:last-child {
+	border-right: 0;
+}
+tr:last-child td {
+	border-bottom: 0;
+}
+th {
+	background: var(--notion-bg-soft);
+	color: var(--notion-text-soft);
+	font-weight: 600;
+}
+
+details {
+	margin: 16px 0;
+	border-radius: var(--notion-radius);
+}
+summary {
+	padding: 8px 10px;
+	border-radius: var(--notion-radius);
+	cursor: pointer;
+	font-weight: 600;
+}
+summary:hover {
+	background: var(--notion-surface-hover);
+}
+details p {
+	margin: 8px 10px 0 28px;
+	color: var(--notion-text-soft);
+}
+
+pre,
+code {
+	font-family: ui-monospace, "iA Writer Mono", Nitti, Menlo, Courier, monospace;
+}
+pre {
+	margin: 16px 0;
+	padding: 14px 16px;
+	overflow-x: auto;
+	border: 1px solid var(--notion-border-soft);
+	border-radius: 10px;
+	background: var(--notion-gray-bg);
+	font-size: 13px;
+	line-height: 1.55;
+}
+code {
+	font-size: 0.9em;
+	padding: 2px 5px;
+	border-radius: 4px;
+	background: var(--notion-gray-bg);
+}
+pre code {
+	font-size: inherit;
+	padding: 0;
+	border-radius: 0;
+	background: none;
+}
+
+main {
+	max-width: var(--notion-page-width);
+	margin: 0 auto;
+	padding: 76px 24px 88px;
+}
+
+section {
+	margin-top: 44px;
+}
+section:first-child {
+	margin-top: 0;
+}
+
+/* -- Page shell ------------------------------------------- */
+.notion-shell {
+	max-width: var(--notion-page-width);
+	margin: 0 auto;
+	padding: 76px 24px 88px;
+}
+
+/* -- Tiny utilities --------------------------------------- */
+.notion-lede {
+	max-width: 720px;
+	margin: 0 0 24px;
+	color: var(--notion-text-soft);
+	font-size: 20px;
+}
+.notion-muted {
+	color: var(--notion-text-soft);
+}
+.notion-faint {
+	color: var(--notion-text-faint);
+}
+.notion-divider {
+	height: 1px;
+	margin: 34px 0;
+	background: var(--notion-border-soft);
+}
+.notion-eyebrow {
+	display: inline-block;
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.0078125rem;
+	text-transform: uppercase;
+	color: var(--notion-blue);
+}
+
+/* -- Footer ----------------------------------------------- */
+.notion-footer {
+	margin-top: 52px;
+	padding-top: 18px;
+	border-top: 1px solid var(--notion-border-soft);
+	color: var(--notion-text-faint);
+	font-size: 13px;
+}
+
+/* -- Accessibility & motion ------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}
+
+/* -- Responsive: 560px (base elements) -------------------- */
+@media (max-width: 560px) {
+	main,
+	.notion-shell {
+		padding-inline: 16px;
+	}
+	table {
+		display: block;
+		overflow-x: auto;
+	}
+}
+/* ===== GPX Sail Explorer — app styles ===== */
+html, body { height: 100%; }
+body { overflow: hidden; }
+
+.app {
+	display: flex;
+	flex-direction: column;
+	height: 100vh;
+}
+
+/* Top bar */
+.topbar {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	padding: 10px 18px;
+	border-bottom: 1px solid var(--notion-border);
+	background: var(--notion-surface);
+	z-index: 1200;
+	flex-wrap: wrap;
+}
+.topbar .brand {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	font-weight: 700;
+	font-size: 16px;
+	letter-spacing: -0.01em;
+}
+.topbar .brand .logo { font-size: 22px; }
+.topbar .spacer { flex: 1; }
+.topbar .hint { color: var(--notion-text-soft); font-size: 13px; }
+
+.file-btn {
+	position: relative;
+	overflow: hidden;
+}
+.file-btn input[type=file] {
+	position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 0;
+}
+
+/* Layout */
+.body {
+	flex: 1;
+	display: flex;
+	min-height: 0;
+}
+#map {
+	flex: 1;
+	min-width: 0;
+	height: 100%;
+	background: #aadaff;
+}
+.sidebar {
+	width: 380px;
+	max-width: 42vw;
+	border-left: 1px solid var(--notion-border);
+	background: var(--notion-bg-soft);
+	overflow-y: auto;
+	padding: 16px 16px 40px;
+}
+
+.panel {
+	background: var(--notion-surface);
+	border: 1px solid var(--notion-border-soft);
+	border-radius: 12px;
+	padding: 14px;
+	margin-bottom: 14px;
+	box-shadow: var(--notion-shadow);
+}
+.panel h3 {
+	display: flex; align-items: center; gap: 8px;
+	font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;
+	color: var(--notion-text-soft); margin: 0 0 12px;
+}
+
+/* Segmented control for metric */
+.segmented {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 6px;
+}
+.segmented label {
+	margin: 0;
+	display: flex; align-items: center; justify-content: center; gap: 6px;
+	padding: 9px 8px;
+	border: 1px solid var(--notion-border);
+	border-radius: 8px;
+	font-size: 13px; font-weight: 600;
+	color: var(--notion-text-soft);
+	cursor: pointer;
+	text-align: center;
+	transition: all 120ms;
+	user-select: none;
+}
+.segmented input { display: none; }
+.segmented label:hover { background: var(--notion-surface-hover); }
+.segmented input:checked + label,
+.segmented label.active {
+	border-color: var(--notion-blue);
+	color: var(--notion-blue);
+	background: var(--notion-blue-bg);
+}
+
+/* Legend / color bar */
+.legend-bar {
+	height: 12px; border-radius: 6px; margin: 4px 0 6px;
+	border: 1px solid var(--notion-border-soft);
+}
+.legend-scale {
+	display: flex; justify-content: space-between;
+	font-size: 12px; color: var(--notion-text-soft);
+}
+.legend-unit { font-size: 12px; color: var(--notion-text-faint); margin-top: 2px; }
+
+/* Stat grid */
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stat {
+	background: var(--notion-bg-soft);
+	border: 1px solid var(--notion-border-soft);
+	border-radius: 10px;
+	padding: 10px 12px;
+}
+.stat .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--notion-text-faint); }
+.stat .val { font-size: 20px; font-weight: 700; line-height: 1.2; margin-top: 2px; }
+.stat .val small { font-size: 12px; font-weight: 500; color: var(--notion-text-soft); }
+
+/* Track list */
+.track-row {
+	display: flex; align-items: center; gap: 10px;
+	padding: 8px 6px; border-radius: 8px;
+}
+.track-row:hover { background: var(--notion-surface-hover); }
+.track-swatch { width: 14px; height: 14px; border-radius: 4px; flex: none; }
+.track-meta { flex: 1; min-width: 0; }
+.track-meta .nm { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-meta .sub { font-size: 11px; color: var(--notion-text-soft); }
+
+/* Chart */
+.chart-wrap { position: relative; }
+canvas.chart { width: 100%; height: 150px; display: block; }
+.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--notion-text-soft); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.chart-legend i { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+
+/* Empty / loading states */
+.empty {
+	position: absolute; inset: 0; z-index: 500;
+	display: flex; flex-direction: column; align-items: center; justify-content: center;
+	text-align: center; gap: 14px; padding: 24px;
+	background: linear-gradient(180deg, #cfeaff, #aadaff);
+	color: #0b3a5b;
+	pointer-events: none;
+}
+.empty .big { font-size: 54px; }
+.empty h2 { font-size: 26px; margin: 0; color: #0b3a5b; letter-spacing: -0.02em; }
+.empty p { max-width: 420px; margin: 0; color: #195b82; }
+.empty .drop-cta {
+	pointer-events: auto;
+	margin-top: 6px; background: var(--notion-blue); color:#fff; border-radius: 10px;
+	padding: 12px 22px; font-weight: 600; position: relative; overflow: hidden; cursor: pointer;
+	box-shadow: 0 6px 18px rgba(39,131,222,.35);
+}
+.empty .drop-cta input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+
+.toast {
+	position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+	background: #191918; color: #fff; padding: 10px 18px; border-radius: 10px;
+	font-size: 13px; z-index: 3000; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+	opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 80vw;
+}
+.toast.show { opacity: 1; }
+
+.loading-ov {
+	position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+	z-index: 900; background: var(--notion-surface); border: 1px solid var(--notion-border);
+	border-radius: 999px; padding: 8px 16px; font-size: 13px; font-weight: 600;
+	box-shadow: var(--notion-shadow); display: none; align-items: center; gap: 10px;
+}
+.loading-ov.show { display: inline-flex; }
+.spinner {
+	width: 14px; height: 14px; border-radius: 50%;
+	border: 2px solid var(--notion-border); border-top-color: var(--notion-blue);
+	animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
+.switch-row label { margin: 0; font-weight: 500; font-size: 13px; }
+
+.point-tip { font-size: 12px; line-height: 1.5; }
+.point-tip b { color: var(--notion-text); }
+
+.src-note { font-size: 11px; color: var(--notion-text-faint); margin-top: 8px; line-height: 1.5; }
+.src-note a { color: var(--notion-text-soft); }
+
+@media (max-width: 760px) {
+	.body { flex-direction: column; }
+	.sidebar { width: 100%; max-width: none; max-height: 48vh; border-left: none; border-top: 1px solid var(--notion-border); }
+	#map { min-height: 240px; }
+}
+
+/* ===== v2 additions ===== */
+.cond-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cond {
+	background: var(--notion-bg-soft);
+	border: 1px solid var(--notion-border-soft);
+	border-radius: 10px; padding: 12px;
+	display: flex; flex-direction: column; gap: 6px;
+}
+.cond .cond-head { font-size: 12px; font-weight: 600; color: var(--notion-text-soft); display:flex; align-items:center; gap:6px; }
+.cond .cond-main { font-size: 22px; font-weight: 700; line-height: 1.1; }
+.cond .cond-main small { font-size: 12px; font-weight: 600; color: var(--notion-text-soft); }
+.cond .cond-sub { font-size: 12px; color: var(--notion-text-soft); }
+.cond .cond-dir { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.cond .compass { flex: none; }
+.cond .dir-txt { font-size: 13px; font-weight: 600; }
+.cond .dir-txt small { font-weight: 500; color: var(--notion-text-soft); }
+.bft { font-size: 11px; font-weight: 600; color:#fff; background: var(--notion-blue); border-radius: 999px; padding: 1px 8px; vertical-align: middle; }
+
+#condCtx { font-size: 11px; font-weight: 500; color: var(--notion-text-faint); text-transform: none; letter-spacing: 0; }
+
+.status-line { font-size: 12px; color: var(--notion-text-soft); display:flex; align-items:flex-start; gap:6px; margin-top:4px; line-height:1.45; }
+.status-line .dot { width:8px; height:8px; border-radius:50%; margin-top:5px; flex:none; background: var(--notion-text-faint); }
+.status-line.ok .dot { background:#2b8a3e; }
+.status-line.warn .dot { background:#d5803b; }
+.status-line.err .dot { background:#c0392b; }
+
+.tile-badge {
+	position:absolute; bottom:12px; left:12px; z-index:900;
+	background:#fff3cd; color:#7a5b00; border:1px solid #ffe08a;
+	border-radius:8px; padding:8px 12px; font-size:12px; max-width:320px;
+	box-shadow: var(--notion-shadow); display:none;
+}
+.tile-badge.show { display:block; }
+
+.leaflet-tooltip.sail-tip { font-size:12px; line-height:1.5; }
+
+/* Leaflet layer control + popups: force readable colors regardless of theme */
+.leaflet-control-layers{background:#fff !important;color:#1b1b1b !important;border:1px solid rgba(0,0,0,.18) !important;border-radius:8px !important;box-shadow:0 2px 8px rgba(0,0,0,.18) !important;padding:6px 8px !important;}
+.leaflet-control-layers-expanded{padding:8px 10px !important;}
+.leaflet-control-layers label,.leaflet-control-layers span,.leaflet-control-layers a{color:#1b1b1b !important;font-size:13px !important;line-height:1.5 !important;}
+.leaflet-control-layers-list{color:#1b1b1b !important;}
+.leaflet-control-layers-separator{border-top:1px solid rgba(0,0,0,.15) !important;}
+.leaflet-control-layers-toggle{background-color:#fff !important;}
+.leaflet-bar a,.leaflet-bar a:hover{color:#1b1b1b !important;background:#fff !important;}
+.leaflet-control-attribution{background:rgba(255,255,255,.8) !important;color:#333 !important;}
+.leaflet-control-attribution a{color:#2783de !important;}
+.leaflet-control-scale-line{color:#222 !important;background:rgba(255,255,255,.7) !important;border-color:#999 !important;}
+.hover-tip{font-size:12px;line-height:1.45;color:#1b1b1b;background:#fff;border:1px solid rgba(0,0,0,.15);border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.2);padding:6px 9px;}
+.hover-tip b{color:#111;}
+.leaflet-tooltip.hover-tip:before{border-top-color:#fff;}
+</style>
+</head>
+<body>
+<div class="app">
+	<div class="topbar">
+		<div class="brand"><span class="logo">⛵</span> GPX Sail Explorer</div>
+		<span class="hint">OpenSeaMap · Wind &amp; Wellen (Open‑Meteo)</span>
+		<div class="spacer"></div>
+		<button class="file-btn" id="addBtn">+ GPX laden
+			<input type="file" id="fileInput" accept=".gpx,application/gpx+xml,text/xml" multiple>
+		</button>
+		<button id="shareBtn" style="background:var(--notion-blue);color:#fff">🔗 Teilen</button>
+		<button id="clearBtn" style="background:var(--notion-gray-bg);color:var(--notion-text);border:1px solid var(--notion-border)">Leeren</button>
+	</div>
+
+	<div class="body">
+		<div style="position:relative;flex:1;min-width:0;">
+			<div id="map"></div>
+			<div class="loading-ov" id="loading"><span class="spinner"></span><span id="loadingText">Lade…</span></div>
+			<div class="tile-badge" id="tileBadge"></div>
+			<div class="empty" id="empty">
+				<div class="big">🗺️⛵</div>
+				<h2>GPX‑Track laden</h2>
+				<p>Zieh eine oder mehrere <b>.gpx</b>‑Dateien hierher oder wähle sie aus. Der Track erscheint auf der OpenSeaMap und wird mit Wind‑ und Wellendaten für den Reisezeitraum angereichert.</p>
+				<div class="drop-cta">Dateien auswählen<input type="file" id="fileInput2" accept=".gpx,application/gpx+xml,text/xml" multiple></div>
+			</div>
+		</div>
+
+		<aside class="sidebar">
+			<div class="panel">
+				<h3>🧭 Bedingungen <span id="condCtx">–</span></h3>
+				<div class="cond-grid">
+					<div class="cond">
+						<div class="cond-head">🌬️ Wind</div>
+						<div class="cond-main"><span id="windVal">–</span> <small>kn</small> <span class="bft" id="windBft">–</span></div>
+						<div class="cond-sub" id="windGust">Böen –</div>
+						<div class="cond-dir"><span id="windCompass"></span><span class="dir-txt" id="windDir">–</span></div>
+					</div>
+					<div class="cond">
+						<div class="cond-head">🌊 Wellen</div>
+						<div class="cond-main"><span id="waveVal">–</span> <small>m</small></div>
+						<div class="cond-sub" id="wavePer">Periode –</div>
+						<div class="cond-dir"><span id="waveCompass"></span><span class="dir-txt" id="waveDir">–</span></div>
+					</div>
+				</div>
+				<div class="status-line" id="wxStatus"><span class="dot"></span><span id="wxStatusText">Noch kein Track geladen.</span></div>
+			</div>
+
+			<div class="panel">
+				<h3>🎨 Einfärbung des Tracks</h3>
+				<div class="segmented" id="metricSel">
+					<input type="radio" name="metric" id="m_speed" value="speed" checked><label for="m_speed">💨 Speed</label>
+					<input type="radio" name="metric" id="m_wind" value="wind"><label for="m_wind">🌬️ Wind</label>
+					<input type="radio" name="metric" id="m_gust" value="gust"><label for="m_gust">💥 Böen</label>
+					<input type="radio" name="metric" id="m_wave" value="wave"><label for="m_wave">🌊 Wellen</label>
+				</div>
+				<div style="margin-top:12px">
+					<div class="legend-bar" id="legendBar"></div>
+					<div class="legend-scale"><span id="legMin">–</span><span id="legMid"></span><span id="legMax">–</span></div>
+					<div class="legend-unit" id="legUnit"></div>
+				</div>
+				<div class="switch-row">
+					<label for="seamarkTgl">Seezeichen (OpenSeaMap)</label>
+					<input type="checkbox" id="seamarkTgl" checked>
+				</div>
+				<div class="switch-row">
+					<label for="windArrTgl">Wind‑Pfeile entlang Track</label>
+					<input type="checkbox" id="windArrTgl" checked>
+				</div>
+				<div class="switch-row">
+					<label for="waveArrTgl">Wellen‑Pfeile entlang Track</label>
+					<input type="checkbox" id="waveArrTgl" checked>
+				</div>
+			</div>
+
+			<div class="panel" id="statsPanel" style="display:none">
+				<h3>📊 Reiseübersicht</h3>
+				<div class="stats" id="stats"></div>
+			</div>
+
+			<div class="panel" id="chartPanel" style="display:none">
+				<h3>🌡️ Wetterverlauf</h3>
+				<div class="chart-wrap"><canvas class="chart" id="chart"></canvas></div>
+				<div class="chart-legend">
+					<span><i style="background:#2783de"></i> Wind (kn)</span>
+					<span><i style="background:#e56458"></i> Böen (kn)</span>
+					<span><i style="background:#16a085"></i> Wellen (m)</span>
+				</div>
+			</div>
+
+			<div class="panel" id="tracksPanel" style="display:none">
+				<h3>🗂️ Geladene Tracks</h3>
+				<div id="trackList"></div>
+				<div class="src-note">Wetter: Wind (10 m) aus Open‑Meteo, Wellen aus dem Open‑Meteo Marine‑Modell – stündlich, für Zeitraum &amp; Bereich des Tracks. Speed wird aus den GPX‑Zeitstempeln berechnet.</div>
+			</div>
+		</aside>
+	</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+//<![CDATA[
+const KN = 1.94384;
+const $ = (id) => document.getElementById(id);
+let map, baseLayers={}, seamarkLayer, trackLayerGroup, windLayerGroup, waveLayerGroup, hoverMarker;
+let tracks = [];
+let weather = null;
+let currentMetric = 'speed';
+let tileErrors = 0;
+
+const PALETTE = ['#3b6fb5','#3aa0c4','#46c4a8','#7ed957','#f2d544','#f0a93b','#e8682f','#d62f2f'];
+const COMPASS = ['N','NNO','NO','ONO','O','OSO','SO','SSO','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+const COLORS=['#2783de','#d5803b','#7b5ea7','#2b8a3e','#c0392b'];
+
+function toast(msg, ms=3600){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'), ms); }
+function showLoading(txt){ $('loadingText').textContent = txt||'Lade…'; $('loading').classList.add('show'); }
+function hideLoading(){ $('loading').classList.remove('show'); }
+function setStatus(cls, txt){ const el=$('wxStatus'); el.className='status-line '+cls; $('wxStatusText').innerHTML=txt; }
+
+/* ---------- Map ---------- */
+function initMap(){
+	if(typeof L==='undefined'){ document.getElementById('map').innerHTML='<div style="padding:24px;color:#c0392b">Leaflet konnte nicht geladen werden (keine Internetverbindung?). Bitte die Datei in einem normalen Browser‑Tab mit Internetzugang öffnen.</div>'; return; }
+	map = L.map('map', { zoomControl:true, preferCanvas:true }).setView([54.4, 12.7], 9);
+	baseLayers['OpenStreetMap'] = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:18, crossOrigin:true, attribution:'© OpenStreetMap' });
+	baseLayers['OSM (DE)'] = L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', { maxZoom:18, crossOrigin:true, attribution:'© OpenStreetMap DE' });
+	baseLayers['CARTO hell'] = L.tileLayer('https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', { maxZoom:20, crossOrigin:true, attribution:'© OpenStreetMap, © CARTO' });
+	baseLayers['OpenStreetMap'].addTo(map);
+	seamarkLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom:18, crossOrigin:true, attribution:'© OpenSeaMap' }).addTo(map);
+	L.control.layers(baseLayers, {'OpenSeaMap Seezeichen': seamarkLayer}, {position:'topright', collapsed:true}).addTo(map);
+	L.control.scale({imperial:false, metric:true}).addTo(map);
+	trackLayerGroup = L.layerGroup().addTo(map);
+	windLayerGroup = L.layerGroup().addTo(map);
+	waveLayerGroup = L.layerGroup().addTo(map);
+	// detect tile loading failures
+	Object.values(baseLayers).forEach(l=> l.on('tileerror', onTileError));
+	baseLayers['OpenStreetMap'].on('load', ()=>{ tileErrors=0; $('tileBadge').classList.remove('show'); });
+	map.on('mousemove', onMapMove);
+	map.on('mouseout', ()=>{ if(tracks.length) showAggregateConditions(); });
+	setTimeout(()=>map && map.invalidateSize(), 250);
+	setTimeout(()=>map && map.invalidateSize(), 1200);
+}
+function onTileError(){ tileErrors++; if(tileErrors>3){ const b=$('tileBadge'); b.innerHTML='⚠️ Kartenkacheln konnten nicht geladen werden. In einem eingebetteten Rahmen (z. B. Notion) werden externe Karten oft blockiert – bitte die Datei in einem eigenen Browser‑Tab öffnen, oder im Ebenen‑Menü (oben rechts) eine andere Kartenquelle wählen.'; b.classList.add('show'); } }
+
+/* ---------- GPX ---------- */
+function parseGpx(text, fallbackName){
+	const xml = new DOMParser().parseFromString(text, 'application/xml');
+	if (xml.querySelector('parsererror')) throw new Error('Ungültige GPX/XML-Datei');
+	let name = (xml.querySelector('trk > name, metadata > name, rte > name')||{}).textContent || fallbackName;
+	const pts = [];
+	let nodes = xml.querySelectorAll('trkpt');
+	if (!nodes.length) nodes = xml.querySelectorAll('rtept');
+	if (!nodes.length) nodes = xml.querySelectorAll('wpt');
+	nodes.forEach(n => {
+		const lat = parseFloat(n.getAttribute('lat'));
+		const lon = parseFloat(n.getAttribute('lon'));
+		if (isNaN(lat)||isNaN(lon)) return;
+		const te = n.querySelector('time');
+		const ee = n.querySelector('ele');
+		pts.push({ lat, lon, time: te?new Date(te.textContent):null, ele: ee?parseFloat(ee.textContent):null });
+	});
+	if (pts.length < 2) throw new Error('Zu wenige Trackpunkte');
+	return { name:(name||'Track').trim(), points:pts };
+}
+function haversine(a,b,c,d){ const R=6371000,t=Math.PI/180; const dLa=(c-a)*t,dLo=(d-b)*t; const x=Math.sin(dLa/2)**2+Math.cos(a*t)*Math.cos(c*t)*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.sqrt(x)); }
+function computeTrackStats(pts){
+	let dist=0,maxSp=0,sumSp=0,nSp=0,movingS=0;
+	for(let i=1;i<pts.length;i++){
+		const d=haversine(pts[i-1].lat,pts[i-1].lon,pts[i].lat,pts[i].lon); dist+=d;
+		let sp=null;
+		if(pts[i].time&&pts[i-1].time){ const dt=(pts[i].time-pts[i-1].time)/1000; if(dt>0&&dt<3600){ sp=(d/dt)*KN; if(d>1)movingS+=dt; } }
+		pts[i].speed=sp;
+		if(sp!=null&&isFinite(sp)&&sp<60){ maxSp=Math.max(maxSp,sp); sumSp+=sp; nSp++; }
+	}
+	pts[0].speed=pts[1]?pts[1].speed:0;
+	const times=pts.filter(p=>p.time).map(p=>p.time);
+	return { distNm:dist/1852, maxSpeed:maxSp, avgSpeed:nSp?sumSp/nSp:0, start:times[0]||null, end:times[times.length-1]||null, movingH:movingS/3600, nPts:pts.length, hasTime:times.length>0 };
+}
+
+/* ---------- Weather ---------- */
+function fmtDate(d){ return d.toISOString().slice(0,10); }
+function allBounds(){
+	let la1=90,la2=-90,lo1=180,lo2=-180,tMin=null,tMax=null;
+	tracks.forEach(t=>t.points.forEach(p=>{ la1=Math.min(la1,p.lat);la2=Math.max(la2,p.lat);lo1=Math.min(lo1,p.lon);lo2=Math.max(lo2,p.lon); if(p.time){ if(!tMin||p.time<tMin)tMin=p.time; if(!tMax||p.time>tMax)tMax=p.time; } }));
+	return {la1,la2,lo1,lo2,tMin,tMax};
+}
+function pickSamples(n){
+	const all=[]; tracks.forEach(t=>t.points.forEach(p=>all.push(p)));
+	const step=Math.max(1,Math.floor(all.length/n));
+	const out=[],seen=new Set();
+	for(let i=0;i<all.length;i+=step){ const la=Math.round(all[i].lat*4)/4,lo=Math.round(all[i].lon*4)/4; const k=la+','+lo; if(seen.has(k))continue; seen.add(k); out.push({lat:la,lon:lo}); }
+	if(!out.length) out.push({lat:Math.round(all[0].lat*4)/4,lon:Math.round(all[0].lon*4)/4});
+	return out;
+}
+async function fetchJson(url){ const r=await fetch(url); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+function hasValues(arr){ return Array.isArray(arr)&&arr.some(v=>v!=null); }
+async function fetchWindFor(lat,lon,sd,ed){
+	const h='wind_speed_10m,wind_direction_10m,wind_gusts_10m';
+	const qs=`?latitude=${lat}&longitude=${lon}&hourly=${h}&wind_speed_unit=kn&timezone=UTC&start_date=${sd}&end_date=${ed}`;
+	try{ const j=await fetchJson('https://api.open-meteo.com/v1/forecast'+qs); if(j.hourly&&hasValues(j.hourly.wind_speed_10m)) return j; }catch(e){}
+	try{ const j=await fetchJson('https://archive-api.open-meteo.com/v1/archive'+qs); if(j.hourly&&hasValues(j.hourly.wind_speed_10m)) return j; }catch(e){}
+	return null;
+}
+async function fetchWaveFor(lat,lon,sd,ed){
+	const h='wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height';
+	const qs=`?latitude=${lat}&longitude=${lon}&hourly=${h}&timezone=UTC&start_date=${sd}&end_date=${ed}`;
+	try{ const j=await fetchJson('https://marine-api.open-meteo.com/v1/marine'+qs); if(j.hourly&&hasValues(j.hourly.wave_height)) return j; }catch(e){}
+	return null;
+}
+async function loadWeather(){
+	const b=allBounds();
+	if(!b.tMin||!b.tMax){ weather=null; setStatus('warn','GPX ohne Zeitstempel – Wind/Wellen können nicht zugeordnet werden. Speed‑Einfärbung funktioniert.'); return; }
+	const sd=fmtDate(new Date(b.tMin.getTime()-3600e3));
+	const ed=fmtDate(new Date(b.tMax.getTime()+3600e3));
+	const samples=pickSamples(7);
+	showLoading(`Lade Wetter (${samples.length} Punkte)…`);
+	const out=[]; let windOk=0, waveOk=0, netErr=false;
+	for(const s of samples){
+		let w=null,m=null;
+		try{ [w,m]=await Promise.all([fetchWindFor(s.lat,s.lon,sd,ed), fetchWaveFor(s.lat,s.lon,sd,ed)]); }catch(e){ netErr=true; }
+		const rec={lat:s.lat,lon:s.lon,times:[],wind:[],dir:[],gust:[],wave:[],wdir:[],wper:[]};
+		if(w&&w.hourly){ rec.times=w.hourly.time.map(t=>Date.parse(t+'Z')); rec.wind=w.hourly.wind_speed_10m||[]; rec.dir=w.hourly.wind_direction_10m||[]; rec.gust=w.hourly.wind_gusts_10m||[]; windOk++; }
+		if(m&&m.hourly){ const mt=m.hourly.time.map(t=>Date.parse(t+'Z')); if(!rec.times.length)rec.times=mt; rec.wave=m.hourly.wave_height||[]; rec.wdir=m.hourly.wave_direction||[]; rec.wper=m.hourly.wave_period||[]; waveOk++; }
+		if(rec.times.length) out.push(rec);
+	}
+	weather = out.length? {samples:out} : null;
+	const range=`${b.tMin.toLocaleDateString('de-DE')}–${b.tMax.toLocaleDateString('de-DE')}`;
+	if(weather && (windOk||waveOk)){
+		let parts=[]; if(windOk)parts.push('Wind ✓'); else parts.push('Wind ✗'); if(waveOk)parts.push('Wellen ✓'); else parts.push('Wellen ✗ (offene See nötig)');
+		setStatus('ok', `Wetterdaten geladen für ${range} · ${parts.join(' · ')}`);
+	} else if(netErr){
+		setStatus('err', 'Wetter‑Server nicht erreichbar. Externe Datenzugriffe werden in eingebetteten Rahmen (z. B. Notion) oft blockiert – bitte die Datei in einem eigenen Browser‑Tab öffnen.');
+	} else {
+		setStatus('warn', `Keine Wetterdaten für ${range} verfügbar. Open‑Meteo liefert Verlaufsdaten nur bis zum heutigen Datum – für in der Zukunft liegende Tracks gibt es noch keine Messwerte.`);
+	}
+}
+function nearestSample(lat,lon){ let best=null,bd=Infinity; for(const s of weather.samples){ const d=haversine(lat,lon,s.lat,s.lon); if(d<bd){bd=d;best=s;} } return best; }
+function nearestTimeIdx(s,tms){ let lo=0,hi=s.times.length-1; if(tms<=s.times[0])return 0; if(tms>=s.times[hi])return hi; while(lo<hi){ const mid=(lo+hi)>>1; if(s.times[mid]<tms)lo=mid+1; else hi=mid; } return (lo>0&&Math.abs(s.times[lo-1]-tms)<Math.abs(s.times[lo]-tms))?lo-1:lo; }
+function weatherAt(lat,lon,time){ if(!weather||!time)return null; const s=nearestSample(lat,lon); if(!s)return null; const i=nearestTimeIdx(s,time.getTime()); const g=(a)=>a&&a[i]!=null?a[i]:null; return {wind:g(s.wind),dir:g(s.dir),gust:g(s.gust),wave:g(s.wave),wdir:g(s.wdir),wper:g(s.wper)}; }
+function attachWeatherToPoints(){ tracks.forEach(t=>t.points.forEach(p=>{ p._wx=weatherAt(p.lat,p.lon,p.time); })); }
+
+/* ---------- Metrics & colors ---------- */
+const METRICS = {
+	speed:{label:'Geschwindigkeit',unit:'kn',get:(p)=>(p.speed!=null&&isFinite(p.speed))?p.speed:null},
+	wind:{label:'Windgeschwindigkeit',unit:'kn',get:(p)=>p._wx?p._wx.wind:null},
+	gust:{label:'Windböen',unit:'kn',get:(p)=>p._wx?p._wx.gust:null},
+	wave:{label:'Wellenhöhe',unit:'m',get:(p)=>p._wx?p._wx.wave:null},
+};
+function lerpColor(c1,c2,t){ const h=(c)=>[parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)]; const a=h(c1),b=h(c2); return `rgb(${Math.round(a[0]+(b[0]-a[0])*t)},${Math.round(a[1]+(b[1]-a[1])*t)},${Math.round(a[2]+(b[2]-a[2])*t)})`; }
+function rampColor(t){ t=Math.max(0,Math.min(1,t)); const seg=t*(PALETTE.length-1),i=Math.floor(seg),f=seg-i; if(i>=PALETTE.length-1)return PALETTE[PALETTE.length-1]; return lerpColor(PALETTE[i],PALETTE[i+1],f); }
+function gradientCss(){ return `linear-gradient(90deg, ${PALETTE.join(',')})`; }
+function metricRange(metric){ const vals=[]; tracks.forEach(t=>t.points.forEach(p=>{ const v=METRICS[metric].get(p); if(v!=null&&isFinite(v))vals.push(v); })); if(!vals.length)return null; vals.sort((a,b)=>a-b); const q=(p)=>vals[Math.min(vals.length-1,Math.floor(p*(vals.length-1)))]; let lo=q(0.02),hi=q(0.98); if(metric==='speed')lo=0; if(hi-lo<0.1)hi=lo+1; return {lo,hi}; }
+
+/* ---------- Render ---------- */
+function renderTracks(){
+	trackLayerGroup.clearLayers();
+	const range=metricRange(currentMetric), m=METRICS[currentMetric];
+	tracks.forEach(t=>{
+		const pts=t.points;
+		for(let i=1;i<pts.length;i++){
+			const a=pts[i-1],b=pts[i]; let color=t.color,v=m.get(b); if(v==null)v=m.get(a);
+			if(range&&v!=null&&isFinite(v))color=rampColor((v-range.lo)/(range.hi-range.lo)); else if(range)color='#9aa0a6';
+			L.polyline([[a.lat,a.lon],[b.lat,b.lon]],{color,weight:4,opacity:0.95,lineCap:'round',interactive:false}).addTo(trackLayerGroup);
+		}
+		const s=pts[0],e=pts[pts.length-1];
+		L.circleMarker([s.lat,s.lon],{radius:6,color:'#fff',weight:2,fillColor:'#2b8a3e',fillOpacity:1}).addTo(trackLayerGroup).bindTooltip('Start: '+t.name);
+		L.circleMarker([e.lat,e.lon],{radius:6,color:'#fff',weight:2,fillColor:'#c0392b',fillOpacity:1}).addTo(trackLayerGroup).bindTooltip('Ziel: '+t.name);
+	});
+	renderWindArrows();
+	renderWaveArrows();
+	updateLegend(range,m);
+}
+function renderWindArrows(){
+	windLayerGroup.clearLayers();
+	if(!$('windArrTgl').checked||!weather)return;
+	tracks.forEach(t=>{ const pts=t.points,step=Math.max(1,Math.floor(pts.length/12)); for(let i=0;i<pts.length;i+=step){ const p=pts[i],wx=p._wx; if(!wx||wx.wind==null||wx.dir==null)continue; const icon=L.divIcon({className:'',html:windArrowSvg(wx.dir,wx.wind),iconSize:[28,28],iconAnchor:[14,14]}); L.marker([p.lat,p.lon],{icon,interactive:false}).addTo(windLayerGroup); } });
+}
+function windArrowSvg(dir,spd){ const rot=(dir+180)%360; const col=spd>27?'#8e1b1b':spd>21?'#d62f2f':spd>13?'#e8682f':spd>7?'#f0a93b':'#3aa0c4'; return `<svg width=28 height=28 viewBox='0 0 28 28' style='transform:rotate(${rot}deg)'><g stroke='${col}' stroke-width='2.4' fill='${col}' stroke-linecap='round'><line x1='14' y1='22' x2='14' y2='7'/><path d='M14 4 L9.5 11 L18.5 11 Z'/></g></svg>`; }
+function renderWaveArrows(){
+	waveLayerGroup.clearLayers();
+	if(!$('waveArrTgl').checked||!weather)return;
+	tracks.forEach(t=>{ const pts=t.points,step=Math.max(1,Math.floor(pts.length/12)); const off=Math.floor(step/2); for(let i=off;i<pts.length;i+=step){ const p=pts[i],wx=p._wx; if(!wx||wx.wdir==null||wx.wave==null)continue; const icon=L.divIcon({className:'',html:waveArrowSvg(wx.wdir,wx.wave),iconSize:[26,26],iconAnchor:[13,13]}); L.marker([p.lat,p.lon],{icon,interactive:false}).addTo(waveLayerGroup); } });
+}
+function waveArrowSvg(dir,h){ const rot=dir%360; const col=h>2.5?'#0b3d61':h>1.5?'#15679b':h>0.75?'#1a8fb8':'#56c0d6'; return `<svg width=26 height=26 viewBox='0 0 26 26' style='transform:rotate(${rot}deg)'><g stroke='${col}' stroke-width='2.2' fill='none' stroke-linecap='round'><path d='M5 12 q3 -3 6 0 t6 0' /><path d='M5 16 q3 -3 6 0 t6 0' /></g><g fill='${col}'><path d='M13 24 L9.5 18 L16.5 18 Z'/></g></svg>`; }
+function updateLegend(range,m){ $('legendBar').style.background=gradientCss(); if(!range){ $('legMin').textContent='–';$('legMid').textContent='';$('legMax').textContent='–';$('legUnit').textContent=m.label; return; } const f=(v)=>m.unit==='m'?v.toFixed(1):Math.round(v); $('legMin').textContent=f(range.lo);$('legMid').textContent=f((range.lo+range.hi)/2);$('legMax').textContent=f(range.hi); $('legUnit').textContent=`${m.label} (${m.unit})`; }
+
+/* ---------- Hover / conditions ---------- */
+function compassSvg(deg, color, kind){
+	// kind 'from' (wind, arrow points downwind) or 'to' (wave travel dir)
+	const rot = kind==='from' ? (deg+180)%360 : deg%360;
+	return `<svg class='compass' width=34 height=34 viewBox='0 0 34 34'>`+
+		`<circle cx=17 cy=17 r=15 fill='none' stroke='rgba(0,0,0,.12)' stroke-width='1.5'/>`+
+		`<text x=17 y=7 font-size=6 text-anchor='middle' fill='rgba(0,0,0,.45)'>N</text>`+
+		`<g style='transform:rotate(${rot}deg);transform-origin:17px 17px'><g stroke='${color}' stroke-width='2.6' fill='${color}' stroke-linecap='round'><line x1='17' y1='26' x2='17' y2='10'/><path d='M17 6 L12.5 14 L21.5 14 Z'/></g></g></svg>`;
+}
+function bft(kn){ const t=[1,4,7,11,16,22,28,34,41,48,56,64]; let b=0; for(let i=0;i<t.length;i++){ if(kn>=t[i])b=i+1; } return b; }
+function windColor(kn){ return kn>27?'#8e1b1b':kn>21?'#d62f2f':kn>13?'#e8682f':kn>7?'#f0a93b':'#2783de'; }
+function setConditions(ctx, wx){
+	$('condCtx').textContent = ctx;
+	if(wx && wx.wind!=null){ $('windVal').textContent=wx.wind.toFixed(0); $('windBft').textContent='Bft '+bft(wx.wind); $('windGust').textContent='Böen '+(wx.gust!=null?wx.gust.toFixed(0)+' kn':'–'); }
+	else { $('windVal').textContent='–'; $('windBft').textContent='–'; $('windGust').textContent='Böen –'; }
+	if(wx && wx.dir!=null){ $('windCompass').innerHTML=compassSvg(wx.dir, windColor(wx.wind||0),'from'); $('windDir').innerHTML=`aus ${COMPASS[Math.round(wx.dir/22.5)%16]} <small>(${Math.round(wx.dir)}°)</small>`; }
+	else { $('windCompass').innerHTML=''; $('windDir').textContent='–'; }
+	if(wx && wx.wave!=null){ $('waveVal').textContent=wx.wave.toFixed(1); $('wavePer').textContent='Periode '+(wx.wper!=null?wx.wper.toFixed(0)+' s':'–'); }
+	else { $('waveVal').textContent='–'; $('wavePer').textContent='Periode –'; }
+	if(wx && wx.wdir!=null){ $('waveCompass').innerHTML=compassSvg(wx.wdir,'#16a085','to'); $('waveDir').innerHTML=`Richtung ${COMPASS[Math.round(wx.wdir/22.5)%16]} <small>(${Math.round(wx.wdir)}°)</small>`; }
+	else { $('waveCompass').innerHTML=''; $('waveDir').textContent='–'; }
+}
+function avg(arr){ const v=arr.filter(x=>x!=null&&isFinite(x)); return v.length? v.reduce((a,b)=>a+b,0)/v.length : null; }
+function circAvg(arr){ const v=arr.filter(x=>x!=null&&isFinite(x)); if(!v.length)return null; let sx=0,sy=0; v.forEach(d=>{ sx+=Math.cos(d*Math.PI/180); sy+=Math.sin(d*Math.PI/180); }); let a=Math.atan2(sy,sx)*180/Math.PI; return (a+360)%360; }
+function showAggregateConditions(){
+	if(!weather){ setConditions('–', null); return; }
+	const W=[],G=[],Di=[],Wv=[],Wd=[],Wp=[];
+	tracks.forEach(t=>t.points.forEach(p=>{ if(p._wx){ W.push(p._wx.wind);G.push(p._wx.gust);Di.push(p._wx.dir);Wv.push(p._wx.wave);Wd.push(p._wx.wdir);Wp.push(p._wx.wper); } }));
+	setConditions('Ø Reise', { wind:avg(W), gust:avg(G), dir:circAvg(Di), wave:avg(Wv), wdir:circAvg(Wd), wper:avg(Wp) });
+}
+function nearestPointPixel(latlng){
+	let best=null,bd=Infinity; const pt=map.latLngToContainerPoint(latlng);
+	tracks.forEach(t=>t.points.forEach(p=>{ const pp=map.latLngToContainerPoint([p.lat,p.lon]); const d=(pp.x-pt.x)**2+(pp.y-pt.y)**2; if(d<bd){bd=d;best=p;} }));
+	return {p:best, dist:Math.sqrt(bd)};
+}
+let moveRaf=null;
+function onMapMove(e){
+	if(!tracks.length)return;
+	if(moveRaf)return; moveRaf=requestAnimationFrame(()=>{ moveRaf=null;
+		const {p,dist}=nearestPointPixel(e.latlng);
+		if(!p||dist>40){ if(hoverMarker){hoverMarker.remove();hoverMarker=null;} showAggregateConditions(); return; }
+		const when = p.time? p.time.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'ohne Zeit';
+		const whenFull = p.time? p.time.toLocaleString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'ohne Zeitstempel';
+		const sp = (p.speed!=null&&isFinite(p.speed))? p.speed.toFixed(1)+' kn' : '–';
+		setConditions(when+' · '+sp, p._wx);
+		const wx=p._wx;
+		let tip = `<b>🕒 ${whenFull}</b><br>💨 Speed: ${sp}`;
+		if(wx&&wx.wind!=null) tip += `<br>🌬️ Wind: ${wx.wind.toFixed(0)} kn`+(wx.dir!=null?` aus ${COMPASS[Math.round(wx.dir/22.5)%16]} (${Math.round(wx.dir)}°)`:'')+(wx.gust!=null?`, Böen ${wx.gust.toFixed(0)} kn`:'');
+		if(wx&&wx.wave!=null) tip += `<br>🌊 Wellen: ${wx.wave.toFixed(1)} m`+(wx.wdir!=null?` Richtung ${COMPASS[Math.round(wx.wdir/22.5)%16]} (${Math.round(wx.wdir)}°)`:'')+(wx.wper!=null?`, ${wx.wper.toFixed(0)} s`:'');
+		if(!hoverMarker){ hoverMarker=L.circleMarker([p.lat,p.lon],{radius:7,color:'#2783de',weight:3,fillColor:'#fff',fillOpacity:1}).addTo(map); hoverMarker.bindTooltip('',{direction:'top',offset:[0,-10],sticky:false,className:'hover-tip',opacity:1}); }
+		else hoverMarker.setLatLng([p.lat,p.lon]);
+		hoverMarker.setTooltipContent(tip).openTooltip();
+	});
+}
+
+/* ---------- Stats & chart ---------- */
+function renderStats(){
+	let dist=0,maxSp=0,sumSp=0,nSp=0,move=0;
+	let maxWind=0,sumWind=0,nW=0,maxGust=0,maxWave=0,sumWave=0,nWv=0;
+	tracks.forEach(t=>{ dist+=t.stats.distNm; maxSp=Math.max(maxSp,t.stats.maxSpeed); move+=t.stats.movingH;
+		t.points.forEach(p=>{ if(p.speed!=null&&isFinite(p.speed)&&p.speed<60){sumSp+=p.speed;nSp++;} if(p._wx){ if(p._wx.wind!=null){maxWind=Math.max(maxWind,p._wx.wind);sumWind+=p._wx.wind;nW++;} if(p._wx.gust!=null)maxGust=Math.max(maxGust,p._wx.gust); if(p._wx.wave!=null){maxWave=Math.max(maxWave,p._wx.wave);sumWave+=p._wx.wave;nWv++;} } }); });
+	const cards=[['Distanz',dist.toFixed(1)+' <small>sm</small>'],['Ø Speed',(nSp?sumSp/nSp:0).toFixed(1)+' <small>kn</small>'],['Max Speed',maxSp.toFixed(1)+' <small>kn</small>'],['Fahrzeit',move.toFixed(1)+' <small>h</small>']];
+	if(nW){ cards.push(['Ø Wind',(sumWind/nW).toFixed(0)+' <small>kn</small>']); cards.push(['Max Wind',maxWind.toFixed(0)+' <small>kn</small>']); }
+	if(maxGust)cards.push(['Max Böe',maxGust.toFixed(0)+' <small>kn</small>']);
+	if(nWv)cards.push(['Max Welle',maxWave.toFixed(1)+' <small>m</small>']);
+	$('stats').innerHTML=cards.map(c=>`<div class='stat'><div class='lbl'>${c[0]}</div><div class='val'>${c[1]}</div></div>`).join('');
+	$('statsPanel').style.display='block';
+}
+function renderChart(){
+	if(!weather){ $('chartPanel').style.display='none'; return; }
+	const all=[]; tracks.forEach(t=>t.points.forEach(p=>{ if(p.time&&p._wx)all.push(p); })); all.sort((a,b)=>a.time-b.time);
+	if(all.length<2){ $('chartPanel').style.display='none'; return; }
+	$('chartPanel').style.display='block';
+	const cv=$('chart'),dpr=window.devicePixelRatio||1,W=cv.clientWidth||320,H=150; cv.width=W*dpr; cv.height=H*dpr; const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+	const pad={l:30,r:30,t:10,b:18}, t0=all[0].time,t1=all[all.length-1].time;
+	const X=(t)=>pad.l+(W-pad.l-pad.r)*((t-t0)/(t1-t0||1));
+	const maxWind=Math.max(12,...all.map(p=>Math.max(p._wx.wind||0,p._wx.gust||0))), maxWave=Math.max(2,...all.map(p=>p._wx.wave||0));
+	const Yw=(v)=>H-pad.b-(H-pad.t-pad.b)*(v/maxWind), Yv=(v)=>H-pad.b-(H-pad.t-pad.b)*(v/maxWave);
+	ctx.strokeStyle='rgba(0,0,0,0.08)'; ctx.lineWidth=1; ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.font='10px sans-serif';
+	for(let i=0;i<=2;i++){ const y=pad.t+(H-pad.t-pad.b)*i/2; ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke(); }
+	ctx.textAlign='center'; for(let i=0;i<=3;i++){ const tt=t0+(t1-t0)*i/3; ctx.fillText(new Date(tt).toLocaleString('de-DE',{day:'2-digit',hour:'2-digit'}),X(tt),H-5); }
+	const line=(getY,key,color,width)=>{ ctx.strokeStyle=color; ctx.lineWidth=width; ctx.beginPath(); let st=false; all.forEach(p=>{ const v=p._wx[key]; if(v==null)return; const x=X(p.time),y=getY(v); if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y); }); ctx.stroke(); };
+	line(Yw,'gust','#e56458',1.5); line(Yw,'wind','#2783de',2); line(Yv,'wave','#16a085',2);
+	ctx.fillStyle='#2783de'; ctx.textAlign='left'; ctx.fillText(Math.round(maxWind)+'kn',2,pad.t+8);
+	ctx.fillStyle='#16a085'; ctx.textAlign='right'; ctx.fillText(maxWave.toFixed(1)+'m',W-2,pad.t+8);
+}
+function renderTrackList(){ const fmt=(d)=>d?d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):null; $('trackList').innerHTML=tracks.map(t=>{ const s=t.stats; const st=fmt(s.start),en=fmt(s.end); const dur=(s.start&&s.end)?((s.end-s.start)/3600000).toFixed(1)+' h':null; const timeLine = st? `<div class='sub'>🕒 ${st} → ${en||'?'}${dur?' · '+dur:''}</div>` : `<div class='sub'>ohne Zeitstempel</div>`; return `<div class='track-row'><span class='track-swatch' style='background:${t.color}'></span><div class='track-meta'><div class='nm'>${t.name}</div><div class='sub'>${s.distNm.toFixed(1)} sm · ${s.nPts} Pkt.</div>${timeLine}</div></div>`; }).join(''); $('tracksPanel').style.display=tracks.length?'block':'none'; }
+
+/* ---------- Orchestration ---------- */
+async function ingest(items){
+	let added=0;
+	for(const it of items){ try{ const g=parseGpx(it.text,it.name); g.raw=it.text; g.stats=computeTrackStats(g.points); g.color=COLORS[tracks.length%COLORS.length]; tracks.push(g); added++; }catch(e){ toast('Fehler bei '+it.name+': '+e.message); } }
+	if(!added)return;
+	$('empty').style.display='none';
+	map.invalidateSize();
+	const b=allBounds(); map.fitBounds([[b.la1,b.lo1],[b.la2,b.lo2]],{padding:[40,40]});
+	renderTracks(); renderStats(); renderTrackList(); showAggregateConditions();
+	showLoading('Lade Wetterdaten…');
+	try{ await loadWeather(); }catch(e){ setStatus('err','Wetter‑Fehler: '+e.message); }
+	hideLoading();
+	attachWeatherToPoints();
+	renderTracks(); renderStats(); renderChart(); showAggregateConditions();
+	toast(added+' Track'+(added>1?'s':'')+' geladen');
+}
+async function addFiles(fileList){
+	const files=[...fileList].filter(f=>/\.gpx$/i.test(f.name)||(f.type||'').includes('xml'));
+	if(!files.length){ toast('Keine GPX-Dateien gefunden'); return; }
+	const items=[]; for(const f of files){ items.push({name:f.name.replace(/\.gpx$/i,''), text:await f.text()}); }
+	await ingest(items);
+}
+function u8ToB64url(u8){ let s=''; const C=0x8000; for(let i=0;i<u8.length;i+=C)s+=String.fromCharCode.apply(null,u8.subarray(i,i+C)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function b64urlToU8(b){ b=b.replace(/-/g,'+').replace(/_/g,'/'); while(b.length%4)b+='='; const s=atob(b); const u=new Uint8Array(s.length); for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i); return u; }
+function shareLink(){
+	if(!tracks.length){ toast('Erst einen Track laden'); return; }
+	if(typeof pako==='undefined'){ toast('Komprimierung nicht verfügbar (offline?)'); return; }
+	try{
+		const raws=tracks.map(t=>t.raw).filter(Boolean);
+		const enc=u8ToB64url(pako.deflate(JSON.stringify(raws)));
+		const url=location.origin+location.pathname+'#g='+enc;
+		if(url.length>32000){ toast('Track zu groß für Link‑Sharing (~'+(url.length/1024|0)+' kB). Bitte die Datei direkt teilen oder ein Backend nutzen.',7000); return; }
+		const done=()=>toast('🔗 Teil‑Link kopiert (~'+(url.length/1024|0)+' kB) – jeder mit dem Link sieht denselben Track.',6000);
+		if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(done,()=>prompt('Link kopieren:',url)); } else prompt('Link kopieren:',url);
+	}catch(e){ toast('Teilen fehlgeschlagen: '+e.message); }
+}
+async function loadFromHash(){
+	const h=location.hash||''; const m=h.match(/[#&]g=([^&]+)/); if(!m)return;
+	if(typeof pako==='undefined'){ toast('Geteilter Track kann nicht geladen werden (offline?)'); return; }
+	try{ showLoading('Lade geteilten Track…'); const raws=JSON.parse(pako.inflate(b64urlToU8(m[1]),{to:'string'})); const items=raws.map((text,i)=>({name:'Geteilter Track '+(i+1), text})); await ingest(items); }
+	catch(e){ hideLoading(); toast('Geteilter Track ungültig: '+e.message); }
+}
+function clearAll(){ tracks=[]; weather=null; trackLayerGroup.clearLayers(); windLayerGroup.clearLayers(); if(hoverMarker){hoverMarker.remove();hoverMarker=null;} $('statsPanel').style.display='none'; $('chartPanel').style.display='none'; $('tracksPanel').style.display='none'; $('empty').style.display='flex'; setConditions('–',null); setStatus('','Noch kein Track geladen.'); }
+function wire(){
+	$('fileInput').addEventListener('change',e=>{ addFiles(e.target.files); e.target.value=''; });
+	$('fileInput2').addEventListener('change',e=>{ addFiles(e.target.files); e.target.value=''; });
+	$('clearBtn').addEventListener('click',clearAll);
+	$('shareBtn').addEventListener('click',shareLink);
+	$('metricSel').addEventListener('change',e=>{ currentMetric=e.target.value; renderTracks(); });
+	$('seamarkTgl').addEventListener('change',e=>{ if(e.target.checked)seamarkLayer.addTo(map); else map.removeLayer(seamarkLayer); });
+	$('windArrTgl').addEventListener('change',renderWindArrows);
+	$('waveArrTgl').addEventListener('change',renderWaveArrows);
+	['dragenter','dragover'].forEach(ev=>document.body.addEventListener(ev,e=>e.preventDefault()));
+	document.body.addEventListener('drop',e=>{ e.preventDefault(); if(e.dataTransfer.files.length)addFiles(e.dataTransfer.files); });
+	window.addEventListener('resize',()=>{ if(map)map.invalidateSize(); if(tracks.length)renderChart(); });
+}
+initMap(); wire(); loadFromHash();
+//]]>
+</script>
+</body>
+</html>
