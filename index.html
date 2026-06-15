@@ -1059,17 +1059,29 @@ function renderChart(){
 	if(all.length<2){ $('chartPanel').style.display='none'; return; }
 	$('chartPanel').style.display='block';
 	const cv=$('chart'),dpr=window.devicePixelRatio||1,W=cv.clientWidth||320,H=150; cv.width=W*dpr; cv.height=H*dpr; const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
-	const pad={l:30,r:30,t:10,b:18}, t0=all[0].time,t1=all[all.length-1].time;
+	const pad={l:34,r:36,t:18,b:18}, t0=all[0].time,t1=all[all.length-1].time;
 	const X=(t)=>pad.l+(W-pad.l-pad.r)*((t-t0)/(t1-t0||1));
-	const maxWind=Math.max(12,...all.map(p=>Math.max(p._wx.wind||0,p._wx.gust||0))), maxWave=Math.max(2,...all.map(p=>p._wx.wave||0));
+	const niceCeil=(v,step)=>Math.max(step,Math.ceil(v/step)*step);
+	const maxWind=niceCeil(Math.max(12,...all.map(p=>Math.max(p._wx.wind||0,p._wx.gust||0))),5), maxWave=niceCeil(Math.max(2,...all.map(p=>p._wx.wave||0)),0.5);
 	const Yw=(v)=>H-pad.b-(H-pad.t-pad.b)*(v/maxWind), Yv=(v)=>H-pad.b-(H-pad.t-pad.b)*(v/maxWave);
-	ctx.strokeStyle='rgba(0,0,0,0.08)'; ctx.lineWidth=1; ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.font='10px sans-serif';
-	for(let i=0;i<=2;i++){ const y=pad.t+(H-pad.t-pad.b)*i/2; ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke(); }
-	ctx.textAlign='center'; for(let i=0;i<=3;i++){ const tt=t0+(t1-t0)*i/3; ctx.fillText(new Date(tt).toLocaleString('de-DE',{day:'2-digit',hour:'2-digit'}),X(tt),H-5); }
+	ctx.font='10px sans-serif';
+	// Y‑Gitter: 0 (durchgezogene Null‑Linie), 50% (gestrichelt), 100% (Max), je mit Wertbeschriftung
+	[1,0.5,0].forEach(f=>{
+		const y=H-pad.b-(H-pad.t-pad.b)*f;
+		ctx.beginPath(); ctx.setLineDash(f===0.5?[4,3]:[]);
+		ctx.strokeStyle = f===0?'rgba(0,0,0,0.55)':(f===0.5?'rgba(0,0,0,0.28)':'rgba(0,0,0,0.12)');
+		ctx.lineWidth = f===0?1.5:1;
+		ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke(); ctx.setLineDash([]);
+		ctx.fillStyle='#2783de'; ctx.textAlign='right'; ctx.fillText(Math.round(maxWind*f),pad.l-4,y+3);
+		ctx.fillStyle='#16a085'; ctx.textAlign='left'; ctx.fillText((maxWave*f).toFixed(1),W-pad.r+4,y+3);
+	});
+	ctx.fillStyle='#2783de'; ctx.textAlign='right'; ctx.fillText('kn',pad.l-4,pad.t-5);
+	ctx.fillStyle='#16a085'; ctx.textAlign='left'; ctx.fillText('m',W-pad.r+4,pad.t-5);
+	ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.textAlign='center'; for(let i=0;i<=3;i++){ const tt=t0+(t1-t0)*i/3; ctx.fillText(new Date(tt).toLocaleString('de-DE',{day:'2-digit',hour:'2-digit'}),X(tt),H-5); }
 	const line=(getY,key,color,width)=>{ ctx.strokeStyle=color; ctx.lineWidth=width; ctx.beginPath(); let st=false; all.forEach(p=>{ const v=p._wx[key]; if(v==null)return; const x=X(p.time),y=getY(v); if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y); }); ctx.stroke(); };
+	ctx.fillStyle='rgba(39,131,222,0.10)'; ctx.beginPath(); let _af=false,_lastx=pad.l; all.forEach(p=>{ const v=p._wx.wind; if(v==null)return; const x=X(p.time),y=Yw(v); if(!_af){ctx.moveTo(x,H-pad.b);ctx.lineTo(x,y);_af=true;}else ctx.lineTo(x,y); _lastx=x; }); if(_af){ ctx.lineTo(_lastx,H-pad.b); ctx.closePath(); ctx.fill(); }
 	line(Yw,'gust','#e56458',1.5); line(Yw,'wind','#2783de',2); line(Yv,'wave','#16a085',2);
-	ctx.fillStyle='#2783de'; ctx.textAlign='left'; ctx.fillText(Math.round(maxWind)+'kn',2,pad.t+8);
-	ctx.fillStyle='#16a085'; ctx.textAlign='right'; ctx.fillText(maxWave.toFixed(1)+'m',W-2,pad.t+8);
+	let _legx=pad.l; ctx.font='10px sans-serif'; ctx.textAlign='left'; [['#2783de','Wind'],['#e56458','Böen'],['#16a085','Wellen']].forEach(it=>{ ctx.strokeStyle=it[0]; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(_legx,8); ctx.lineTo(_legx+14,8); ctx.stroke(); ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillText(it[1],_legx+18,11); _legx+=18+ctx.measureText(it[1]).width+12; });
 }
 function renderTrackList(){ const fmt=(d)=>d?d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):null; $('trackList').innerHTML=tracks.map(t=>{ const s=t.stats; const st=fmt(s.start),en=fmt(s.end); const dur=(s.start&&s.end)?((s.end-s.start)/3600000).toFixed(1)+' h':null; const timeLine = st? `<div class='sub'>🕒 ${st} → ${en||'?'}${dur?' · '+dur:''}</div>` : `<div class='sub'>ohne Zeitstempel</div>`; return `<div class='track-row'><span class='track-swatch' style='background:${t.color}'></span><div class='track-meta'><div class='nm'>${t.name}</div><div class='sub'>${s.distNm.toFixed(1)} sm · ${s.nPts} Pkt.</div>${timeLine}</div></div>`; }).join(''); $('tracksPanel').style.display=tracks.length?'block':'none'; }
 
