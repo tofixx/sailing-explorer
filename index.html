@@ -795,6 +795,9 @@ canvas.chart { width: 100%; height: 150px; display: block; }
 					<span><i style="background:#e56458"></i> Böen (kn)</span>
 					<span><i style="background:#16a085"></i> Wellen (m)</span>
 				</div>
+				<h3 style="margin-top:16px">💨 Geschwindigkeit</h3>
+				<div class="chart-wrap"><canvas class="chart" id="speedChart"></canvas></div>
+				<div class="chart-legend"><span><i style="background:#7b5ea7"></i> Speed (kn, geglättet – GPS-Ausreißer entfernt)</span></div>
 			</div>
 
 			<div class="panel" id="tracksPanel" style="display:none">
@@ -878,22 +881,36 @@ function parseGpx(text, fallbackName){
 }
 function haversine(a,b,c,d){ const R=6371000,t=Math.PI/180; const dLa=(c-a)*t,dLo=(d-b)*t; const x=Math.sin(dLa/2)**2+Math.cos(a*t)*Math.cos(c*t)*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.sqrt(x)); }
 // Gleitender Median (robust gegen einzelne Ausreißer). half=3 → Fenster bis zu 7 Punkte.
-function rollingMedian(arr,half){ const n=arr.length,out=new Array(n); for(let i=0;i<n;i++){ const w=[]; for(let j=Math.max(0,i-half);j<=Math.min(n-1,i+half);j++){ const v=arr[j]; if(v!=null&&isFinite(v))w.push(v); } if(!w.length){out[i]=null;continue;} w.sort((x,y)=>x-y); out[i]=w[Math.floor(w.length/2)]; } return out; }
+// Einfacher gleitender Mittelwert (zentriert), ignoriert Lücken.
+function smoothNums(arr,half){ const n=arr.length,out=new Array(n); for(let i=0;i<n;i++){ let acc=0,c=0; for(let j=Math.max(0,i-half);j<=Math.min(n-1,i+half);j++){ const v=arr[j]; if(v!=null&&isFinite(v)){acc+=v;c++;} } out[i]=c?acc/c:null; } return out; }
 function computeTrackStats(pts){
-	let dist=0,movingS=0; const raw=new Array(pts.length).fill(null);
-	for(let i=1;i<pts.length;i++){
+	let dist=0,movingS=0; const N=pts.length; const raw=new Array(N).fill(null);
+	for(let i=1;i<N;i++){
 		const d=haversine(pts[i-1].lat,pts[i-1].lon,pts[i].lat,pts[i].lon); dist+=d;
 		let sp=null;
 		if(pts[i].time&&pts[i-1].time){ const dt=(pts[i].time-pts[i-1].time)/1000; if(dt>0&&dt<3600){ sp=(d/dt)*KN; if(d>1)movingS+=dt; } }
 		pts[i].speed=sp; raw[i]=(sp!=null&&isFinite(sp))?sp:null;
 	}
-	pts[0].speed=pts[1]?pts[1].speed:0; raw[0]=raw[1]!=null?raw[1]:null;
-	// GPS-Ausreißer: ein einzelner Fehl-Fix erzeugt eine Strecke mit absurd hoher Momentangeschwindigkeit.
-	// Jeder Wert wird mit dem lokalen gleitenden Median verglichen; liegt er deutlich (>2,2x bzw. >+6 kn)
-	// und absolut über 12 kn darüber, gilt der Punkt als Ausreißer und fließt NICHT in Max/Ø/Färbung ein.
-	const med=rollingMedian(raw,3); const sorted=raw.filter(v=>v!=null).sort((a,b)=>a-b); const globMed=sorted.length?sorted[Math.floor(sorted.length/2)]:0;
+	if(N>1){ pts[0].speed=pts[1].speed; raw[0]=raw[1]; }
+	// Geglättete Momentangeschwindigkeit (zentriert ±3) als Basis für robuste Statistik.
+	const sm=smoothNums(raw,3);
+	// Robuste Ausreißer-Erkennung per Median + MAD (Median der Abweichungen) der geglätteten Werte.
+	// GPS-Fehler – auch ganze Cluster mit Positionssprüngen – liegen weit über der bootspezifischen
+	// Streuung und werden so zuverlässig verworfen; echte Surf-Spitzen bleiben erhalten. Die Grenze
+	// skaliert automatisch mit dem Track (schnelleres Boot → größere Streuung → höhere Grenze).
+	const vs=sm.filter(v=>v!=null).sort((a,b)=>a-b);
+	const M=vs.length?vs[Math.floor(vs.length/2)]:0;
+	const devs=vs.map(v=>Math.abs(v-M)).sort((a,b)=>a-b);
+	const sigma=1.4826*(devs.length?devs[Math.floor(devs.length/2)]:0);
+	const cap=M+4.5*Math.max(sigma,0.3);
 	let maxSp=0,sumSp=0,nSp=0,nGlitch=0;
-	for(let i=0;i<pts.length;i++){ const sp=raw[i]; if(sp==null){ pts[i].glitch=false; continue; } const loc=med[i]!=null?med[i]:globMed; const isGlitch = sp>12 && sp>loc*2.2 && (sp-loc)>6; pts[i].glitch=isGlitch; if(isGlitch){ nGlitch++; continue; } maxSp=Math.max(maxSp,sp); sumSp+=sp; nSp++; }
+	for(let i=0;i<N;i++){
+		const s=raw[i], ssm=sm[i];
+		const isGlitch=(ssm!=null&&ssm>cap)||(s!=null&&s>cap*1.6&&s>M+5);
+		pts[i].glitch=!!isGlitch;
+		pts[i].speedSmooth=(ssm!=null&&!isGlitch)?ssm:null;
+		if(s!=null){ if(isGlitch){ nGlitch++; } else { sumSp+=s; nSp++; if(ssm!=null&&ssm>maxSp)maxSp=ssm; } }
+	}
 	const times=pts.filter(p=>p.time).map(p=>p.time);
 	return { distNm:dist/1852, maxSpeed:maxSp, avgSpeed:nSp?sumSp/nSp:0, start:times[0]||null, end:times[times.length-1]||null, movingH:movingS/3600, nPts:pts.length, hasTime:times.length>0, nGlitch };
 }
@@ -1137,6 +1154,32 @@ function renderChart(){
 	const line=(getY,key,color,width)=>{ ctx.strokeStyle=color; ctx.lineWidth=width; segs.forEach(s=>{ ctx.beginPath(); let st=false; for(let i=s.a;i<=s.b;i++){ const v=all[i]._wx[key]; if(v==null){st=false;continue;} const x=Xi(i),y=getY(v); if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y); } ctx.stroke(); }); };
 	ctx.fillStyle='rgba(39,131,222,0.10)'; segs.forEach(s=>{ ctx.beginPath(); let af=false,lx=0; for(let i=s.a;i<=s.b;i++){ const v=all[i]._wx.wind; if(v==null)continue; const x=Xi(i),y=Yw(v); if(!af){ctx.moveTo(x,H-pad.b);ctx.lineTo(x,y);af=true;}else ctx.lineTo(x,y); lx=x; } if(af){ ctx.lineTo(lx,H-pad.b); ctx.closePath(); ctx.fill(); } });
 	line(Yw,'gust','#e56458',1.5); line(Yw,'wind','#2783de',2); line(Yv,'wave','#16a085',2);
+	renderSpeedChart();
+}
+function renderSpeedChart(){
+	const cv=$('speedChart'); if(!cv)return;
+	const all=[]; visibleTracks().forEach(t=>t.points.forEach(p=>{ if(p.time)all.push(p); })); all.sort((a,b)=>a.time-b.time);
+	if(all.length<2){ cv.style.display='none'; return; } cv.style.display='block';
+	const dpr=window.devicePixelRatio||1,W=cv.clientWidth||320,H=150; cv.width=W*dpr; cv.height=H*dpr; const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+	const pad={l:34,r:14,t:18,b:18};
+	const _ts=all.map(p=>p.time); const _d=[]; for(let i=1;i<_ts.length;i++)_d.push(_ts[i]-_ts[i-1]); _d.sort((a,b)=>a-b); const medGap=_d[Math.floor(_d.length/2)]||0;
+	const GAP=Math.max(20*60000, medGap*8);
+	const segs=[]; let _s=0; for(let i=1;i<all.length;i++){ if(all[i].time-all[i-1].time>GAP){ segs.push({a:_s,b:i-1}); _s=i; } } segs.push({a:_s,b:all.length-1});
+	segs.forEach(s=>{ s.t0=all[s.a].time; s.t1=all[s.b].time; s.dur=Math.max(1,s.t1-s.t0); });
+	const totalDur=segs.reduce((a,s)=>a+s.dur,0)||1; const cutPx=segs.length>1?12:0; const avail=(W-pad.l-pad.r)-cutPx*(segs.length-1);
+	let _cx=pad.l; segs.forEach(s=>{ s.x0=_cx; s.w=avail*(s.dur/totalDur); s.x1=s.x0+s.w; _cx=s.x1+cutPx; });
+	const Xi=(i)=>{ let s=segs[0]; for(const q of segs){ if(i>=q.a&&i<=q.b){s=q;break;} } return s.x0+s.w*((all[i].time-s.t0)/s.dur); };
+	const vals=all.map(p=>(p.speedSmooth!=null&&isFinite(p.speedSmooth))?p.speedSmooth:null);
+	const fin=vals.filter(v=>v!=null); if(!fin.length){ cv.style.display='none'; return; }
+	const niceCeil=(v,step)=>Math.max(step,Math.ceil(v/step)*step); const maxS=niceCeil(Math.max(4,...fin),2);
+	const Ys=(v)=>H-pad.b-(H-pad.t-pad.b)*(v/maxS);
+	ctx.font='10px sans-serif';
+	[1,0.5,0].forEach(f=>{ const y=H-pad.b-(H-pad.t-pad.b)*f; ctx.beginPath(); ctx.setLineDash(f===0.5?[4,3]:[]); ctx.strokeStyle=f===0?'rgba(0,0,0,0.55)':(f===0.5?'rgba(0,0,0,0.28)':'rgba(0,0,0,0.12)'); ctx.lineWidth=f===0?1.5:1; ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle='#7b5ea7'; ctx.textAlign='right'; ctx.fillText((maxS*f).toFixed(0),pad.l-4,y+3); });
+	ctx.fillStyle='#7b5ea7'; ctx.textAlign='right'; ctx.fillText('kn',pad.l-4,pad.t-5);
+	ctx.strokeStyle='rgba(0,0,0,0.22)'; ctx.lineWidth=1; ctx.setLineDash([3,3]); for(let i=0;i<segs.length-1;i++){ const xm=(segs[i].x1+segs[i+1].x0)/2; ctx.beginPath(); ctx.moveTo(xm,pad.t); ctx.lineTo(xm,H-pad.b); ctx.stroke(); } ctx.setLineDash([]);
+	const fmtT=(t)=>new Date(t).toLocaleString('de-DE',{day:'2-digit',hour:'2-digit'}); ctx.fillStyle='rgba(0,0,0,0.5)'; let _ll=-1e9; segs.forEach(s=>{ if(s.x0-_ll<34)return; ctx.textAlign='left'; ctx.fillText(fmtT(s.t0),s.x0,H-5); _ll=s.x0; }); const _ls=segs[segs.length-1]; ctx.textAlign='right'; ctx.fillText(fmtT(_ls.t1),_ls.x1,H-5);
+	ctx.fillStyle='rgba(123,94,167,0.12)'; segs.forEach(s=>{ ctx.beginPath(); let af=false,lx=0; for(let i=s.a;i<=s.b;i++){ const v=vals[i]; if(v==null)continue; const x=Xi(i),y=Ys(v); if(!af){ctx.moveTo(x,H-pad.b);ctx.lineTo(x,y);af=true;}else ctx.lineTo(x,y); lx=x; } if(af){ctx.lineTo(lx,H-pad.b);ctx.closePath();ctx.fill();} });
+	ctx.strokeStyle='#7b5ea7'; ctx.lineWidth=2; segs.forEach(s=>{ ctx.beginPath(); let st=false; for(let i=s.a;i<=s.b;i++){ const v=vals[i]; if(v==null){st=false;continue;} const x=Xi(i),y=Ys(v); if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y); } ctx.stroke(); });
 }
 function renderTrackList(){ const fmt=(d)=>d?d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):null; $('trackList').innerHTML=tracks.map((t,i)=>{ const s=t.stats; const st=fmt(s.start),en=fmt(s.end); const dur=(s.start&&s.end)?((s.end-s.start)/3600000).toFixed(1)+' h':null; const timeLine = st? `<div class='sub'>🕒 ${st} → ${en||'?'}${dur?' · '+dur:''}</div>` : `<div class='sub'>ohne Zeitstempel</div>`; return `<div class='track-row${t.hidden?' is-hidden':''}' data-ti='${i}'><span class='track-swatch' style='background:${t.color}'></span><div class='track-meta'><div class='nm'>${t.name}</div><div class='sub'>${s.distNm.toFixed(1)} sm · ${s.nPts} Pkt.</div>${timeLine}</div><button class='tr-btn tr-vis' title='${t.hidden?'Einblenden':'Ausblenden'}'>${t.hidden?'🙈':'👁'}</button><button class='tr-btn tr-del' title='Entfernen'>✕</button></div>`; }).join(''); $('tracksPanel').style.display=tracks.length?'block':'none'; }
 
