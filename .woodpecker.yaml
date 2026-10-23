@@ -1,0 +1,35 @@
+# CI/CD für Sail Explorer (Woodpecker 3).
+# Prüft jeden Push und Pull Request; deployt nur vom Standardzweig nach Cloudflare.
+# Benötigte Repo-Secrets (nur für den Deploy-Schritt freigeben):
+#   cloudflare_api_token   – Token mit "Workers Scripts:Edit", "D1:Edit", "Workers R2 Storage:Edit"
+#   cloudflare_account_id  – Cloudflare-Account-ID
+
+when:
+  - event: [push, pull_request, manual]
+
+steps:
+  - name: install
+    image: node:22-alpine
+    commands:
+      - npm ci --no-audit --no-fund
+
+  - name: check
+    image: node:22-alpine
+    commands:
+      - npm run typecheck
+      - npm test
+      - npm run build
+
+  - name: deploy
+    image: node:22-alpine
+    environment:
+      CLOUDFLARE_API_TOKEN:
+        from_secret: cloudflare_api_token
+      CLOUDFLARE_ACCOUNT_ID:
+        from_secret: cloudflare_account_id
+    commands:
+      - npx wrangler d1 migrations apply sailing-explorer --remote
+      - npx wrangler deploy
+    when:
+      - event: [push, manual]
+        branch: ${CI_REPO_DEFAULT_BRANCH}

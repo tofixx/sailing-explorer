@@ -1,0 +1,5 @@
+# Lokale Entwicklung (überschreibt vars aus wrangler.jsonc, nicht einchecken)
+MAIL_PROVIDER=log
+# Cloudflare-Testschlüssel für Turnstile – bestehen immer
+TURNSTILE_SITE_KEY=1x00000000000000000000AA
+TURNSTILE_SECRET=1x0000000000000000000000000000000AA

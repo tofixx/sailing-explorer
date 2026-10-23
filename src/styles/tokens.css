@@ -1,0 +1,153 @@
+/* Design-Tokens – einzige Quelle für Farben, Abstände, Radien und Typografie.
+   Custom Properties vererben sich in die Shadow DOMs der Komponenten. */
+
+:root {
+  color-scheme: light;
+
+  /* Flächen */
+  --bg: #eef3f7;
+  --surface: #ffffff;
+  --surface-2: #f4f7fa;
+  --surface-hover: #e9eff5;
+  --overlay: rgb(255 255 255 / 0.86);
+
+  /* Text */
+  --text: #0f1d2b;
+  --text-2: #4c5d6e;
+  --text-3: #7d8b99;
+  --on-accent: #ffffff;
+
+  /* Linien */
+  --border: #d5dee7;
+  --border-soft: #e6ecf1;
+
+  /* Akzent: Signalblau */
+  --accent: #0e6bd8;
+  --accent-hover: #0b59b5;
+  --accent-soft: #e5f0fd;
+
+  /* Semantische Datenfarben – überall dieselbe Bedeutung */
+  --c-speed: #7a55c7;
+  --c-wind: #1f78d1;
+  --c-gust: #db4b3f;
+  --c-wave: #0f9a84;
+  --c-median: #d07a22;
+  --c-start: #1f8a4c;
+  --c-end: #c2372b;
+
+  /* Identitätsfarben der Tracks (Liste, Start/Ziel-Pins) */
+  --c-track-1: #0e6bd8;
+  --c-track-2: #d07a22;
+  --c-track-3: #7a55c7;
+  --c-track-4: #1f8a4c;
+  --c-track-5: #c2372b;
+  --c-track-6: #0f9a84;
+
+  /* Karte */
+  --map-bg: #aad3df;
+  --map-halo: #ffffff;
+  --backdrop: rgb(6 18 31 / 0.45);
+
+  /* Status */
+  --ok: #1f8a4c;
+  --warn: #c57a12;
+  --err: #c2372b;
+  --warn-bg: #fff6e5;
+  --err-bg: #fdecea;
+
+  /* Diagramm */
+  --chart-grid: rgb(15 29 43 / 0.1);
+  --chart-axis: rgb(15 29 43 / 0.45);
+  --chart-label: #66778a;
+
+  /* Form */
+  --radius-s: 6px;
+  --radius: 10px;
+  --radius-l: 14px;
+  --shadow-1: 0 1px 2px rgb(15 29 43 / 0.06), 0 2px 8px rgb(15 29 43 / 0.06);
+  --shadow-2: 0 4px 12px rgb(15 29 43 / 0.1), 0 16px 40px rgb(15 29 43 / 0.12);
+
+  /* Abstände (4er-Raster) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+
+  /* Typografie */
+  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+  --fs-xs: 11px;
+  --fs-s: 12.5px;
+  --fs-m: 14px;
+  --fs-l: 16px;
+  --fs-xl: 22px;
+  /* große Messwerte */
+  --fs-num: 20px;
+  --fs-num-l: 24px;
+
+  /* Bedienelemente: Mindesthöhe (Touch: 44px) */
+  --control-h: 36px;
+  --control-h-s: 30px;
+
+  --topbar-h: 56px;
+  --sidebar-w: 388px;
+  --focus: 0 0 0 3px rgb(14 107 216 / 0.35);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0a131c;
+    --surface: #111d29;
+    --surface-2: #162434;
+    --surface-hover: #1c2d40;
+    --overlay: rgb(17 29 41 / 0.88);
+    --text: #e7eef5;
+    --text-2: #a6b5c4;
+    --text-3: #74859a;
+    --border: #23354a;
+    --border-soft: #1b2b3c;
+    --accent: #4b9cf5;
+    --accent-hover: #6aaef7;
+    --accent-soft: rgb(75 156 245 / 0.14);
+    --on-accent: #06121f;
+    --c-speed: #a98bf0;
+    --c-wind: #5aa6f5;
+    --c-gust: #f07a6e;
+    --c-wave: #3cc9b0;
+    --c-median: #f0a356;
+    --c-start: #4cc37d;
+    --c-end: #f07a6e;
+    --c-track-1: #4b9cf5;
+    --c-track-2: #f0a356;
+    --c-track-3: #a98bf0;
+    --c-track-4: #4cc37d;
+    --c-track-5: #f07a6e;
+    --c-track-6: #3cc9b0;
+    --map-bg: #1b2631;
+    --map-halo: #0a131c;
+    --backdrop: rgb(0 0 0 / 0.6);
+    --ok: #4cc37d;
+    --warn: #f0b04f;
+    --err: #f07a6e;
+    --warn-bg: rgb(240 176 79 / 0.12);
+    --err-bg: rgb(240 122 110 / 0.12);
+    --chart-grid: rgb(231 238 245 / 0.1);
+    --chart-axis: rgb(231 238 245 / 0.45);
+    --chart-label: #8d9db0;
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
+    --shadow-2: 0 4px 12px rgb(0 0 0 / 0.4), 0 16px 40px rgb(0 0 0 / 0.5);
+    --focus: 0 0 0 3px rgb(75 156 245 / 0.45);
+  }
+}
+
+/* Touch: größere Ziele */
+@media (pointer: coarse), (max-width: 760px) {
+  :root {
+    --control-h: 44px;
+    --control-h-s: 40px;
+  }
+}

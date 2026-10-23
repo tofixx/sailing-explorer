@@ -1,0 +1,237 @@
+/* Seiten-Layout (Light DOM). Komponenten-Styles liegen in den Komponenten. */
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+/* Komponenten setzen :host { display } – hidden muss trotzdem gewinnen. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-m) / 1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+.app {
+  display: grid;
+  grid-template-rows: var(--topbar-h) 1fr;
+  height: 100dvh;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 1fr var(--sidebar-w);
+  min-height: 0;
+}
+.app[data-empty] .workspace {
+  grid-template-columns: 1fr;
+}
+.app[data-empty] .sidebar {
+  display: none;
+}
+
+.map-area {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+  background: var(--map-bg);
+}
+
+.sidebar {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Embed-Modus (?embed=1): nur Karte + kompakte Seitenleiste */
+.app[data-embed] {
+  grid-template-rows: 0 1fr;
+}
+.app[data-embed] sx-topbar {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(260px, 1fr) auto;
+  }
+  .sidebar {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    max-height: 48dvh;
+    border-radius: var(--radius-l) var(--radius-l) 0 0;
+    box-shadow: var(--shadow-2);
+    position: relative;
+    z-index: 500;
+    margin-top: calc(-1 * var(--s-4));
+  }
+}
+
+/* --- Leaflet an Tokens anpassen --- */
+.leaflet-container {
+  font: var(--fs-s) / 1.4 var(--font);
+  background: var(--map-bg);
+}
+.leaflet-bar,
+.leaflet-control-layers {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow-1) !important;
+  overflow: hidden;
+}
+.leaflet-bar a,
+.leaflet-bar a:hover,
+.leaflet-control-layers,
+.leaflet-control-layers-toggle {
+  background-color: var(--surface) !important;
+  color: var(--text) !important;
+}
+.leaflet-bar a {
+  border-bottom-color: var(--border-soft) !important;
+}
+.leaflet-bar a:hover {
+  background-color: var(--surface-hover) !important;
+}
+.leaflet-control-layers-expanded {
+  padding: var(--s-2) var(--s-3) !important;
+  color: var(--text);
+}
+.leaflet-control-layers label {
+  font-size: var(--fs-s);
+}
+.leaflet-control-layers-separator {
+  border-top-color: var(--border-soft) !important;
+}
+.leaflet-control-attribution {
+  background: var(--overlay) !important;
+  color: var(--text-2) !important;
+  border-radius: var(--radius-s) 0 0 0;
+}
+.leaflet-control-attribution a {
+  color: var(--accent) !important;
+}
+.leaflet-control-scale-line {
+  background: var(--overlay) !important;
+  color: var(--text) !important;
+  border-color: var(--text-3) !important;
+}
+@media (prefers-color-scheme: dark) {
+  .leaflet-control-layers-toggle {
+    filter: invert(1) hue-rotate(180deg);
+  }
+}
+
+.sx-tip.leaflet-tooltip {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+  padding: var(--s-2) var(--s-3);
+  font: var(--fs-s) / 1.5 var(--font);
+  font-variant-numeric: tabular-nums;
+}
+.sx-tip.leaflet-tooltip-top::before {
+  border-top-color: var(--surface);
+}
+.sx-tip b {
+  font-weight: 650;
+}
+.sx-tip .muted {
+  color: var(--text-2);
+}
+.sx-tip .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+.sx-marker {
+  background: none;
+  border: 0;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: 600 var(--fs-s) var(--font);
+  cursor: pointer;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+.sources {
+  margin: var(--s-3) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.sources a {
+  color: var(--text-2);
+}
+#weather-wrap {
+  margin-bottom: var(--s-4);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Profil- und Bootsseiten ersetzen die Kartenansicht */
+.app[data-page] .workspace {
+  display: none;
+}
+.app[data-page] sx-profile-page {
+  min-height: 0;
+}
+
+@media (max-width: 760px) {
+  .leaflet-control-attribution {
+    font-size: 9.5px;
+    max-width: 70vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

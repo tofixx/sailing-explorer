@@ -1,0 +1,17 @@
+import './styles/app.css';
+import './components/sx-topbar';
+import './components/sx-empty-state';
+import './components/sx-panel';
+import './components/sx-conditions';
+import './components/sx-metric-picker';
+import './components/sx-kpis';
+import './components/sx-time-chart';
+import './components/sx-track-list';
+import './components/sx-toast';
+import './components/sx-login-dialog';
+import './components/sx-share-dialog';
+import './components/sx-account-dialog';
+import './components/sx-profile-page';
+import { App } from './app';
+
+new App().start();

@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sailing-explorer",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // API sowie Törn-, Profil- und Bootsseiten (Link-Vorschau-Metadaten) laufen durch den Worker
+    "run_worker_first": ["/api/*", "/s/*", "/u/*", "/b/*"]
+  },
+  "routes": [{ "pattern": "sailing.wollow.ski", "custom_domain": true }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sailing-explorer",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "TRACKS", "bucket_name": "sailing-explorer-tracks" }],
+  "ratelimits": [
+    { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+    { "name": "AUTH_LIMITER", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } }
+  ],
+  "vars": {
+    "APP_NAME": "Sail Explorer",
+    // resend | cloudflare | log
+    "MAIL_PROVIDER": "resend",
+    "MAIL_FROM": "Sail Explorer <login@sailing.wollow.ski>",
+    // Öffentlicher Turnstile-Site-Key (Dashboard → Turnstile). Lokal überschreibt .dev.vars.
+    "TURNSTILE_SITE_KEY": "REPLACE_WITH_TURNSTILE_SITE_KEY"
+  },
+  "env": {},
+  "observability": { "enabled": true }
+}

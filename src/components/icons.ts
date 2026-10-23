@@ -1,0 +1,49 @@
+import { svg, type SVGTemplateResult } from 'lit';
+
+// Eigenes, nautisches Icon-Set: 24er-Raster, 1,75er Strich, runde Enden.
+// Flächen mit class="f" werden dezent getönt (Duoton) – passend zu den
+// getönten Flächen der Oberfläche.
+const paths = {
+  // Marke: Großsegel + Fock über Rumpf
+  sail: svg`<path class="f" d="M11.5 3.5 5 16h6.5z"/><path d="M11.5 3.5 5 16h6.5zM13.5 6.5c3 2.5 4.6 5.7 4.8 9.5h-4.8z"/><path d="M3.5 18.5h17l-2 2.5h-13z"/>`,
+  // GPX laden: Seekarte mit Kurslinie + Pfeil
+  upload: svg`<path class="f" d="M5 4h9l5 5v11H5z"/><path d="M14 4H5v16h14V9zM14 4v5h5"/><path d="M8.5 16.5 11 13l2 2 2.5-3.5"/><path d="M12 2v0"/>`,
+  // Teilen: Flaschenpost
+  share: svg`<path class="f" d="M9 9.5 14.5 4l5.5 5.5L14.5 15z"/><path d="M9 9.5 14.5 4l5.5 5.5L14.5 15zM9 9.5l-5 5L9.5 20l5-5"/><path d="m16.5 2 5.5 5.5"/><path d="M11.5 12.5l2 2"/>`,
+  link: svg`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>`,
+  copy: svg`<rect class="f" x="9" y="9" width="11" height="11" rx="2.5"/><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/>`,
+  // Konto: Kapitänsmütze-Silhouette
+  user: svg`<circle class="f" cx="12" cy="9" r="4"/><circle cx="12" cy="9" r="4"/><path d="M8 7.2c2.5-1.2 5.5-1.2 8 0M4.5 20.5c1.4-3.6 4.2-5.5 7.5-5.5s6.1 1.9 7.5 5.5"/>`,
+  // Wind: Windsack
+  wind: svg`<path class="f" d="M7 6.5 20 8.5v5L7 15.5z"/><path d="M4 21V4M4 6.5h3l13 2v5l-13 2H4"/><path d="M11 7.2v8.6M15.5 7.9v7.2"/>`,
+  // Wellen: zwei brechende Kämme
+  waves: svg`<path class="f" d="M2 13c2.5 0 3.5-4 6.5-4 2.2 0 3 2 1.8 3.2C12 13.5 14 13 15 12c1.5-1.5 4-1.7 7 1v6H2z"/><path d="M2 13c2.5 0 3.5-4 6.5-4 2.2 0 3 2 1.8 3.2C12 13.5 14 13 15 12c1.5-1.5 4-1.7 7 1M2 18c2 0 3-1.5 5-1.5s3 1.5 5 1.5 3-1.5 5-1.5 3 1.5 5 1.5"/>`,
+  // Speed: Logge (Rundinstrument mit Nadel)
+  gauge: svg`<path class="f" d="M3.5 17a8.5 8.5 0 1 1 17 0z"/><path d="M3.5 17a8.5 8.5 0 1 1 17 0zM12 17l4-5.5"/><path d="M7 12.5l1 .7M12 9v1.2M17 12.5l-1 .7"/>`,
+  // Böen: Windsack mit Blitz
+  gust: svg`<path class="f" d="M7 6.5 15 7.8v6.4l-8 1.3z"/><path d="M4 21V4M4 6.5h3l8 1.3v6.4l-8 1.3H4"/><path d="m20 5-2.5 4.5h3L18 14"/>`,
+  eye: svg`<path class="f" d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>`,
+  eyeOff: svg`<path d="M3 3l18 18M10.6 5.6A9 9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-3 3.7M6.6 6.9C4 8.6 2.5 12 2.5 12S6 18.5 12 18.5a9 9 0 0 0 5-1.5"/><path d="M9.9 9.9a2.8 2.8 0 0 0 4.2 4.2"/>`,
+  x: svg`<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>`,
+  trash: svg`<path class="f" d="M6 7.5h12l-1 11.5a2 2 0 0 1-2 1.8H9a2 2 0 0 1-2-1.8z"/><path d="M4 7.5h16M6 7.5l1 11.5a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8l1-11.5M9.5 7.5V4.5h5v3M10 11v6M14 11v6"/>`,
+  pencil: svg`<path class="f" d="M4 20v-3.5L15.5 5a2.5 2.5 0 0 1 3.5 3.5L7.5 20z"/><path d="M4 20v-3.5L15.5 5a2.5 2.5 0 0 1 3.5 3.5L7.5 20zM13.5 7l3.5 3.5"/>`,
+  lock: svg`<rect class="f" x="5" y="10.5" width="14" height="10" rx="2.5"/><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5M12 14.5v2"/>`,
+  // Öffentlich per Link: Kompassrose
+  globe: svg`<circle class="f" cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="9"/><path d="m12 5 1.8 5.2L19 12l-5.2 1.8L12 19l-1.8-5.2L5 12l5.2-1.8z"/>`,
+  mail: svg`<rect class="f" x="3" y="5.5" width="18" height="13" rx="2.5"/><rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="m4 7.5 8 5.5 8-5.5"/>`,
+  logout: svg`<path d="M14.5 4H18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3.5M10 16.5 14.5 12 10 7.5M14.5 12H4"/>`,
+  // Seekarte mit Kompassrose
+  map: svg`<path class="f" d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z"/><path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20zM9 4v13.5M15 6.5V20"/>`,
+  info: svg`<circle class="f" cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8v.2"/>`,
+  check: svg`<path d="m5 12.5 4.5 4.5L19 7.5"/>`,
+  open: svg`<path d="M14 4h6v6M20 4l-8.5 8.5M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>`,
+  // Meine Tracks: Logbuch
+  folder: svg`<path class="f" d="M5 4.5h12a2 2 0 0 1 2 2v13H7a2 2 0 0 1-2-2z"/><path d="M5 17.5v-11a2 2 0 0 1 2-2h12v15H7a2 2 0 0 1-2-2 2 2 0 0 1 2-2h12M9 8.5h6M9 11.5h4"/>`,
+  anchor: svg`<circle cx="12" cy="5" r="2"/><path d="M12 7v13M8 10.5h8M4.5 13.5c0 4 3.4 6.5 7.5 6.5s7.5-2.5 7.5-6.5"/><path d="m3 15 1.5-1.5L6 15M18 15l1.5-1.5L21 15"/>`,
+};
+
+export type IconName = keyof typeof paths;
+
+export function icon(name: IconName, cls = 'i'): SVGTemplateResult {
+  return svg`<svg class=${cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><style>.f{fill:currentColor;fill-opacity:.16;stroke:none}</style>${paths[name]}</svg>`;
+}
