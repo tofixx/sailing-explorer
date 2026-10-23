@@ -172,6 +172,8 @@ export interface ShareOpts {
   visibility?: string;
   tracks?: Array<{ name: string; gpx: string }>;
   body?: Uint8Array<ArrayBuffer>;
+  /** zusätzliche Header, z. B. X-Share-Listed, X-Share-Boat, X-Share-Distance, X-Share-Started */
+  headers?: Record<string, string>;
 }
 
 export const SAMPLE_GPX = `<?xml version="1.0"?><gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Mini</name><trkseg><trkpt lat="54" lon="13"><time>2026-06-13T10:00:00Z</time></trkpt><trkpt lat="54.01" lon="13"><time>2026-06-13T10:10:00Z</time></trkpt></trkseg></trk></gpx>`;
@@ -192,6 +194,7 @@ export async function createShare(h: Harness, cookie: string | undefined, o: Sha
       'X-Share-View': encodeURIComponent(o.view ?? ''),
       'X-Share-Tracks': String(o.tracks?.length ?? 1),
       'X-Share-Visibility': o.visibility ?? 'unlisted',
+      ...(o.headers ?? {}),
     },
     body,
   });

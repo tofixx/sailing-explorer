@@ -182,6 +182,11 @@ export async function deleteAccount(request: Request, env: Env): Promise<Respons
     env.DB.prepare('DELETE FROM shares WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM login_tokens WHERE email = ?').bind(user.email),
+    // Explizit statt nur per ON DELETE CASCADE: Törns anderer Nutzer verlieren nur die Bootszuordnung.
+    env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id),
+    env.DB.prepare('DELETE FROM boat_admins WHERE user_id = ? OR boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id, user.id),
+    env.DB.prepare('DELETE FROM boats WHERE owner_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
   return json({ ok: true }, { headers: { 'Set-Cookie': sessionCookie(request, '', 0) } });

@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { currentUser, requireUser, type User } from './auth';
+import { currentUser, requireUser } from './auth';
 import { boatShape } from './boats';
 import { HttpError, json, readJson } from './http';
 import { listedShares } from './shares';
@@ -21,15 +21,17 @@ function profileShape(p: ProfileRow, isSelf: boolean) {
   return { handle: p.handle, displayName: p.display_name, bio: p.bio, visibility: p.visibility, isSelf };
 }
 
-/** Vorschlag für ein neues Profil – aus dem lokalen Teil der E-Mail, aber nicht identisch damit. */
-async function suggestion(env: Env, user: User) {
-  const base = (normalizeHandle(user.email.split('@')[0].replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '')) ?? 'crew').slice(0, 20);
+/**
+ * Vorschlag für ein neues Profil. Bewusst NICHT aus der E-Mail-Adresse abgeleitet –
+ * der Profilname ist öffentlich, die Adresse darf nicht durchscheinen.
+ */
+async function suggestion(env: Env) {
   for (let i = 0; i < 20; i++) {
-    const handle = i === 0 && base.length >= 3 ? base : `${base}-${Math.floor(100 + Math.random() * 900)}`;
+    const handle = `segler-${Math.floor(1000 + Math.random() * 9000)}`;
     const taken = await env.DB.prepare('SELECT 1 FROM profiles WHERE handle = ?').bind(handle).first();
     if (!taken) return handle;
   }
-  return `crew-${Date.now().toString(36)}`;
+  return `segler-${Date.now().toString(36)}`;
 }
 
 /** GET /api/me/profile – eigenes Profil (oder ein Vorschlag, falls noch keins existiert). */
@@ -37,7 +39,7 @@ export async function getMyProfile(request: Request, env: Env): Promise<Response
   const user = await requireUser(request, env);
   const p = await env.DB.prepare('SELECT * FROM profiles WHERE user_id = ?').bind(user.id).first<ProfileRow>();
   if (p) return json({ profile: profileShape(p, true), exists: true });
-  return json({ profile: { handle: await suggestion(env, user), displayName: '', bio: '', visibility: 'private', isSelf: true }, exists: false });
+  return json({ profile: { handle: await suggestion(env), displayName: '', bio: '', visibility: 'private', isSelf: true }, exists: false });
 }
 
 /** PUT /api/me/profile – anlegen oder ändern. */
