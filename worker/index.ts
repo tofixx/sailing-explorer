@@ -4,6 +4,7 @@ import { HttpError, errorResponse, json } from './http';
 import { createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
+import { getDiscover } from './discover';
 import { withPageHeaders } from './security';
 import { isSameOrigin } from './validate';
 
@@ -25,6 +26,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/boats\/([A-Za-z0-9]+)$/, (r, env, [id]) => getBoat(r, env, id)],
   ['PATCH', /^\/api\/boats\/([A-Za-z0-9]+)$/, (r, env, [id]) => updateBoat(r, env, id)],
   ['DELETE', /^\/api\/boats\/([A-Za-z0-9]+)$/, (r, env, [id]) => deleteBoat(r, env, id)],
+  ['GET', /^\/api\/discover$/, (r, env) => getDiscover(r, env)],
   ['GET', /^\/api\/shares$/, (r, env) => listShares(r, env)],
   ['POST', /^\/api\/shares$/, (r, env) => createShare(r, env)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => getShareMeta(r, env, id)],
@@ -63,6 +65,9 @@ const DEFAULT_DESCRIPTION = 'Segeltörns auf der Seekarte mit Wind- und Wellenda
 /** Vorschau-Metadaten (Messenger, Social) – nur aus öffentlichen Daten. */
 async function pageMeta(env: Env, kind: string, id: string, origin: string): Promise<PageMeta> {
   const fallback = { title: env.APP_NAME, description: DEFAULT_DESCRIPTION, index: false };
+  if (kind === 'entdecken') {
+    return { title: `Entdecken · ${env.APP_NAME}`, description: 'Zuletzt gesegelte Törns, Boote und Segler – alles, was die Crew öffentlich teilt.', index: true };
+  }
   if (kind === 's') {
     const row = await getShareRow(env, id);
     if (!row || row.visibility !== 'unlisted') return fallback;
@@ -83,7 +88,7 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string): Pro
   return { title: `${b.name} · ${env.APP_NAME}`, description: desc || 'Boot mit seinen Törns', index: true };
 }
 
-/** /s/:id, /u/:handle, /b/:id – liefert die App mit passenden Vorschau-Metadaten. */
+/** /s/:id, /u/:handle, /b/:id, /entdecken – liefert die App mit passenden Vorschau-Metadaten. */
 async function metaPage(request: Request, env: Env, kind: string, id: string): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL('/', request.url), { headers: request.headers }));
   const meta: PageMeta = await pageMeta(env, kind, id, new URL(request.url).origin).catch(() => ({ title: env.APP_NAME, description: DEFAULT_DESCRIPTION, index: false }));
@@ -114,7 +119,8 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname.startsWith('/api/')) return await handleApi(request, env, url.pathname);
-      const page = /^\/(s|b)\/([A-Za-z0-9]{12,32})\/?$/.exec(url.pathname) ?? /^\/(u)\/([a-z0-9-]{3,30})\/?$/i.exec(url.pathname);
+      const page =
+        /^\/(s|b)\/([A-Za-z0-9]{12,32})\/?$/.exec(url.pathname) ?? /^\/(u)\/([a-z0-9-]{3,30})\/?$/i.exec(url.pathname) ?? /^\/(entdecken)()\/?$/.exec(url.pathname);
       if (page && (request.method === 'GET' || request.method === 'HEAD')) return await metaPage(request, env, page[1], page[1] === 'u' ? page[2].toLowerCase() : page[2]);
       return env.ASSETS.fetch(request);
     } catch (err) {

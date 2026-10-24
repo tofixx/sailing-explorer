@@ -222,7 +222,8 @@ body {
 .app[data-page] .workspace {
   display: none;
 }
-.app[data-page] sx-profile-page {
+.app[data-page] sx-profile-page,
+.app[data-page] #discover-page {
   min-height: 0;
 }
 

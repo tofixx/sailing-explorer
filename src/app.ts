@@ -20,6 +20,7 @@ import { fmtNum, fmtShort } from './util/html';
 import type { AccountTab, SxAccountDialog } from './components/sx-account-dialog';
 import type { ChartSeries, SxTimeChart } from './components/sx-time-chart';
 import type { SxConditions } from './components/sx-conditions';
+import type { SxDiscover } from './components/sx-discover';
 import type { SxEmptyState } from './components/sx-empty-state';
 import type { SxKpis } from './components/sx-kpis';
 import type { SxLoginDialog } from './components/sx-login-dialog';
@@ -62,6 +63,8 @@ export class App {
     topbar: $<SxTopbar>('sx-topbar'),
     empty: $<SxEmptyState>('sx-empty-state'),
     page: $<SxProfilePage>('sx-profile-page'),
+    discoverStrip: $<SxDiscover>('sx-discover[slot="discover"]'),
+    discoverPage: $<SxDiscover>('#discover-page'),
     conditions: $<SxConditions>('sx-conditions'),
     conditionsCtx: $<HTMLElement>('#conditions-ctx'),
     metric: $<SxMetricPicker>('sx-metric-picker'),
@@ -98,12 +101,15 @@ export class App {
   async start(): Promise<void> {
     this.session.checkBackend();
     const route = parseRoute(location);
+    // Community-Leiste nur auf der Startseite; lädt nebenbei und blockiert nichts.
+    if (route.kind === 'home' || route.kind === 'login') void this.loadDiscoverStrip();
     try {
       switch (route.kind) {
         case 'share':
           return await this.openShare(route.id);
         case 'profile':
         case 'boat':
+        case 'discover':
           return await this.openPage(route);
         case 'login':
           history.replaceState(null, '', '/');
@@ -402,9 +408,10 @@ export class App {
     }
   }
 
-  /** Profil- oder Bootsseite statt Karte. */
-  private async openPage(route: { kind: 'profile'; handle: string } | { kind: 'boat'; id: string }) {
+  /** Profil-, Boots- oder Entdecken-Seite statt Karte. */
+  private async openPage(route: { kind: 'profile'; handle: string } | { kind: 'boat'; id: string } | { kind: 'discover' }) {
     this.ui.app.setAttribute('data-page', '');
+    if (route.kind === 'discover') return this.openDiscover();
     const page = this.ui.page;
     page.hidden = false;
     Object.assign(page, { loading: true, error: '', data: null });
@@ -425,11 +432,39 @@ export class App {
     }
   }
 
-  /** Zurück von Profil-/Bootsseite zur Kartenansicht. */
+  /** Seite /entdecken: neueste öffentliche Törns, Boote und Segler. */
+  private async openDiscover() {
+    const page = this.ui.discoverPage;
+    page.hidden = false;
+    Object.assign(page, { loading: true, error: '', data: null });
+    document.title = 'Entdecken · Sail Explorer';
+    try {
+      page.data = await api.discover(24);
+    } catch (e) {
+      page.error = e instanceof ApiError && e.code === 'no_backend' ? 'Entdecken ist auf dieser Installation nicht verfügbar.' : errorText(e);
+    } finally {
+      page.loading = false;
+    }
+  }
+
+  /** Leiste „Zuletzt gesegelt“ im Einstieg – ohne Backend, bei Fehlern oder ohne Törns bleibt sie unsichtbar. */
+  private async loadDiscoverStrip() {
+    const strip = this.ui.discoverStrip;
+    try {
+      const data = await api.discover(6);
+      strip.data = data;
+      strip.hidden = !data.voyages.length;
+    } catch {
+      strip.hidden = true;
+    }
+  }
+
+  /** Zurück von Profil-/Boots-/Entdecken-Seite zur Kartenansicht. */
   private leavePage() {
     if (!this.ui.app.hasAttribute('data-page')) return;
     this.ui.app.removeAttribute('data-page');
     this.ui.page.hidden = true;
+    this.ui.discoverPage.hidden = true;
     document.title = 'Sail Explorer';
   }
 

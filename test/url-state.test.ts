@@ -13,6 +13,12 @@ describe('parseRoute', () => {
     expect(parseRoute(loc('/'))).toEqual({ kind: 'home' });
   });
 
+  it('[F-70] /entdecken ist die Entdecken-Seite', () => {
+    expect(parseRoute(loc('/entdecken'))).toEqual({ kind: 'discover' });
+    expect(parseRoute(loc('/entdecken/'))).toEqual({ kind: 'discover' });
+    expect(parseRoute(loc('/entdeckenx')).kind).toBe('home');
+  });
+
   it('akzeptiert keine kaputten Share-IDs', () => {
     expect(parseRoute(loc('/s/../../etc')).kind).toBe('home');
     expect(parseRoute(loc('/s/short')).kind).toBe('home');

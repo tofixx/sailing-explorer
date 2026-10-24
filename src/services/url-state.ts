@@ -7,6 +7,7 @@ export type Route =
   | { kind: 'share'; id: string }
   | { kind: 'profile'; handle: string }
   | { kind: 'boat'; id: string }
+  | { kind: 'discover' }
   | { kind: 'login'; token: string | null }
   | { kind: 'files'; names: string[] }
   | { kind: 'inline'; data: string };
@@ -18,6 +19,7 @@ export function parseRoute(loc: Pick<Location, 'pathname' | 'search' | 'hash'>):
   if (profile) return { kind: 'profile', handle: profile[1].toLowerCase() };
   const boat = /^\/b\/([A-Za-z0-9]{12,32})\/?$/.exec(loc.pathname);
   if (boat) return { kind: 'boat', id: boat[1] };
+  if (/^\/entdecken\/?$/.test(loc.pathname)) return { kind: 'discover' };
   if (loc.pathname === '/login') {
     const token = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(loc.hash)?.[1] ?? null;
     return { kind: 'login', token };

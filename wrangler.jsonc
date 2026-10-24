@@ -7,8 +7,8 @@
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // API sowie Törn-, Profil- und Bootsseiten (Link-Vorschau-Metadaten) laufen durch den Worker
-    "run_worker_first": ["/api/*", "/s/*", "/u/*", "/b/*"]
+    // API sowie Törn-, Profil-, Boots- und Entdecken-Seite (Link-Vorschau-Metadaten) laufen durch den Worker
+    "run_worker_first": ["/api/*", "/s/*", "/u/*", "/b/*", "/entdecken"]
   },
   "routes": [{ "pattern": "sailing.wollow.ski", "custom_domain": true }],
   "d1_databases": [
