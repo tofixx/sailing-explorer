@@ -57,6 +57,22 @@ const paths = {
 
 export type IconName = keyof typeof paths;
 
+/**
+ * Logo „Segel im Kompass“ (32er-Raster, gefüllt). Kachel in --accent, Zeichen in --on-accent;
+ * dieselbe Form steht in public/favicon.svg und wird in services/share-image.ts gezeichnet.
+ */
+export function logo(size = 32): SVGTemplateResult {
+  return svg`<svg width=${size} height=${size} viewBox="0 0 32 32" aria-hidden="true">
+    <rect width="32" height="32" rx="8" fill="var(--accent)"/>
+    <g fill="var(--on-accent)" stroke="var(--on-accent)">
+      <circle cx="16" cy="16" r="10.5" fill="none" stroke-width="1.6" opacity=".55"/>
+      <path d="M16 3.5v3" stroke-width="2" stroke-linecap="round"/>
+      <path d="M16 9 22 21H16z" stroke="none"/>
+      <path d="M14.5 11.5 10 21h4.5z" stroke="none" opacity=".75"/>
+    </g>
+  </svg>`;
+}
+
 export function icon(name: IconName, cls = 'i'): SVGTemplateResult {
   return svg`<svg class=${cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><style>.f{fill:currentColor;fill-opacity:.16;stroke:none}</style>${paths[name]}</svg>`;
 }

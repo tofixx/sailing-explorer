@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit';
 import type { User } from '../services/api';
 import type { Mode } from '../services/store';
-import { icon } from './icons';
+import { icon, logo } from './icons';
 import { base, emit, pickGpx } from './shared';
 
 /** Kopfzeile: Marke, Sitzungsstatus, Hauptaktionen. */
@@ -52,12 +52,8 @@ export class SxTopbar extends LitElement {
       }
       .brand .mark {
         display: grid;
-        place-items: center;
         width: 32px;
         height: 32px;
-        border-radius: var(--radius);
-        background: var(--accent);
-        color: var(--on-accent);
       }
       .chip {
         display: inline-flex;
@@ -174,7 +170,7 @@ export class SxTopbar extends LitElement {
   render() {
     return html`
       <a class="brand" href="/" aria-label="Sail Explorer – Startseite">
-        <span class="mark">${icon('sail')}</span><span class="name">Sail Explorer</span>
+        <span class="mark">${logo()}</span><span class="name">Sail Explorer</span>
       </a>
       ${this.chip()}
       <span class="spacer"></span>

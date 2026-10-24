@@ -366,12 +366,47 @@ function drawInfo(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box, opts
   ctx.fillStyle = C.accent;
   ctx.font = `750 18px ${FONT}`;
   ctx.fillText('Sail Explorer', box.x + box.w - pad, footY);
+  drawLogo(ctx, box.x + box.w - pad - ctx.measureText('Sail Explorer').width - 30, footY - 17, 22);
   if (!(content.legend && opts.range) || format === 'square') {
     ctx.fillStyle = C.faint;
     ctx.font = `500 13px ${FONT}`;
     ctx.fillText('sailing.wollow.ski', box.x + box.w - pad, footY - 22);
   }
   ctx.textAlign = 'left';
+}
+
+/** Logo „Segel im Kompass“ (wie logo() in components/icons.ts) – ohne Path2D, damit es überall zeichnet. */
+function drawLogo(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
+  const k = size / 32;
+  const p = (px: number, py: number): [number, number] => [x + px * k, y + py * k];
+  const poly = (pts: Array<[number, number]>) => {
+    ctx.beginPath();
+    pts.forEach(([px, py], i) => (i ? ctx.lineTo(...p(px, py)) : ctx.moveTo(...p(px, py))));
+    ctx.closePath();
+    ctx.fill();
+  };
+  ctx.save();
+  roundRect(ctx, x, y, size, size, 8 * k);
+  ctx.fillStyle = C.accent;
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.fillStyle = '#fff';
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 1.6 * k;
+  ctx.beginPath();
+  ctx.arc(...p(16, 16), 10.5 * k, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2 * k;
+  ctx.beginPath();
+  ctx.moveTo(...p(16, 3.5));
+  ctx.lineTo(...p(16, 6.5));
+  ctx.stroke();
+  poly([[16, 9], [22, 21], [16, 21]]);
+  ctx.globalAlpha = 0.75;
+  poly([[14.5, 11.5], [10, 21], [14.5, 21]]);
+  ctx.restore();
 }
 
 /** Zeichnet das Übersichtsbild in ein Canvas. */
