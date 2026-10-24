@@ -11,7 +11,7 @@ import { ApiError, api } from './services/api';
 import { inflateFromBase64Url } from './services/compress';
 import { fetchTrackFile } from './services/samples';
 import { Store, initialState, visibleTracks, type HoverSource, type Layers, type State } from './services/store';
-import { parseRoute, parseView, serializeView } from './services/url-state';
+import { parseRoute, parseView, routePath, serializeView } from './services/url-state';
 import { loadWeather } from './services/weather-api';
 import { workspace } from './services/workspace';
 import { SessionController, errorText } from './controllers/session';
@@ -107,7 +107,7 @@ export class App {
     try {
       switch (route.kind) {
         case 'share':
-          return await this.openShare(route.id);
+          return await this.openShare(route.id, route.key);
         case 'profile':
         case 'boat':
         case 'discover':
@@ -177,7 +177,8 @@ export class App {
     }
     if (dataChanged || changed('hover') || changed('status')) this.renderHover(s);
     if (prev && (changed('metric') || changed('layers')) && s.mode.kind === 'share') {
-      history.replaceState(null, '', `/s/${s.mode.share.id}?${serializeView(s.metric, s.layers)}`);
+      // Schlüssel („Nur mit Link“) bleibt in der Adresse, sonst wäre der Link nach dem Kopieren tot.
+      history.replaceState(null, '', `${routePath('s', s.mode.share.id, s.mode.key)}?${serializeView(s.metric, s.layers)}`);
     }
   }
 
@@ -270,7 +271,8 @@ export class App {
     on('sx-support-check', () => s.checkSupport());
     on<{ amount: number }>('sx-support-checkout', (d) => s.checkout(d.amount));
     on<string>('sx-share-open', (id) => location.assign(`/s/${id}`));
-    on<string>('sx-share-copy', (id) => s.copy(`${location.origin}/s/${id}`));
+    on<string>('sx-share-copy', (id) => s.copyShare(id));
+    on<string>('sx-link-copy', (path) => s.copyPath(path));
     on<{ id: string; patch: Parameters<SessionController['updateShare']>[1] }>('sx-share-update', (d) => s.updateShare(d.id, d.patch));
     on<string>('sx-share-delete', (id) => s.deleteShare(id));
     on<Parameters<SessionController['saveProfile']>[0]>('sx-profile-save', (p) => s.saveProfile(p));
@@ -407,15 +409,15 @@ export class App {
 
   // ---------------------------------------------------------------- Links & Seiten
 
-  private async openShare(id: string) {
+  private async openShare(id: string, key?: string) {
     this.setLoading('Lade geteilten Törn …');
     try {
-      const [{ share }, payload] = await Promise.all([api.shareMeta(id), api.shareData(id)]);
+      const [{ share }, payload] = await Promise.all([api.shareMeta(id, key), api.shareData(id, key)]);
       const tracks = this.build(payload.tracks.map((t) => ({ name: t.name, text: t.gpx })));
       const view = { ...parseView(share.view), ...parseView(location.search.slice(1)) };
       this.store.set({ metric: view.metric ?? this.store.get().metric, layers: view.layers ?? this.store.get().layers });
       document.title = `${share.title} · Sail Explorer`;
-      await this.setTracks(tracks, { mode: { kind: 'share', share }, fit: true });
+      await this.setTracks(tracks, { mode: key ? { kind: 'share', share, key } : { kind: 'share', share }, fit: true });
     } catch (e) {
       this.setLoading(null);
       this.toast(e instanceof ApiError && e.status === 404 ? 'Diese Freigabe gibt es nicht (mehr) – oder sie ist privat.' : errorText(e), 6000);
@@ -425,7 +427,7 @@ export class App {
   }
 
   /** Profil-, Boots- oder Entdecken-Seite statt Karte. */
-  private async openPage(route: { kind: 'profile'; handle: string } | { kind: 'boat'; id: string } | { kind: 'discover' }) {
+  private async openPage(route: { kind: 'profile'; handle: string; key?: string } | { kind: 'boat'; id: string; key?: string } | { kind: 'discover' }) {
     this.ui.app.setAttribute('data-page', '');
     if (route.kind === 'discover') return this.openDiscover();
     const page = this.ui.page;
@@ -433,11 +435,11 @@ export class App {
     Object.assign(page, { loading: true, error: '', data: null });
     try {
       if (route.kind === 'profile') {
-        const d = await api.profile(route.handle);
+        const d = await api.profile(route.handle, route.key);
         page.data = { kind: 'profile', ...d };
         document.title = `${d.profile.displayName} · Sail Explorer`;
       } else {
-        const d = await api.boat(route.id);
+        const d = await api.boat(route.id, route.key);
         page.data = { kind: 'boat', ...d };
         document.title = `${d.boat.name} · Sail Explorer`;
       }

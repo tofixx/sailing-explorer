@@ -1,9 +1,12 @@
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
-import { HttpError, json, readJson } from './http';
-import { listedShares } from './shares';
-import { BOAT_ID_RE, LIMITS, cleanText, parsePublicVisibility } from './validate';
+import { HttpError, countKeyFailure, json, readJson } from './http';
+import { canView, nextShareKey, requestKey } from './access';
+import { publicShares } from './shares';
+import { checkVisibilityChoice } from './supporter';
+import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
+import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 
 interface BoatRow {
   id: string;
@@ -14,7 +17,9 @@ interface BoatRow {
   sail_number: string;
   home_port: string;
   description: string;
-  visibility: 'public' | 'private';
+  visibility: Visibility;
+  /** Schlüssel für „Nur mit Link“ (0006) */
+  share_key: string | null;
   created_at: number;
   updated_at: number;
   /** aus JOIN/Aggregaten */
@@ -47,7 +52,7 @@ const BOAT_SELECT = `SELECT b.*, p.handle AS owner_handle, p.display_name AS own
 
 async function stats(env: Env, boatId: string) {
   const s = await env.DB.prepare(
-    `SELECT COUNT(*) AS voyages, COALESCE(SUM(dist_nm), 0) AS dist FROM shares WHERE boat_id = ? AND listed = 1 AND visibility = 'unlisted'`,
+    `SELECT COUNT(*) AS voyages, COALESCE(SUM(dist_nm), 0) AS dist FROM shares WHERE boat_id = ? AND visibility = 'public'`,
   )
     .bind(boatId)
     .first<{ voyages: number; dist: number }>();
@@ -64,6 +69,9 @@ export function boatShape(b: BoatRow, role: Role) {
     homePort: b.home_port,
     description: b.description,
     visibility: b.visibility,
+    // Schlüssel und Link nur für Eigner und Admins (Konzept 2.4).
+    shareKey: role ? (b.share_key ?? null) : null,
+    link: role ? sharePath('b', b.id, b.visibility, b.share_key ?? null) : null,
     createdAt: b.created_at,
     updatedAt: b.updated_at,
     // Eigner nur zeigen, wenn dessen Profil öffentlich ist (oder man selbst verwaltet)
@@ -80,9 +88,11 @@ interface BoatInput {
   homePort?: unknown;
   description?: unknown;
   visibility?: unknown;
+  rotateKey?: unknown;
 }
 
-function applyInput(b: BoatRow, input: BoatInput) {
+/** Übernimmt die Eingaben; liefert die gewünschte neue Sichtbarkeit (E1-Prüfung und Schlüssel macht der Aufrufer). */
+function applyInput(b: BoatRow, input: BoatInput): Visibility | null {
   if (input.name !== undefined) {
     const name = cleanText(input.name, LIMITS.nameLength);
     if (!name) throw new HttpError(400, 'invalid_name', 'Bitte einen Bootsnamen angeben.');
@@ -97,11 +107,22 @@ function applyInput(b: BoatRow, input: BoatInput) {
     if (n !== null && !(n >= 1 && n <= 150)) throw new HttpError(400, 'invalid_length', 'Länge bitte zwischen 1 und 150 m.');
     b.length_m = n === null ? null : Math.round(n * 100) / 100;
   }
-  if (input.visibility !== undefined) {
-    const v = parsePublicVisibility(input.visibility);
-    if (!v) throw new HttpError(400, 'invalid_visibility');
-    b.visibility = v;
-  }
+  if (input.visibility === undefined) return null;
+  const v = parseVisibility(input.visibility);
+  if (!v) throw new HttpError(400, 'invalid_visibility', 'Unbekannte Sichtbarkeit.');
+  return v;
+}
+
+/**
+ * Setzt Sichtbarkeit und Schlüssel. E1 gilt für das Konto des Eigners (das Boot gehört ihm, auch wenn ein Admin ändert);
+ * eine schon gesetzte Stufe darf bleiben, auf „Öffentlich“ geht immer.
+ */
+async function applyVisibility(env: Env, b: BoatRow, next: Visibility | null, rotate: boolean, isNew: boolean): Promise<void> {
+  const previous = isNew ? undefined : b.visibility;
+  const v = next ?? b.visibility;
+  if (next) await checkVisibilityChoice(env, b.owner_id, v, previous);
+  b.share_key = nextShareKey(previous ?? null, v, b.share_key, rotate);
+  b.visibility = v;
 }
 
 /** GET /api/boats – Boote, die ich besitze oder verwalte. */
@@ -123,27 +144,34 @@ export async function createBoat(request: Request, env: Env): Promise<Response> 
   const now = Date.now();
   const b: BoatRow = {
     id: randomId(), owner_id: user.id, name: '', boat_type: '', length_m: null, sail_number: '', home_port: '',
-    description: '', visibility: 'private', created_at: now, updated_at: now,
+    description: '', visibility: DEFAULT_VISIBILITY, share_key: null, created_at: now, updated_at: now,
   };
-  applyInput(b, { name: '', ...(await readJson<BoatInput>(request)) });
+  const input = await readJson<BoatInput>(request);
+  // Neue Boote sind öffentlich (E1); eine andere Stufe nur mit Unterstützer-Status.
+  await applyVisibility(env, b, applyInput(b, { name: '', ...input }) ?? DEFAULT_VISIBILITY, false, true);
   await env.DB.prepare(
-    `INSERT INTO boats (id, owner_id, name, boat_type, length_m, sail_number, home_port, description, visibility, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO boats (id, owner_id, name, boat_type, length_m, sail_number, home_port, description, visibility, share_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(b.id, b.owner_id, b.name, b.boat_type, b.length_m, b.sail_number, b.home_port, b.description, b.visibility, now, now)
+    .bind(b.id, b.owner_id, b.name, b.boat_type, b.length_m, b.sail_number, b.home_port, b.description, b.visibility, b.share_key, now, now)
     .run();
   return json({ boat: boatShape(b, 'owner') }, { status: 201 });
 }
 
-/** GET /api/boats/:id – öffentliche Bootsseite (private nur für Verwalter) inkl. gelisteter Törns. */
+/**
+ * GET /api/boats/:id – Bootsseite: öffentlich für alle, „Nur mit Link“ mit X-Share-Key, sonst nur für Verwalter.
+ * Listet nur öffentliche Törns (F-83); der Boots-Schlüssel öffnet keine anderen Törns.
+ */
 export async function getBoat(request: Request, env: Env, id: string): Promise<Response> {
-  if (!BOAT_ID_RE.test(id)) throw NOT_FOUND();
-  const b = await env.DB.prepare(`${BOAT_SELECT} WHERE b.id = ?`).bind(id).first<BoatRow>();
-  if (!b) throw NOT_FOUND();
+  const key = requestKey(request);
+  const b = BOAT_ID_RE.test(id) ? await env.DB.prepare(`${BOAT_SELECT} WHERE b.id = ?`).bind(id).first<BoatRow>() : null;
   const user = await currentUser(request, env);
-  const role = user ? await roleFor(env, user.id, id) : null;
-  if (b.visibility !== 'public' && !role) throw NOT_FOUND();
-  return json({ boat: boatShape(b, role), stats: await stats(env, id), voyages: await listedShares(env, 'boat', id) });
+  const role = b && user ? await roleFor(env, user.id, id) : null;
+  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key ?? null }, { manager: !!role, key })) {
+    await countKeyFailure(env, request, key);
+    throw NOT_FOUND();
+  }
+  return json({ boat: boatShape(b, role), stats: await stats(env, id), voyages: await publicShares(env, 'boat', id) });
 }
 
 /** PATCH /api/boats/:id – Eigner und Admins. */
@@ -154,12 +182,13 @@ export async function updateBoat(request: Request, env: Env, id: string): Promis
   if (!role) throw NOT_FOUND();
   const b = await env.DB.prepare(`${BOAT_SELECT} WHERE b.id = ?`).bind(id).first<BoatRow>();
   if (!b) throw NOT_FOUND();
-  applyInput(b, await readJson<BoatInput>(request));
+  const input = await readJson<BoatInput>(request);
+  await applyVisibility(env, b, applyInput(b, input), input.rotateKey === true, false);
   b.updated_at = Date.now();
   await env.DB.prepare(
-    `UPDATE boats SET name = ?, boat_type = ?, length_m = ?, sail_number = ?, home_port = ?, description = ?, visibility = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE boats SET name = ?, boat_type = ?, length_m = ?, sail_number = ?, home_port = ?, description = ?, visibility = ?, share_key = ?, updated_at = ? WHERE id = ?`,
   )
-    .bind(b.name, b.boat_type, b.length_m, b.sail_number, b.home_port, b.description, b.visibility, b.updated_at, id)
+    .bind(b.name, b.boat_type, b.length_m, b.sail_number, b.home_port, b.description, b.visibility, b.share_key, b.updated_at, id)
     .run();
   return json({ boat: boatShape(b, role) });
 }

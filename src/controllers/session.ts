@@ -6,7 +6,7 @@ import {
   api,
   validatePayload,
   type BoatInput,
-  type Profile,
+  type ProfileInput,
   type ShareMeta,
   type SharePatch,
   type SupportStatus,
@@ -15,7 +15,8 @@ import { deflateToBase64Url, gzipString } from '../services/compress';
 import { DEFAULT_CONTENT, imageFileName, renderShareImage, type ImageContent, type ImageFormat } from '../services/share-image';
 import { visibleTracks, type Store } from '../services/store';
 import { turnstileMount } from '../services/turnstile';
-import { serializeView } from '../services/url-state';
+import { absoluteLink, routePath, serializeView } from '../services/url-state';
+import { DEFAULT_VISIBILITY, type Visibility } from '../domain/visibility';
 import type { AccountTab, SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxLoginDialog } from '../components/sx-login-dialog';
 import type { SxShareDialog } from '../components/sx-share-dialog';
@@ -33,8 +34,7 @@ export interface SessionUi {
 
 export interface ShareRequest {
   title: string;
-  visibility: 'unlisted' | 'private';
-  listed: boolean;
+  visibility: Visibility;
   boatId: string | null;
   includeView: boolean;
 }
@@ -205,9 +205,12 @@ export class SessionController {
     let result: { share: ShareMeta; url: string } | null = null;
     if (s.mode.kind === 'share') {
       // Geteilte Ansicht weitergeben – inkl. aktueller Einfärbung/Ebenen
-      result = { share: s.mode.share, url: `${location.origin}/s/${s.mode.share.id}?${serializeView(s.metric, s.layers)}` };
+      // Eigentümer bekommen den aktuellen Link vom Server, alle anderen geben den Link weiter, mit dem sie gekommen sind.
+      const { share, key } = s.mode;
+      const path = share.isOwner && share.link ? share.link : routePath('s', share.id, key);
+      result = { share, url: `${location.origin}${path}?${serializeView(s.metric, s.layers)}` };
     } else if (this.lastShare?.key === this.tracksKey()) {
-      result = { share: this.lastShare.share, url: `${location.origin}/s/${this.lastShare.share.id}` };
+      result = { share: this.lastShare.share, url: shareUrl(this.lastShare.share) };
     }
     const linkState = !s.backend ? 'offline' : s.user ? 'form' : 'login';
     Object.assign(this.ui.share, {
@@ -218,6 +221,7 @@ export class SessionController {
       error: '',
       busy: false,
       boats: [],
+      visibility: DEFAULT_VISIBILITY,
       defaultTitle: s.mode.kind === 'share' ? s.mode.share.title : names.length > 1 ? `${names[0]} → ${names[names.length - 1]}` : names[0],
       summary: shareSummary(s.tracks),
       checking: false,
@@ -317,8 +321,8 @@ export class SessionController {
     else this.ui.share.error = 'Noch ist keine Zahlung angekommen. Das kann ein paar Sekunden dauern – bitte gleich noch einmal prüfen.';
   }
 
-  private showResult(share: ShareMeta, url = `${location.origin}/s/${share.id}`) {
-    Object.assign(this.ui.share, { open: true, tab: 'link', error: '', busy: false, result: { share, url } });
+  private showResult(share: ShareMeta) {
+    Object.assign(this.ui.share, { open: true, tab: 'link', error: '', busy: false, result: { share, url: shareUrl(share) } });
   }
 
   /** Aus dem Link-Reiter: erst anmelden, danach geht es im Dialog weiter. */
@@ -421,7 +425,6 @@ export class SessionController {
         view: d.includeView ? serializeView(s.metric, s.layers) : '',
         trackCount: s.tracks.length,
         visibility: d.visibility,
-        listed: d.listed,
         boatId: d.boatId,
         distNm: s.tracks.reduce((sum, t) => sum + t.stats.distNm, 0),
         startedAt: starts.length ? Math.min(...starts) : null,
@@ -456,6 +459,18 @@ export class SessionController {
       return this.ui.toast(`Track ist für einen Link zu groß (${Math.round(url.length / 1024)} kB) und Teilen per Server ist hier nicht verfügbar.`, 7000);
     }
     await this.copy(url);
+  }
+
+  /** Link einer eigenen Freigabe kopieren – mit Schlüssel, wenn sie „Nur mit Link“ ist. */
+  copyShare(id: string): Promise<void> {
+    const share = this.ui.account.shares.find((s) => s.id === id) ?? (this.lastShare?.share.id === id ? this.lastShare.share : null);
+    return this.copy(share ? shareUrl(share) : `${location.origin}/s/${id}`);
+  }
+
+  /** Pfad einer eigenen Seite (/b/…, /u/…, /s/…) als absoluten Link kopieren. */
+  copyPath(path: string): Promise<void> {
+    if (!/^\/[sbu]\/[A-Za-z0-9/-]+$/.test(path)) return Promise.resolve();
+    return this.copy(location.origin + path);
   }
 
   async copy(text: string): Promise<void> {
@@ -496,11 +511,11 @@ export class SessionController {
     }
   }
 
-  saveProfile(p: Pick<Profile, 'handle' | 'displayName' | 'bio' | 'visibility'>) {
+  saveProfile(p: ProfileInput) {
     return this.act(async () => {
       const { profile } = await api.saveProfile(p);
       Object.assign(this.ui.account, { profile, profileExists: true });
-    }, 'Profil gespeichert');
+    }, p.rotateKey ? ROTATED : 'Profil gespeichert');
   }
 
   saveBoat(id: string | null, input: BoatInput) {
@@ -508,7 +523,7 @@ export class SessionController {
       const { boat } = id ? await api.updateBoat(id, input) : await api.createBoat(input);
       const boats = this.ui.account.boats;
       this.ui.account.boats = id ? boats.map((b) => (b.id === id ? boat : b)) : [...boats, boat];
-    }, id ? 'Boot gespeichert' : 'Boot angelegt');
+    }, input.rotateKey ? ROTATED : id ? 'Boot gespeichert' : 'Boot angelegt');
   }
 
   deleteBoat(id: string) {
@@ -524,9 +539,9 @@ export class SessionController {
       const { share } = await api.updateShare(id, patch);
       this.ui.account.shares = this.ui.account.shares.map((s) => (s.id === id ? share : s));
       const mode = this.store.get().mode;
-      if (mode.kind === 'share' && mode.share.id === id) this.store.set({ mode: { kind: 'share', share } });
+      if (mode.kind === 'share' && mode.share.id === id) this.store.set({ mode: { ...mode, share } });
       if (this.lastShare?.share.id === id) this.lastShare.share = share;
-    });
+    }, patch.rotateKey ? ROTATED : undefined);
   }
 
   deleteShare(id: string) {
@@ -537,6 +552,13 @@ export class SessionController {
       if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: Math.max(0, this.supportStatus.sharesUsed - 1) });
     }, 'Freigabe gelöscht');
   }
+}
+
+const ROTATED = 'Neuer Link erstellt – der alte Link funktioniert nicht mehr.';
+
+/** Absoluter Link einer eigenen Freigabe (mit Schlüssel bei „Nur mit Link“). */
+function shareUrl(share: ShareMeta): string {
+  return absoluteLink('s', share.id, share);
 }
 
 export function errorText(e: unknown): string {

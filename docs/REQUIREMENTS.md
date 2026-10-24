@@ -31,21 +31,21 @@ Jede Anforderung hat eine ID; Tests referenzieren sie im Testnamen (z. B. `[F-03
 - **F-30** Gast-Sitzung: geladene Tracks bleiben lokal (IndexedDB) und werden beim nächsten Besuch wiederhergestellt; ein Hinweis zeigt „nur dieses Gerät“. Ohne Teilen verlässt nichts das Gerät.
 - **F-31** Teilen persistiert auf dem Server und setzt eine Anmeldung voraus. Nicht angemeldet → Anmeldedialog, danach geht es direkt mit dem Teilen weiter.
 - **F-32** Anmeldung per Magic Link: E-Mail eingeben → Link (15 min, einmalig) → Klick meldet an, auch im ursprünglichen Tab. Antwort verrät nicht, ob ein Konto existiert. Begrenzung pro Adresse und IP.
-- **F-33** Freigabe: Titel, Sichtbarkeit „Alle mit dem Link“ oder „Nur ich“, optional aktuelle Ansicht (Einfärbung, Ebenen). Ergebnis: Link `/s/<id>` zum Kopieren/Teilen.
-- **F-34** Geteilte Links öffnen eine vollständig interaktive Ansicht (Karte, Wetter, Diagramme, Hover), ohne Anmeldung (außer „Nur ich“). Der Ansichtszustand steht in der URL (`?m=…&l=…`).
+- **F-33** Freigabe: Titel, Sichtbarkeit (F-80, Standard „Öffentlich“), optional aktuelle Ansicht (Einfärbung, Ebenen). Ergebnis: Link `/s/<id>` bzw. bei „Nur mit Link“ `/s/<id>/<schlüssel>` zum Kopieren/Teilen. Eine unbekannte Sichtbarkeit wird mit 400 abgelehnt.
+- **F-34** Geteilte Links öffnen eine vollständig interaktive Ansicht (Karte, Wetter, Diagramme, Hover), ohne Anmeldung (außer „Nur ich“; „Nur mit Link“ braucht den Schlüssel, F-90). Der Ansichtszustand steht in der URL (`?m=…&l=…`).
 - **F-35** Private Freigaben sind für andere nicht von gelöschten/unbekannten unterscheidbar (404).
-- **F-36** „Meine Tracks“: eigene Freigaben auflisten, öffnen, Link kopieren, umbenennen, Sichtbarkeit ändern, löschen (mit Bestätigung).
+- **F-36** „Meine Tracks“: eigene Freigaben auflisten, öffnen, Link kopieren, umbenennen, Sichtbarkeit ändern, Link erneuern (F-92), löschen (mit Bestätigung).
 - **F-37** Konto: abmelden; Konto löschen entfernt Sessions, Freigaben und Dateien.
 - **F-38** Fremde Freigaben lassen sich nicht ändern oder löschen.
-- **F-39** Link-Vorschau (Messenger) zeigt Titel und Kurzinfo öffentlicher Freigaben, private bleiben neutral.
-- **F-41** Profil: Angemeldete legen ein Profil mit Profiladresse (`/u/<name>`), Anzeigename und Bio an; standardmäßig privat. Die E-Mail-Adresse erscheint nie öffentlich. Reservierte und vergebene Namen werden abgelehnt.
-- **F-42** Boote: Angemeldete legen Boote an (Name, Typ, Länge, Segelnummer, Heimathafen optional, Beschreibung, Sichtbarkeit). Jedes Boot hat genau einen Eigner; weitere Admins sind im Modell vorgesehen. Bearbeiten dürfen Eigner und Admins, löschen nur der Eigner – Törns bleiben dabei erhalten.
+- **F-39** Link-Vorschau (Messenger) zeigt Titel und Kurzinfo öffentlicher Freigaben (und von „Nur mit Link“ über den gültigen Schlüssel-Link, F-85), private bleiben neutral.
+- **F-41** Profil: Angemeldete legen ein Profil mit Profiladresse (`/u/<name>`), Anzeigename und Bio an; standardmäßig öffentlich (F-80). Speichern ohne Sichtbarkeit lässt eine bestehende Stufe unverändert. Die E-Mail-Adresse erscheint nie öffentlich. Reservierte und vergebene Namen werden abgelehnt.
+- **F-42** Boote: Angemeldete legen Boote an (Name, Typ, Länge, Segelnummer, Heimathafen optional, Beschreibung, Sichtbarkeit nach F-80, Standard „Öffentlich“). Jedes Boot hat genau einen Eigner; weitere Admins sind im Modell vorgesehen. Bearbeiten dürfen Eigner und Admins, löschen nur der Eigner – Törns bleiben dabei erhalten.
 - **F-43** Jede Freigabe hat einen Eigentümer (den Hochladenden) und kann einem Boot zugeordnet werden, das man verwalten darf.
-- **F-44** Sichtbarkeit einer Freigabe: „Öffentlich“ (auf Profil- und Bootsseite gelistet), „Mit Link“, „Nur ich“.
-- **F-45** Profil- und Bootsseiten zeigen Kennzahlen (Seemeilen, Törns) und die öffentlichen Törns; private Seiten sind für andere 404.
-- **F-46** Link-Vorschau für öffentliche Profil- und Bootsseiten; diese dürfen indexiert werden, geteilte Törns nicht.
+- **F-44** Sichtbarkeit einer Freigabe: „Öffentlich“ (`public`, auf Profil-, Bootsseite und unter Entdecken gelistet), „Nur mit Link“ (`unlisted`), „Nur ich“ (`private`) – siehe F-80 ff. Die frühere Spalte `listed` wird nicht mehr gelesen.
+- **F-45** Profil- und Bootsseiten zeigen Kennzahlen (Seemeilen, Törns) und die öffentlichen Törns; private Seiten und „Nur mit Link“ ohne gültigen Schlüssel sind für andere 404.
+- **F-46** Link-Vorschau für öffentliche Profil- und Bootsseiten; Indexierung regelt F-84 (öffentliche Törns dürfen seit E2 ebenfalls indexiert werden).
 - **F-47** Übersichtsbild: Der Törn lässt sich als Bild teilen oder herunterladen – ohne Anmeldung, im Browser erzeugt. Formate Querformat (1200×630) und Quadrat (1080×1080); Inhalte wählbar (Titel, Datum, Start & Ziel, Distanz, Dauer, Fahrt, Wind, Wellen, Legende, Seekarte). Die Angaben stehen in einem eigenen Randbereich und verdecken den Track nie.
-- **F-48** Beim Erstellen eines Links wird das Übersichtsbild mit gespeichert und erscheint als Link-Vorschau (og:image) – nur für öffentliche bzw. per Link geteilte Törns, private bleiben ohne Bild.
+- **F-48** Beim Erstellen eines Links wird das Übersichtsbild mit gespeichert und erscheint als Link-Vorschau (og:image) – für öffentliche Törns und für „Nur mit Link“ über den Schlüssel-Link (Bild-URL mit `?k=<schlüssel>`); private bleiben ohne Bild. Nur öffentliche Bilder dürfen geteilt gecacht werden.
 - **F-40** Ohne Backend (statisches Hosting) funktioniert alles außer Server-Teilen; kleine Tracks können als Link mit eingebetteten Daten geteilt werden; alte `#g=`-Links funktionieren weiter.
 
 ## Unterstützen
@@ -59,11 +59,25 @@ Jede Anforderung hat eine ID; Tests referenzieren sie im Testnamen (z. B. `[F-03
 - **F-66** Erinnerung: 14 Tage vor dem Löschen kommt eine Mail pro Konto mit allen betroffenen Törns, je Törn höchstens einmal. Schlägt der Versand fehl, wird es in der nächsten Nacht erneut versucht.
 - **F-67** Inaktive Konten: Konten ohne Törns und ohne laufenden Unterstützer-Status werden nach 12 Monaten ohne Anmeldung vollständig gelöscht (wie „Konto löschen“). Abgelaufene Login-Links und Sessions werden nächtlich entfernt.
 
+## Sichtbarkeit und Teilen-Links
+
+- **F-80** Törns, Boote und Profile haben die Sichtbarkeit „Öffentlich“ (`public`), „Nur mit Link“ (`unlisted`) oder „Nur ich“ (`private`); die letzten beiden nur für Unterstützer (F-124). Neue Objekte sind standardmäßig öffentlich; der Dialog erklärt die Folgen vor dem Speichern. Geprüft wird die Stufe in `worker/validate.ts`, nicht per SQL-`CHECK`.
+- **F-82** Ein Törn ist unabhängig von Boot und Profil sichtbar: Ist das Boot nicht öffentlich, wird es nicht genannt; ist das Profil nicht öffentlich (auch „Nur mit Link“), erscheint der Autor ohne Namen und Link.
+- **F-83** Profil- und Bootsseiten sowie `/entdecken` listen nur öffentliche Objekte; Kennzahlen zählen nur öffentliche Törns. Öffentliche Törns erscheinen sofort. Ein Boots- oder Profil-Schlüssel öffnet keine „Nur mit Link“-Törns.
+- **F-84** Indexierbar sind öffentliche Törns, Profile, Boote und `/entdecken`. Seiten mit Schlüssel im Pfad, Privates, Unbekanntes und alle `/api/*`-Antworten (`X-Robots-Tag: noindex`) sind `noindex`.
+- **F-85** Link-Vorschau mit Titel, Text und Bild für öffentliche Objekte und für „Nur mit Link“ nur über den gültigen Schlüssel-Link (`/s/<id>/<schlüssel>`, `/b/<id>/<schlüssel>`, `/u/<name>/<schlüssel>`); sonst neutral.
+- **F-86** Bestehende Freigaben werden übernommen (Migration `0006`): gelistet → öffentlich, nicht gelistet → „Nur mit Link“ ohne Schlüssel, privat → privat. Boote und Profile behalten ihre Sichtbarkeit; nichts wird still hochgestuft.
+- **F-90** „Nur mit Link“ ist über `/<art>/<id oder name>/<schlüssel>` erreichbar; die API erwartet den Schlüssel im Header `X-Share-Key`, Bilder als `?k=`. Der Schlüssel hat 128 Bit (22 Zeichen), liegt im Klartext in D1, wird zeitkonstant verglichen und erscheint (`shareKey`, `link`) nur für den Eigentümer bzw. Eigner und Admins. Er entsteht bei neuen „Nur mit Link“-Objekten und beim ersten Wechsel dorthin und bleibt über „Nur ich“ und „Öffentlich“ hinweg gespeichert. Öffentliche Objekte ignorieren jeden mitgeschickten Schlüssel.
+- **F-91** Bestehende Links `/s/<id>` von „Nur mit Link“-Törns ohne Schlüssel (Altbestand) funktionieren weiter, bis der Eigentümer den Link erneuert oder die Sichtbarkeit wechselt.
+- **F-92** „Link erneuern“ (`rotateKey: true` bei `PATCH /api/shares/:id`, `PATCH /api/boats/:id`, `PUT /api/me/profile`) erzeugt einen neuen Schlüssel; alle bisherigen Schlüssel-Links sind sofort 404.
+- **F-93** Falscher, fehlender, veralteter oder kaputter Schlüssel, private und unbekannte Objekte antworten gleich (404, gleicher Body). Fehlversuche mit Schlüssel sind pro IP begrenzt (`LINK_LIMITER`, 30 pro 60 s, sonst 429); Aufrufe ohne Schlüssel und Erfolge zählen nicht.
+- **F-124** Kostenlose Konten speichern nur Öffentliches: „Nur mit Link“ und „Nur ich“ verlangen beim Anlegen und beim Wechsel einen laufenden Unterstützer-Status (sonst 402 `supporter_required` mit deutscher Meldung) – für Törns, Boote (maßgeblich ist der Eigner) und Profile. Endet die Unterstützung, bleiben bestehende nicht öffentliche Objekte unverändert (auch beim Bearbeiten anderer Felder und beim Erneuern des Links); auf „Öffentlich“ schalten oder löschen geht immer.
+
 ## Community (Entdecken)
 
 - **F-70** Entdecken: Auf der Startseite zeigt – solange keine eigenen Tracks geladen sind – unter der Einstiegskarte eine Leiste „Zuletzt gesegelt“ die neuesten öffentlichen Törns (Übersichtsbild oder Platzhalter, Titel, Distanz, Datum, Segler, Boot) mit Link „Alle entdecken“. Die Seite `/entdecken` zeigt drei Abschnitte: Törns, Boote, Segler, jeweils neueste zuerst. Die Leiste verdeckt die Karte nicht und ist mobil seitlich scrollbar; ohne Backend, bei Fehlern oder ohne öffentliche Törns bleibt sie unsichtbar.
-- **F-71** Datenschutz Törns: Es erscheinen nur Törns mit Sichtbarkeit „Öffentlich“ (auf dem Profil gelistet), deren Besitzer ein öffentliches Profil hat. „Mit Link“, „Nur ich“ sowie Törns von Nutzern ohne oder mit privatem Profil erscheinen nie. Der Boot-Name steht nur am Törn, wenn das Boot öffentlich ist. Änderungen der Sichtbarkeit wirken sofort (höchstens 60 s Cache).
-- **F-72** Datenschutz Boote und Segler: Boote nur mit Sichtbarkeit „öffentlich“ und öffentlichem Eigner-Profil; Segler nur mit öffentlichem Profil und mindestens einem öffentlichen Törn oder Boot – leere Profile werden nicht beworben.
+- **F-71** Datenschutz Törns: Es erscheinen nur Törns mit Sichtbarkeit „Öffentlich“ (`public`), unabhängig vom Profil (F-82). „Nur mit Link“ und „Nur ich“ erscheinen nie. Der Segler wird nur bei öffentlichem Profil genannt (sonst `sailor: null`), der Boot-Name nur, wenn das Boot öffentlich ist. Änderungen der Sichtbarkeit wirken sofort (höchstens 60 s Cache).
+- **F-72** Datenschutz Boote und Segler: Boote nur mit Sichtbarkeit „Öffentlich“ und öffentlichem Eigner-Profil; Segler nur mit öffentlichem Profil und mindestens einem öffentlichen Törn oder Boot – leere Profile werden nicht beworben. Kennzahlen zählen nur öffentliche Törns.
 - **F-73** Die Entdecken-Daten enthalten nie E-Mail-Adressen, Nutzer-IDs oder Sichtbarkeits-Interna; der Server wählt die Felder ausdrücklich aus. Die Auswahl ist für alle gleich (unabhängig von der Anmeldung) und darf deshalb kurz öffentlich gecacht werden.
 - **F-74** Grenzen: höchstens 24 Einträge je Liste (Standard 12), Sortierung Törns nach Start- bzw. Erstellzeit, Boote und Segler nach Erstellzeit. `/entdecken` hat eine eigene Link-Vorschau und darf indexiert werden.
 

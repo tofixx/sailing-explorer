@@ -4,6 +4,8 @@ export interface Env {
   TRACKS: R2Bucket;
   UPLOAD_LIMITER?: RateLimit;
   AUTH_LIMITER?: RateLimit;
+  /** Fehlversuche mit Teilen-Schlüssel (30 pro 60 s und IP), nur auf dem Fehlerpfad */
+  LINK_LIMITER?: RateLimit;
   /** Cloudflare Email Sending (nur mit Workers Paid für beliebige Empfänger) */
   EMAIL?: SendEmail;
 

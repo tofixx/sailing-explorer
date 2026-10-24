@@ -1,5 +1,5 @@
 import { LitElement, css, html } from 'lit';
-import type { DiscoverBoat, DiscoverData, DiscoverPerson, DiscoverVoyage } from '../services/api';
+import { shareImageUrl, type DiscoverBoat, type DiscoverData, type DiscoverPerson, type DiscoverVoyage } from '../services/api';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
 import { base } from './shared';
@@ -115,7 +115,7 @@ export class SxDiscover extends LitElement {
         gap: var(--s-1);
         margin-top: var(--s-1);
       }
-      a.chip {
+      .chip {
         position: relative;
         z-index: 1;
         display: inline-flex;
@@ -139,7 +139,10 @@ export class SxDiscover extends LitElement {
         color: var(--accent);
         border-color: var(--accent);
       }
-      a.chip svg {
+      .chip.anon {
+        border-style: dashed;
+      }
+      .chip svg {
         width: 14px;
         height: 14px;
       }
@@ -321,13 +324,15 @@ export class SxDiscover extends LitElement {
   private voyage(v: DiscoverVoyage) {
     return html`<article class="voyage">
       <div class="thumb">
-        ${v.hasImage ? html`<img src="/api/shares/${v.id}/image" alt="" loading="lazy" decoding="async" />` : icon('map')}
+        ${v.hasImage ? html`<img src=${shareImageUrl(v.id)} alt="" loading="lazy" decoding="async" />` : icon('map')}
       </div>
       <div class="info">
         <a class="main" href="/s/${v.id}" title=${v.title}>${v.title}</a>
         <span class="meta">${fmtNum(v.distNm, 1)} sm · ${fmtDate(v.startedAt ?? v.createdAt)}</span>
         <div class="chips">
-          <a class="chip" href="/u/${v.sailor.handle}" title="Profil von ${v.sailor.displayName}">${icon('user')}${v.sailor.displayName}</a>
+          ${v.sailor
+            ? html`<a class="chip" href="/u/${v.sailor.handle}" title="Profil von ${v.sailor.displayName}">${icon('user')}${v.sailor.displayName}</a>`
+            : html`<span class="chip anon" title="Profil nicht öffentlich">${icon('user')}Segler:in</span>`}
           ${v.boat ? html`<a class="chip" href="/b/${v.boat.id}" title="Boot ${v.boat.name}">${icon('sail')}${v.boat.name}</a>` : ''}
         </div>
       </div>

@@ -245,6 +245,13 @@ describe('sx-discover', () => {
     expect([...b.querySelectorAll('a')].map((x) => x.getAttribute('href'))).toEqual(['/s/b', '/u/anna']);
   });
 
+  it('[Phase A] Autor:in ohne öffentliches Profil (sailor: null) erscheint als „Segler:in“ ohne Link', async () => {
+    const el = await mount('sx-discover', { variant: 'strip', data: data({ voyages: [voyage('a', { sailor: null, boat: { id: 'BoatId123456', name: 'Möwe' } })] }) });
+    const card = el.shadowRoot.querySelector('article')!;
+    expect(card.textContent).toContain('Segler:in');
+    expect([...card.querySelectorAll('a')].map((x) => x.getAttribute('href'))).toEqual(['/s/a', '/b/BoatId123456']);
+  });
+
   it('[F-70] Übersichtsbild nur mit hasImage und lazy geladen, sonst Platzhalter', async () => {
     const el = await mount('sx-discover', { variant: 'page', data: data({ voyages: [voyage('a', { hasImage: true }), voyage('b')] }) });
     const imgs = [...el.shadowRoot.querySelectorAll('img')];

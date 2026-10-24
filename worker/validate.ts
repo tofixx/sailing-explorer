@@ -1,5 +1,6 @@
 // Reine Validierungsfunktionen – ohne Worker-APIs, damit sie unit-testbar sind.
 import { SUPPORT_TIERS } from '../src/domain/support';
+import { isVisibility, type Visibility } from '../src/domain/visibility';
 
 export const LIMITS = {
   /** komprimierte Upload-Größe */
@@ -22,7 +23,7 @@ export const LIMITS = {
 export const SHARE_ID_RE = /^[A-Za-z0-9]{12,32}$/;
 export const TOKEN_RE = /^[A-Za-z0-9_-]{40,64}$/;
 
-export type Visibility = 'unlisted' | 'private';
+export type { Visibility };
 
 /** Steuerzeichen, Zero-Width- und Bidi-Override-Zeichen (Spoofing in Titeln). */
 function isInvisible(cp: number): boolean {
@@ -49,8 +50,9 @@ export function normalizeEmail(input: unknown): string | null {
   return email;
 }
 
+/** Sichtbarkeit von Törns, Booten und Profilen: public | unlisted | private (Konzept 1.1). Alles andere → null. */
 export function parseVisibility(input: unknown): Visibility | null {
-  return input === 'unlisted' || input === 'private' ? input : null;
+  return isVisibility(input) ? input : null;
 }
 
 /** Ansichtszustand ist ein Querystring-Fragment wie "m=wind&l=s,w" – nur bekannte Zeichen. */
@@ -74,11 +76,6 @@ export function isSameOrigin(request: Request): boolean {
 }
 
 export const BOAT_ID_RE = SHARE_ID_RE;
-
-/** Sichtbarkeit von Profilen und Booten. */
-export function parsePublicVisibility(input: unknown): 'public' | 'private' | null {
-  return input === 'public' || input === 'private' ? input : null;
-}
 
 // ---------------------------------------------------------------- Unterstützen
 

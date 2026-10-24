@@ -6,6 +6,7 @@ import { randomId } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readBodyCapped, readJson } from './http';
 import { LIMITS, SHARE_ID_RE, parseFreeShares, parseStripeSignature, parseSupportAmount, timingSafeEqual } from './validate';
 import { SUPPORT_MS, SUPPORT_TIERS, formatEuro, tierFor, type SupportTier } from '../src/domain/support';
+import { VISIBILITY_LABEL, canChooseVisibility, type Visibility } from '../src/domain/visibility';
 
 /** Maximales Alter einer Webhook-Signatur (Schutz gegen Wiedereinspielen). */
 const SIGNATURE_TOLERANCE_S = 5 * 60;
@@ -75,6 +76,31 @@ export function checkShareQuota(env: Env, s: SupportStatus): void {
       ? `Kostenlos kannst du ${free} speichern. Für weitere Törns unterstütze Sail Explorer mit einem Kaffee oder Bier – oder lösche einen älteren Törn.`
       : `Kostenlos kannst du ${free} speichern. Lösche einen älteren Törn unter „Konto & Freigaben“, um Platz zu schaffen.`,
   );
+}
+
+/** Läuft der Unterstützer-Status gerade? (Eine Abfrage, ohne die Zählungen aus supportStatus.) */
+export async function isSupporter(env: Env, userId: string, now = Date.now()): Promise<boolean> {
+  const row = await env.DB.prepare('SELECT MAX(valid_until) AS until FROM supports WHERE user_id = ?').bind(userId).first<{ until: number | null }>();
+  return row?.until != null && row.until > now;
+}
+
+/** 402 für „Nur mit Link“/„Nur ich“ ohne laufenden Unterstützer-Status (E1). */
+export function visibilityRequiresSupport(env: Env): HttpError {
+  return new HttpError(
+    402,
+    'supporter_required',
+    `„${VISIBILITY_LABEL.unlisted}“ und „${VISIBILITY_LABEL.private}“ gibt es nur für Unterstützer – kostenlos ist alles öffentlich.` +
+      (supportConfigured(env) ? ' Unterstütze Sail Explorer mit einem Kaffee oder Bier, um die Sichtbarkeit selbst zu wählen.' : ''),
+  );
+}
+
+/**
+ * E1/E4: „Nur mit Link“ und „Nur ich“ nur mit laufendem Unterstützer-Status; eine schon gesetzte Stufe darf bleiben,
+ * auf „Öffentlich“ geht immer. Sonst 402 supporter_required. Den Status fragt sie nur ab, wenn es darauf ankommt.
+ */
+export async function checkVisibilityChoice(env: Env, userId: string, next: Visibility, current?: Visibility): Promise<void> {
+  if (canChooseVisibility(next, false, current)) return;
+  if (!canChooseVisibility(next, await isSupporter(env, userId), current)) throw visibilityRequiresSupport(env);
 }
 
 /** GET /api/me/support – Unterstützer-Status und genutzte Freigaben. */

@@ -8,8 +8,8 @@ const paths = {
   sail: svg`<path class="f" d="M11.5 3.5 5 16h6.5z"/><path d="M11.5 3.5 5 16h6.5zM13.5 6.5c3 2.5 4.6 5.7 4.8 9.5h-4.8z"/><path d="M3.5 18.5h17l-2 2.5h-13z"/>`,
   // GPX laden: Seekarte mit Kurslinie + Pfeil
   upload: svg`<path class="f" d="M5 4h9l5 5v11H5z"/><path d="M14 4H5v16h14V9zM14 4v5h5"/><path d="M8.5 16.5 11 13l2 2 2.5-3.5"/><path d="M12 2v0"/>`,
-  // Teilen: Flaschenpost
-  share: svg`<path class="f" d="M9 9.5 14.5 4l5.5 5.5L14.5 15z"/><path d="M9 9.5 14.5 4l5.5 5.5L14.5 15zM9 9.5l-5 5L9.5 20l5-5"/><path d="m16.5 2 5.5 5.5"/><path d="M11.5 12.5l2 2"/>`,
+  // Teilen: das bekannte Symbol – drei verbundene Punkte
+  share: svg`<circle class="f" cx="18" cy="5.5" r="2.75"/><circle class="f" cx="6" cy="12" r="2.75"/><circle class="f" cx="18" cy="18.5" r="2.75"/><circle cx="18" cy="5.5" r="2.75"/><circle cx="6" cy="12" r="2.75"/><circle cx="18" cy="18.5" r="2.75"/><path d="m8.4 10.7 7.2-3.9M8.4 13.3l7.2 3.9"/>`,
   link: svg`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>`,
   copy: svg`<rect class="f" x="9" y="9" width="11" height="11" rx="2.5"/><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/>`,
   // Konto: Kapitänsmütze-Silhouette

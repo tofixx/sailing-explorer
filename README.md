@@ -21,7 +21,8 @@
 | **Karte** | Seekarte (Esri Ocean) bei Tag, Nachtkarte im Dark Mode, OpenSeaMap-Seezeichen, EMODnet-Wassertiefe. Track eingefärbt nach Fahrt, Wind, Böen oder Wellen. Eigene Symbole: Wind-Badges mit Knotenzahl, Wellen-Chevrons, Start-/Ziel-Pins. |
 | **Alles verknüpft** | Hover (oder Tippen) auf Karte, Diagramm oder Max-Kennzahl zeigt denselben Moment überall. |
 | **Gast-Sitzung** | Ohne Anmeldung bleibt alles im Browser (IndexedDB) und ist beim nächsten Besuch wieder da. |
-| **Teilen** | Anmeldung per Magic Link, dann Upload. Links `/s/<id>` öffnen eine vollständig interaktive Ansicht; Einfärbung und Ebenen stehen in der URL. Sichtbarkeit: öffentlich (auf Profil), mit Link, nur ich. |
+| **Teilen** | Anmeldung per Magic Link, dann Upload. Links `/s/<id>` öffnen eine vollständig interaktive Ansicht; Einfärbung und Ebenen stehen in der URL. |
+| **Sichtbarkeit** | Törns, Boote und Profile: **Öffentlich** (Standard, gelistet), **Nur mit Link** (geheimer Link `/s/<id>/<key>`, jederzeit erneuerbar) oder **Nur ich**. Kostenlos ist alles öffentlich; die beiden anderen Stufen gibt es für Unterstützer. |
 | **Als Bild teilen** | Übersichtsbild im Quer- oder Quadratformat mit wählbaren Angaben (Start/Ziel, Dauer, Fahrt, Wind, Wellen …) am Rand – herunterladen oder über das Teilen-Menü des Geräts; dient auch als Link-Vorschau. |
 | **Profile & Boote** | Profilseite `/u/<name>` und Bootsseiten `/b/<id>` mit Seemeilen und Törns. Boote haben einen Eigner (weitere Admins vorgesehen). |
 | **Unterstützen** | 3 gespeicherte Törns pro Konto sind kostenlos. Wer mehr speichern will, gibt einmal einen Kaffee oder ein Bier aus (Stripe) – und hilft so, Server und Karten zu bezahlen. |

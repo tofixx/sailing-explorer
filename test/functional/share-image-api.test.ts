@@ -1,6 +1,6 @@
 // Funktionale Tests: Übersichtsbild einer Freigabe (F-47) – echter Worker mit lokalem D1/R2.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createShare, login, startWorker, type Harness } from './worker-harness';
+import { createShare, login, loginSupporter, startWorker, type Harness } from './worker-harness';
 
 let h: Harness;
 let n = 0;
@@ -16,10 +16,10 @@ afterAll(async () => {
 /** Kleinstes gültiges JPEG-Präfix reicht – der Worker prüft nur die Signatur. */
 const JPEG: Uint8Array<ArrayBuffer> = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new Array(64).fill(1), 0xff, 0xd9]);
 
-async function newShare(cookie: string, visibility: 'unlisted' | 'private' = 'unlisted') {
+async function newShare(cookie: string, visibility: 'public' | 'unlisted' | 'private' = 'public') {
   const res = await createShare(h, cookie, { visibility });
   expect(res.status).toBe(201);
-  return ((await res.json()) as { share: { id: string; hasImage: boolean } }).share;
+  return ((await res.json()) as { share: { id: string; hasImage: boolean; shareKey: string | null } }).share;
 }
 
 const putImage = (id: string, cookie: string | undefined, body: Uint8Array<ArrayBuffer> = JPEG, type = 'image/jpeg') =>
@@ -74,7 +74,7 @@ describe('F-47 Übersichtsbild', () => {
   });
 
   it('[F-47] private Freigabe: Bild nur für den Besitzer', async () => {
-    const owner = await login(h, email());
+    const owner = await loginSupporter(h, email());
     const s = await newShare(owner.cookie, 'private');
     await putImage(s.id, owner.cookie);
     expect((await h.fetch(`/api/shares/${s.id}/image`)).status).toBe(404);
@@ -83,8 +83,27 @@ describe('F-47 Übersichtsbild', () => {
     expect(mine.headers.get('Cache-Control')).toContain('private');
   });
 
+  it('[F-90] „Nur mit Link“: Bild nur mit ?k=<Schlüssel>, nie öffentlich gecacht; falscher Schlüssel = unbekannt', async () => {
+    const owner = await loginSupporter(h, email());
+    const s = await newShare(owner.cookie, 'unlisted');
+    await putImage(s.id, owner.cookie);
+    const unknown = await h.fetch('/api/shares/AbCdEfGhJkLmNpQr23/image');
+    const without = await h.fetch(`/api/shares/${s.id}/image`);
+    const wrong = await h.fetch(`/api/shares/${s.id}/image?k=${'x'.repeat(22)}`);
+    expect([without.status, wrong.status]).toEqual([404, 404]);
+    const body = await unknown.text();
+    expect(await without.text()).toBe(body);
+    expect(await wrong.text()).toBe(body);
+    const ok = await h.fetch(`/api/shares/${s.id}/image?k=${s.shareKey}`);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('Cache-Control')).toBe('private, no-cache');
+    expect(ok.headers.get('Cross-Origin-Resource-Policy')).toBe('cross-origin');
+    // auch per Header
+    expect((await h.fetch(`/api/shares/${s.id}/image`, { headers: { 'X-Share-Key': s.shareKey! } })).status).toBe(200);
+  });
+
   it('[F-47] Link-Vorschau enthält og:image nur mit Bild und nur öffentlich', async () => {
-    const { cookie } = await login(h, email());
+    const { cookie } = await loginSupporter(h, email());
     const s = await newShare(cookie);
     const before = await (await h.fetch(`/s/${s.id}`)).text();
     expect(before).not.toContain('og:image');
@@ -96,6 +115,17 @@ describe('F-47 Übersichtsbild', () => {
     const p = await newShare(cookie, 'private');
     await putImage(p.id, cookie);
     expect(await (await h.fetch(`/s/${p.id}`)).text()).not.toContain('og:image');
+  });
+
+  it('[F-85] Link-Vorschau eines „Nur mit Link“-Törns: og:image mit ?k= nur über den gültigen Schlüssel-Link', async () => {
+    const { cookie } = await loginSupporter(h, email());
+    const s = await newShare(cookie, 'unlisted');
+    await putImage(s.id, cookie);
+    const withKey = await (await h.fetch(`/s/${s.id}/${s.shareKey}`)).text();
+    expect(withKey).toContain(`<meta property="og:image" content="http://localhost/api/shares/${s.id}/image?k=${s.shareKey}">`);
+    expect(withKey).toContain('<meta name="robots" content="noindex">');
+    expect(await (await h.fetch(`/s/${s.id}`)).text()).not.toContain('og:image');
+    expect(await (await h.fetch(`/s/${s.id}/${'Z'.repeat(22)}`)).text()).not.toContain('og:image');
   });
 
   it('[F-47] Löschen der Freigabe entfernt auch das Bild', async () => {

@@ -1,18 +1,27 @@
 import type { SupportTier } from '../domain/support';
+import type { Visibility } from '../domain/visibility';
 import { readCapped } from './compress';
+
+export type { Visibility };
 
 export interface User {
   id: string;
   email: string;
 }
 
-export interface ShareMeta {
+/** Sichtbarkeit samt Schlüssel und Teilen-Pfad – Schlüssel und Link nur für Eigentümer (bzw. Boots-Admins), sonst null. */
+export interface Linkable {
+  visibility: Visibility;
+  /** Schlüssel für „Nur mit Link“ (Altbestand: null) */
+  shareKey?: string | null;
+  /** Pfad zum Teilen, z. B. "/s/<id>" oder "/s/<id>/<key>" */
+  link?: string | null;
+}
+
+export interface ShareMeta extends Linkable {
   id: string;
   title: string;
   summary: string;
-  visibility: 'unlisted' | 'private';
-  /** auf Profil- und Bootsseiten gelistet */
-  listed: boolean;
   view: string;
   sizeBytes: number;
   trackCount: number;
@@ -26,8 +35,6 @@ export interface ShareMeta {
   boat: { id: string; name: string } | null;
   isOwner: boolean;
 }
-
-export type PublicVisibility = 'public' | 'private';
 
 /** Unterstützen-Konfiguration aus /api/config (null = auf diesem Server nicht eingerichtet). */
 export interface SupportConfig {
@@ -55,15 +62,14 @@ export interface SupportStatus {
   bytesMax: number;
 }
 
-export interface Profile {
+export interface Profile extends Linkable {
   handle: string;
   displayName: string;
   bio: string;
-  visibility: PublicVisibility;
   isSelf: boolean;
 }
 
-export interface Boat {
+export interface Boat extends Linkable {
   id: string;
   name: string;
   boatType: string;
@@ -71,14 +77,18 @@ export interface Boat {
   sailNumber: string;
   homePort: string;
   description: string;
-  visibility: PublicVisibility;
   createdAt: number;
   updatedAt: number;
   owner: { handle: string; displayName: string } | null;
   role: 'owner' | 'admin' | null;
 }
 
-export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'lengthM' | 'sailNumber' | 'homePort' | 'description' | 'visibility'>>;
+export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'lengthM' | 'sailNumber' | 'homePort' | 'description' | 'visibility'>> & {
+  /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
+  rotateKey?: boolean;
+};
+
+export type ProfileInput = Pick<Profile, 'handle' | 'displayName' | 'bio' | 'visibility'> & { rotateKey?: boolean };
 
 export interface PageStats {
   voyages: number;
@@ -96,7 +106,8 @@ export interface DiscoverVoyage {
   trackCount: number;
   hasImage: boolean;
   boat: { id: string; name: string } | null;
-  sailor: { handle: string; displayName: string };
+  /** null: Profil nicht öffentlich – Autor:in erscheint ohne Link als „Segler:in“ */
+  sailor: { handle: string; displayName: string } | null;
 }
 
 export interface DiscoverBoat {
@@ -124,7 +135,11 @@ export interface DiscoverData {
   people: DiscoverPerson[];
 }
 
-export type SharePatch = Partial<Pick<ShareMeta, 'title' | 'visibility' | 'view' | 'listed'>> & { boatId?: string | null };
+export type SharePatch = Partial<Pick<ShareMeta, 'title' | 'visibility' | 'view'>> & {
+  boatId?: string | null;
+  /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
+  rotateKey?: boolean;
+};
 
 export interface SharePayload {
   v: 1;
@@ -140,6 +155,13 @@ export class ApiError extends Error {
     super(message);
   }
 }
+
+/** Lesezugriff auf ein „Nur mit Link“-Objekt: Schlüssel (aus /s/:id/:key usw.) als Header. */
+const keyInit = (key?: string | null): RequestInit => (key ? { headers: { 'X-Share-Key': key } } : {});
+
+/** Übersichtsbild einer Freigabe. Bilder können keine Header setzen – der Schlüssel geht als ?k= mit. */
+export const shareImageUrl = (id: string, key?: string | null): string =>
+  `/api/shares/${encodeURIComponent(id)}/image${key ? `?k=${encodeURIComponent(key)}` : ''}`;
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   let res: Response;
@@ -177,7 +199,7 @@ export const api = {
   deleteAccount: () => call<{ ok: true }>('/api/account', { method: 'DELETE' }),
 
   listShares: () => call<{ shares: ShareMeta[] }>('/api/shares'),
-  shareMeta: (id: string) => call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(id)}`),
+  shareMeta: (id: string, key?: string | null) => call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(id)}`, keyInit(key)),
   updateShare: (id: string, patch: SharePatch) =>
     call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
   putShareImage: (id: string, image: Blob) =>
@@ -186,7 +208,7 @@ export const api = {
 
   createShare: (
     gz: Uint8Array<ArrayBuffer>,
-    meta: { title: string; summary: string; view: string; trackCount: number; visibility: string; listed: boolean; boatId: string | null; distNm: number; startedAt: number | null },
+    meta: { title: string; summary: string; view: string; trackCount: number; visibility: Visibility; boatId: string | null; distNm: number; startedAt: number | null },
   ) =>
     call<{ share: ShareMeta }>('/api/shares', {
       method: 'POST',
@@ -197,7 +219,6 @@ export const api = {
         'X-Share-View': encodeURIComponent(meta.view),
         'X-Share-Tracks': String(meta.trackCount),
         'X-Share-Visibility': meta.visibility,
-        'X-Share-Listed': meta.listed ? '1' : '0',
         'X-Share-Distance': meta.distNm.toFixed(2),
         ...(meta.startedAt ? { 'X-Share-Started': String(meta.startedAt) } : {}),
         ...(meta.boatId ? { 'X-Share-Boat': meta.boatId } : {}),
@@ -206,21 +227,22 @@ export const api = {
     }),
 
   myProfile: () => call<{ profile: Profile; exists: boolean }>('/api/me/profile'),
-  saveProfile: (p: Pick<Profile, 'handle' | 'displayName' | 'bio' | 'visibility'>) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),
-  profile: (handle: string) =>
-    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[] }>(`/api/profiles/${encodeURIComponent(handle)}`),
+  saveProfile: (p: ProfileInput) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),
+  profile: (handle: string, key?: string | null) =>
+    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[] }>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
 
   myBoats: () => call<{ boats: Boat[] }>('/api/boats'),
   createBoat: (b: BoatInput) => call<{ boat: Boat }>('/api/boats', jsonInit('POST', b)),
   updateBoat: (id: string, b: BoatInput) => call<{ boat: Boat }>(`/api/boats/${encodeURIComponent(id)}`, jsonInit('PATCH', b)),
   deleteBoat: (id: string) => call<void>(`/api/boats/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  boat: (id: string) => call<{ boat: Boat; stats: PageStats; voyages: ShareMeta[] }>(`/api/boats/${encodeURIComponent(id)}`),
+  boat: (id: string, key?: string | null) =>
+    call<{ boat: Boat; stats: PageStats; voyages: ShareMeta[] }>(`/api/boats/${encodeURIComponent(id)}`, keyInit(key)),
 
   discover: (limit: number) => call<DiscoverData>(`/api/discover?limit=${limit}`),
 
   /** Lädt den Payload; der Browser entpackt gzip, wir begrenzen die Größe. */
-  async shareData(id: string): Promise<SharePayload> {
-    const res = await fetch(`/api/shares/${encodeURIComponent(id)}/data`, { credentials: 'same-origin' });
+  async shareData(id: string, key?: string | null): Promise<SharePayload> {
+    const res = await fetch(`/api/shares/${encodeURIComponent(id)}/data`, { credentials: 'same-origin', ...keyInit(key) });
     if (!res.ok || !res.body) throw new ApiError(res.status, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
     const parsed = JSON.parse(await readCapped(res.body)) as unknown;
     return validatePayload(parsed);

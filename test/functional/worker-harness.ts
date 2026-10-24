@@ -41,8 +41,29 @@ export interface R2Like {
   list(opts?: { prefix?: string }): Promise<{ objects: Array<{ key: string }> }>;
 }
 
-/** bindings: zusätzliche/abweichende vars und Secrets (z. B. Stripe-Konfiguration für die Unterstützen-Tests). */
-export async function startWorker(bindings: Record<string, string> = {}): Promise<Harness> {
+/** Migrationsdateien in Reihenfolge, optional nur die ab (`from`) bzw. vor (`before`) einem Namenspräfix wie '0006'. */
+export function migrationFiles(o: { from?: string; before?: string } = {}): string[] {
+  return readdirSync(resolve('migrations'))
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .filter((f) => (!o.from || f >= o.from) && (!o.before || f < o.before));
+}
+
+/** Wendet Migrationen an wie `wrangler d1 migrations apply` (Anweisung für Anweisung, ohne Kommentare). */
+export async function applyMigrations(db: D1Like, files: string[]): Promise<void> {
+  for (const file of files) {
+    const sql = readFileSync(resolve('migrations', file), 'utf8').replace(/--[^\n]*/g, '');
+    for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
+      await db.prepare(stmt).all();
+    }
+  }
+}
+
+/**
+ * bindings: zusätzliche/abweichende vars und Secrets (z. B. Stripe-Konfiguration für die Unterstützen-Tests).
+ * opts.migrateBefore: nur die Migrationen vor diesem Präfix anwenden (Migrationstests mit Altbestand).
+ */
+export async function startWorker(bindings: Record<string, string> = {}, opts: { migrateBefore?: string } = {}): Promise<Harness> {
   // Worker-Quelltext (TypeScript) wie wrangler zu einem ES-Modul bündeln – nur im Speicher.
   const out = await build({
     entryPoints: [resolve('worker/index.ts')],
@@ -78,6 +99,7 @@ export async function startWorker(bindings: Record<string, string> = {}): Promis
         ratelimits: {
           UPLOAD_LIMITER: { namespace_id: '1001', simple: { limit: 10, period: 60 } },
           AUTH_LIMITER: { namespace_id: '1002', simple: { limit: 5, period: 60 } },
+          LINK_LIMITER: { namespace_id: '1003', simple: { limit: 30, period: 60 } },
         },
         bindings: {
           APP_NAME: 'Sail Explorer',
@@ -97,15 +119,9 @@ export async function startWorker(bindings: Record<string, string> = {}): Promis
   }));
   await mf.ready;
 
-  // Alle Migrationen in Reihenfolge selbst anwenden (wie `wrangler d1 migrations apply`).
+  // Migrationen in Reihenfolge selbst anwenden (wie `wrangler d1 migrations apply`).
   const db = (await mf.getD1Database('DB')) as unknown as D1Like;
-  const files = readdirSync(resolve('migrations')).filter((f) => f.endsWith('.sql')).sort();
-  for (const file of files) {
-    const sql = readFileSync(resolve('migrations', file), 'utf8').replace(/--[^\n]*/g, '');
-    for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
-      await db.prepare(stmt).all();
-    }
-  }
+  await applyMigrations(db, migrationFiles({ before: opts.migrateBefore }));
 
   return {
     mf,
@@ -208,7 +224,7 @@ export async function createShare(h: Harness, cookie: string | undefined, o: Sha
       'X-Share-Summary': encodeURIComponent(o.summary ?? '1,2 sm · 13.06.2026'),
       'X-Share-View': encodeURIComponent(o.view ?? ''),
       'X-Share-Tracks': String(o.tracks?.length ?? 1),
-      'X-Share-Visibility': o.visibility ?? 'unlisted',
+      'X-Share-Visibility': o.visibility ?? 'public',
       ...(o.headers ?? {}),
     },
     body,
@@ -224,6 +240,13 @@ export async function grantSupport(h: Harness, userId: string, validUntil = Date
     .prepare("INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at, valid_until) VALUES (?, ?, 'test', ?, 0, 'eur', ?, ?)")
     .bind(ref, userId, ref, Date.now(), validUntil)
     .run();
+}
+
+/** Anmeldung als laufender Unterstützer – darf „Nur mit Link“ und „Nur ich“ wählen (E1). */
+export async function loginSupporter(h: Harness, email: string): Promise<{ cookie: string; user: { id: string; email: string } }> {
+  const s = await login(h, email);
+  await grantSupport(h, s.user.id);
+  return s;
 }
 
 /** Stripe-Signature-Header wie Stripe ihn bildet: t=<sek>,v1=HMAC-SHA256(secret, "t.body") als Hex. */

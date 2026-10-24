@@ -95,8 +95,46 @@ export class SxTopbar extends LitElement {
         gap: var(--s-2);
         align-items: center;
       }
+      /* Teilen ist die Hauptaktion: kräftig und immer mit Text */
+      .btn.share {
+        padding-inline: var(--s-4);
+        font-weight: 700;
+        box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent);
+      }
+      .btn.share svg {
+        width: 20px;
+        height: 20px;
+      }
+      /* Gäste: Anmelden deutlich hervorheben */
+      .btn.login {
+        border-color: var(--accent);
+        color: var(--accent);
+        font-weight: 650;
+      }
+      .btn.login:hover {
+        background: var(--accent-soft);
+      }
+      .chip.guest {
+        cursor: pointer;
+        background: var(--accent-soft);
+        border-color: transparent;
+        color: var(--accent);
+        font: inherit;
+        font-size: var(--fs-s);
+        font-weight: 550;
+      }
+      .chip.guest:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
       @media (max-width: 760px) {
         .label-text {
+          display: none;
+        }
+        .keep .label-text {
+          display: inline;
+        }
+        .chip.guest {
           display: none;
         }
         .chip {
@@ -118,7 +156,7 @@ export class SxTopbar extends LitElement {
   private chip() {
     if (this.mode.kind === 'share') {
       const s = this.mode.share;
-      return html`<span class="chip shared" title="Geteilte Ansicht">${icon(s.visibility === 'private' ? 'lock' : 'link')}<span>${s.title}</span></span>`;
+      return html`<span class="chip shared" title="Geteilte Ansicht">${icon(s.visibility === 'private' ? 'lock' : s.visibility === 'public' ? 'globe' : 'link')}<span>${s.title}</span></span>`;
     }
     if (this.mode.kind === 'link') {
       return html`<span class="chip shared" title="Ansicht aus einem Link – wird nicht gespeichert">${icon('link')}<span>${this.mode.title}</span></span>`;
@@ -126,7 +164,11 @@ export class SxTopbar extends LitElement {
     if (!this.hasTracks) return nothing;
     return this.user
       ? html`<span class="chip" title="Angemeldet als ${this.user.email}">${icon('folder')}<span>Arbeitsbereich</span></span>`
-      : html`<span class="chip" title="Deine Tracks werden nur in diesem Browser gespeichert. Zum Teilen meldest du dich per E-Mail an.">${icon('lock')}<span>Gast-Sitzung · nur dieses Gerät</span></span>`;
+      : this.backend
+        ? html`<button class="chip guest" @click=${() => emit(this, 'sx-login')} title="Deine Tracks liegen nur in diesem Browser. Mit Anmeldung per E-Mail kannst du sie speichern und teilen.">
+            ${icon('lock')}<span>Gast-Sitzung · nur dieses Gerät – anmelden zum Speichern</span>
+          </button>`
+        : html`<span class="chip" title="Deine Tracks werden nur in diesem Browser gespeichert.">${icon('lock')}<span>Gast-Sitzung · nur dieses Gerät</span></span>`;
   }
 
   render() {
@@ -141,7 +183,7 @@ export class SxTopbar extends LitElement {
           ${icon('upload')}<span class="label-text">GPX laden</span>
         </button>
         ${this.hasTracks
-          ? html`<button class="btn primary collapse" @click=${() => emit(this, 'sx-share')} title="Link zum Teilen erstellen">
+          ? html`<button class="btn primary share keep" @click=${() => emit(this, 'sx-share')} title="Als Link oder Bild teilen">
               ${icon('share')}<span class="label-text">Teilen</span>
             </button>`
           : nothing}
@@ -150,7 +192,7 @@ export class SxTopbar extends LitElement {
             ? html`<button class="btn ghost icon" @click=${() => emit(this, 'sx-account')} title="Konto & Freigaben (${this.user.email})" aria-label="Konto & Freigaben">
                 <span class="avatar">${this.user.email[0]}</span>
               </button>`
-            : html`<button class="btn ghost collapse" @click=${() => emit(this, 'sx-login')} title="Anmelden">
+            : html`<button class="btn login keep" @click=${() => emit(this, 'sx-login')} title="Per E-Mail-Link anmelden – Tracks speichern und teilen">
                 ${icon('user')}<span class="label-text">Anmelden</span>
               </button>`
           : nothing}

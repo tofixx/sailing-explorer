@@ -75,6 +75,8 @@ interface Server {
   /** Unterstützen eingerichtet: Status für /api/me/support; null = nicht eingerichtet */
   support: Record<string, unknown> | null;
   checkout: 'ok' | 'fail';
+  /** öffentliches bzw. per Schlüssel lesbares Profil für /api/profiles/:handle */
+  profile: { handle: string; visibility: string; shareKey: string | null } | null;
 }
 
 let server: Server;
@@ -85,6 +87,15 @@ let listeners: Array<[string, EventListenerOrEventListenerObject]> = [];
 const origAdd = document.addEventListener.bind(document);
 
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+
+let keySeq = 0;
+/** Schlüssel wie im Worker: 22 Zeichen aus dem ID-Alphabet */
+const nextKey = () => `Key${String(++keySeq).padStart(4, '0')}abcdefghijkmnpq`;
+/** shareKey und link wie im Vertrag (shareShape für den Eigentümer) */
+function withLink(meta: Record<string, unknown>, key: string | null) {
+  meta.shareKey = key;
+  meta.link = meta.visibility === 'unlisted' && key ? `/s/${meta.id}/${key}` : `/s/${meta.id}`;
+}
 
 async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const url = String(input);
@@ -134,9 +145,17 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
   if (url === '/api/shares' && method === 'POST') {
     if (!server.user) return json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
     const id = 'NewShareId23456789';
-    const meta = { id, title: decodeURIComponent(headers['x-share-title']), summary: decodeURIComponent(headers['x-share-summary']), visibility: headers['x-share-visibility'], view: decodeURIComponent(headers['x-share-view']), isOwner: true };
+    const visibility = headers['x-share-visibility'];
+    const meta: Record<string, unknown> = { id, title: decodeURIComponent(headers['x-share-title']), summary: decodeURIComponent(headers['x-share-summary']), visibility, view: decodeURIComponent(headers['x-share-view']), isOwner: true };
+    withLink(meta, visibility === 'unlisted' ? nextKey() : null);
     server.shares.set(id, { meta, payload: JSON.parse(gunzipSync(init.body as Uint8Array).toString('utf8')) });
     return json({ share: meta }, 201);
+  }
+  const prof = /^\/api\/profiles\/([^/]+)$/.exec(url);
+  if (prof) {
+    const p = server.profile;
+    if (!p || p.handle !== prof[1] || (p.visibility === 'unlisted' && headers['x-share-key'] !== p.shareKey)) return json({ error: 'not_found', message: 'Nicht gefunden.' }, 404);
+    return json({ profile: { handle: p.handle, displayName: 'Anna', bio: '', visibility: p.visibility, shareKey: null, link: null, isSelf: false }, boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [] });
   }
   const m = /^\/api\/shares\/([^/]+)(\/data)?$/.exec(url);
   if (m) {
@@ -146,10 +165,15 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
       return new Response(null, { status: 204 });
     }
     if (method === 'PATCH') {
-      Object.assign(s!.meta, JSON.parse(String(init.body)));
+      const { rotateKey, ...patch } = JSON.parse(String(init.body)) as { rotateKey?: boolean } & Record<string, unknown>;
+      Object.assign(s!.meta, patch);
+      const key = rotateKey || (s!.meta.visibility === 'unlisted' && !s!.meta.shareKey) ? nextKey() : (s!.meta.shareKey as string | null) ?? null;
+      withLink(s!.meta, key);
       return json({ share: s!.meta });
     }
-    if (!s || (s.meta.visibility === 'private' && !server.user)) return json({ error: 'not_found', message: 'Diese Freigabe gibt es nicht (mehr).' }, 404);
+    // „Nur mit Link“ mit Schlüssel: ohne passenden X-Share-Key wie unbekannt (der Eigentümer ist hier vereinfacht jeder Angemeldete)
+    const keyed = s?.meta.visibility === 'unlisted' && s.meta.shareKey && headers['x-share-key'] !== s.meta.shareKey && !server.user;
+    if (!s || keyed || (s.meta.visibility === 'private' && !server.user)) return json({ error: 'not_found', message: 'Diese Freigabe gibt es nicht (mehr).' }, 404);
     // der Browser entpackt Content-Encoding: gzip selbst
     return m[2] ? new Response(JSON.stringify(s.payload), { headers: { 'Content-Type': 'application/json' } }) : json({ share: s.meta });
   }
@@ -165,7 +189,7 @@ beforeEach(() => {
   h.maps.length = 0;
   h.ws.data = null;
   FakeChannel.all = [];
-  server = { backend: 'json', user: null, weather: { wind: 12, gust: 18, dir: 250, wave: 0.6, wdir: 240, wper: 4 }, shares: new Map(), files: {}, discover: { voyages: [], boats: [], people: [] }, calls: [], support: null, checkout: 'ok' };
+  server = { backend: 'json', user: null, weather: { wind: 12, gust: 18, dir: 250, wave: 0.6, wdir: 240, wper: 4 }, shares: new Map(), files: {}, discover: { voyages: [], boats: [], people: [] }, calls: [], support: null, checkout: 'ok', profile: null };
   vi.stubGlobal('fetch', vi.fn(router));
   vi.stubGlobal('BroadcastChannel', FakeChannel);
   clipboard = [];
@@ -512,7 +536,7 @@ describe('F-33 Freigabe erstellen', () => {
     await load(file('a.gpx', leg('A')));
     emit('sx-metric', 'gust');
     emit('sx-share');
-    emit('sx-share-submit', { title: 'Mein Törn', visibility: 'private', includeView: true, listed: false, boatId: null });
+    emit('sx-share-submit', { title: 'Mein Törn', visibility: 'private', includeView: true, boatId: null });
     const share = el<{ result: { url: string; share: { id: string } } | null; error: string }>('sx-share-dialog');
     await vi.waitFor(() => expect(share.result ?? share.error).toBeTruthy());
     expect(share.error).toBe('');
@@ -528,7 +552,7 @@ describe('F-33 Freigabe erstellen', () => {
     await vi.waitFor(() => expect(state().user).not.toBeNull());
     await load(file('a.gpx', leg('A')));
     emit('sx-share');
-    emit('sx-share-submit', { title: 'T', visibility: 'unlisted', includeView: false, listed: false, boatId: null });
+    emit('sx-share-submit', { title: 'T', visibility: 'unlisted', includeView: false, boatId: null });
     await vi.waitFor(() => expect(server.shares.size).toBe(1));
     expect([...server.shares.values()][0].meta).toMatchObject({ view: '', visibility: 'unlisted' });
   });
@@ -624,6 +648,106 @@ describe('F-36/F-37 Konto', () => {
     await vi.waitFor(() => expect(state().user).toBeNull());
     expect(server.calls.some((c) => c.method === 'DELETE' && c.url === '/api/account')).toBe(true);
     expect(toasts().some((t) => /Konto.*Freigaben gelöscht/.test(t))).toBe(true);
+  });
+});
+
+describe('Phase A: Sichtbarkeit und Schlüssel-Links', () => {
+  const KEY = 'Kq7mPz2xWv9tRb4nHs6dJf';
+  const seedKeyed = () =>
+    server.shares.set('AbCdEfGhJkLmNpQr23', {
+      meta: { id: 'AbCdEfGhJkLmNpQr23', title: 'Nur mit Link', summary: '', visibility: 'unlisted', shareKey: KEY, link: null, view: 'm=wind&l=s', isOwner: false },
+      payload: { v: 1, tracks: [{ name: 'Etappe', gpx: leg('Etappe') }] },
+    });
+  const reads = (path: string) => server.calls.filter((c) => c.method === 'GET' && c.url.startsWith(path));
+
+  it('/s/<id>/<key> sendet den Schlüssel als X-Share-Key an Metadaten und Daten', async () => {
+    seedKeyed();
+    await startApp(`/s/AbCdEfGhJkLmNpQr23/${KEY}`);
+    await settled();
+    expect(state().mode).toMatchObject({ kind: 'share', key: KEY, share: { id: 'AbCdEfGhJkLmNpQr23' } });
+    const calls = reads('/api/shares/AbCdEfGhJkLmNpQr23');
+    expect(calls.map((c) => c.url).sort()).toEqual(['/api/shares/AbCdEfGhJkLmNpQr23', '/api/shares/AbCdEfGhJkLmNpQr23/data']);
+    expect(calls.every((c) => c.headers['x-share-key'] === KEY)).toBe(true);
+  });
+
+  it('ohne Schlüssel wird kein X-Share-Key gesendet; „Nur mit Link“ ist dann nicht erreichbar', async () => {
+    seedKeyed();
+    await startApp('/s/AbCdEfGhJkLmNpQr23');
+    await settled();
+    expect(reads('/api/shares/').every((c) => !('x-share-key' in c.headers))).toBe(true);
+    expect(state().tracks).toHaveLength(0);
+    expect(location.pathname).toBe('/');
+  });
+
+  it('Ansichtswechsel behält den Schlüssel in der Adresse; Weitergeben nutzt denselben Link', async () => {
+    seedKeyed();
+    await startApp(`/s/AbCdEfGhJkLmNpQr23/${KEY}`);
+    await settled();
+    emit('sx-metric', 'gust');
+    expect(location.pathname + location.search).toBe(`/s/AbCdEfGhJkLmNpQr23/${KEY}?m=gust&l=s`);
+    emit('sx-share');
+    expect(el<{ result: { url: string } }>('sx-share-dialog').result.url).toBe(`${location.origin}/s/AbCdEfGhJkLmNpQr23/${KEY}?m=gust&l=s`);
+  });
+
+  it('/u/<handle>/<key> lädt das Profil mit X-Share-Key', async () => {
+    server.profile = { handle: 'anna', visibility: 'unlisted', shareKey: KEY };
+    await startApp(`/u/anna/${KEY}`);
+    const page = el<{ data: { kind: string } | null; error: string; loading: boolean }>('sx-profile-page');
+    await vi.waitFor(() => expect(page.loading).toBe(false));
+    expect(page.error).toBe('');
+    expect(page.data?.kind).toBe('profile');
+    expect(reads('/api/profiles/anna')[0].headers['x-share-key']).toBe(KEY);
+  });
+
+  it('Teilen-Dialog startet mit „Öffentlich“; Ergebnis zeigt den absoluten Link aus der Antwort', async () => {
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    await startApp();
+    await vi.waitFor(() => expect(state().user).not.toBeNull());
+    await load(file('a.gpx', leg('A')));
+    emit('sx-share');
+    const share = el<{ visibility: string; result: { url: string } | null; error: string }>('sx-share-dialog');
+    expect(share.visibility).toBe('public');
+    emit('sx-share-submit', { title: 'Geheim', visibility: 'unlisted', includeView: false, boatId: null });
+    await vi.waitFor(() => expect(share.result ?? share.error).toBeTruthy());
+    const meta = server.shares.get('NewShareId23456789')!.meta;
+    expect(server.calls.find((c) => c.method === 'POST' && c.url === '/api/shares')!.headers).not.toHaveProperty('x-share-listed');
+    expect(share.result!.url).toBe(`${location.origin}${meta.link}`);
+    expect(share.result!.url).toMatch(/\/s\/NewShareId23456789\/Key\w+$/);
+  });
+
+  it('Konto: Stufe ändern und Link erneuern gehen per PATCH; Kopieren nimmt den neuen Schlüssel-Link', async () => {
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    server.shares.set('AbCdEfGhJkLmNpQr23', { meta: { id: 'AbCdEfGhJkLmNpQr23', title: 'Alt', visibility: 'public', view: '', isOwner: true, shareKey: null, link: '/s/AbCdEfGhJkLmNpQr23' }, payload: {} });
+    await startApp();
+    await vi.waitFor(() => expect(state().user).not.toBeNull());
+    emit('sx-account');
+    const acc = el<{ shares: Array<{ visibility: string; link: string }>; loading: boolean }>('sx-account-dialog');
+    await vi.waitFor(() => expect(acc.loading).toBe(false));
+
+    emit('sx-share-update', { id: 'AbCdEfGhJkLmNpQr23', patch: { visibility: 'unlisted' } });
+    await vi.waitFor(() => expect(acc.shares[0].visibility).toBe('unlisted'));
+    const first = acc.shares[0].link;
+    expect(first).toMatch(/^\/s\/AbCdEfGhJkLmNpQr23\/Key/);
+
+    emit('sx-share-update', { id: 'AbCdEfGhJkLmNpQr23', patch: { rotateKey: true } });
+    await vi.waitFor(() => expect(acc.shares[0].link).not.toBe(first));
+    const patches = server.calls.filter((c) => c.method === 'PATCH').map((c) => JSON.parse(String(c.body)));
+    expect(patches).toEqual([{ visibility: 'unlisted' }, { rotateKey: true }]);
+    expect(toasts().some((t) => /Neuer Link.*alte Link funktioniert nicht mehr/.test(t))).toBe(true);
+
+    emit('sx-share-copy', 'AbCdEfGhJkLmNpQr23');
+    await vi.waitFor(() => expect(clipboard).toEqual([`${location.origin}${acc.shares[0].link}`]));
+  });
+
+  it('Boot- und Profil-Links: sx-link-copy kopiert nur eigene Seitenpfade', async () => {
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    await startApp();
+    emit('sx-link-copy', `/b/BoatId1234567890/${KEY}`);
+    await vi.waitFor(() => expect(clipboard).toEqual([`${location.origin}/b/BoatId1234567890/${KEY}`]));
+    emit('sx-link-copy', 'https://evil.example/x');
+    emit('sx-link-copy', '//evil.example');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(clipboard).toHaveLength(1);
   });
 });
 

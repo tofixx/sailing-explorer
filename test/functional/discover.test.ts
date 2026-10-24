@@ -1,7 +1,7 @@
 // Funktionale Tests: Entdecken – nur öffentliche Inhalte, Grenzen, Sortierung, Link-Vorschau (F-70 … F-74)
 // Echter Worker in workerd (Miniflare) mit lokalen D1-/R2-Bindings – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createShare, login, startWorker, type Harness, type ShareOpts } from './worker-harness';
+import { createShare, loginSupporter, startWorker, type Harness, type ShareOpts } from './worker-harness';
 
 let h: Harness;
 let n = 0;
@@ -18,10 +18,13 @@ afterAll(async () => {
 const send = (method: string, path: string, cookie: string | undefined, body?: unknown) =>
   h.fetch(path, { method, cookie, headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined, body: body !== undefined ? JSON.stringify(body) : undefined });
 
-/** Nutzer mit Profil (öffentlich oder privat) – oder ganz ohne Profil. */
-async function sailor(visibility: 'public' | 'private' | 'none' = 'public', displayName = 'Käpt’n Test') {
+/**
+ * Nutzer mit Profil (öffentlich, nur mit Link oder privat) – oder ganz ohne Profil. Als Unterstützer, damit alle drei
+ * Stufen wählbar sind (E1 prüfen supporter.test.ts und visibility.test.ts).
+ */
+async function sailor(visibility: 'public' | 'unlisted' | 'private' | 'none' = 'public', displayName = 'Käpt’n Test') {
   const mail = email();
-  const s = await login(h, mail);
+  const s = await loginSupporter(h, mail);
   const handle = uniq('crew');
   if (visibility !== 'none') {
     const res = await send('PUT', '/api/me/profile', s.cookie, { handle, displayName, bio: 'Ostsee', visibility });
@@ -36,8 +39,10 @@ async function newBoat(cookie: string, input: Record<string, unknown> = {}): Pro
   return ((await res.json()) as { boat: { id: string; name: string } }).boat;
 }
 
+/** listed: true = „Öffentlich“, false = „Nur mit Link“ (sofern keine Sichtbarkeit angegeben ist). */
 async function newShare(cookie: string, o: ShareOpts & { listed?: boolean; boatId?: string; distNm?: number; startedAt?: number } = {}): Promise<{ id: string }> {
-  const headers: Record<string, string> = { 'X-Share-Listed': o.listed ? '1' : '0', 'X-Share-Distance': String(o.distNm ?? 10) };
+  const headers: Record<string, string> = { 'X-Share-Distance': String(o.distNm ?? 10) };
+  o = { ...o, visibility: o.visibility ?? (o.listed === false ? 'unlisted' : 'public') };
   if (o.boatId) headers['X-Share-Boat'] = o.boatId;
   if (o.startedAt) headers['X-Share-Started'] = String(o.startedAt);
   const res = await createShare(h, cookie, { ...o, headers });
@@ -45,7 +50,7 @@ async function newShare(cookie: string, o: ShareOpts & { listed?: boolean; boatI
   return ((await res.json()) as { share: { id: string } }).share;
 }
 
-interface Voyage { id: string; title: string; distNm: number; startedAt: number | null; createdAt: number; hasImage: boolean; boat: { id: string; name: string } | null; sailor: { handle: string; displayName: string } }
+interface Voyage { id: string; title: string; distNm: number; startedAt: number | null; createdAt: number; hasImage: boolean; boat: { id: string; name: string } | null; sailor: { handle: string; displayName: string } | null }
 interface Boat { id: string; name: string; owner: { handle: string }; stats: { voyages: number; distNm: number } }
 interface Person { handle: string; displayName: string; stats: { voyages: number; distNm: number; boats: number } }
 interface Discover { voyages: Voyage[]; boats: Boat[]; people: Person[] }
@@ -81,18 +86,24 @@ describe('F-71 Entdecken: nur öffentliche Törns', () => {
     expect(ids).not.toContain(privListed.id);
   });
 
-  it('[F-71] Törns von Nutzern mit privatem oder ohne Profil erscheinen nie', async () => {
-    const priv = await sailor('private');
+  it('[F-82] öffentliche Törns erscheinen unabhängig vom Profil; ohne öffentliches Profil ohne Autor (sailor: null)', async () => {
+    const priv = await sailor('private', 'Geheimname');
+    const link = await sailor('unlisted', 'Linkname');
     const none = await sailor('none');
     const a = await newShare(priv.cookie, { listed: true });
     const b = await newShare(none.cookie, { listed: true });
-    const d = await discover();
-    expect(voyageIds(d)).not.toContain(a.id);
-    expect(voyageIds(d)).not.toContain(b.id);
+    const c = await newShare(link.cookie, { listed: true });
+    const res = await h.fetch('/api/discover?limit=24');
+    const raw = await res.text();
+    const d = JSON.parse(raw) as Discover;
+    for (const v of [a, b, c]) expect(d.voyages.find((x) => x.id === v.id)?.sailor).toBeNull();
     expect(d.people.map((p) => p.handle)).not.toContain(priv.handle);
+    expect(d.people.map((p) => p.handle)).not.toContain(link.handle);
+    // weder Name noch Handle eines nicht öffentlichen Profils verraten
+    for (const t of ['Geheimname', 'Linkname', priv.handle, link.handle]) expect(raw).not.toContain(t);
   });
 
-  it('[F-71] Sichtbarkeit wirkt sofort: privat gestellter Törn oder privat gestelltes Profil verschwindet', async () => {
+  it('[F-71] Sichtbarkeit wirkt sofort: privat gestellter Törn verschwindet, privat gestelltes Profil verliert den Autor', async () => {
     const s = await sailor('public');
     const v = await newShare(s.cookie, { listed: true });
     const w = await newShare(s.cookie, { listed: true });
@@ -101,23 +112,28 @@ describe('F-71 Entdecken: nur öffentliche Törns', () => {
     expect(voyageIds(await discover())).not.toContain(v.id);
     await send('PUT', '/api/me/profile', s.cookie, { handle: s.handle, displayName: 'Käpt’n Test', bio: '', visibility: 'private' });
     const d = await discover();
-    expect(voyageIds(d)).not.toContain(w.id);
+    expect(d.voyages.find((x) => x.id === w.id)?.sailor).toBeNull();
     expect(d.people.map((p) => p.handle)).not.toContain(s.handle);
   });
 
-  it('[F-71] privates Boot: kein Boot-Name am Törn; öffentliches Boot wird verlinkt', async () => {
+  it('[F-71] privates oder „Nur mit Link“-Boot: kein Boot-Name am Törn; öffentliches Boot wird verlinkt', async () => {
     const s = await sailor('public');
     const secret = await newBoat(s.cookie, { name: 'Geheimboot', visibility: 'private' });
+    const linkBoat = await newBoat(s.cookie, { name: 'Linkboot', visibility: 'unlisted' });
     const open = await newBoat(s.cookie, { name: 'Seeschwalbe', visibility: 'public' });
     const a = await newShare(s.cookie, { listed: true, boatId: secret.id });
     const b = await newShare(s.cookie, { listed: true, boatId: open.id });
+    const c = await newShare(s.cookie, { listed: true, boatId: linkBoat.id });
     const res = await h.fetch('/api/discover?limit=24');
     const raw = await res.text();
     const d = JSON.parse(raw) as Discover;
     expect(d.voyages.find((v) => v.id === a.id)?.boat).toBeNull();
     expect(d.voyages.find((v) => v.id === b.id)?.boat).toEqual({ id: open.id, name: 'Seeschwalbe' });
+    expect(d.voyages.find((v) => v.id === c.id)?.boat).toBeNull();
     expect(raw).not.toContain('Geheimboot');
     expect(raw).not.toContain(secret.id);
+    expect(raw).not.toContain('Linkboot');
+    expect(raw).not.toContain(linkBoat.id);
   });
 
   it('[F-71] Übersichtsbild wird nur als hasImage gemeldet', async () => {
@@ -138,6 +154,7 @@ describe('F-72 Entdecken: Boote und Segler', () => {
     const priv = await sailor('private');
     const shown = await newBoat(pub.cookie, { name: 'Möwe', visibility: 'public' });
     const hiddenBoat = await newBoat(pub.cookie, { name: 'Versteck', visibility: 'private' });
+    const linkBoat = await newBoat(pub.cookie, { name: 'Nur Link', visibility: 'unlisted' });
     const ownerPrivate = await newBoat(priv.cookie, { name: 'Anonym', visibility: 'public' });
     await newShare(pub.cookie, { listed: true, boatId: shown.id, distNm: 12 });
     await newShare(pub.cookie, { listed: false, boatId: shown.id, distNm: 99 });
@@ -145,6 +162,7 @@ describe('F-72 Entdecken: Boote und Segler', () => {
     const ids = d.boats.map((b) => b.id);
     expect(ids).toContain(shown.id);
     expect(ids).not.toContain(hiddenBoat.id);
+    expect(ids).not.toContain(linkBoat.id);
     expect(ids).not.toContain(ownerPrivate.id);
     expect(d.boats.find((b) => b.id === shown.id)).toMatchObject({ name: 'Möwe', owner: { handle: pub.handle }, stats: { voyages: 1, distNm: 12 } });
   });
@@ -227,7 +245,7 @@ describe('F-74 Entdecken: Grenzen, Sortierung, Link-Vorschau', () => {
       await db
         .prepare(
           `INSERT INTO shares (id, user_id, title, summary, visibility, view, size_bytes, track_count, created_at, updated_at, listed, dist_nm, started_at)
-           VALUES (?, ?, ?, '', 'unlisted', '', 1, 1, ?, ?, 1, 1, ?)`,
+           VALUES (?, ?, ?, '', 'public', '', 1, 1, ?, ?, 1, 1, ?)`,
         )
         .bind(`LimitTest${String(i).padStart(6, '0')}`, s.user.id, `Massentörn ${i}`, now, now, now - i * 1000)
         .run();

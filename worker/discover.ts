@@ -4,23 +4,23 @@ import { json } from './http';
 /**
  * Entdecken (F-70 … F-74): zuletzt gesegelte Törns, neue Boote und Segler.
  *
- * Datenschutz: Es erscheint ausschließlich, was ohnehin schon öffentlich ist –
- * Törns „Öffentlich“ (visibility='unlisted' AND listed=1) von Besitzern mit öffentlichem
- * Profil, öffentliche Boote mit öffentlichem Eigner-Profil und öffentliche Profile mit
- * mindestens einem öffentlichen Törn oder Boot. Die Spalten werden explizit gewählt
+ * Datenschutz: Es erscheint ausschließlich, was ohnehin schon öffentlich ist (F-83) –
+ * Törns mit visibility='public' (unabhängig vom Profil; der Autor wird nur bei öffentlichem
+ * Profil genannt, sonst sailor: null, F-82), öffentliche Boote mit öffentlichem Eigner-Profil
+ * und öffentliche Profile mit mindestens einem öffentlichen Törn oder Boot. Die Spalten werden explizit gewählt
  * (kein SELECT mit Stern), damit nie E-Mail-Adressen oder interne Felder in die Antwort geraten.
  */
 
 export const DISCOVER_LIMIT = { default: 12, max: 24 };
 
-/** Öffentlich gelisteter Törn – dieselbe Bedingung wie auf Profil- und Bootsseiten. */
-const LISTED = `s.visibility = 'unlisted' AND s.listed = 1`;
+/** Öffentlicher Törn – dieselbe Bedingung wie auf Profil- und Bootsseiten. */
+const LISTED = `s.visibility = 'public'`;
 
 const VOYAGES = `SELECT s.id, s.title, s.summary, s.dist_nm, s.started_at, s.created_at, s.has_image, s.track_count,
     b.id AS boat_id, b.name AS boat_name, b.visibility AS boat_visibility,
     p.handle, p.display_name
   FROM shares s
-  JOIN profiles p ON p.user_id = s.user_id AND p.visibility = 'public'
+  LEFT JOIN profiles p ON p.user_id = s.user_id AND p.visibility = 'public'
   LEFT JOIN boats b ON b.id = s.boat_id
   WHERE ${LISTED}
   ORDER BY COALESCE(s.started_at, s.created_at) DESC, s.id
@@ -59,8 +59,9 @@ interface VoyageRow {
   boat_id: string | null;
   boat_name: string | null;
   boat_visibility: string | null;
-  handle: string;
-  display_name: string;
+  /** NULL, wenn das Profil fehlt oder nicht öffentlich ist */
+  handle: string | null;
+  display_name: string | null;
 }
 
 interface BoatRow {
@@ -103,7 +104,8 @@ const voyageShape = (r: VoyageRow) => ({
   hasImage: !!r.has_image,
   // Private Boote bleiben auch hier unsichtbar (wie in shareShape für Fremde).
   boat: r.boat_id && r.boat_visibility === 'public' ? { id: r.boat_id, name: r.boat_name ?? '' } : null,
-  sailor: { handle: r.handle, displayName: r.display_name },
+  // Autor nur mit öffentlichem Profil; ein „Nur mit Link“-Profil wird nie über einen anderen Link verraten.
+  sailor: r.handle ? { handle: r.handle, displayName: r.display_name ?? '' } : null,
 });
 
 const boatShape = (r: BoatRow) => ({
