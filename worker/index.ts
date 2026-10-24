@@ -1,7 +1,7 @@
 import type { Env } from './env';
 import { deleteAccount, logout, me, peekLink, requestLink, verifyLink } from './auth';
 import { HttpError, errorResponse, json } from './http';
-import { createShare, deleteShare, getShareData, getShareMeta, getShareRow, listShares, updateShare } from './shares';
+import { createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
 import { withPageHeaders } from './security';
@@ -43,6 +43,8 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['POST', /^\/api\/shares$/, (r, env) => createShare(r, env)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => getShareMeta(r, env, id)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/data$/, (r, env, [id]) => getShareData(r, env, id)],
+  ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/image$/, (r, env, [id]) => getShareImage(r, env, id)],
+  ['PUT', /^\/api\/shares\/([A-Za-z0-9]+)\/image$/, (r, env, [id]) => putShareImage(r, env, id)],
   ['PATCH', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => updateShare(r, env, id)],
   ['DELETE', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => deleteShare(r, env, id)],
 ];
@@ -68,17 +70,24 @@ interface PageMeta {
   description: string;
   /** Profile/Boote dürfen gefunden werden, geteilte Törns nicht. */
   index: boolean;
+  /** absolute URL des Vorschaubilds */
+  image?: string;
 }
 
 const DEFAULT_DESCRIPTION = 'Segeltörns auf der Seekarte mit Wind- und Wellendaten';
 
 /** Vorschau-Metadaten (Messenger, Social) – nur aus öffentlichen Daten. */
-async function pageMeta(env: Env, kind: string, id: string): Promise<PageMeta> {
+async function pageMeta(env: Env, kind: string, id: string, origin: string): Promise<PageMeta> {
   const fallback = { title: env.APP_NAME, description: DEFAULT_DESCRIPTION, index: false };
   if (kind === 's') {
     const row = await getShareRow(env, id);
     if (!row || row.visibility !== 'unlisted') return fallback;
-    return { title: `${row.title} · ${env.APP_NAME}`, description: row.summary || 'Segeltörn mit Wind- und Wellendaten', index: false };
+    return {
+      title: `${row.title} · ${env.APP_NAME}`,
+      description: row.summary || 'Segeltörn mit Wind- und Wellendaten',
+      index: false,
+      image: row.has_image ? `${origin}/api/shares/${row.id}/image` : undefined,
+    };
   }
   if (kind === 'u') {
     const p = await env.DB.prepare("SELECT display_name, bio FROM profiles WHERE handle = ? AND visibility = 'public'").bind(id).first<{ display_name: string; bio: string }>();
@@ -93,7 +102,7 @@ async function pageMeta(env: Env, kind: string, id: string): Promise<PageMeta> {
 /** /s/:id, /u/:handle, /b/:id – liefert die App mit passenden Vorschau-Metadaten. */
 async function metaPage(request: Request, env: Env, kind: string, id: string): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL('/', request.url), { headers: request.headers }));
-  const meta = await pageMeta(env, kind, id).catch(() => ({ title: env.APP_NAME, description: DEFAULT_DESCRIPTION, index: false }));
+  const meta: PageMeta = await pageMeta(env, kind, id, new URL(request.url).origin).catch(() => ({ title: env.APP_NAME, description: DEFAULT_DESCRIPTION, index: false }));
   const rewritten = new HTMLRewriter()
     .on('title', { element: (el) => void el.setInnerContent(meta.title) })
     .on('meta[property="og:title"]', { element: (el) => void el.setAttribute('content', meta.title) })
@@ -101,6 +110,13 @@ async function metaPage(request: Request, env: Env, kind: string, id: string): P
     .on('head', {
       element: (el) => {
         if (!meta.index) el.append('<meta name="robots" content="noindex">', { html: true });
+        if (meta.image) {
+          // URL aus eigener Origin und validierter ID gebaut – kein Fremdtext im HTML.
+          el.append(
+            `<meta property="og:image" content="${meta.image}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image">`,
+            { html: true },
+          );
+        }
       },
     })
     .transform(page);

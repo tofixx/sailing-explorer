@@ -21,12 +21,14 @@ export interface ShareRow {
   listed: number;
   dist_nm: number;
   started_at: number | null;
+  has_image: number;
   /** aus dem JOIN mit boats */
   boat_name?: string | null;
   boat_visibility?: string | null;
 }
 
 const key = (id: string) => `shares/${id}`;
+const imageKey = (id: string) => `previews/${id}.jpg`;
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
 export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility
@@ -46,6 +48,7 @@ export function shareShape(row: ShareRow, isOwner: boolean) {
     trackCount: row.track_count,
     distNm: row.dist_nm,
     startedAt: row.started_at,
+    hasImage: !!row.has_image,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     boat,
@@ -157,6 +160,7 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     // Angaben des Clients nur plausibilisiert übernehmen – sie dienen nur der Anzeige.
     dist_nm: Math.max(0, Math.min(100_000, Number(h.get('X-Share-Distance')) || 0)),
     started_at: Number.isFinite(started) && started > 0 && started < now + 86_400_000 ? started : null,
+    has_image: 0,
   };
 
   await env.TRACKS.put(key(row.id), bytes, {
@@ -230,7 +234,7 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
 
 export async function deleteShare(request: Request, env: Env, id: string): Promise<Response> {
   const { row } = await ownedShare(request, env, id);
-  await env.TRACKS.delete(key(row.id));
+  await env.TRACKS.delete([key(row.id), imageKey(row.id)]);
   await env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(row.id).run();
   return new Response(null, { status: 204 });
 }
@@ -244,4 +248,39 @@ export async function listedShares(env: Env, where: 'user' | 'boat', id: string)
     .bind(id)
     .all<ShareRow>();
   return results.map((r) => shareShape(r, false));
+}
+
+/** JPEG: beginnt mit FF D8 FF. */
+function isJpeg(b: Uint8Array): boolean {
+  return b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+}
+
+/** PUT /api/shares/:id/image – Übersichtsbild (JPEG) des Besitzers. */
+export async function putShareImage(request: Request, env: Env, id: string): Promise<Response> {
+  const { row } = await ownedShare(request, env, id);
+  if ((request.headers.get('Content-Type') || '') !== 'image/jpeg') throw new HttpError(415, 'unsupported_media_type', 'Nur JPEG-Bilder.');
+  const bytes = await readBodyCapped(request, LIMITS.imageBytes);
+  if (!isJpeg(bytes)) throw new HttpError(400, 'invalid_image', 'Ungültiges Bild.');
+  await env.TRACKS.put(imageKey(row.id), bytes, { httpMetadata: { contentType: 'image/jpeg' }, customMetadata: { owner: row.user_id } });
+  await env.DB.prepare('UPDATE shares SET has_image = 1, updated_at = ? WHERE id = ?').bind(Date.now(), row.id).run();
+  return new Response(null, { status: 204 });
+}
+
+/** GET /api/shares/:id/image – Vorschaubild; gleiche Sichtbarkeit wie die Freigabe. */
+export async function getShareImage(request: Request, env: Env, id: string): Promise<Response> {
+  const { row } = await visibleShare(request, env, id);
+  if (!row.has_image) throw NOT_FOUND();
+  const obj = await env.TRACKS.get(imageKey(row.id), { onlyIf: request.headers });
+  if (!obj) throw NOT_FOUND();
+  const headers = new Headers({
+    'Content-Type': 'image/jpeg',
+    ETag: obj.httpEtag,
+    // Öffentliche Bilder dürfen Messenger kurz cachen, private nie.
+    'Cache-Control': row.visibility === 'private' ? 'private, no-cache' : 'public, max-age=300',
+    'Cross-Origin-Resource-Policy': 'cross-origin',
+  });
+  const res = withApiHeaders(new Response('body' in obj ? obj.body : null, { status: 'body' in obj ? 200 : 304, headers }));
+  // Messenger-Crawler laden das Bild von fremden Seiten.
+  res.headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  return res;
 }

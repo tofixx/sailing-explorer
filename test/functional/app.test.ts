@@ -435,13 +435,19 @@ describe('F-30 Gast-Sitzung', () => {
 });
 
 describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
-  it('[F-31] nicht angemeldet → Anmeldedialog; nach Anmeldung (im anderen Tab) geht es direkt mit dem Teilen weiter', async () => {
+  it('[F-31] nicht angemeldet → Teilen-Dialog bietet Bild ohne Anmeldung; Link erst nach Anmeldung (im anderen Tab), danach geht es direkt weiter', async () => {
     await startApp();
     await vi.waitFor(() => expect(state().backend).toBe(true));
     await load(file('a.gpx', leg('Mein Törn')));
     emit('sx-share');
     const login = el<{ open: boolean; reason: string }>('sx-login-dialog');
-    const share = el<{ open: boolean; defaultTitle: string }>('sx-share-dialog');
+    const share = el<{ open: boolean; defaultTitle: string; tab: string; linkState: string }>('sx-share-dialog');
+    expect(share.open).toBe(true);
+    expect(share.tab).toBe('image');
+    expect(share.linkState).toBe('login');
+    expect(login.open).toBeFalsy();
+    // „Anmelden & Link erstellen“
+    emit('sx-login-for-share');
     expect(login.open).toBe(true);
     expect(login.reason).toMatch(/anmelden|meldest/i);
     expect(share.open).toBeFalsy();
@@ -450,6 +456,8 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
     FakeChannel.all[0].receive('login');
     await vi.waitFor(() => expect(share.open).toBe(true));
     expect(login.open).toBe(false);
+    expect(share.linkState).toBe('form');
+    expect(share.tab).toBe('link');
     expect(share.defaultTitle).toBe('Mein Törn');
   });
 
@@ -613,6 +621,8 @@ describe('F-40 Ohne Backend', () => {
     await load(file('a.gpx', leg('A')));
     expect(state().backend).toBe(false);
     emit('sx-share');
+    expect(el<{ linkState: string }>('sx-share-dialog').linkState).toBe('offline');
+    emit('sx-share-inline');
     await vi.waitFor(() => expect(clipboard).toHaveLength(1));
     expect(clipboard[0]).toMatch(new RegExp(`^${location.origin}/#g=[A-Za-z0-9_-]+$`));
     expect(el<{ open?: boolean }>('sx-login-dialog').open).toBeFalsy();
@@ -636,6 +646,7 @@ describe('F-40 Ohne Backend', () => {
     const pts = genPoints({ n: 3000, dt: 5 }).map((p, i) => ({ ...p, lat: p.lat + Math.sin(i * 7.3) * 1e-4, lon: p.lon + Math.cos(i * 3.1) * 1e-4 }));
     await load(file('gross.gpx', gpxDoc(pts, 'Groß')));
     emit('sx-share');
+    emit('sx-share-inline');
     await vi.waitFor(() => expect(toasts().some((t) => /zu groß/.test(t))).toBe(true));
     expect(clipboard).toEqual([]);
   });

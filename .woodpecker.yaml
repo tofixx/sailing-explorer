@@ -6,7 +6,7 @@
 #     Zone wollow.ski: Workers Routes:Edit, DNS:Edit (für die Custom Domain)
 
 when:
-  - event: [push, pull_request, manual]
+  - event: [push, pull_request, pull_request_closed, manual]
 
 # Auf dem NUC bauen (Label speed=fast). edda ist ein NAS und soll nicht bauen –
 # siehe Notion „CI/CD: Forgejo, Woodpecker & Registry“.
@@ -18,6 +18,8 @@ steps:
     image: node:22-bookworm
     commands:
       - npm ci --no-audit --no-fund
+    when:
+      - event: [push, pull_request, manual]
 
   - name: check
     image: node:22-bookworm
@@ -25,6 +27,8 @@ steps:
       - npm run typecheck
       - npm test
       - npm run build
+    when:
+      - event: [push, pull_request, manual]
 
   - name: deploy
     image: node:22-bookworm
@@ -37,3 +41,29 @@ steps:
     when:
       - event: [push, manual]
         branch: ${CI_REPO_DEFAULT_BRANCH}
+
+  # Jeder andere Branch: eigene Vorschau unter sailing-<branch>.wollow.ski
+  # (eigener Worker, Vorschau-Datenbank und -Bucket; Anmeldung dort gesperrt).
+  - name: preview
+    image: node:22-bookworm
+    environment:
+      CLOUDFLARE_API_TOKEN:
+        from_secret: cloudflare_api_token
+    commands:
+      - node scripts/deploy-preview.mjs deploy "$CI_COMMIT_BRANCH"
+    when:
+      - event: [push, manual]
+        branch:
+          exclude: ${CI_REPO_DEFAULT_BRANCH}
+
+  # Pull Request geschlossen/gemergt: Vorschau wieder entfernen
+  - name: preview-cleanup
+    image: node:22-bookworm
+    environment:
+      CLOUDFLARE_API_TOKEN:
+        from_secret: cloudflare_api_token
+    commands:
+      - npm ci --no-audit --no-fund
+      - node scripts/deploy-preview.mjs delete "$CI_COMMIT_SOURCE_BRANCH"
+    when:
+      - event: pull_request_closed

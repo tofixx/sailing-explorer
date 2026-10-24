@@ -17,6 +17,7 @@ export interface ShareMeta {
   trackCount: number;
   distNm: number;
   startedAt: number | null;
+  hasImage: boolean;
   createdAt: number;
   updatedAt: number;
   boat: { id: string; name: string } | null;
@@ -130,6 +131,8 @@ export const api = {
   shareMeta: (id: string) => call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(id)}`),
   updateShare: (id: string, patch: SharePatch) =>
     call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
+  putShareImage: (id: string, image: Blob) =>
+    call<void>(`/api/shares/${encodeURIComponent(id)}/image`, { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: image }),
   deleteShare: (id: string) => call<void>(`/api/shares/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   createShare: (

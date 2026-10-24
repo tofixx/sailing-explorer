@@ -1,3 +1,4 @@
+import { metricRange } from '../domain/metrics';
 import { shareSummary } from '../domain/summary';
 import { needsSupport, supportUrl } from '../domain/support';
 import {
@@ -12,7 +13,8 @@ import {
   type SupportStatus,
 } from '../services/api';
 import { deflateToBase64Url, gzipString } from '../services/compress';
-import type { Store } from '../services/store';
+import { DEFAULT_CONTENT, imageFileName, renderShareImage, type ImageContent, type ImageFormat } from '../services/share-image';
+import { visibleTracks, type Store } from '../services/store';
 import { turnstileMount } from '../services/turnstile';
 import { serializeView } from '../services/url-state';
 import type { AccountTab, SxAccountDialog } from '../components/sx-account-dialog';
@@ -21,6 +23,7 @@ import type { SxShareDialog } from '../components/sx-share-dialog';
 
 /** Größte URL, die wir für Links mit eingebetteten Daten noch erzeugen. */
 const MAX_INLINE_URL = 32_000;
+const IMAGE_PREFS_KEY = 'sx-image-prefs';
 
 export interface SessionUi {
   login: SxLoginDialog;
@@ -186,33 +189,37 @@ export class SessionController {
     return this.store.get().tracks.map((t) => t.id).join(',');
   }
 
+  /** Öffnet den Teilen-Dialog: „Als Bild“ geht immer, „Als Link“ je nach Anmeldung/Backend. */
   async share(): Promise<void> {
     const s = this.store.get();
     if (!s.tracks.length) return;
+    const names = s.tracks.map((t) => t.name);
+    let result: { share: ShareMeta; url: string } | null = null;
     if (s.mode.kind === 'share') {
       // Geteilte Ansicht weitergeben – inkl. aktueller Einfärbung/Ebenen
-      return this.showResult(s.mode.share, `${location.origin}/s/${s.mode.share.id}?${serializeView(s.metric, s.layers)}`);
+      result = { share: s.mode.share, url: `${location.origin}/s/${s.mode.share.id}?${serializeView(s.metric, s.layers)}` };
+    } else if (this.lastShare?.key === this.tracksKey()) {
+      result = { share: this.lastShare.share, url: `${location.origin}/s/${this.lastShare.share.id}` };
     }
-    if (this.lastShare?.key === this.tracksKey()) return this.showResult(this.lastShare.share);
-    if (!s.backend) return this.shareInline();
-    if (!s.user) {
-      this.pendingShare = true;
-      return this.openLogin('Zum Teilen wird dein Törn gespeichert – dafür meldest du dich einmal mit deiner E-Mail-Adresse an. Danach geht es direkt weiter.');
-    }
-    const names = s.tracks.map((t) => t.name);
+    const linkState = !s.backend ? 'offline' : s.user ? 'form' : 'login';
     Object.assign(this.ui.share, {
       open: true,
-      result: null,
+      tab: result || linkState === 'form' ? 'link' : 'image',
+      linkState,
+      result,
       error: '',
       busy: false,
       boats: [],
-      defaultTitle: names.length > 1 ? `${names[0]} → ${names[names.length - 1]}` : names[0],
+      defaultTitle: s.mode.kind === 'share' ? s.mode.share.title : names.length > 1 ? `${names[0]} → ${names[names.length - 1]}` : names[0],
       summary: shareSummary(s.tracks),
       checking: false,
       support: this.personalLinks(),
     });
-    api.myBoats().then((r) => (this.ui.share.boats = r.boats), () => {});
-    this.refreshSupport();
+    this.refreshImage();
+    if (s.user) {
+      api.myBoats().then((r) => (this.ui.share.boats = r.boats), () => {});
+      this.refreshSupport();
+    }
   }
 
   // ---------------------------------------------------------------- Unterstützen
@@ -252,7 +259,93 @@ export class SessionController {
   }
 
   private showResult(share: ShareMeta, url = `${location.origin}/s/${share.id}`) {
-    Object.assign(this.ui.share, { open: true, error: '', busy: false, result: { share, url } });
+    Object.assign(this.ui.share, { open: true, tab: 'link', error: '', busy: false, result: { share, url } });
+  }
+
+  /** Aus dem Link-Reiter: erst anmelden, danach geht es im Dialog weiter. */
+  loginForShare(): void {
+    this.pendingShare = true;
+    this.ui.share.open = false;
+    this.openLogin('Für einen Link wird dein Törn gespeichert – dafür meldest du dich einmal mit deiner E-Mail-Adresse an. Danach geht es direkt weiter.');
+  }
+
+  shareInlineLink(): Promise<void> {
+    return this.shareInline();
+  }
+
+  // ---------------------------------------------------------------- Bild
+
+  private imageBlob: Blob | null = null;
+  private imageSeq = 0;
+
+  private imagePrefs(): { format: ImageFormat; content: ImageContent } {
+    try {
+      const p = JSON.parse(localStorage.getItem(IMAGE_PREFS_KEY) || '{}') as { format?: ImageFormat; content?: Partial<ImageContent> };
+      return { format: p.format === 'square' ? 'square' : 'landscape', content: { ...DEFAULT_CONTENT, ...p.content } };
+    } catch {
+      return { format: 'landscape', content: { ...DEFAULT_CONTENT } };
+    }
+  }
+
+  setImageOptions(format: ImageFormat, content: ImageContent): void {
+    try {
+      localStorage.setItem(IMAGE_PREFS_KEY, JSON.stringify({ format, content }));
+    } catch {
+      /* privater Modus: Auswahl gilt nur für diese Sitzung */
+    }
+    this.refreshImage({ format, content });
+  }
+
+  private imageFor(opts: { format: ImageFormat; content: ImageContent }): Promise<Blob> {
+    const s = this.store.get();
+    const tracks = visibleTracks(s).length ? visibleTracks(s) : s.tracks;
+    return renderShareImage(tracks, {
+      title: this.ui.share.defaultTitle || tracks[0]?.name || 'Törn',
+      metric: s.metric,
+      range: metricRange(tracks, s.metric),
+      format: opts.format,
+      content: opts.content,
+    });
+  }
+
+  /** Zeichnet die Vorschau neu; ältere, langsamere Läufe werden verworfen. */
+  private async refreshImage(opts = this.imagePrefs()): Promise<void> {
+    const seq = ++this.imageSeq;
+    const prev = this.ui.share.image;
+    this.ui.share.image = { url: prev?.url ?? '', busy: true, ...opts };
+    try {
+      const blob = await this.imageFor(opts);
+      if (seq !== this.imageSeq) return;
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      this.imageBlob = blob;
+      this.ui.share.image = { url: URL.createObjectURL(blob), busy: false, ...opts };
+    } catch (e) {
+      if (seq !== this.imageSeq) return;
+      this.ui.share.image = { url: prev?.url ?? '', busy: false, ...opts };
+      this.ui.toast(`Bild: ${errorText(e)}`);
+    }
+  }
+
+  private imageFile(): File | null {
+    if (!this.imageBlob) return null;
+    return new File([this.imageBlob], imageFileName(this.ui.share.defaultTitle || 'toern'), { type: 'image/jpeg' });
+  }
+
+  downloadImage(): void {
+    const f = this.imageFile();
+    if (!f) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(f);
+    a.download = f.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  async shareImage(): Promise<void> {
+    const f = this.imageFile();
+    if (!f) return;
+    if (navigator.canShare?.({ files: [f] })) await navigator.share({ files: [f], title: this.ui.share.defaultTitle }).catch(() => {});
+    else this.downloadImage();
   }
 
   async upload(d: ShareRequest): Promise<void> {
@@ -277,6 +370,10 @@ export class SessionController {
       this.lastShare = { key: this.tracksKey(), share };
       if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: this.supportStatus.sharesUsed + 1 });
       this.showResult(share);
+      // Übersichtsbild für die Link-Vorschau – immer im Querformat; Fehler sind nicht kritisch.
+      this.imageFor({ format: 'landscape', content: this.imagePrefs().content })
+        .then((blob) => api.putShareImage(share.id, blob))
+        .catch(() => {});
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         this.store.set({ user: null });
