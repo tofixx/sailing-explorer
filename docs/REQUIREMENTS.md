@@ -44,9 +44,12 @@ Jede Anforderung hat eine ID; Tests referenzieren sie im Testnamen (z. B. `[F-03
 - **F-44** Sichtbarkeit einer Freigabe: „Öffentlich“ (auf Profil- und Bootsseite gelistet), „Mit Link“, „Nur ich“.
 - **F-45** Profil- und Bootsseiten zeigen Kennzahlen (Seemeilen, Törns) und die öffentlichen Törns; private Seiten sind für andere 404.
 - **F-46** Link-Vorschau für öffentliche Profil- und Bootsseiten; diese dürfen indexiert werden, geteilte Törns nicht.
+- **F-47** Übersichtsbild: Der Törn lässt sich als Bild teilen oder herunterladen – ohne Anmeldung, im Browser erzeugt. Formate Querformat (1200×630) und Quadrat (1080×1080); Inhalte wählbar (Titel, Datum, Start & Ziel, Distanz, Dauer, Fahrt, Wind, Wellen, Legende, Seekarte). Die Angaben stehen in einem eigenen Randbereich und verdecken den Track nie.
+- **F-48** Beim Erstellen eines Links wird das Übersichtsbild mit gespeichert und erscheint als Link-Vorschau (og:image) – nur für öffentliche bzw. per Link geteilte Törns, private bleiben ohne Bild.
 - **F-40** Ohne Backend (statisches Hosting) funktioniert alles außer Server-Teilen; kleine Tracks können als Link mit eingebetteten Daten geteilt werden; alte `#g=`-Links funktionieren weiter.
 
 ## Betrieb
 
 - **F-50** Lokale Entwicklung mit `npm run dev`, erreichbar im LAN (Handy) inkl. Login.
 - **F-51** CI prüft Typen, Tests und Build; Deploy nur vom Hauptzweig.
+- **F-52** Jeder andere Branch bekommt eine eigene Vorschau unter `sailing-<branch>.wollow.ski` mit eigener Datenbank und eigenem Speicher; beim Schließen des Pull Requests wird sie entfernt.

@@ -39,6 +39,9 @@ const paths = {
   open: svg`<path d="M14 4h6v6M20 4l-8.5 8.5M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>`,
   // Meine Tracks: Logbuch
   folder: svg`<path class="f" d="M5 4.5h12a2 2 0 0 1 2 2v13H7a2 2 0 0 1-2-2z"/><path d="M5 17.5v-11a2 2 0 0 1 2-2h12v15H7a2 2 0 0 1-2-2 2 2 0 0 1 2-2h12M9 8.5h6M9 11.5h4"/>`,
+  // Bild: Rahmen mit Kurslinie und Sonne
+  image: svg`<rect class="f" x="3" y="4.5" width="18" height="15" rx="2.5"/><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="16.5" cy="9" r="1.6"/><path d="m3.5 17 5-5 3.5 3.5 2.5-2.5 6 5"/>`,
+  download: svg`<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/>`,
   anchor: svg`<circle cx="12" cy="5" r="2"/><path d="M12 7v13M8 10.5h8M4.5 13.5c0 4 3.4 6.5 7.5 6.5s7.5-2.5 7.5-6.5"/><path d="m3 15 1.5-1.5L6 15M18 15l1.5-1.5L21 15"/>`,
 };
 
