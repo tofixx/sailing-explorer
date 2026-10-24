@@ -12,6 +12,8 @@ export const LIMITS = {
   /** Speicher pro Konto (komprimiert) */
   bytesPerUser: 200 * 1024 * 1024,
   boatsPerUser: 50,
+  /** Übersichtsbild einer Freigabe */
+  imageBytes: 1.5 * 1024 * 1024,
   nameLength: 80,
   bioLength: 500,
 } as const;

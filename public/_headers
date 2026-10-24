@@ -1,5 +1,5 @@
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org https://tile.openstreetmap.de https://server.arcgisonline.com https://tiles.openseamap.org https://ows.emodnet-bathymetry.eu; connect-src 'self' https://api.open-meteo.com https://archive-api.open-meteo.com https://marine-api.open-meteo.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'self' https://*.notion.so https://*.notion.site; base-uri 'none'; form-action 'self'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org https://tile.openstreetmap.de https://server.arcgisonline.com https://tiles.openseamap.org https://ows.emodnet-bathymetry.eu; connect-src 'self' https://api.open-meteo.com https://archive-api.open-meteo.com https://marine-api.open-meteo.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'self' https://*.notion.so https://*.notion.site; base-uri 'none'; form-action 'self'; object-src 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()

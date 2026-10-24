@@ -177,7 +177,7 @@ export async function logout(request: Request, env: Env): Promise<Response> {
 export async function deleteAccount(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const { results } = await env.DB.prepare('SELECT id FROM shares WHERE user_id = ?').bind(user.id).all<{ id: string }>();
-  if (results.length) await env.TRACKS.delete(results.map((r) => `shares/${r.id}`));
+  if (results.length) await env.TRACKS.delete(results.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]));
   await env.DB.batch([
     env.DB.prepare('DELETE FROM shares WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),

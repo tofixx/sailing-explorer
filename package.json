@@ -21,9 +21,11 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.65.0",
     "@cloudflare/workers-types": "^5.20261023.1",
+    "@napi-rs/canvas": "^1.0.13",
     "@types/leaflet": "^1.9.22",
     "happy-dom": "^21.0.4",
     "linkedom": "^0.18.14",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^6.4.5",
     "vitest": "^3.2.7",

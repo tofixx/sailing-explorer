@@ -16,7 +16,7 @@ export const CONTENT_SECURITY_POLICY = [
   `script-src 'self' ${TURNSTILE}`,
   // Leaflet und Lit setzen Inline-Styles; Skripte bleiben streng.
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: ${TILE_HOSTS.join(' ')}`,
+  `img-src 'self' data: blob: ${TILE_HOSTS.join(' ')}`,
   `connect-src 'self' ${API_HOSTS.join(' ')}`,
   `frame-src ${TURNSTILE}`,
   "frame-ancestors 'self' https://*.notion.so https://*.notion.site",
