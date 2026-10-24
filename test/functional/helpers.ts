@@ -1,3 +1,4 @@
+import { DOMParser as LinkedomParser } from 'linkedom';
 // Gemeinsame Testdaten für die funktionalen Client-Tests.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -89,3 +90,11 @@ export function meteoResponse(url: string, v: MeteoValues): unknown {
 
 export const jsonResponse = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+
+/**
+ * Schlanker XML-Parser für die großen Beispieldateien. happy-dom braucht für die
+ * 4,8-MB-Datei rund 2,5 GB Heap und sprengt damit CI-Container.
+ */
+export function leanParser(): DOMParser {
+  return new (LinkedomParser as unknown as new () => DOMParser)();
+}

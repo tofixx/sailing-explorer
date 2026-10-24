@@ -10,7 +10,7 @@ import { attachConditions, bounds } from '../../src/domain/weather';
 import { median } from '../../src/domain/geo';
 import { initialState, visibleTracks, type State } from '../../src/services/store';
 import { loadWeather } from '../../src/services/weather-api';
-import { P, T0, genPoints, gpxDoc, jsonResponse, makeTrack, meteoResponse, sampleGpx, trackFrom, type MeteoValues } from './helpers';
+import { P, T0, genPoints, gpxDoc, jsonResponse, makeTrack, meteoResponse, sampleGpx, leanParser, trackFrom, type MeteoValues } from './helpers';
 
 /** KPI-Wert als Zahl (deutsches Format „6,0“ bzw. Dauer „h:mm“). */
 function kpi(tracks: Parameters<typeof kpis>[0], key: string): number {
@@ -52,7 +52,7 @@ describe('F-01 GPX laden', () => {
   });
 
   it('[F-01] mehrere Dateien werden unabhängig voneinander gelesen (beide Beispiel-Tracks)', { timeout: 60_000 }, () => {
-    const names = ['20260613_Stralsund_Prerow', '20260614_Prerow_Rostock'].map((f) => parseGpx(sampleGpx(f), f).name);
+    const names = ['20260613_Stralsund_Prerow', '20260614_Prerow_Rostock'].map((f) => parseGpx(sampleGpx(f), f, leanParser()).name);
     expect(names).toEqual(['Stralsund Prerow', expect.stringMatching(/Prerow.*Rostock/)]);
   });
 });
@@ -121,7 +121,7 @@ describe('F-03 Kennzahlen pro Track', () => {
   });
 
   it('[F-03] Beispiel-Track liefert plausible Werte für ein Segelboot', { timeout: 60_000 }, () => {
-    const g = parseGpx(sampleGpx('20260614_Prerow_Rostock'), 'x');
+    const g = parseGpx(sampleGpx('20260614_Prerow_Rostock'), 'x', leanParser());
     const s = computeTrackStats(g.points);
     expect(s.distNm).toBeGreaterThan(10);
     expect(s.movingH).toBeGreaterThan(1);
