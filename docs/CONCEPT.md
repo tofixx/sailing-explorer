@@ -11,6 +11,18 @@ Fotos und Kommentare, dazu **änderbare Teilen-Links**, **Fotos auf der Karte**,
 Cloudflare-Free-Tier. Neue Anforderungen haben IDs ab **F-80** (Abschnitt 8);
 sie werden erst bei der Umsetzung nach `REQUIREMENTS.md` übernommen.
 
+## Entscheidungen des Betreibers (Oktober 2026)
+
+Diese Entscheidungen gehen allen Vorschlägen unten vor; betroffene Stellen sind angepasst.
+
+| # | Entscheidung | Folge |
+|---|---|---|
+| E1 | **Kostenlos ist immer öffentlich.** „Nur mit Link“ und „Nur ich“ gibt es nur mit laufendem Unterstützer-Status. | Gilt für Törns, Boote und Profile. Der Server prüft das (402 `supporter_required`), die Oberfläche zeigt die beiden Stufen gesperrt mit Hinweis. |
+| E2 | **Öffentlich heißt öffentlich.** | Öffentliche Törns, Boote und Profile sind gelistet und indexierbar, ohne 24-h-Verzögerung (offene Fragen 1 und 2 erledigt). |
+| E3 | **Fotos nur für Unterstützer**, Speicher für Unterstützer **200 MB** (Tracks, Übersichtsbilder und Fotos zusammen). | Kostenlos: keine Fotos (offene Frage 5 erledigt). Kostenlose Konten: Speicher wie bisher nur über 3 Törns begrenzt. |
+| E4 | **Ende der Unterstützung macht nichts öffentlich.** | Nicht öffentliche Objekte bleiben, wie sie sind, bis sie ablaufen (Unterstützungsende + 3 Monate). Neu „Nur mit Link“/„Nur ich“ setzen oder Fotos hinzufügen geht nicht mehr; auf „Öffentlich“ schalten oder löschen geht immer. Eine stille Hochstufung würde private Positionsdaten veröffentlichen. |
+| E5 | **Altbestand** wird nicht hochgestuft. | Heute private oder nicht gelistete Törns, Boote und Profile kostenloser Konten bleiben, wie sie sind (F-86); nur Neues folgt E1. |
+
 ## 0. Ausgangslage
 
 | Objekt | Heute | Lücke |
@@ -36,7 +48,7 @@ stehen in `src/domain/visibility.ts` (rein, von Worker und Oberfläche genutzt,
 wie heute `support.ts`) und werden in `worker/validate.ts` geprüft, **nie per
 SQL-`CHECK`** (Prinzip Architektur 7).
 
-**Standard für neue Objekte: `public`.** Das gilt für Törns, Boote, Profile und
+**Standard für neue Objekte: `public`; für kostenlose Konten die einzige Wahl (E1).** Das gilt für Törns, Boote, Profile und
 Fotos. Der Teilen-Dialog wählt „Öffentlich“ vor und sagt in einem Satz, was
 dann sichtbar ist („Track mit Positionen und Zeiten, Titel, Fotos – auf deinem
 Profil und unter Entdecken“). Prinzip Security 1 bleibt: Hochgeladen wird nur
@@ -78,10 +90,9 @@ Startseite zeigen ausschließlich Törns mit `visibility = 'public'`, sortiert n
 
 - Ausgeblendet werden Törns, die per Meldung automatisch verborgen sind
   (Abschnitt 4.4).
-- **Verzögerung (Vorschlag):** In Listen erscheint ein Törn erst 24 h nach
-  seinem Ende (`started_at` + Dauer, ersatzweise `created_at`). Der direkte Link
-  funktioniert sofort. Das verrät nicht in Echtzeit, dass jemand gerade nicht
-  zu Hause ist (siehe offene Frage 2).
+- **Keine Verzögerung (E2):** Ein öffentlicher Törn erscheint sofort in Listen.
+  Wer nicht in Echtzeit zeigen will, dass er unterwegs ist, teilt nach dem Törn
+  oder nutzt als Unterstützer „Nur mit Link“.
 - Boote und Profile kommen in eine zweite Liste („Boote“, „Segler:innen“) nur,
   wenn sie öffentlich sind und mindestens einen öffentlichen Törn haben – gegen
   leere Spam-Seiten.
@@ -94,7 +105,7 @@ Index: `CREATE INDEX shares_public ON shares(visibility, started_at DESC)`.
 |---|---|---|---|
 | `/u/<handle>`, `/b/<slug>` öffentlich | `index` | ja | Bootsfoto/Avatar, falls vorhanden |
 | `/entdecken` | `index` | App-Text | – |
-| `/s/<id>` öffentlich | **`noindex`** (Vorschlag, offene Frage 1) | ja | Übersichtsbild |
+| `/s/<id>` öffentlich | `index` (E2) | ja | Übersichtsbild |
 | `/s/<id>/<key>` mit gültigem Schlüssel | `noindex` | ja | Bild-URL mit Schlüssel |
 | alles Private, falscher/fehlender Schlüssel, Unbekanntes | `noindex` | neutral (`fallback` in `pageMeta`) | – |
 | `/api/*` (inkl. Fotos) | `X-Robots-Tag: noindex` | – | – |
@@ -321,14 +332,15 @@ und der Schalter Kommentare an/aus. Anzahl als Badge in der Lightbox.
 | Grenze | Kostenlos | Unterstützer | heute |
 |---|---|---|---|
 | Törns pro Konto | **3** | **100** (harte Grenze) | 3 / 100 |
-| Speicher gesamt (Tracks + Übersichtsbilder + Fotos) | **50 MB** | **500 MB** | 200 MB nur Tracks |
+| Speicher gesamt (Tracks + Übersichtsbilder + Fotos) | ergibt sich aus 3 Törns (≤ 3 × 12 MB) | **200 MB** (E3) | 200 MB nur Tracks |
 | Upload pro Törn (Track, komprimiert) | 12 MB | 12 MB | 12 MB |
-| Fotos pro Törn | **20** | **100** | – |
-| Fotos pro Konto | **60** | **1.000** | – |
+| Fotos pro Törn | **keine** (E3) | **100** | – |
+| Fotos pro Konto | **keine** | durch 200 MB begrenzt (≈ 450) | – |
 | Foto-Datei | Vollbild ≤ 2048 px und ≤ 1 MB, Vorschau ≤ 400 px und ≤ 80 KB | gleich | – |
 | Boote (als Eigner) | **3** | **20** | 50 |
 | Kommentare | 10/h, 50/Tag | gleich | – |
 | Meldungen | 20/Tag | gleich | – |
+| Sichtbarkeit | nur „Öffentlich“ (E1) | alle drei Stufen | – |
 | Aufbewahrung Törn | 3 Monate ab Upload | bis Ende Unterstützung + 3 Monate | gleich |
 | Fotos, Kommentare | folgen ihrem Törn | folgen ihrem Törn | – |
 
@@ -381,6 +393,8 @@ Unterstützer):
 | Fotos | 15 × 0,4 MB | 150 × 0,4 MB |
 | Summe | **≈ 6,6 MB** | **≈ 68 MB** |
 
+*(Rechnung vor E3; mit „Fotos nur für Unterstützer“ und 200 MB liegt die Kapazität deutlich höher, grob 1.500–2.000 aktive Konten bei 10 % Unterstützern.)*
+
 Bei 10 % Unterstützern: Ø 0,9 × 6,6 + 0,1 × 68 ≈ **12,7 MB pro Konto** →
 8 GB / 12,7 MB ≈ **600–650 aktive Konten mit Fotos**. Ohne Fotos (nur Tracks)
 wären es ≈ 6.000. Schlimmster Fall, alle schöpfen voll aus: 160 kostenlose
@@ -388,8 +402,8 @@ Konten oder 16 Unterstützer – genau dafür gibt es die Notbremse.
 
 ### 5.4 Fairness und Kosten
 
-- **Harte Grenze auch für Unterstützer:** Ein Konto darf höchstens ca. 5 % des
-  Free Tiers belegen (500 MB von 10 GB). Ein einzelnes Konto kann so nie die
+- **Harte Grenze auch für Unterstützer:** Ein Konto darf höchstens 2 % des
+  Free Tiers belegen (200 MB von 10 GB). Ein einzelnes Konto kann so nie die
   Plattform für alle anderen voll machen; ohne Grenze wären 20 eifrige
   Fotografen das Ende des Free Tiers.
 - Unterstützung kauft **Platz und Zeit** (mehr Törns, Fotos, Aufbewahrung),
@@ -618,11 +632,11 @@ und die Prüfungen in `boats.ts`/`profiles.ts`), `worker/links.ts`
 
 ### Sichtbarkeit
 
-- **F-80** Törns, Boote und Profile haben die Sichtbarkeit „Öffentlich“, „Nur mit Link“ oder „Nur ich“; neue Objekte sind standardmäßig öffentlich, der Dialog erklärt die Folgen vor dem Speichern.
+- **F-80** Törns, Boote und Profile haben die Sichtbarkeit „Öffentlich“, „Nur mit Link“ oder „Nur ich“ (die letzten beiden nur für Unterstützer, F-124); neue Objekte sind standardmäßig öffentlich, der Dialog erklärt die Folgen vor dem Speichern.
 - **F-81** Fotos haben „Wie der Törn“ (Standard) oder „Nur ich“; Kommentare folgen dem Törn. Ein Kind ist nie sichtbarer als sein Törn.
 - **F-82** Ein Törn ist unabhängig von Boot und Profil sichtbar; ist das Boot nicht öffentlich, wird es nicht genannt; ist das Profil nicht öffentlich, erscheint der Autor ohne Namen-Link.
-- **F-83** Profil- und Bootsseiten, `/entdecken` und die Startseite listen nur öffentliche Objekte; Kennzahlen zählen nur öffentliche Törns. In Listen erscheint ein Törn frühestens 24 h nach seinem Ende.
-- **F-84** Indexierbar sind nur öffentliche Profile, öffentliche Boote und `/entdecken`; Törns, Schlüssel-Links und `/api/*` tragen `noindex`.
+- **F-83** Profil- und Bootsseiten, `/entdecken` und die Startseite listen nur öffentliche Objekte; Kennzahlen zählen nur öffentliche Törns. Öffentliche Törns erscheinen sofort.
+- **F-84** Indexierbar sind öffentliche Törns, Profile, Boote und `/entdecken`; Schlüssel-Links, Privates und `/api/*` tragen `noindex`.
 - **F-85** Link-Vorschau mit Titel, Text und Bild für öffentliche Objekte und für „Nur mit Link“ über den gültigen Schlüssel-Link; sonst neutral.
 - **F-86** Bestehende Freigaben werden übernommen: gelistet → öffentlich, nicht gelistet → nur mit Link, privat → privat. Boote und Profile behalten ihre Sichtbarkeit.
 
@@ -653,22 +667,25 @@ und die Prüfungen in `boats.ts`/`profiles.ts`), `worker/links.ts`
 ### Kontingente
 
 - **F-120** Grenzen pro Konto wie in Abschnitt 5.1 (kostenlos / Unterstützer); bestehende Inhalte bleiben bei Überschreitung erhalten, nur Neues wird abgelehnt.
-- **F-121** Auch Unterstützer haben harte Obergrenzen (100 Törns, 500 MB, 1.000 Fotos, 20 Boote).
+- **F-121** Auch Unterstützer haben harte Obergrenzen (100 Törns, 200 MB inkl. Fotos, 100 Fotos pro Törn, 20 Boote).
+- **F-124** Kostenlose Konten speichern nur Öffentliches und keine Fotos; „Nur mit Link“, „Nur ich“ und Fotos verlangen laufenden Unterstützer-Status (sonst 402). Endet die Unterstützung, bleiben bestehende nicht öffentliche Objekte unverändert bis zu ihrem Ablauf.
 - **F-122** Ab 8 GB Gesamtspeicher pausieren Foto-Uploads kostenloser Konten, ab 9,5 GB alle Foto-Uploads; fehlt der Zähler, gilt „pausiert“.
 - **F-123** Konto und Teilen-Dialog zeigen Törns, Fotos und Speicher als „x von y“.
 
 ## 9. Offene Fragen an den Betreiber
 
-1. **Öffentliche Törns indexieren?** Vorschlag: nein (`noindex`), nur Profile,
+*Erledigt durch E1–E5: Fragen 1, 2 und 5.*
+
+1. ~~**Öffentliche Törns indexieren?**~~ → ja (E2). Vorschlag: nein (`noindex`), nur Profile,
    Boote und /entdecken. Törns enthalten Positionen und Zeiten.
-2. **24-h-Verzögerung in Listen** (Abwesenheit von zu Hause) – ja? Auch für
+2. ~~**24-h-Verzögerung in Listen**~~ → nein (E2). (Abwesenheit von zu Hause) – ja? Auch für
    Unterstützer, oder einstellbar?
 3. **Privatzonen vor „öffentlich als Standard“?** Start/Ziel liegen oft am
    Liegeplatz. Vorschlag: mindestens „Start und Ziel um 500 m kürzen“ als
    Option im Teilen-Dialog in Phase A (PLATFORM `privacy.ts`).
 4. **Kommentare an Fotos:** ein Thread pro Törn mit Foto-Bezug (Vorschlag)
    oder eigene Threads pro Foto?
-5. **Fotos auch kostenlos?** Vorschlag ja (20 pro Törn, 60 gesamt) – Fotos
+5. ~~**Fotos auch kostenlos?**~~ → nein (E3). Vorschlag ja (20 pro Törn, 60 gesamt) – Fotos
    sind der stärkste Grund zu unterstützen, wenn man sie erst einmal nutzt.
 6. **Über 10 GB R2 bezahlen** (≈ 0,015 $/GB, aus Unterstützungen gedeckt) oder
    harte Notbremse dauerhaft?
