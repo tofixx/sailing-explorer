@@ -40,6 +40,12 @@ const paths = {
   // Meine Tracks: Logbuch
   folder: svg`<path class="f" d="M5 4.5h12a2 2 0 0 1 2 2v13H7a2 2 0 0 1-2-2z"/><path d="M5 17.5v-11a2 2 0 0 1 2-2h12v15H7a2 2 0 0 1-2-2 2 2 0 0 1 2-2h12M9 8.5h6M9 11.5h4"/>`,
   anchor: svg`<circle cx="12" cy="5" r="2"/><path d="M12 7v13M8 10.5h8M4.5 13.5c0 4 3.4 6.5 7.5 6.5s7.5-2.5 7.5-6.5"/><path d="m3 15 1.5-1.5L6 15M18 15l1.5-1.5L21 15"/>`,
+  // Unterstützen: Kaffeebecher mit Dampf
+  coffee: svg`<path class="f" d="M4.5 10h11v4.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M4.5 10h11v4.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5zM15.5 11.5h1.5a2.5 2.5 0 0 1 0 5h-1.8M3.5 21.5h13"/><path d="M8 3.5c-.8 1 .8 2 0 3.5M11.5 3.5c-.8 1 .8 2 0 3.5"/>`,
+  // Unterstützen: Bierkrug mit Schaumkrone
+  beer: svg`<path class="f" d="M5.5 9h10v10a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2z"/><path d="M5.5 9h10v10a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2zM15.5 11h1.5a2 2 0 0 1 2 2v2.5a2 2 0 0 1-2 2h-1.5M9 12.5v5M12 12.5v5"/><path d="M5.5 9a2.3 2.3 0 0 1 .6-4.3 3 3 0 0 1 4.9-1.2 2.7 2.7 0 0 1 4.3 1.8A1.9 1.9 0 0 1 15.5 9"/>`,
+  // Unterstützer-Abzeichen: Wimpel am Mast
+  pennant: svg`<path class="f" d="M6 4.5 19.5 9 6 13.5z"/><path d="M6 21V3M6 4.5 19.5 9 6 13.5"/>`,
 };
 
 export type IconName = keyof typeof paths;

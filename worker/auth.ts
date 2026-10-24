@@ -187,6 +187,8 @@ export async function deleteAccount(request: Request, env: Env): Promise<Respons
     env.DB.prepare('DELETE FROM boat_admins WHERE user_id = ? OR boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id, user.id),
     env.DB.prepare('DELETE FROM boats WHERE owner_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(user.id),
+    // Unterstützungen bleiben als Buchung erhalten, verlieren aber den Bezug zum Konto.
+    env.DB.prepare('UPDATE supports SET user_id = NULL WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
   return json({ ok: true }, { headers: { 'Set-Cookie': sessionCookie(request, '', 0) } });

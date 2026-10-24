@@ -1,7 +1,9 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { Boat, ShareMeta } from '../services/api';
+import type { Boat, ShareMeta, SupportLinks, SupportStatus } from '../services/api';
+import { needsSupport, quotaText } from '../domain/support';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
+import './sx-support';
 
 export interface ShareResult {
   share: ShareMeta;
@@ -18,6 +20,9 @@ export class SxShareDialog extends LitElement {
     error: { type: String },
     result: { attribute: false },
     boats: { attribute: false },
+    support: { attribute: false },
+    supportStatus: { attribute: false },
+    checking: { type: Boolean },
     copied: { state: true },
   };
   declare open: boolean;
@@ -27,6 +32,12 @@ export class SxShareDialog extends LitElement {
   declare error: string;
   declare result: ShareResult | null;
   declare boats: Boat[];
+  /** personalisierte Payment-Links; null = Unterstützen nicht eingerichtet */
+  declare support: SupportLinks | null;
+  /** Kontingent des Kontos; null = (noch) unbekannt */
+  declare supportStatus: SupportStatus | null;
+  /** Unterstützer-Status wird gerade neu geladen */
+  declare checking: boolean;
   declare copied: boolean;
 
   constructor() {
@@ -38,6 +49,9 @@ export class SxShareDialog extends LitElement {
     this.error = '';
     this.result = null;
     this.boats = [];
+    this.support = null;
+    this.supportStatus = null;
+    this.checking = false;
     this.copied = false;
   }
 
@@ -105,6 +119,19 @@ export class SxShareDialog extends LitElement {
       .linkrow input {
         font-family: var(--font-mono);
         font-size: var(--fs-s);
+      }
+      .quota {
+        display: flex;
+        align-items: center;
+        gap: var(--s-1);
+      }
+      .quota svg {
+        width: 14px;
+        height: 14px;
+      }
+      .support {
+        padding-top: var(--s-3);
+        border-top: 1px solid var(--border-soft);
       }
       .done {
         display: flex;
@@ -178,12 +205,22 @@ export class SxShareDialog extends LitElement {
               <a class="btn" href=${r.url} target="_blank" rel="noopener">${icon('open')} Öffnen</a>
               ${r.share.isOwner ? html`<button class="btn" @click=${() => emit(this, 'sx-account')}>${icon('folder')} Konto &amp; Freigaben</button>` : ''}
             </div>
+            ${this.support && !this.supportStatus?.supporter
+              ? html`<sx-support class="support" variant="offer" .links=${this.support} .status=${this.supportStatus}></sx-support>`
+              : ''}
           </div>`
-        : html`<form class="body" @submit=${this.submit}>
+        : needsSupport(this.supportStatus)
+          ? html`<div class="body">
+              <sx-support variant="required" .links=${this.support} .status=${this.supportStatus} ?checking=${this.checking}></sx-support>
+              ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
+              <div class="actions"><button type="button" class="btn" @click=${() => emit(this, 'sx-close', 'share')}>Schließen</button></div>
+            </div>`
+          : html`<form class="body" @submit=${this.submit}>
             <div>
               <label class="label" for="title">Titel</label>
               <input id="title" name="title" type="text" maxlength="120" .value=${this.defaultTitle} required />
               ${this.summary ? html`<div class="hint">${this.summary}</div>` : ''}
+              ${quotaText(this.supportStatus) ? html`<div class="hint quota">${icon('info')} ${quotaText(this.supportStatus)}</div>` : ''}
             </div>
             <fieldset>
               <legend class="label">Wer darf es sehen?</legend>

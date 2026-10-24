@@ -46,6 +46,13 @@ Jede Anforderung hat eine ID; Tests referenzieren sie im Testnamen (z. B. `[F-03
 - **F-46** Link-Vorschau für öffentliche Profil- und Bootsseiten; diese dürfen indexiert werden, geteilte Törns nicht.
 - **F-40** Ohne Backend (statisches Hosting) funktioniert alles außer Server-Teilen; kleine Tracks können als Link mit eingebetteten Daten geteilt werden; alte `#g=`-Links funktionieren weiter.
 
+## Unterstützen
+
+- **F-60** Kontingent: Ein Konto (eine E-Mail-Adresse) speichert bis zu 3 Freigaben kostenlos (`FREE_SHARES`). Ab der 4. braucht es den Unterstützer-Status, sonst lehnt der Server vor dem Upload mit 402 `supporter_required` und deutscher Meldung ab. Bestehende Freigaben bleiben erhalten, auch wenn es schon mehr sind; Löschen schafft Platz. `GET /api/me/support` liefert `supporter`, `sharesUsed`, `sharesFree`.
+- **F-61** „Kaffee/Bier ausgeben“: Bezahlt wird über Stripe-Payment-Links mit `client_reference_id` = Konto-ID. Freigeschaltet wird nur durch den Webhook `checkout.session.completed` (bzw. `…async_payment_succeeded`) an `POST /api/webhooks/stripe` mit gültiger Signatur (HMAC-SHA256, max. 5 min alt). Doppelte Zustellung zählt einmal, unbekannte Konten und andere Ereignisse werden ignoriert. Nur diese Route ist von der Origin-Prüfung ausgenommen. Unterstützungen bleiben bei Kontolöschung ohne Bezug zum Konto erhalten.
+- **F-62** Fail closed: Ohne Webhook-Secret oder ohne Payment-Link gibt es keine Unterstützen-Knöpfe, der Webhook antwortet 503 und die 4. Freigabe wird mit verständlicher Meldung (älteren Törn löschen) abgelehnt.
+- **F-63** Oberfläche: Unterstützen wird dezent angeboten (Teilen-Ergebnis, Konto). Teilen-Dialog und Konto zeigen „2 von 3 kostenlosen Freigaben genutzt“. Ist das Kontingent ausgeschöpft, zeigt „Teilen“ statt des Formulars eine Karte mit „Kaffee/Bier ausgeben“ (Payment-Link mit Konto-Zuordnung und vorausgefüllter E-Mail) und „Ich habe unterstützt – prüfen“. Unterstützer erhalten im Konto ein Abzeichen.
+
 ## Betrieb
 
 - **F-50** Lokale Entwicklung mit `npm run dev`, erreichbar im LAN (Handy) inkl. Login.

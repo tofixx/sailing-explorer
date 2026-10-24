@@ -1,8 +1,10 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { Boat, BoatInput, Profile, ShareMeta, User } from '../services/api';
+import type { Boat, BoatInput, Profile, ShareMeta, SupportLinks, SupportStatus, User } from '../services/api';
+import { quotaText } from '../domain/support';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
+import './sx-support';
 
 export type AccountTab = 'profile' | 'boats' | 'shares';
 
@@ -22,6 +24,8 @@ export class SxAccountDialog extends LitElement {
     profileExists: { type: Boolean },
     boats: { attribute: false },
     shares: { attribute: false },
+    support: { attribute: false },
+    supportStatus: { attribute: false },
     loading: { type: Boolean },
     busy: { type: Boolean },
     error: { type: String },
@@ -36,6 +40,9 @@ export class SxAccountDialog extends LitElement {
   declare profileExists: boolean;
   declare boats: Boat[];
   declare shares: ShareMeta[];
+  /** personalisierte Payment-Links; null = Unterstützen nicht eingerichtet */
+  declare support: SupportLinks | null;
+  declare supportStatus: SupportStatus | null;
   declare loading: boolean;
   declare busy: boolean;
   declare error: string;
@@ -55,6 +62,8 @@ export class SxAccountDialog extends LitElement {
     this.profileExists = false;
     this.boats = [];
     this.shares = [];
+    this.support = null;
+    this.supportStatus = null;
     this.loading = false;
     this.busy = false;
     this.error = '';
@@ -161,6 +170,34 @@ export class SxAccountDialog extends LitElement {
         background: var(--accent-soft);
         color: var(--accent);
         border-color: transparent;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        margin-left: var(--s-1);
+        padding: 0 var(--s-2);
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: var(--fs-s);
+        font-weight: 600;
+        vertical-align: middle;
+      }
+      .badge svg {
+        width: 13px;
+        height: 13px;
+      }
+      .quota {
+        display: flex;
+        align-items: center;
+        gap: var(--s-1);
+        font-size: var(--fs-s);
+        color: var(--text-2);
+      }
+      .quota svg {
+        width: 14px;
+        height: 14px;
       }
       .empty {
         padding: var(--s-5);
@@ -448,9 +485,14 @@ export class SxAccountDialog extends LitElement {
   }
 
   private sharesTab() {
-    return this.shares.length
-      ? html`<ul>${this.shares.map((s) => this.shareRow(s))}</ul>`
-      : html`<div class="empty">Noch nichts geteilt. Lade einen Track und klicke auf „Teilen“.</div>`;
+    const quota = quotaText(this.supportStatus);
+    return html`
+      ${quota ? html`<div class="quota">${icon('info')} ${quota}</div>` : ''}
+      ${this.shares.length
+        ? html`<ul>${this.shares.map((s) => this.shareRow(s))}</ul>`
+        : html`<div class="empty">Noch nichts geteilt. Lade einen Track und klicke auf „Teilen“.</div>`}
+      <sx-support variant="offer" .links=${this.support} .status=${this.supportStatus}></sx-support>
+    `;
   }
 
   // ------------------------------------------------------------ Rahmen
@@ -472,7 +514,10 @@ export class SxAccountDialog extends LitElement {
         ${u
           ? html`<div class="who">
               <span class="avatar">${name[0]}</span>
-              <div><div class="mail">${name}</div><div class="hint">${u.email} · angemeldet per E-Mail-Link</div></div>
+              <div>
+                <div class="mail">${name}${this.supportStatus?.supporter ? html`<span class="badge" title="Danke für deine Unterstützung!">${icon('pennant')} Unterstützer</span>` : ''}</div>
+                <div class="hint">${u.email} · angemeldet per E-Mail-Link</div>
+              </div>
             </div>`
           : ''}
         <div class="tabs" role="tablist">

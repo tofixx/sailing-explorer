@@ -1,7 +1,7 @@
 // Funktionale Tests: Profile, Boote, Eigentum, Sichtbarkeit, Profil-/Bootsseiten, Link-Vorschau (F-41 … F-46)
 // Echter Worker in workerd (Miniflare) mit lokalen D1-/R2-Bindings – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createShare, login, startWorker, type Harness, type ShareOpts } from './worker-harness';
+import { createShare, grantSupport, login, startWorker, type Harness, type ShareOpts } from './worker-harness';
 
 let h: Harness;
 let n = 0;
@@ -369,6 +369,7 @@ describe('F-44 Sichtbarkeit „Öffentlich“ / „Mit Link“ / „Nur ich“',
 describe('F-45 Profil- und Bootsseiten', () => {
   it('[F-45] Profilseite: Kennzahlen (Seemeilen, Törns), öffentliche Törns und öffentliche Boote', async () => {
     const s = await sailor('public');
+    await grantSupport(h, s.user.id); // vier Freigaben – mehr als das kostenlose Kontingent (F-60)
     const pubBoat = await newBoat(s.cookie, { name: 'Alpha', visibility: 'public' });
     await newBoat(s.cookie, { name: 'Beta privat', visibility: 'private' });
     await newShare(s.cookie, { listed: true, distNm: 20.5, boatId: pubBoat.id });

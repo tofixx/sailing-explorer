@@ -241,6 +241,7 @@ export class App {
     on('sx-login-reset', () => s.resetLogin());
     on('sx-login-confirm', () => s.confirmLogin());
     on<Parameters<SessionController['upload']>[0]>('sx-share-submit', (d) => s.upload(d));
+    on('sx-support-check', () => s.checkSupport());
     on<string>('sx-share-open', (id) => location.assign(`/s/${id}`));
     on<string>('sx-share-copy', (id) => s.copy(`${location.origin}/s/${id}`));
     on<{ id: string; patch: Parameters<SessionController['updateShare']>[1] }>('sx-share-update', (d) => s.updateShare(d.id, d.patch));

@@ -5,12 +5,24 @@ import { createShare, deleteShare, getShareData, getShareMeta, getShareRow, list
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
 import { withPageHeaders } from './security';
+import { freeShares, getSupport, stripeWebhook, supportLinks } from './supporter';
 import { isSameOrigin } from './validate';
+
+const WEBHOOK_PATH = '/api/webhooks/stripe';
 
 type Handler = (request: Request, env: Env, params: string[]) => Promise<Response>;
 
 const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
-  ['GET', /^\/api\/config$/, async (_r, env) => json({ turnstileSiteKey: env.TURNSTILE_SITE_KEY, sharing: true }, { headers: { 'Cache-Control': 'public, max-age=300' } })],
+  [
+    'GET',
+    /^\/api\/config$/,
+    // Nur öffentliche Werte: Payment-Links (null = Unterstützen nicht eingerichtet) und das kostenlose Kontingent.
+    async (_r, env) =>
+      json(
+        { turnstileSiteKey: env.TURNSTILE_SITE_KEY, sharing: true, support: supportLinks(env), freeShares: freeShares(env) },
+        { headers: { 'Cache-Control': 'public, max-age=300' } },
+      ),
+  ],
   ['GET', /^\/api\/auth\/me$/, (r, env) => me(r, env)],
   ['POST', /^\/api\/auth\/request$/, (r, env) => requestLink(r, env)],
   ['POST', /^\/api\/auth\/peek$/, (r, env) => peekLink(r, env)],
@@ -19,6 +31,8 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/account$/, (r, env) => deleteAccount(r, env)],
   ['GET', /^\/api\/me\/profile$/, (r, env) => getMyProfile(r, env)],
   ['PUT', /^\/api\/me\/profile$/, (r, env) => putMyProfile(r, env)],
+  ['GET', /^\/api\/me\/support$/, (r, env) => getSupport(r, env)],
+  ['POST', /^\/api\/webhooks\/stripe$/, (r, env) => stripeWebhook(r, env)],
   ['GET', /^\/api\/profiles\/([A-Za-z0-9-]+)$/, (r, env, [h]) => getProfile(r, env, h)],
   ['GET', /^\/api\/boats$/, (r, env) => listMyBoats(r, env)],
   ['POST', /^\/api\/boats$/, (r, env) => createBoat(r, env)],
@@ -34,7 +48,9 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
 ];
 
 async function handleApi(request: Request, env: Env, path: string): Promise<Response> {
-  if (request.method !== 'GET' && request.method !== 'HEAD' && !isSameOrigin(request)) {
+  // Einzige Ausnahme von der Origin-Prüfung: der Stripe-Webhook (ohne Origin, ohne Cookie, per Signatur geschützt).
+  const isWebhook = request.method === 'POST' && path === WEBHOOK_PATH;
+  if (request.method !== 'GET' && request.method !== 'HEAD' && !isWebhook && !isSameOrigin(request)) {
     throw new HttpError(403, 'forbidden_origin');
   }
   let pathMatched = false;

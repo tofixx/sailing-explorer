@@ -37,7 +37,8 @@ export interface R2Like {
   list(opts?: { prefix?: string }): Promise<{ objects: Array<{ key: string }> }>;
 }
 
-export async function startWorker(): Promise<Harness> {
+/** bindings: zusätzliche/abweichende vars und Secrets (z. B. Stripe-Konfiguration für die Unterstützen-Tests). */
+export async function startWorker(bindings: Record<string, string> = {}): Promise<Harness> {
   // Worker-Quelltext (TypeScript) wie wrangler zu einem ES-Modul bündeln – nur im Speicher.
   const out = await build({
     entryPoints: [resolve('worker/index.ts')],
@@ -78,6 +79,9 @@ export async function startWorker(): Promise<Harness> {
           MAIL_FROM: 'Sail Explorer <login@example.test>',
           TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
           // kein TURNSTILE_SECRET → Captcha wird lokal übersprungen
+          FREE_SHARES: '3',
+          // ohne Payment-Links und Webhook-Secret (wie wrangler.jsonc ohne Secrets) → Unterstützen ist aus
+          ...bindings,
         },
         serviceBindings: {
           ASSETS: async () => new Response(INDEX_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } }) as never,
@@ -198,4 +202,22 @@ export async function createShare(h: Harness, cookie: string | undefined, o: Sha
     },
     body,
   });
+}
+
+// ---------------------------------------------------------------- Unterstützen
+
+/** Schaltet ein Konto direkt in der Datenbank als Unterstützer frei (für Tests, die viele Freigaben brauchen). */
+export async function grantSupport(h: Harness, userId: string): Promise<void> {
+  const ref = `test_${userId}_${Math.random().toString(36).slice(2)}`;
+  await (await h.db())
+    .prepare("INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at) VALUES (?, ?, 'test', ?, 0, 'eur', ?)")
+    .bind(ref, userId, ref, Date.now())
+    .run();
+}
+
+/** Stripe-Signature-Header wie Stripe ihn bildet: t=<sek>,v1=HMAC-SHA256(secret, "t.body") als Hex. */
+export async function stripeSignature(secret: string, body: string, timestamp = Math.floor(Date.now() / 1000)): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(`${timestamp}.${body}`)));
+  return `t=${timestamp},v1=${[...mac].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
 }

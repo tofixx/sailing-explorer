@@ -25,6 +25,27 @@ export interface ShareMeta {
 
 export type PublicVisibility = 'public' | 'private';
 
+/** Öffentliche Payment-Links fürs Unterstützen (null = auf diesem Server nicht eingerichtet). */
+export interface SupportLinks {
+  coffee: string | null;
+  beer: string | null;
+}
+
+export interface AppConfig {
+  turnstileSiteKey: string;
+  sharing: boolean;
+  support?: SupportLinks | null;
+  freeShares?: number;
+}
+
+/** Unterstützer-Status und Kontingent des angemeldeten Kontos. */
+export interface SupportStatus {
+  supporter: boolean;
+  sharesUsed: number;
+  sharesFree: number;
+  sharesMax: number;
+}
+
 export interface Profile {
   handle: string;
   displayName: string;
@@ -95,8 +116,9 @@ const jsonInit = (method: string, body: unknown): RequestInit => ({
 });
 
 export const api = {
-  config: () => call<{ turnstileSiteKey: string; sharing: boolean }>('/api/config'),
+  config: () => call<AppConfig>('/api/config'),
   me: () => call<{ user: User | null }>('/api/auth/me'),
+  support: () => call<SupportStatus>('/api/me/support'),
   requestLink: (email: string, turnstile: string | null) =>
     call<{ ok: true; devLink?: string }>('/api/auth/request', jsonInit('POST', { email, turnstile })),
   peek: (token: string) => call<{ email: string }>('/api/auth/peek', jsonInit('POST', { token })),

@@ -70,6 +70,11 @@ gilt die Reihenfolge innerhalb eines Abschnitts.
 6. **Fail closed.** Ohne echten Mailversand oder ohne Bot-Schutz verweigert
    der Server in Produktion die Anmeldung, statt still zu degradieren.
    Magic Links werden erst nach Bestätigung („Als … anmelden?“) eingelöst –
-   Schutz gegen untergeschobene Links.
+   Schutz gegen untergeschobene Links. Ohne Webhook-Secret gibt es keine
+   Unterstützen-Knöpfe; freigeschaltet wird ausschließlich über einen
+   signierten Webhook, nie über eine Angabe des Clients.
 7. **Least privilege in CI.** Der Cloudflare-API-Token darf nur Workers und
    R2 dieses Accounts; Secrets nur im Deploy-Schritt und nur auf `main`.
+8. **Eine Ausnahme pro Regel, benannt.** Mutationen verlangen Same-Origin –
+   einzige Ausnahme ist `POST /api/webhooks/stripe`, die stattdessen per
+   HMAC-Signatur (Vergleich in konstanter Laufzeit, max. 5 min alt) geprüft wird.

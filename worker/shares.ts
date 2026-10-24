@@ -3,6 +3,7 @@ import { currentUser, requireUser } from './auth';
 import { canManageBoat } from './boats';
 import { randomId } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
+import { checkShareQuota, supportStatus } from './supporter';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseVisibility } from './validate';
 
 export interface ShareRow {
@@ -123,12 +124,10 @@ export async function createShare(request: Request, env: Env): Promise<Response>
   const user = await requireUser(request, env);
   await rateLimit(env.UPLOAD_LIMITER, `upload:${user.id}:${clientIp(request)}`);
 
-  // Kontingent vor dem Einlesen prüfen (Anzahl und Gesamtgröße pro Konto).
-  const usage = await env.DB.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS bytes FROM shares WHERE user_id = ?')
-    .bind(user.id)
-    .first<{ n: number; bytes: number }>();
-  if ((usage?.n ?? 0) >= LIMITS.sharesPerUser) throw new HttpError(409, 'quota', 'Maximale Anzahl an Freigaben erreicht.');
-  const remaining = LIMITS.bytesPerUser - (usage?.bytes ?? 0);
+  // Kontingent vor dem Einlesen prüfen (Anzahl, kostenlose Freigaben bzw. Unterstützer, Gesamtgröße pro Konto).
+  const usage = await supportStatus(env, user.id);
+  checkShareQuota(env, usage);
+  const remaining = LIMITS.bytesPerUser - usage.bytesUsed;
   if (remaining <= 0) throw new HttpError(409, 'quota', 'Speicherkontingent erschöpft – bitte alte Freigaben löschen.');
 
   const h = request.headers;

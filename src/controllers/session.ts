@@ -1,5 +1,16 @@
 import { shareSummary } from '../domain/summary';
-import { ApiError, api, validatePayload, type BoatInput, type Profile, type ShareMeta, type SharePatch } from '../services/api';
+import { needsSupport, supportUrl } from '../domain/support';
+import {
+  ApiError,
+  api,
+  validatePayload,
+  type BoatInput,
+  type Profile,
+  type ShareMeta,
+  type SharePatch,
+  type SupportLinks,
+  type SupportStatus,
+} from '../services/api';
 import { deflateToBase64Url, gzipString } from '../services/compress';
 import type { Store } from '../services/store';
 import { turnstileMount } from '../services/turnstile';
@@ -35,6 +46,9 @@ export class SessionController {
   private lastShare: { key: string; share: ShareMeta } | null = null;
   private pendingToken: string | null = null;
   private channel = 'BroadcastChannel' in window ? new BroadcastChannel('sx-auth') : null;
+  /** Öffentliche Payment-Links aus /api/config (null = Unterstützen nicht eingerichtet) */
+  private supportCfg: SupportLinks | null = null;
+  private supportStatus: SupportStatus | null = null;
 
   constructor(
     private store: Store,
@@ -45,6 +59,10 @@ export class SessionController {
       if (e.data === 'login') this.refreshUser().then(() => this.afterLogin());
       if (e.data === 'logout') this.store.set({ user: null });
     });
+    // Zurück aus dem Stripe-Tab: Status still neu laden, damit die Sperre ohne Klick verschwindet.
+    window.addEventListener('focus', () => {
+      if (this.ui.share.open && needsSupport(this.supportStatus)) this.refreshSupport();
+    });
   }
 
   // ---------------------------------------------------------------- Anmeldung
@@ -53,6 +71,7 @@ export class SessionController {
     try {
       const cfg = await api.config();
       if (cfg.turnstileSiteKey) this.ui.login.mountCaptcha = turnstileMount(cfg.turnstileSiteKey);
+      this.supportCfg = cfg.support ?? null;
       this.store.set({ backend: cfg.sharing });
       await this.refreshUser();
     } catch {
@@ -148,6 +167,7 @@ export class SessionController {
 
   private signedOut(msg: string) {
     this.store.set({ user: null });
+    this.setSupport(null);
     this.channel?.postMessage('logout');
     this.lastShare = null;
     this.closeAll();
@@ -188,8 +208,47 @@ export class SessionController {
       boats: [],
       defaultTitle: names.length > 1 ? `${names[0]} → ${names[names.length - 1]}` : names[0],
       summary: shareSummary(s.tracks),
+      checking: false,
+      support: this.personalLinks(),
     });
     api.myBoats().then((r) => (this.ui.share.boats = r.boats), () => {});
+    this.refreshSupport();
+  }
+
+  // ---------------------------------------------------------------- Unterstützen
+
+  /** Payment-Links mit Konto-Zuordnung (client_reference_id) und vorausgefüllter E-Mail. */
+  private personalLinks(): SupportLinks | null {
+    const user = this.store.get().user;
+    const cfg = this.supportCfg;
+    if (!cfg || !user) return null;
+    return { coffee: cfg.coffee && supportUrl(cfg.coffee, user), beer: cfg.beer && supportUrl(cfg.beer, user) };
+  }
+
+  private setSupport(status: SupportStatus | null) {
+    this.supportStatus = status;
+    const links = status ? this.personalLinks() : null;
+    Object.assign(this.ui.share, { supportStatus: status, support: links });
+    Object.assign(this.ui.account, { supportStatus: status, support: links });
+  }
+
+  private async refreshSupport(): Promise<SupportStatus | null> {
+    try {
+      const status = await api.support();
+      this.setSupport(status);
+      return status;
+    } catch {
+      return null; // offline/abgemeldet – der Server prüft beim Hochladen ohnehin selbst
+    }
+  }
+
+  /** „Ich habe unterstützt – prüfen“: Status neu laden; der Webhook kann ein paar Sekunden brauchen. */
+  async checkSupport(): Promise<void> {
+    Object.assign(this.ui.share, { checking: true, error: '' });
+    const status = await this.refreshSupport();
+    this.ui.share.checking = false;
+    if (status?.supporter) this.ui.toast('Danke für deine Unterstützung! Du kannst jetzt weitere Törns speichern.', 6000);
+    else this.ui.share.error = 'Noch ist keine Zahlung angekommen. Das kann ein paar Sekunden dauern – bitte gleich noch einmal prüfen.';
   }
 
   private showResult(share: ShareMeta, url = `${location.origin}/s/${share.id}`) {
@@ -216,6 +275,7 @@ export class SessionController {
         startedAt: starts.length ? Math.min(...starts) : null,
       });
       this.lastShare = { key: this.tracksKey(), share };
+      if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: this.supportStatus.sharesUsed + 1 });
       this.showResult(share);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -224,6 +284,8 @@ export class SessionController {
         this.pendingShare = true;
         return this.openLogin('Deine Anmeldung ist abgelaufen – bitte erneut anmelden.');
       }
+      // Kontingent ausgeschöpft: Status laden, dann zeigt der Dialog die Unterstützen-Karte statt des Formulars.
+      if (e instanceof ApiError && e.code === 'supporter_required' && needsSupport(await this.refreshSupport())) return;
       this.ui.share.error = errorText(e);
     } finally {
       this.ui.share.busy = false;
@@ -256,7 +318,7 @@ export class SessionController {
     this.ui.share.open = false; // keine gestapelten Dialoge
     Object.assign(this.ui.account, { open: true, tab, user: this.store.get().user, loading: true, error: '' });
     try {
-      const [shares, boats, me] = await Promise.all([api.listShares(), api.myBoats(), api.myProfile()]);
+      const [shares, boats, me] = await Promise.all([api.listShares(), api.myBoats(), api.myProfile(), this.refreshSupport()]);
       Object.assign(this.ui.account, { shares: shares.shares, boats: boats.boats, profile: me.profile, profileExists: me.exists });
     } catch (e) {
       this.ui.account.error = errorText(e);
@@ -316,6 +378,7 @@ export class SessionController {
       await api.deleteShare(id);
       this.ui.account.shares = this.ui.account.shares.filter((s) => s.id !== id);
       if (this.lastShare?.share.id === id) this.lastShare = null;
+      if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: Math.max(0, this.supportStatus.sharesUsed - 1) });
     }, 'Freigabe gelöscht');
   }
 }

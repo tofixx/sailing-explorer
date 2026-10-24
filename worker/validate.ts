@@ -77,6 +77,50 @@ export function parsePublicVisibility(input: unknown): 'public' | 'private' | nu
   return input === 'public' || input === 'private' ? input : null;
 }
 
+// ---------------------------------------------------------------- Unterstützen
+
+/** Kostenlose Freigaben pro Konto aus der Konfiguration (Standard 3, nie über dem Gesamtlimit). */
+export function parseFreeShares(input: unknown, fallback = 3): number {
+  const n = typeof input === 'string' && /^\d{1,4}$/.test(input.trim()) ? Number(input.trim()) : fallback;
+  return Math.min(n, LIMITS.sharesPerUser);
+}
+
+/** Öffentlicher Payment-Link: nur https, ohne Zugangsdaten und ohne eigenen Querystring. */
+export function parseSupportLink(input: unknown): string | null {
+  if (typeof input !== 'string' || !input) return null;
+  try {
+    const url = new URL(input.trim());
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Zerlegt den Stripe-Signature-Header „t=…,v1=…,v1=…“ (unbekannte Schemata wie v0 werden ignoriert). */
+export function parseStripeSignature(header: string | null): { timestamp: number; signatures: string[] } | null {
+  if (!header || header.length > 2048) return null;
+  let timestamp = NaN;
+  const signatures: string[] = [];
+  for (const part of header.split(',')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    const k = part.slice(0, i).trim();
+    const v = part.slice(i + 1).trim();
+    if (k === 't' && /^\d{1,12}$/.test(v)) timestamp = Number(v);
+    else if (k === 'v1' && /^[0-9a-f]{64}$/.test(v)) signatures.push(v);
+  }
+  return Number.isFinite(timestamp) && signatures.length ? { timestamp, signatures } : null;
+}
+
+/** Vergleich in konstanter Laufzeit (bei gleicher Länge) – gegen Timing-Angriffe auf Signaturen. */
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 /** Reservierte Profilnamen (Routen, Verwechslungsgefahr). */
 const RESERVED = new Set(['admin', 'api', 'app', 'login', 'logout', 'me', 'settings', 'support', 'help', 'sailing', 'wollow', 'root', 'system', 'null', 'undefined']);
 

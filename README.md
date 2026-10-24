@@ -23,6 +23,7 @@
 | **Gast-Sitzung** | Ohne Anmeldung bleibt alles im Browser (IndexedDB) und ist beim nächsten Besuch wieder da. |
 | **Teilen** | Anmeldung per Magic Link, dann Upload. Links `/s/<id>` öffnen eine vollständig interaktive Ansicht; Einfärbung und Ebenen stehen in der URL. Sichtbarkeit: öffentlich (auf Profil), mit Link, nur ich. |
 | **Profile & Boote** | Profilseite `/u/<name>` und Bootsseiten `/b/<id>` mit Seemeilen und Törns. Boote haben einen Eigner (weitere Admins vorgesehen). |
+| **Unterstützen** | 3 gespeicherte Törns pro Konto sind kostenlos. Wer mehr speichern will, gibt einmal einen Kaffee oder ein Bier aus (Stripe) – und hilft so, Server und Karten zu bezahlen. |
 | **Läuft überall** | Hell/Dunkel, Tastatur, Screenreader-Texte, mobil als Bottom-Sheet. |
 
 ## Schnellstart
@@ -66,7 +67,8 @@ flowchart LR
   end
   APP -- Wetter --> OM[Open-Meteo]
   APP -- /api --> W[Cloudflare Worker<br/>worker/]
-  W --> D1[(D1: Nutzer, Sessions,<br/>Profile, Boote, Freigaben)]
+  W --> D1[(D1: Nutzer, Sessions,<br/>Profile, Boote, Freigaben,<br/>Unterstützungen)]
+  STRIPE[Stripe Payment Links] -- Webhook --> W
   W --> R2[(R2: GPX gzip)]
   W --> MAIL[Resend / CF Email]
 ```
@@ -120,6 +122,24 @@ npx wrangler secret put RESEND_API_KEY
 
 Danach deployt die CI bei jedem Push auf den Standardzweig.
 
+### Unterstützen (Stripe)
+
+Pro Konto sind `FREE_SHARES` (Standard 3) gespeicherte Freigaben kostenlos. Ab der nächsten zeigt „Teilen“ eine Karte „Für weitere Törns: einmal unterstützen“; nach einer bezahlten Unterstützung ist das Konto dauerhaft Unterstützer (bis zum Gesamtlimit von 500 Freigaben bzw. 200 MB). Der Status wird aus der Tabelle `supports` abgeleitet; freigeschaltet wird **nur** über den signierten Webhook, nie über eine Angabe des Browsers. Ohne Einrichtung bleibt alles aus (keine Knöpfe, die 4. Freigabe wird mit Hinweis abgelehnt).
+
+1. **Payment Links anlegen** (Stripe-Dashboard → *Payment Links*), z. B. „Kaffee“ (3 €) und „Bier“ (5 €), gern mit „Kunde wählt den Preis“. Die Links (`https://buy.stripe.com/…`) in `wrangler.jsonc` → `SUPPORT_LINK_COFFEE` / `SUPPORT_LINK_BEER` eintragen. Die App hängt selbst `?client_reference_id=<Konto-ID>&prefilled_email=<E-Mail>` an – darüber ordnet der Webhook die Zahlung dem Konto zu.
+2. **Webhook anlegen** (*Entwickler → Webhooks → Endpunkt hinzufügen*):
+   - URL: `https://sailing.wollow.ski/api/webhooks/stripe`
+   - Ereignisse: `checkout.session.completed` (optional zusätzlich `checkout.session.async_payment_succeeded` für verzögerte Zahlarten wie SEPA)
+3. **Signatur-Secret setzen** (`whsec_…` aus dem Webhook-Endpunkt):
+
+```bash
+npx wrangler secret put STRIPE_WEBHOOK_SECRET
+```
+
+Lokal testen: im Stripe-Testmodus Test-Payment-Links anlegen, in `.dev.vars` eintragen und Ereignisse mit der Stripe-CLI weiterleiten – `stripe listen --forward-to localhost:5173/api/webhooks/stripe` gibt das passende `whsec_…` aus.
+
+> **Hinweis (keine Rechtsberatung):** Ist die „Spende“ an eine Gegenleistung gekoppelt (hier: weitere gespeicherte Törns), gilt sie steuerlich in der Regel nicht als Spende, sondern als Verkauf einer Leistung. Vor dem Livegang Impressum, Umsatzsteuer (ggf. Kleinunternehmerregelung) und Widerrufsbelehrung für digitale Leistungen prüfen; in Stripe nicht „Spende“ als Produktbezeichnung verwenden, sondern z. B. „Unterstützung: weitere Törns speichern“.
+
 ### Kosten
 
 | Dienst | Free-Tier | Hinweis |
@@ -128,6 +148,7 @@ Danach deployt die CI bei jedem Push auf den Standardzweig.
 | D1 | 5 GB, 5 Mio. Lesezugriffe/Tag | |
 | R2 | 10 GB, keine Egress-Kosten | Zahlungsmittel muss hinterlegt sein |
 | Turnstile, Rate Limiting, Custom Domain | kostenlos | |
+| Stripe | keine Grundgebühr | Gebühr pro Zahlung (bei 3 € fällt der Fixanteil spürbar ins Gewicht) |
 | Mail | Resend: 3 000/Monat | Cloudflare Email Sending an beliebige Empfänger erst mit Workers Paid (5 $/Monat) |
 | Kartenkacheln | OSM, OpenSeaMap, EMODnet, Esri | Nutzungsbedingungen der Anbieter beachten (Esri-Basiskarten: Attribution; bei kommerzieller Nutzung prüfen) |
 
