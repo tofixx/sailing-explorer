@@ -8,6 +8,11 @@
 when:
   - event: [push, pull_request, manual]
 
+# Auf dem NUC bauen (Label speed=fast). edda ist ein NAS und soll nicht bauen –
+# siehe Notion „CI/CD: Forgejo, Woodpecker & Registry“.
+labels:
+  speed: fast
+
 steps:
   - name: install
     image: node:22-bookworm
