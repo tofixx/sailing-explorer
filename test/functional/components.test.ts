@@ -5,6 +5,7 @@ import '../../src/components/sx-track-list';
 import '../../src/components/sx-metric-picker';
 import '../../src/components/sx-topbar';
 import '../../src/components/sx-account-dialog';
+import '../../src/components/sx-discover';
 import type { Track } from '../../src/domain/types';
 import { T0, genPoints, makeTrack, P } from './helpers';
 
@@ -214,3 +215,64 @@ describe('sx-account-dialog', () => {
   });
 });
 
+
+describe('sx-discover', () => {
+  const voyage = (id: string, o: Record<string, unknown> = {}) => ({
+    id, title: `Törn ${id}`, summary: '', distNm: 12.5, startedAt: Date.UTC(2026, 5, 13, 10), createdAt: 0, trackCount: 1, hasImage: false,
+    boat: null, sailor: { handle: 'anna', displayName: 'Anna' }, ...o,
+  });
+  const data = (o: Record<string, unknown> = {}) => ({ voyages: [], boats: [], people: [], ...o });
+  const links = (el: LitEl) => [...el.shadowRoot.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+
+  it('[F-70] Leiste: höchstens 6 Törns und Link „Alle entdecken“', async () => {
+    const el = await mount('sx-discover', { variant: 'strip', data: data({ voyages: Array.from({ length: 9 }, (_, i) => voyage(`v${i}`)) }) });
+    expect(el.shadowRoot.querySelectorAll('article')).toHaveLength(6);
+    expect(text(el)).toContain('Zuletzt gesegelt');
+    expect(links(el)).toContain('/entdecken');
+  });
+
+  it('[F-70] Leiste ohne Törns rendert nichts', async () => {
+    const el = await mount('sx-discover', { variant: 'strip', data: data() });
+    expect(el.shadowRoot.querySelector('section')).toBeNull();
+  });
+
+  it('[F-70] Karte: Titel, Distanz, Datum, Links auf Törn, Segler und (öffentliches) Boot', async () => {
+    const el = await mount('sx-discover', { variant: 'strip', data: data({ voyages: [voyage('a', { boat: { id: 'BoatId123456', name: 'Möwe' } }), voyage('b')] }) });
+    const [a, b] = [...el.shadowRoot.querySelectorAll('article')];
+    expect(a.textContent).toContain('Törn a');
+    expect(a.textContent).toMatch(/12,5 sm · 13\.06\.2026/);
+    expect([...a.querySelectorAll('a')].map((x) => x.getAttribute('href'))).toEqual(['/s/a', '/u/anna', '/b/BoatId123456']);
+    expect([...b.querySelectorAll('a')].map((x) => x.getAttribute('href'))).toEqual(['/s/b', '/u/anna']);
+  });
+
+  it('[F-70] Übersichtsbild nur mit hasImage und lazy geladen, sonst Platzhalter', async () => {
+    const el = await mount('sx-discover', { variant: 'page', data: data({ voyages: [voyage('a', { hasImage: true }), voyage('b')] }) });
+    const imgs = [...el.shadowRoot.querySelectorAll('img')];
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0].getAttribute('src')).toBe('/api/shares/a/image');
+    expect(imgs[0].getAttribute('loading')).toBe('lazy');
+    expect(el.shadowRoot.querySelectorAll('article')[1].querySelector('.thumb svg')).not.toBeNull();
+  });
+
+  it('[F-70] Seite: Abschnitte Törns, Boote, Segler mit Links und leeren Zuständen', async () => {
+    const el = await mount('sx-discover', {
+      variant: 'page',
+      data: data({
+        boats: [{ id: 'BoatId123456', name: 'Möwe', boatType: 'Folkeboot', lengthM: 7.6, homePort: 'Stralsund', createdAt: 0, owner: { handle: 'anna', displayName: 'Anna' }, stats: { voyages: 2, distNm: 30 } }],
+        people: [{ handle: 'anna', displayName: 'Anna', bio: 'Ostsee', createdAt: 0, stats: { voyages: 2, distNm: 30, boats: 1 } }],
+      }),
+    });
+    const t = text(el);
+    expect(t).toContain('Zuletzt gesegelt');
+    expect(t).toContain('Noch keine öffentlichen Törns.');
+    expect(t).toContain('Folkeboot · 7,6 m · Stralsund');
+    expect(t).toContain('2 Törns · 30 sm · 1 Boot');
+    expect(links(el)).toEqual(expect.arrayContaining(['/b/BoatId123456', '/u/anna']));
+  });
+
+  it('[F-70] Seite: Fehler mit Weg zurück zur Karte', async () => {
+    const el = await mount('sx-discover', { variant: 'page', error: 'Entdecken ist auf dieser Installation nicht verfügbar.' });
+    expect(text(el)).toContain('nicht verfügbar');
+    expect(links(el)).toContain('/');
+  });
+});

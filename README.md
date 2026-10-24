@@ -25,6 +25,7 @@
 | **Als Bild teilen** | Übersichtsbild im Quer- oder Quadratformat mit wählbaren Angaben (Start/Ziel, Dauer, Fahrt, Wind, Wellen …) am Rand – herunterladen oder über das Teilen-Menü des Geräts; dient auch als Link-Vorschau. |
 | **Profile & Boote** | Profilseite `/u/<name>` und Bootsseiten `/b/<id>` mit Seemeilen und Törns. Boote haben einen Eigner (weitere Admins vorgesehen). |
 | **Unterstützen** | 3 gespeicherte Törns pro Konto sind kostenlos. Wer mehr speichern will, gibt einmal einen Kaffee oder ein Bier aus (Stripe) – und hilft so, Server und Karten zu bezahlen. |
+| **Entdecken** | Leiste „Zuletzt gesegelt“ auf der Startseite und Seite `/entdecken` mit den neuesten öffentlichen Törns, Booten und Seglern – ausschließlich Inhalte, die ohnehin öffentlich sind (`GET /api/discover`). |
 | **Läuft überall** | Hell/Dunkel, Tastatur, Screenreader-Texte, mobil als Bottom-Sheet. |
 
 ## Schnellstart
@@ -92,7 +93,7 @@ src/
   components/    Lit Web Components (sx-*)
   controllers/   Konto, Teilen, Profile, Boote
   styles/        Design-Tokens und Layout
-worker/          API, Auth (Magic Link), Freigaben, Profile, Boote, Security-Header
+worker/          API, Auth (Magic Link), Freigaben, Profile, Boote, Entdecken, Security-Header
 migrations/      D1-Schema
 test/            Unit- und Funktionstests
 ```

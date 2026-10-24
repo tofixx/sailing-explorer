@@ -85,6 +85,45 @@ export interface PageStats {
   distNm: number;
 }
 
+/** Entdecken: nur öffentliche Inhalte (siehe worker/discover.ts). */
+export interface DiscoverVoyage {
+  id: string;
+  title: string;
+  summary: string;
+  distNm: number;
+  startedAt: number | null;
+  createdAt: number;
+  trackCount: number;
+  hasImage: boolean;
+  boat: { id: string; name: string } | null;
+  sailor: { handle: string; displayName: string };
+}
+
+export interface DiscoverBoat {
+  id: string;
+  name: string;
+  boatType: string;
+  lengthM: number | null;
+  homePort: string;
+  createdAt: number;
+  owner: { handle: string; displayName: string };
+  stats: PageStats;
+}
+
+export interface DiscoverPerson {
+  handle: string;
+  displayName: string;
+  bio: string;
+  createdAt: number;
+  stats: PageStats & { boats: number };
+}
+
+export interface DiscoverData {
+  voyages: DiscoverVoyage[];
+  boats: DiscoverBoat[];
+  people: DiscoverPerson[];
+}
+
 export type SharePatch = Partial<Pick<ShareMeta, 'title' | 'visibility' | 'view' | 'listed'>> & { boatId?: string | null };
 
 export interface SharePayload {
@@ -176,6 +215,8 @@ export const api = {
   updateBoat: (id: string, b: BoatInput) => call<{ boat: Boat }>(`/api/boats/${encodeURIComponent(id)}`, jsonInit('PATCH', b)),
   deleteBoat: (id: string) => call<void>(`/api/boats/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   boat: (id: string) => call<{ boat: Boat; stats: PageStats; voyages: ShareMeta[] }>(`/api/boats/${encodeURIComponent(id)}`),
+
+  discover: (limit: number) => call<DiscoverData>(`/api/discover?limit=${limit}`),
 
   /** Lädt den Payload; der Browser entpackt gzip, wir begrenzen die Größe. */
   async shareData(id: string): Promise<SharePayload> {

@@ -69,6 +69,8 @@ interface Server {
   weather: MeteoValues | 'fail';
   shares: Map<string, { meta: Record<string, unknown>; payload: unknown }>;
   files: Record<string, string>;
+  /** Antwort von /api/discover (null → 500) */
+  discover: { voyages: unknown[]; boats: unknown[]; people: unknown[] } | null;
   calls: Array<{ url: string; method: string; headers: Record<string, string>; body?: unknown }>;
   /** Unterstützen eingerichtet: Status für /api/me/support; null = nicht eingerichtet */
   support: Record<string, unknown> | null;
@@ -102,6 +104,7 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     return f ? new Response(f, { headers: { 'Content-Type': 'application/gpx+xml' } }) : new Response('nope', { status: 404 });
   }
   if (url.startsWith('/api/') && server.backend === 'html') return new Response('<!doctype html><html></html>', { headers: { 'Content-Type': 'text/html' } });
+  if (url.startsWith('/api/discover')) return server.discover ? json(server.discover) : json({ error: 'internal', message: 'Interner Fehler' }, 500);
   if (url === '/api/config') return json({ turnstileSiteKey: '', sharing: true, support: server.support ? { tiers: SUPPORT_TIERS } : null, freeShares: 3 });
   if (url === '/api/me/support') return server.user && server.support ? json(server.support) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
   if (url === '/api/support/checkout' && method === 'POST') {
@@ -162,7 +165,7 @@ beforeEach(() => {
   h.maps.length = 0;
   h.ws.data = null;
   FakeChannel.all = [];
-  server = { backend: 'json', user: null, weather: { wind: 12, gust: 18, dir: 250, wave: 0.6, wdir: 240, wper: 4 }, shares: new Map(), files: {}, calls: [], support: null, checkout: 'ok' };
+  server = { backend: 'json', user: null, weather: { wind: 12, gust: 18, dir: 250, wave: 0.6, wdir: 240, wper: 4 }, shares: new Map(), files: {}, discover: { voyages: [], boats: [], people: [] }, calls: [], support: null, checkout: 'ok' };
   vi.stubGlobal('fetch', vi.fn(router));
   vi.stubGlobal('BroadcastChannel', FakeChannel);
   clipboard = [];
@@ -732,5 +735,66 @@ describe('F-63 Unterstützen: Checkout und Rückkehr', () => {
     await startApp('/?support=open');
     await vi.waitFor(() => expect(el<{ open: boolean }>('sx-login-dialog').open).toBe(true));
     expect(el<{ open?: boolean }>('sx-account-dialog').open).toBeFalsy();
+  });
+});
+
+describe('F-70 Entdecken', () => {
+  const voyage = (id: string) => ({ id, title: `Törn ${id}`, summary: '', distNm: 12.5, startedAt: T0, createdAt: T0, trackCount: 1, hasImage: false, boat: null, sailor: { handle: 'anna', displayName: 'Anna' } });
+  const strip = () => el<{ hidden: boolean; data: { voyages: unknown[] } | null }>('sx-discover[slot="discover"]');
+  const page = () => el<{ hidden: boolean; loading: boolean; error: string; data: { voyages: unknown[] } | null }>('#discover-page');
+  const discoverCalls = () => server.calls.filter((c) => c.url.startsWith('/api/discover'));
+
+  it('[F-70] Startseite: Leiste „Zuletzt gesegelt“ bekommt die neuesten öffentlichen Törns', async () => {
+    server.discover = { voyages: [voyage('a'), voyage('b')], boats: [], people: [] };
+    await startApp();
+    await vi.waitFor(() => expect(strip().hidden).toBe(false));
+    expect(strip().data?.voyages).toHaveLength(2);
+    expect(discoverCalls().map((c) => c.url)).toEqual(['/api/discover?limit=6']);
+    // Leiste steckt im Einstieg – sobald eigene Tracks geladen sind, verschwindet sie mit ihm
+    expect(document.querySelector('sx-empty-state')?.contains(strip() as unknown as Node)).toBe(true);
+  });
+
+  it('[F-70] ohne öffentliche Törns bleibt die Leiste ausgeblendet', async () => {
+    await startApp();
+    await vi.waitFor(() => expect(discoverCalls()).toHaveLength(1));
+    expect(strip().hidden).toBe(true);
+  });
+
+  it('[F-70] bei Serverfehlern bleibt die Leiste still ausgeblendet (kein Hinweis)', async () => {
+    server.discover = null;
+    await startApp();
+    await vi.waitFor(() => expect(discoverCalls()).toHaveLength(1));
+    expect(strip().hidden).toBe(true);
+    expect(toasts()).toEqual([]);
+  });
+
+  it('[F-40] ohne Backend bleibt die Leiste still ausgeblendet', async () => {
+    server.backend = 'html';
+    await startApp();
+    await vi.waitFor(() => expect(discoverCalls()).toHaveLength(1));
+    expect(strip().hidden).toBe(true);
+    expect(toasts()).toEqual([]);
+  });
+
+  it('[F-70] Profilseiten laden keine Entdecken-Leiste', async () => {
+    await startApp('/u/anna');
+    expect(discoverCalls()).toEqual([]);
+  });
+
+  it('[F-70] /entdecken öffnet die Seite statt der Karte und lädt bis zu 24 Einträge', async () => {
+    server.discover = { voyages: [voyage('a')], boats: [], people: [] };
+    await startApp('/entdecken');
+    expect(document.querySelector('.app')?.hasAttribute('data-page')).toBe(true);
+    expect(page().hidden).toBe(false);
+    expect(page().loading).toBe(false);
+    expect(page().data?.voyages).toHaveLength(1);
+    expect(document.title).toBe('Entdecken · Sail Explorer');
+    expect(discoverCalls().map((c) => c.url)).toEqual(['/api/discover?limit=24']);
+  });
+
+  it('[F-40] /entdecken ohne Backend: verständlicher Hinweis statt Fehler', async () => {
+    server.backend = 'html';
+    await startApp('/entdecken');
+    expect(page().error).toMatch(/nicht verfügbar/);
   });
 });

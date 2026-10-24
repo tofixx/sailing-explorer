@@ -59,6 +59,14 @@ Jede Anforderung hat eine ID; Tests referenzieren sie im Testnamen (z. B. `[F-03
 - **F-66** Erinnerung: 14 Tage vor dem Löschen kommt eine Mail pro Konto mit allen betroffenen Törns, je Törn höchstens einmal. Schlägt der Versand fehl, wird es in der nächsten Nacht erneut versucht.
 - **F-67** Inaktive Konten: Konten ohne Törns und ohne laufenden Unterstützer-Status werden nach 12 Monaten ohne Anmeldung vollständig gelöscht (wie „Konto löschen“). Abgelaufene Login-Links und Sessions werden nächtlich entfernt.
 
+## Community (Entdecken)
+
+- **F-70** Entdecken: Auf der Startseite zeigt – solange keine eigenen Tracks geladen sind – unter der Einstiegskarte eine Leiste „Zuletzt gesegelt“ die neuesten öffentlichen Törns (Übersichtsbild oder Platzhalter, Titel, Distanz, Datum, Segler, Boot) mit Link „Alle entdecken“. Die Seite `/entdecken` zeigt drei Abschnitte: Törns, Boote, Segler, jeweils neueste zuerst. Die Leiste verdeckt die Karte nicht und ist mobil seitlich scrollbar; ohne Backend, bei Fehlern oder ohne öffentliche Törns bleibt sie unsichtbar.
+- **F-71** Datenschutz Törns: Es erscheinen nur Törns mit Sichtbarkeit „Öffentlich“ (auf dem Profil gelistet), deren Besitzer ein öffentliches Profil hat. „Mit Link“, „Nur ich“ sowie Törns von Nutzern ohne oder mit privatem Profil erscheinen nie. Der Boot-Name steht nur am Törn, wenn das Boot öffentlich ist. Änderungen der Sichtbarkeit wirken sofort (höchstens 60 s Cache).
+- **F-72** Datenschutz Boote und Segler: Boote nur mit Sichtbarkeit „öffentlich“ und öffentlichem Eigner-Profil; Segler nur mit öffentlichem Profil und mindestens einem öffentlichen Törn oder Boot – leere Profile werden nicht beworben.
+- **F-73** Die Entdecken-Daten enthalten nie E-Mail-Adressen, Nutzer-IDs oder Sichtbarkeits-Interna; der Server wählt die Felder ausdrücklich aus. Die Auswahl ist für alle gleich (unabhängig von der Anmeldung) und darf deshalb kurz öffentlich gecacht werden.
+- **F-74** Grenzen: höchstens 24 Einträge je Liste (Standard 12), Sortierung Törns nach Start- bzw. Erstellzeit, Boote und Segler nach Erstellzeit. `/entdecken` hat eine eigene Link-Vorschau und darf indexiert werden.
+
 ## Betrieb
 
 - **F-50** Lokale Entwicklung mit `npm run dev`, erreichbar im LAN (Handy) inkl. Login.

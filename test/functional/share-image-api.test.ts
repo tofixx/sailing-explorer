@@ -55,15 +55,22 @@ describe('F-47 Übersichtsbild', () => {
     expect((await putImage(s.id, cookie, new TextEncoder().encode('<svg onload=alert(1)>'))).status).toBe(400);
   });
 
-  it('[F-47] zu große Bilder werden abgelehnt', async () => {
+  it('[F-47] zu große Bilder werden abgelehnt', { timeout: 30_000 }, async () => {
     const { cookie } = await login(h, email());
     const s = await newShare(cookie);
     const big = new Uint8Array(1.6 * 1024 * 1024);
     big.set(JPEG.slice(0, 4));
-    // Der Worker bricht früh ab; unter Last kann der Client dabei ECONNRESET sehen → bis zu 3 Versuche.
+    // Der Worker antwortet 413, bevor der Body gelesen ist; unter Last bricht der Client dann
+    // gelegentlich mit ECONNRESET ab. Nur den Upload wiederholen (ein neuer Törn träfe das Rate-Limit).
+    const errors: string[] = [];
     let status = 0;
-    for (let i = 0; i < 3 && !status; i++) status = await putImage(s.id, cookie, big).then((r) => r.status, () => 0);
-    expect(status).toBe(413);
+    for (let i = 0; i < 6 && !status; i++) {
+      status = await putImage(s.id, cookie, big).then(
+        (r) => r.status,
+        (e: Error) => (errors.push(String(e.cause ?? e)), 0),
+      );
+    }
+    expect(status, errors.join('; ')).toBe(413);
   });
 
   it('[F-47] private Freigabe: Bild nur für den Besitzer', async () => {
