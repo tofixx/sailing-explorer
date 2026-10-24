@@ -1,8 +1,9 @@
 # CI/CD für Sail Explorer (Woodpecker 3).
 # Prüft jeden Push und Pull Request; deployt nur vom Standardzweig nach Cloudflare.
-# Benötigte Repo-Secrets (nur für den Deploy-Schritt freigeben):
-#   cloudflare_api_token   – Token mit "Workers Scripts:Edit", "D1:Edit", "Workers R2 Storage:Edit"
-#   cloudflare_account_id  – Cloudflare-Account-ID
+# Benötigtes Repo-Secret (nur für den Deploy-Schritt freigeben; Account-ID steht in wrangler.jsonc):
+#   cloudflare_api_token – API-Token mit
+#     Konto: Workers Scripts:Edit, D1:Edit, Workers R2 Storage:Edit, Account Settings:Read
+#     Zone wollow.ski: Workers Routes:Edit, DNS:Edit (für die Custom Domain)
 
 when:
   - event: [push, pull_request, manual]
@@ -25,8 +26,6 @@ steps:
     environment:
       CLOUDFLARE_API_TOKEN:
         from_secret: cloudflare_api_token
-      CLOUDFLARE_ACCOUNT_ID:
-        from_secret: cloudflare_account_id
     commands:
       - npx wrangler d1 migrations apply sailing-explorer --remote
       - npx wrangler deploy

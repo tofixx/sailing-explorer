@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "sailing-explorer",
+  "account_id": "801ebb5d236032b8396c4ec45dc8df93",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
   "assets": {
@@ -14,7 +15,7 @@
     {
       "binding": "DB",
       "database_name": "sailing-explorer",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "3f944dd1-e65b-4338-a350-9ce2abef4583",
       "migrations_dir": "migrations"
     }
   ],
@@ -29,7 +30,7 @@
     "MAIL_PROVIDER": "resend",
     "MAIL_FROM": "Sail Explorer <login@sailing.wollow.ski>",
     // Öffentlicher Turnstile-Site-Key (Dashboard → Turnstile). Lokal überschreibt .dev.vars.
-    "TURNSTILE_SITE_KEY": "REPLACE_WITH_TURNSTILE_SITE_KEY"
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFjg4X6dcj2bWdib"
   },
   "env": {},
   "observability": { "enabled": true }
