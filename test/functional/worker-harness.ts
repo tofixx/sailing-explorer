@@ -23,6 +23,10 @@ export interface Harness {
   fetch: (path: string, init?: RequestInit & { cookie?: string; origin?: string | null; ip?: string }) => Promise<Response>;
   db: () => Promise<D1Like>;
   r2: () => Promise<R2Like>;
+  /** Löst den Cron-Handler (scheduled) des Workers aus und wartet, bis er samt waitUntil fertig ist. */
+  scheduled: (cron?: string) => Promise<{ outcome: string }>;
+  /** Alle Worker-Logs (console.log/error) seit dem Start – z. B. „[mail:log] …“ */
+  logs: string[];
   dispose: () => Promise<void>;
 }
 
@@ -50,11 +54,13 @@ export async function startWorker(bindings: Record<string, string> = {}): Promis
     logLevel: 'silent',
   });
   const script = out.outputFiles[0].text;
+  const logs: string[] = [];
 
   // Miniflare 5 (Beta) hat eine neue Options-Struktur; die bekannte v4-Form wird konvertiert.
   const mf = new Miniflare(convertV4MiniflareOptions({
     // Worker-Logs (z. B. „[mail:log] …“) nicht in die Testausgabe, Fehler schon
     handleStructuredLogs: (log: { level: string; message: string }) => {
+      logs.push(log.message);
       if (log.level === 'error') console.error(log.message);
     },
     workers: [
@@ -116,6 +122,11 @@ export async function startWorker(bindings: Record<string, string> = {}): Promis
     },
     db: async () => db,
     r2: async () => (await mf.getR2Bucket('TRACKS')) as unknown as R2Like,
+    async scheduled(cron = '0 3 * * *') {
+      const worker = (await mf.getWorker()) as unknown as { scheduled(o: { cron?: string; scheduledTime?: Date }): Promise<{ outcome: string }> };
+      return worker.scheduled({ cron, scheduledTime: new Date() });
+    },
+    logs,
     async dispose() {
       await mf.dispose();
     },
@@ -207,11 +218,11 @@ export async function createShare(h: Harness, cookie: string | undefined, o: Sha
 // ---------------------------------------------------------------- Unterstützen
 
 /** Schaltet ein Konto direkt in der Datenbank als Unterstützer frei (für Tests, die viele Freigaben brauchen). */
-export async function grantSupport(h: Harness, userId: string): Promise<void> {
+export async function grantSupport(h: Harness, userId: string, validUntil = Date.now() + 365 * 86_400_000): Promise<void> {
   const ref = `test_${userId}_${Math.random().toString(36).slice(2)}`;
   await (await h.db())
-    .prepare("INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at) VALUES (?, ?, 'test', ?, 0, 'eur', ?)")
-    .bind(ref, userId, ref, Date.now())
+    .prepare("INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at, valid_until) VALUES (?, ?, 'test', ?, 0, 'eur', ?, ?)")
+    .bind(ref, userId, ref, Date.now(), validUntil)
     .run();
 }
 

@@ -1,3 +1,4 @@
+import type { SupportTier } from '../domain/support';
 import { readCapped } from './compress';
 
 export interface User {
@@ -18,6 +19,8 @@ export interface ShareMeta {
   distNm: number;
   startedAt: number | null;
   hasImage: boolean;
+  /** Löschtermin (ms) – nur für den Eigentümer gesetzt, sonst null */
+  expiresAt?: number | null;
   createdAt: number;
   updatedAt: number;
   boat: { id: string; name: string } | null;
@@ -26,25 +29,30 @@ export interface ShareMeta {
 
 export type PublicVisibility = 'public' | 'private';
 
-/** Öffentliche Payment-Links fürs Unterstützen (null = auf diesem Server nicht eingerichtet). */
-export interface SupportLinks {
-  coffee: string | null;
-  beer: string | null;
+/** Unterstützen-Konfiguration aus /api/config (null = auf diesem Server nicht eingerichtet). */
+export interface SupportConfig {
+  /** Stufen des Sliders, Beträge in Cent */
+  tiers: SupportTier[];
 }
 
 export interface AppConfig {
   turnstileSiteKey: string;
   sharing: boolean;
-  support?: SupportLinks | null;
+  support?: SupportConfig | null;
   freeShares?: number;
 }
 
 /** Unterstützer-Status und Kontingent des angemeldeten Kontos. */
 export interface SupportStatus {
   supporter: boolean;
+  /** Ende des Unterstützer-Status (ms), auch wenn abgelaufen; null = nie unterstützt */
+  supporterUntil: number | null;
   sharesUsed: number;
   sharesFree: number;
   sharesMax: number;
+  /** belegter Speicher und Obergrenze in Bytes */
+  bytesUsed: number;
+  bytesMax: number;
 }
 
 export interface Profile {
@@ -120,6 +128,8 @@ export const api = {
   config: () => call<AppConfig>('/api/config'),
   me: () => call<{ user: User | null }>('/api/auth/me'),
   support: () => call<SupportStatus>('/api/me/support'),
+  /** Stripe-Checkout für eine der Stufen (Betrag in Cent) anlegen; liefert die URL der Bezahlseite. */
+  supportCheckout: (amount: number) => call<{ url: string }>('/api/support/checkout', jsonInit('POST', { amount })),
   requestLink: (email: string, turnstile: string | null) =>
     call<{ ok: true; devLink?: string }>('/api/auth/request', jsonInit('POST', { email, turnstile })),
   peek: (token: string) => call<{ email: string }>('/api/auth/peek', jsonInit('POST', { token })),

@@ -131,19 +131,38 @@ Danach deployt die CI bei jedem Push auf den Standardzweig.
 
 ### Unterstützen (Stripe)
 
-Pro Konto sind `FREE_SHARES` (Standard 3) gespeicherte Freigaben kostenlos. Ab der nächsten zeigt „Teilen“ eine Karte „Für weitere Törns: einmal unterstützen“; nach einer bezahlten Unterstützung ist das Konto dauerhaft Unterstützer (bis zum Gesamtlimit von 500 Freigaben bzw. 200 MB). Der Status wird aus der Tabelle `supports` abgeleitet; freigeschaltet wird **nur** über den signierten Webhook, nie über eine Angabe des Browsers. Ohne Einrichtung bleibt alles aus (keine Knöpfe, die 4. Freigabe wird mit Hinweis abgelehnt).
+Pro Konto sind `FREE_SHARES` (Standard 3) gespeicherte Törns kostenlos. Ab dem nächsten zeigt „Teilen“ eine Karte zum Unterstützen. Der Betrag wird per Schieberegler gewählt: Kaffee 3 €, Bier 5 €, Runde 10 €, Kiste 20 €, Skipper-Dank 50 €. Jede Zahlung macht das Konto **12 Monate** zum Unterstützer; eine weitere Zahlung verlängert ab dem laufenden Ende. Auch für Unterstützer gilt eine feste Obergrenze von 100 Törns und 200 MB pro Konto. Der Worker legt dafür eine Stripe-Checkout-Session an (`POST /api/support/checkout`), freigeschaltet wird **nur** über den signierten Webhook, nie über eine Angabe des Browsers. Ohne beide Secrets bleibt Unterstützen aus: kein Angebot, und der 4. Törn wird mit Hinweis abgelehnt.
 
-1. **Payment Links anlegen** (Stripe-Dashboard → *Payment Links*), z. B. „Kaffee“ (3 €) und „Bier“ (5 €), gern mit „Kunde wählt den Preis“. Die Links (`https://buy.stripe.com/…`) in `wrangler.jsonc` → `SUPPORT_LINK_COFFEE` / `SUPPORT_LINK_BEER` eintragen. Die App hängt selbst `?client_reference_id=<Konto-ID>&prefilled_email=<E-Mail>` an – darüber ordnet der Webhook die Zahlung dem Konto zu.
+1. **Secret Key setzen** (Stripe-Dashboard → *Entwickler → API-Schlüssel*). Am besten einen eingeschränkten Schlüssel verwenden, der nur *Checkout Sessions: Schreiben* darf:
+
+```bash
+npx wrangler secret put STRIPE_SECRET_KEY
+```
+
 2. **Webhook anlegen** (*Entwickler → Webhooks → Endpunkt hinzufügen*):
    - URL: `https://sailing.wollow.ski/api/webhooks/stripe`
-   - Ereignisse: `checkout.session.completed` (optional zusätzlich `checkout.session.async_payment_succeeded` für verzögerte Zahlarten wie SEPA)
+   - Ereignisse: `checkout.session.completed` und `checkout.session.async_payment_succeeded` (für verzögerte Zahlarten wie SEPA)
 3. **Signatur-Secret setzen** (`whsec_…` aus dem Webhook-Endpunkt):
 
 ```bash
 npx wrangler secret put STRIPE_WEBHOOK_SECRET
 ```
 
-Lokal testen: im Stripe-Testmodus Test-Payment-Links anlegen, in `.dev.vars` eintragen und Ereignisse mit der Stripe-CLI weiterleiten – `stripe listen --forward-to localhost:5173/api/webhooks/stripe` gibt das passende `whsec_…` aus.
+Lokal testen: Testmodus-Schlüssel `sk_test_…` in `.dev.vars` eintragen und Ereignisse mit der Stripe-CLI weiterleiten. `stripe listen --forward-to localhost:5173/api/webhooks/stripe` gibt das passende `whsec_…` aus.
+
+### Aufbewahrung und Aufräumen
+
+Ein Cron-Trigger (`17 3 * * *` UTC, siehe `wrangler.jsonc`) räumt nachts auf (`worker/retention.ts`):
+
+| Was | Regel |
+|---|---|
+| Kostenlose Törns | 3 Monate ab Upload |
+| Törns von Unterstützern | bis Ende des Unterstützer-Status + 3 Monate (auch ältere Törns profitieren) |
+| Erinnerung | eine Mail pro Konto 14 Tage vor dem Löschen, je Törn einmal |
+| Inaktive Konten | ohne Törns und 12 Monate ohne Anmeldung → Konto, Profil und Boote werden gelöscht |
+| Login-Links, Sessions | nach Ablauf |
+
+Pro Lauf werden höchstens 200 Törns gelöscht und 50 Konten benachrichtigt bzw. entfernt; der Rest folgt in der nächsten Nacht. Das Ablaufdatum berechnet die Datenbank (`EXPIRES_SQL` in `worker/shares.ts`, gleiche Regel wie `shareExpiry()` in `src/domain/support.ts`). Eigentümer sehen es im Konto bei jedem Törn.
 
 > **Hinweis (keine Rechtsberatung):** Ist die „Spende“ an eine Gegenleistung gekoppelt (hier: weitere gespeicherte Törns), gilt sie steuerlich in der Regel nicht als Spende, sondern als Verkauf einer Leistung. Vor dem Livegang Impressum, Umsatzsteuer (ggf. Kleinunternehmerregelung) und Widerrufsbelehrung für digitale Leistungen prüfen; in Stripe nicht „Spende“ als Produktbezeichnung verwenden, sondern z. B. „Unterstützung: weitere Törns speichern“.
 

@@ -5,6 +5,7 @@ import { randomId } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
 import { checkShareQuota, supportStatus } from './supporter';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseVisibility } from './validate';
+import { FREE_RETENTION_MS } from '../src/domain/support';
 
 export interface ShareRow {
   id: string;
@@ -22,6 +23,9 @@ export interface ShareRow {
   dist_nm: number;
   started_at: number | null;
   has_image: number;
+  expiry_warned_at?: number | null;
+  /** aus EXPIRES_SQL */
+  expires_at?: number | null;
   /** aus dem JOIN mit boats */
   boat_name?: string | null;
   boat_visibility?: string | null;
@@ -31,7 +35,13 @@ const key = (id: string) => `shares/${id}`;
 const imageKey = (id: string) => `previews/${id}.jpg`;
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
-export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility
+/**
+ * Löschzeitpunkt eines Törns: 3 Monate nach Upload bzw. nach Ende der Unterstützung (später gilt).
+ * Gleiche Regel wie shareExpiry() in src/domain/support.ts.
+ */
+export const EXPIRES_SQL = `(MAX(s.created_at, COALESCE((SELECT MAX(valid_until) FROM supports WHERE user_id = s.user_id), 0)) + ${FREE_RETENTION_MS})`;
+
+export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility, ${EXPIRES_SQL} AS expires_at
   FROM shares s LEFT JOIN boats b ON b.id = s.boat_id`;
 
 export function shareShape(row: ShareRow, isOwner: boolean) {
@@ -49,6 +59,8 @@ export function shareShape(row: ShareRow, isOwner: boolean) {
     distNm: row.dist_nm,
     startedAt: row.started_at,
     hasImage: !!row.has_image,
+    // nur der Besitzer sieht, wann sein Törn gelöscht wird
+    expiresAt: isOwner ? (row.expires_at ?? null) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     boat,

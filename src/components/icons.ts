@@ -47,6 +47,10 @@ const paths = {
   coffee: svg`<path class="f" d="M4.5 10h11v4.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M4.5 10h11v4.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5zM15.5 11.5h1.5a2.5 2.5 0 0 1 0 5h-1.8M3.5 21.5h13"/><path d="M8 3.5c-.8 1 .8 2 0 3.5M11.5 3.5c-.8 1 .8 2 0 3.5"/>`,
   // Unterstützen: Bierkrug mit Schaumkrone
   beer: svg`<path class="f" d="M5.5 9h10v10a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2z"/><path d="M5.5 9h10v10a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2zM15.5 11h1.5a2 2 0 0 1 2 2v2.5a2 2 0 0 1-2 2h-1.5M9 12.5v5M12 12.5v5"/><path d="M5.5 9a2.3 2.3 0 0 1 .6-4.3 3 3 0 0 1 4.9-1.2 2.7 2.7 0 0 1 4.3 1.8A1.9 1.9 0 0 1 15.5 9"/>`,
+  // Unterstützen: eine Runde – drei Gläser mit Schaum
+  round: svg`<path class="f" d="M3 9.5h5l-.6 9.6a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9zM9.5 9.5h5l-.6 9.6a1 1 0 0 1-1 .9h-1.8a1 1 0 0 1-1-.9zM16 9.5h5l-.6 9.6a1 1 0 0 1-1 .9h-1.8a1 1 0 0 1-1-.9z"/><path d="M3 9.5h5l-.6 9.6a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9zM9.5 9.5h5l-.6 9.6a1 1 0 0 1-1 .9h-1.8a1 1 0 0 1-1-.9zM16 9.5h5l-.6 9.6a1 1 0 0 1-1 .9h-1.8a1 1 0 0 1-1-.9zM3.3 12.5h4.4M9.8 12.5h4.4M16.3 12.5h4.4"/><path d="M5.5 4.5v2M12 3.5v2.5M18.5 4.5v2"/>`,
+  // Unterstützen: Kiste mit Flaschenhälsen
+  crate: svg`<rect class="f" x="3" y="11" width="18" height="9.5" rx="1.5"/><rect x="3" y="11" width="18" height="9.5" rx="1.5"/><path d="M6.5 11V8.3c0-.8.7-1.3.7-2.1V3.5h1.6v2.7c0 .8.7 1.3.7 2.1V11M11 11V8.3c0-.8.7-1.3.7-2.1V3.5h1.6v2.7c0 .8.7 1.3.7 2.1V11M15.5 11V8.3c0-.8.7-1.3.7-2.1V3.5h1.6v2.7c0 .8.7 1.3.7 2.1V11"/><path d="M10 15.5h4"/>`,
   // Unterstützer-Abzeichen: Wimpel am Mast
   pennant: svg`<path class="f" d="M6 4.5 19.5 9 6 13.5z"/><path d="M6 21V3M6 4.5 19.5 9 6 13.5"/>`,
 };

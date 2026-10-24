@@ -5,7 +5,8 @@ import { createShare, deleteShare, getShareData, getShareImage, getShareMeta, ge
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
 import { withPageHeaders } from './security';
-import { freeShares, getSupport, stripeWebhook, supportLinks } from './supporter';
+import { createCheckout, freeShares, getSupport, stripeWebhook, supportConfig } from './supporter';
+import { runRetention } from './retention';
 import { isSameOrigin } from './validate';
 
 const WEBHOOK_PATH = '/api/webhooks/stripe';
@@ -16,10 +17,10 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   [
     'GET',
     /^\/api\/config$/,
-    // Nur öffentliche Werte: Payment-Links (null = Unterstützen nicht eingerichtet) und das kostenlose Kontingent.
+    // Nur öffentliche Werte: Slider-Stufen (null = Unterstützen nicht eingerichtet) und das kostenlose Kontingent.
     async (_r, env) =>
       json(
-        { turnstileSiteKey: env.TURNSTILE_SITE_KEY, sharing: true, support: supportLinks(env), freeShares: freeShares(env) },
+        { turnstileSiteKey: env.TURNSTILE_SITE_KEY, sharing: true, support: supportConfig(env), freeShares: freeShares(env) },
         { headers: { 'Cache-Control': 'public, max-age=300' } },
       ),
   ],
@@ -32,6 +33,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/me\/profile$/, (r, env) => getMyProfile(r, env)],
   ['PUT', /^\/api\/me\/profile$/, (r, env) => putMyProfile(r, env)],
   ['GET', /^\/api\/me\/support$/, (r, env) => getSupport(r, env)],
+  ['POST', /^\/api\/support\/checkout$/, (r, env) => createCheckout(r, env)],
   ['POST', /^\/api\/webhooks\/stripe$/, (r, env) => stripeWebhook(r, env)],
   ['GET', /^\/api\/profiles\/([A-Za-z0-9-]+)$/, (r, env, [h]) => getProfile(r, env, h)],
   ['GET', /^\/api\/boats$/, (r, env) => listMyBoats(r, env)],
@@ -136,5 +138,10 @@ export default {
     } catch (err) {
       return errorResponse(err);
     }
+  },
+
+  // Nächtliches Aufräumen (Cron-Trigger in wrangler.jsonc).
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runRetention(env, env.APP_ORIGIN || 'https://sailing.wollow.ski').then((r) => console.log('retention', JSON.stringify(r))));
   },
 } satisfies ExportedHandler<Env>;

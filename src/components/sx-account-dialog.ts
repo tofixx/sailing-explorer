@@ -1,7 +1,7 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { Boat, BoatInput, Profile, ShareMeta, SupportLinks, SupportStatus, User } from '../services/api';
-import { quotaText } from '../domain/support';
-import { fmtDate, fmtNum, plural } from '../util/html';
+import type { Boat, BoatInput, Profile, ShareMeta, SupportStatus, User } from '../services/api';
+import { WARN_MS, quotaText, type SupportTier } from '../domain/support';
+import { fmtDate, fmtMB, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import './sx-support';
@@ -24,7 +24,8 @@ export class SxAccountDialog extends LitElement {
     profileExists: { type: Boolean },
     boats: { attribute: false },
     shares: { attribute: false },
-    support: { attribute: false },
+    supportTiers: { attribute: false },
+    checkoutBusy: { type: Boolean },
     supportStatus: { attribute: false },
     loading: { type: Boolean },
     busy: { type: Boolean },
@@ -40,8 +41,10 @@ export class SxAccountDialog extends LitElement {
   declare profileExists: boolean;
   declare boats: Boat[];
   declare shares: ShareMeta[];
-  /** personalisierte Payment-Links; null = Unterstützen nicht eingerichtet */
-  declare support: SupportLinks | null;
+  /** Stufen des Unterstützen-Sliders; null = Unterstützen nicht eingerichtet */
+  declare supportTiers: SupportTier[] | null;
+  /** Checkout wird angelegt */
+  declare checkoutBusy: boolean;
   declare supportStatus: SupportStatus | null;
   declare loading: boolean;
   declare busy: boolean;
@@ -62,7 +65,8 @@ export class SxAccountDialog extends LitElement {
     this.profileExists = false;
     this.boats = [];
     this.shares = [];
-    this.support = null;
+    this.supportTiers = null;
+    this.checkoutBusy = false;
     this.supportStatus = null;
     this.loading = false;
     this.busy = false;
@@ -198,6 +202,33 @@ export class SxAccountDialog extends LitElement {
       .quota svg {
         width: 14px;
         height: 14px;
+        flex: none;
+      }
+      .status {
+        display: grid;
+        gap: var(--s-1);
+      }
+      .status.on .quota b {
+        color: var(--text);
+      }
+      .status.on .quota:first-child svg {
+        color: var(--accent);
+      }
+      .expiry {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .expiry.soon {
+        padding: 0 var(--s-2);
+        border-radius: 999px;
+        background: var(--warn-bg);
+        border: 1px solid var(--warn);
+        color: var(--text);
+        font-weight: 600;
+      }
+      .expiry.soon svg {
+        color: var(--warn);
       }
       .empty {
         padding: var(--s-5);
@@ -438,6 +469,13 @@ export class SxAccountDialog extends LitElement {
     this.editing = null;
   }
 
+  /** „wird gelöscht am …“ – hervorgehoben, wenn es in den nächsten 14 Tagen so weit ist. */
+  private expiry(s: ShareMeta) {
+    if (s.expiresAt == null) return '';
+    const soon = s.expiresAt - Date.now() <= WARN_MS;
+    return html`<span class="expiry ${soon ? 'soon' : ''}">${soon ? icon('info') : ''}wird gelöscht am ${fmtDate(s.expiresAt)}</span>`;
+  }
+
   private shareRow(s: ShareMeta) {
     if (this.editing === s.id) {
       return html`<li>
@@ -456,6 +494,7 @@ export class SxAccountDialog extends LitElement {
         <div class="sub">
           ${s.summary || plural(s.trackCount, 'Track', 'Tracks')} · ${fmtDate(s.createdAt)}
           ${s.listed && !isPrivate ? html`<span class="chip on">${icon('globe')}Auf Profil</span>` : ''}
+          ${this.expiry(s)}
         </div>
       </div>
       ${this.confirm === s.id
@@ -484,14 +523,30 @@ export class SxAccountDialog extends LitElement {
     </li>`;
   }
 
+  /** Unterstützer-Status und Kontingent über der Liste. */
+  private supportSummary() {
+    const st = this.supportStatus;
+    if (!st) return '';
+    if (st.supporter) {
+      return html`<div class="status on">
+        <div class="quota">${icon('pennant')} <b>Unterstützer bis ${st.supporterUntil ? fmtDate(st.supporterUntil) : '–'}</b></div>
+        <div class="quota">${icon('folder')} ${st.sharesUsed.toLocaleString('de-DE')} von ${st.sharesMax.toLocaleString('de-DE')} Törns ·
+          ${fmtMB(st.bytesUsed)} von ${fmtMB(st.bytesMax)}</div>
+      </div>`;
+    }
+    return html`<div class="status">
+      ${st.supporterUntil ? html`<div class="quota">${icon('pennant')} Unterstützung abgelaufen am ${fmtDate(st.supporterUntil)}</div>` : ''}
+      <div class="quota">${icon('info')} ${quotaText(st)}</div>
+    </div>`;
+  }
+
   private sharesTab() {
-    const quota = quotaText(this.supportStatus);
     return html`
-      ${quota ? html`<div class="quota">${icon('info')} ${quota}</div>` : ''}
+      ${this.supportSummary()}
       ${this.shares.length
         ? html`<ul>${this.shares.map((s) => this.shareRow(s))}</ul>`
         : html`<div class="empty">Noch nichts geteilt. Lade einen Track und klicke auf „Teilen“.</div>`}
-      <sx-support variant="offer" .links=${this.support} .status=${this.supportStatus}></sx-support>
+      <sx-support variant="offer" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy}></sx-support>
     `;
   }
 

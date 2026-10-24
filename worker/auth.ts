@@ -176,6 +176,12 @@ export async function logout(request: Request, env: Env): Promise<Response> {
 /** DELETE /api/account – löscht Konto, Sessions und alle Freigaben inkl. Dateien. */
 export async function deleteAccount(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
+  await purgeUser(env, user);
+  return json({ ok: true }, { headers: { 'Set-Cookie': sessionCookie(request, '', 0) } });
+}
+
+/** Entfernt ein Konto vollständig (auch vom nächtlichen Aufräumen für inaktive Konten genutzt). */
+export async function purgeUser(env: Env, user: User): Promise<void> {
   const { results } = await env.DB.prepare('SELECT id FROM shares WHERE user_id = ?').bind(user.id).all<{ id: string }>();
   if (results.length) await env.TRACKS.delete(results.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]));
   await env.DB.batch([
@@ -191,5 +197,4 @@ export async function deleteAccount(request: Request, env: Env): Promise<Respons
     env.DB.prepare('UPDATE supports SET user_id = NULL WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
-  return json({ ok: true }, { headers: { 'Set-Cookie': sessionCookie(request, '', 0) } });
 }

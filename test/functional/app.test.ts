@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Track } from '../../src/domain/types';
+import { SUPPORT_TIERS } from '../../src/domain/support';
 import { T0, genPoints, gpxDoc, meteoResponse, type MeteoValues } from './helpers';
 
 const h = vi.hoisted(() => ({
@@ -69,6 +70,9 @@ interface Server {
   shares: Map<string, { meta: Record<string, unknown>; payload: unknown }>;
   files: Record<string, string>;
   calls: Array<{ url: string; method: string; headers: Record<string, string>; body?: unknown }>;
+  /** Unterstützen eingerichtet: Status für /api/me/support; null = nicht eingerichtet */
+  support: Record<string, unknown> | null;
+  checkout: 'ok' | 'fail';
 }
 
 let server: Server;
@@ -98,7 +102,13 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     return f ? new Response(f, { headers: { 'Content-Type': 'application/gpx+xml' } }) : new Response('nope', { status: 404 });
   }
   if (url.startsWith('/api/') && server.backend === 'html') return new Response('<!doctype html><html></html>', { headers: { 'Content-Type': 'text/html' } });
-  if (url === '/api/config') return json({ turnstileSiteKey: '', sharing: true });
+  if (url === '/api/config') return json({ turnstileSiteKey: '', sharing: true, support: server.support ? { tiers: SUPPORT_TIERS } : null, freeShares: 3 });
+  if (url === '/api/me/support') return server.user && server.support ? json(server.support) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
+  if (url === '/api/support/checkout' && method === 'POST') {
+    return server.checkout === 'ok'
+      ? json({ url: 'https://checkout.stripe.com/c/pay/cs_test_123' })
+      : json({ error: 'checkout_failed', message: 'Die Bezahlseite konnte nicht geöffnet werden.' }, 502);
+  }
   if (url === '/api/auth/me') return json({ user: server.user });
   if (url === '/api/auth/request' && method === 'POST') return json({ ok: true, devLink: 'http://localhost:3000/login#token=' + 'a'.repeat(43) });
   if (url === '/api/auth/peek' && method === 'POST') return json({ email: 'skipper@example.org' });
@@ -152,7 +162,7 @@ beforeEach(() => {
   h.maps.length = 0;
   h.ws.data = null;
   FakeChannel.all = [];
-  server = { backend: 'json', user: null, weather: { wind: 12, gust: 18, dir: 250, wave: 0.6, wdir: 240, wper: 4 }, shares: new Map(), files: {}, calls: [] };
+  server = { backend: 'json', user: null, weather: { wind: 12, gust: 18, dir: 250, wave: 0.6, wdir: 240, wper: 4 }, shares: new Map(), files: {}, calls: [], support: null, checkout: 'ok' };
   vi.stubGlobal('fetch', vi.fn(router));
   vi.stubGlobal('BroadcastChannel', FakeChannel);
   clipboard = [];
@@ -649,5 +659,78 @@ describe('F-40 Ohne Backend', () => {
     emit('sx-share-inline');
     await vi.waitFor(() => expect(toasts().some((t) => /zu groß/.test(t))).toBe(true));
     expect(clipboard).toEqual([]);
+  });
+});
+
+describe('F-63 Unterstützen: Checkout und Rückkehr', () => {
+  const supportStatus = (supporter: boolean) => ({
+    supporter,
+    supporterUntil: supporter ? Date.now() + 365 * 86_400_000 : null,
+    sharesUsed: 3,
+    sharesFree: 3,
+    sharesMax: 100,
+    bytesUsed: 0,
+    bytesMax: 200 * 1024 * 1024,
+  });
+
+  beforeEach(() => {
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    server.support = supportStatus(false);
+  });
+
+  it('[F-63] „Jetzt unterstützen“ legt den Checkout mit dem Betrag an und wechselt zur Bezahlseite', async () => {
+    const assign = vi.spyOn(window.location, 'assign').mockImplementation(() => {});
+    await startApp();
+    await vi.waitFor(() => expect(state().user).not.toBeNull());
+    emit('sx-support-checkout', { amount: 1000 });
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_test_123'));
+    const call = server.calls.find((c) => c.url === '/api/support/checkout')!;
+    expect(call.method).toBe('POST');
+    expect(JSON.parse(String(call.body))).toEqual({ amount: 1000 });
+    expect(el<{ checkoutBusy: boolean }>('sx-share-dialog').checkoutBusy).toBe(true);
+    assign.mockRestore();
+  });
+
+  it('[F-63] Checkout-Fehler: Hinweis per Toast, Knopf wieder frei, keine Weiterleitung', async () => {
+    const assign = vi.spyOn(window.location, 'assign').mockImplementation(() => {});
+    server.checkout = 'fail';
+    await startApp();
+    await vi.waitFor(() => expect(state().user).not.toBeNull());
+    emit('sx-support-checkout', { amount: 300 });
+    await vi.waitFor(() => expect(toasts()).toContain('Die Bezahlseite konnte nicht geöffnet werden.'));
+    expect(assign).not.toHaveBeenCalled();
+    expect(el<{ checkoutBusy: boolean }>('sx-account-dialog').checkoutBusy).toBe(false);
+    assign.mockRestore();
+  });
+
+  it('[F-63] ?support=success: Dank, Status neu geladen, Parameter entfernt', async () => {
+    server.support = supportStatus(true);
+    await startApp('/?support=success');
+    expect(location.search).toBe('');
+    await vi.waitFor(() => expect(toasts().some((t) => /Danke für deine Unterstützung/.test(t))).toBe(true));
+    expect(server.calls.some((c) => c.url === '/api/me/support')).toBe(true);
+    expect(el<{ supportStatus: { supporter: boolean } }>('sx-account-dialog').supportStatus.supporter).toBe(true);
+  });
+
+  it('[F-63] ?support=cancel: kurzer Hinweis, Parameter entfernt', async () => {
+    await startApp('/?support=cancel');
+    expect(location.search).toBe('');
+    await vi.waitFor(() => expect(toasts().some((t) => /abgebrochen/.test(t))).toBe(true));
+  });
+
+  it('[F-63] ?support=open (Erinnerungsmail): öffnet Konto & Freigaben mit dem Angebot', async () => {
+    await startApp('/?support=open');
+    expect(location.search).toBe('');
+    const account = el<{ open: boolean; tab: string; supportTiers: unknown[] | null }>('sx-account-dialog');
+    await vi.waitFor(() => expect(account.open).toBe(true));
+    expect(account.tab).toBe('shares');
+    await vi.waitFor(() => expect(account.supportTiers).toHaveLength(SUPPORT_TIERS.length));
+  });
+
+  it('[F-63] ?support=open ohne Anmeldung: erst anmelden', async () => {
+    server.user = null;
+    await startApp('/?support=open');
+    await vi.waitFor(() => expect(el<{ open: boolean }>('sx-login-dialog').open).toBe(true));
+    expect(el<{ open?: boolean }>('sx-account-dialog').open).toBeFalsy();
   });
 });

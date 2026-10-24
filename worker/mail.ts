@@ -20,6 +20,28 @@ export function magicLinkMail(env: Env, to: string, link: string): Mail {
   return { to, subject: `Dein Anmeldelink für ${app}`, text, html };
 }
 
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+/** Erinnerung: diese Törns werden bald gelöscht – mit Hinweis auf Unterstützen. */
+export function expiryWarningMail(env: Env, to: string, origin: string, shares: Array<{ title: string; expiresAt: number }>): Mail {
+  const app = env.APP_NAME;
+  const date = (ms: number) => new Date(ms).toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
+  const name = (t: string) => t.trim() || 'Ohne Titel';
+  const lines = shares.map((s) => `• ${name(s.title)} – gelöscht am ${date(s.expiresAt)}`).join('\n');
+  const link = `${origin}/?support=open`;
+  const text = `Hallo,\n\nfolgende geteilte Törns bei ${app} werden bald automatisch gelöscht:\n\n${lines}\n\nKostenlose Törns bleiben 3 Monate gespeichert. Mit einer Unterstützung (ab einem Kaffee) bleiben sie für die Dauer der Unterstützung und 3 Monate darüber hinaus erhalten:\n${link}\n\nWenn du nichts tust, werden sie zum genannten Datum entfernt.\n`;
+  // Titel stammen von Nutzern → escapen.
+  const items = shares.map((s) => `<li><b>${escapeHtml(name(s.title))}</b> – gelöscht am ${date(s.expiresAt)}</li>`).join('');
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
+<p>Hallo,</p><p>folgende geteilte Törns bei <b>${app}</b> werden bald automatisch gelöscht:</p><ul>${items}</ul>
+<p>Kostenlose Törns bleiben 3 Monate gespeichert. Mit einer Unterstützung bleiben sie für die Dauer der Unterstützung und 3 Monate darüber hinaus erhalten.</p>
+<p><a href="${link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Unterstützen</a></p>
+<p style="color:#5b6b7b;font-size:13px">Wenn du nichts tust, werden sie zum genannten Datum entfernt.</p>
+</body></html>`;
+  const subject = shares.length === 1 ? `${app}: Ein Törn wird bald gelöscht` : `${app}: ${shares.length} Törns werden bald gelöscht`;
+  return { to, subject, text, html };
+}
+
 export async function sendMail(env: Env, mail: Mail): Promise<void> {
   switch (env.MAIL_PROVIDER) {
     case 'resend': {

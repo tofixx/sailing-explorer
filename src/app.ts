@@ -97,6 +97,7 @@ export class App {
 
   async start(): Promise<void> {
     this.session.checkBackend();
+    this.handleSupportParam();
     const route = parseRoute(location);
     try {
       switch (route.kind) {
@@ -121,6 +122,19 @@ export class App {
       this.setLoading(null);
       this.toast(errorText(e));
     }
+  }
+
+  /**
+   * ?support=success|cancel (Rückkehr von Stripe) bzw. ?support=open (Erinnerungsmail):
+   * Parameter sofort entfernen, damit Neuladen oder Teilen der Adresse ihn nicht wiederholt.
+   */
+  private handleSupportParam() {
+    const url = new URL(location.href);
+    const kind = url.searchParams.get('support');
+    if (kind === null) return;
+    url.searchParams.delete('support');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    if (kind === 'success' || kind === 'cancel' || kind === 'open') void this.session.supportReturn(kind);
   }
 
   // ---------------------------------------------------------------- Rendering
@@ -248,6 +262,7 @@ export class App {
     on('sx-image-share', () => s.shareImage());
     on<Parameters<SessionController['upload']>[0]>('sx-share-submit', (d) => s.upload(d));
     on('sx-support-check', () => s.checkSupport());
+    on<{ amount: number }>('sx-support-checkout', (d) => s.checkout(d.amount));
     on<string>('sx-share-open', (id) => location.assign(`/s/${id}`));
     on<string>('sx-share-copy', (id) => s.copy(`${location.origin}/s/${id}`));
     on<{ id: string; patch: Parameters<SessionController['updateShare']>[1] }>('sx-share-update', (d) => s.updateShare(d.id, d.patch));

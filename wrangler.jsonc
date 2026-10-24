@@ -33,11 +33,12 @@
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFjg4X6dcj2bWdib",
     // Kostenlose gespeicherte Freigaben pro Konto; darüber braucht es den Unterstützer-Status.
     "FREE_SHARES": "3",
-    // Öffentliche Stripe-Payment-Links (https://buy.stripe.com/…). Leer = Unterstützen ausgeblendet.
-    // Freigeschaltet wird nur über den Webhook (Secret STRIPE_WEBHOOK_SECRET, siehe README).
-    "SUPPORT_LINK_COFFEE": "",
-    "SUPPORT_LINK_BEER": ""
+    // Unterstützen braucht die Secrets STRIPE_SECRET_KEY und STRIPE_WEBHOOK_SECRET (siehe README).
+    // Links in Mails aus dem nächtlichen Aufräumen
+    "APP_ORIGIN": "https://sailing.wollow.ski"
   },
+  // Nächtliches Aufräumen: abgelaufene Törns, Erinnerungsmails, inaktive Konten (UTC)
+  "triggers": { "crons": ["17 3 * * *"] },
   "env": {},
   "observability": { "enabled": true }
 }

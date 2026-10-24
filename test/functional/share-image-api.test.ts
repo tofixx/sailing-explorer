@@ -60,7 +60,10 @@ describe('F-47 Übersichtsbild', () => {
     const s = await newShare(cookie);
     const big = new Uint8Array(1.6 * 1024 * 1024);
     big.set(JPEG.slice(0, 4));
-    expect((await putImage(s.id, cookie, big)).status).toBe(413);
+    // Der Worker bricht früh ab; unter Last kann der Client dabei ECONNRESET sehen → bis zu 3 Versuche.
+    let status = 0;
+    for (let i = 0; i < 3 && !status; i++) status = await putImage(s.id, cookie, big).then((r) => r.status, () => 0);
+    expect(status).toBe(413);
   });
 
   it('[F-47] private Freigabe: Bild nur für den Besitzer', async () => {

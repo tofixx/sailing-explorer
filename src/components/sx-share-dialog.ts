@@ -1,6 +1,6 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { Boat, ShareMeta, SupportLinks, SupportStatus } from '../services/api';
-import { needsSupport, quotaText } from '../domain/support';
+import type { Boat, ShareMeta, SupportStatus } from '../services/api';
+import { needsSupport, quotaText, type SupportTier } from '../domain/support';
 import { CONTENT_LABELS, FORMATS, type ImageContent, type ImageFormat } from '../services/share-image';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
@@ -40,7 +40,8 @@ export class SxShareDialog extends LitElement {
     result: { attribute: false },
     boats: { attribute: false },
     image: { attribute: false },
-    support: { attribute: false },
+    supportTiers: { attribute: false },
+    checkoutBusy: { type: Boolean },
     supportStatus: { attribute: false },
     checking: { type: Boolean },
     copied: { state: true },
@@ -55,8 +56,10 @@ export class SxShareDialog extends LitElement {
   declare result: ShareResult | null;
   declare boats: Boat[];
   declare image: ImageState | null;
-  /** personalisierte Unterstützen-Angebote; null = Unterstützen nicht eingerichtet */
-  declare support: SupportLinks | null;
+  /** Stufen des Unterstützen-Sliders; null = Unterstützen nicht eingerichtet */
+  declare supportTiers: SupportTier[] | null;
+  /** Checkout wird angelegt */
+  declare checkoutBusy: boolean;
   /** Kontingent des Kontos; null = (noch) unbekannt */
   declare supportStatus: SupportStatus | null;
   /** Unterstützer-Status wird gerade neu geladen */
@@ -75,7 +78,8 @@ export class SxShareDialog extends LitElement {
     this.result = null;
     this.boats = [];
     this.image = null;
-    this.support = null;
+    this.supportTiers = null;
+    this.checkoutBusy = false;
     this.supportStatus = null;
     this.checking = false;
     this.copied = false;
@@ -358,8 +362,8 @@ export class SxShareDialog extends LitElement {
           <a class="btn" href=${r.url} target="_blank" rel="noopener">${icon('open')} Öffnen</a>
           ${r.share.isOwner ? html`<button class="btn" @click=${() => emit(this, 'sx-account')}>${icon('folder')} Konto &amp; Freigaben</button>` : ''}
         </div>
-        ${this.support && !this.supportStatus?.supporter
-          ? html`<sx-support class="support" variant="offer" .links=${this.support} .status=${this.supportStatus}></sx-support>`
+        ${this.supportTiers && !this.supportStatus?.supporter
+          ? html`<sx-support class="support" variant="offer" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy}></sx-support>`
           : ''}
       </div>`;
     }
@@ -381,7 +385,7 @@ export class SxShareDialog extends LitElement {
     }
     if (needsSupport(this.supportStatus)) {
       return html`<div class="body">
-        <sx-support variant="required" .links=${this.support} .status=${this.supportStatus} ?checking=${this.checking}></sx-support>
+        <sx-support variant="required" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy} ?checking=${this.checking}></sx-support>
         ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
         <div class="actions">
           <button class="btn" @click=${() => this.selectTab('image')}>${icon('image')} Als Bild teilen</button>

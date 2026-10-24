@@ -16,4 +16,10 @@ export const fmtShort = (t: number) => new Date(t).toLocaleString('de-DE', { day
 
 export const fmtDate = (t: number) => new Date(t).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
-export const plural = (n: number, one: string, many: string) => `${n.toLocaleString('de-DE')} ${n === 1 ? one : many}`;
+/** Speicher in MB (binär), ganzzahlig ab 10 MB, sonst mit einer Nachkommastelle. */
+export const fmtMB = (bytes: number) => {
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toLocaleString('de-DE', { maximumFractionDigits: mb >= 10 || mb === 0 ? 0 : 1 })} MB`;
+};
+
+export const plural =(n: number, one: string, many: string) => `${n.toLocaleString('de-DE')} ${n === 1 ? one : many}`;

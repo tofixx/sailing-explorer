@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
-// Funktionale Tests der Unterstützen-Oberfläche (F-63): Kontingent-Anzeige, Karte statt Formular, Abzeichen.
+// Funktionale Tests der Unterstützen-Oberfläche (F-63): Kontingent-Anzeige, Slider statt Payment-Links,
+// Karte statt Formular, Abzeichen, Unterstützer-Zeitraum und Löschtermine.
 import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-share-dialog';
 import '../../src/components/sx-account-dialog';
-import { needsSupport, quotaText, supportUrl } from '../../src/domain/support';
+import '../../src/components/sx-support';
+import { SUPPORT_TIERS, WARN_MS, formatEuro, needsSupport, quotaText } from '../../src/domain/support';
+import { fmtDate } from '../../src/domain/format';
 import { T0 } from './helpers';
 
 type LitEl = HTMLElement & { updateComplete: Promise<boolean>; shadowRoot: ShadowRoot } & Record<string, unknown>;
@@ -13,12 +16,18 @@ HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
   this.setAttribute('open', '');
 };
 
+const DAY = 86_400_000;
 const USER = { id: 'U1234567890abcdefg', email: 'skipper@example.org' };
-const LINKS = {
-  coffee: supportUrl('https://buy.stripe.com/test_coffee', USER),
-  beer: supportUrl('https://buy.stripe.com/test_beer', USER),
-};
-const status = (sharesUsed: number, supporter = false) => ({ supporter, sharesUsed, sharesFree: 3, sharesMax: 500 });
+const TIERS = SUPPORT_TIERS;
+const status = (sharesUsed: number, supporter = false, supporterUntil: number | null = supporter ? Date.now() + 200 * DAY : null) => ({
+  supporter,
+  supporterUntil,
+  sharesUsed,
+  sharesFree: 3,
+  sharesMax: 100,
+  bytesUsed: Math.round(12.4 * 1024 * 1024),
+  bytesMax: 200 * 1024 * 1024,
+});
 
 async function mount(tag: string, props: Record<string, unknown>): Promise<LitEl> {
   const el = document.createElement(tag) as LitEl;
@@ -44,6 +53,17 @@ async function supportEl(el: LitEl) {
   return s;
 }
 
+const slider = (s: LitEl) => s.shadowRoot.querySelector<HTMLInputElement>('input[type="range"]');
+const payButton = (s: LitEl) => [...s.shadowRoot.querySelectorAll('button')].find((b) => /Jetzt unterstützen|Bezahlseite/.test(b.textContent!));
+
+/** Slider wie per Tastatur/Maus bewegen: Wert setzen und input-Event auslösen. */
+async function slide(s: LitEl, index: number) {
+  const r = slider(s)!;
+  r.value = String(index);
+  r.dispatchEvent(new Event('input', { bubbles: true }));
+  await s.updateComplete;
+}
+
 let cleanups: Array<() => void> = [];
 function listen(name: string) {
   const got: unknown[] = [];
@@ -59,13 +79,6 @@ afterEach(() => {
 });
 
 describe('F-63 Unterstützen – Regeln', () => {
-  it('[F-63] Payment-Link wird mit client_reference_id und prefilled_email personalisiert', () => {
-    const url = new URL(LINKS.coffee);
-    expect(url.origin + url.pathname).toBe('https://buy.stripe.com/test_coffee');
-    expect(url.searchParams.get('client_reference_id')).toBe(USER.id);
-    expect(url.searchParams.get('prefilled_email')).toBe(USER.email);
-  });
-
   it('[F-63] Kontingent-Text und Sperre ab dem 4. Törn, nicht für Unterstützer', () => {
     expect(quotaText(status(2))).toBe('2 von 3 kostenlosen Freigaben genutzt');
     expect(quotaText(status(7))).toBe('3 von 3 kostenlosen Freigaben genutzt');
@@ -77,70 +90,196 @@ describe('F-63 Unterstützen – Regeln', () => {
   });
 });
 
+describe('F-63 sx-support Slider', () => {
+  it('[F-63] Slider ist beschriftet, über alle Stufen und zeigt Icon, Bezeichnung und Betrag', async () => {
+    const s = await mount('sx-support', { variant: 'required', tiers: TIERS, status: status(3) });
+    const r = slider(s)!;
+    expect(r).not.toBeNull();
+    expect(r.min).toBe('0');
+    expect(r.max).toBe(String(TIERS.length - 1));
+    expect(r.step).toBe('1');
+    // per <label for> beschriftet, Wert für Screenreader als Text
+    const label = s.shadowRoot.querySelector(`label[for="${r.id}"]`);
+    expect(label?.textContent).toMatch(/Wie viel/);
+    expect(r.getAttribute('aria-valuetext')).toBe(`Bier, ${formatEuro(500)}`);
+    expect(s.shadowRoot.querySelector('.current')?.textContent).toMatch(new RegExp(`Bier\\s*${formatEuro(500)}`));
+    expect(s.shadowRoot.querySelector('.current svg')).not.toBeNull();
+    expect(payButton(s)!.textContent).toContain(`Jetzt unterstützen (${formatEuro(500)})`);
+  });
+
+  it('[F-63] Stufe wählen und „Jetzt unterstützen“ meldet den Betrag in Cent', async () => {
+    const got = listen('sx-support-checkout');
+    const s = await mount('sx-support', { variant: 'required', tiers: TIERS, status: status(3) });
+    await slide(s, 0);
+    expect(payButton(s)!.textContent).toContain(`Jetzt unterstützen (${formatEuro(300)})`);
+    payButton(s)!.click();
+    await slide(s, 3);
+    expect(slider(s)!.getAttribute('aria-valuetext')).toBe(`Kiste, ${formatEuro(2000)}`);
+    payButton(s)!.click();
+    await slide(s, TIERS.length - 1);
+    expect(s.shadowRoot.querySelector('.current')?.textContent).toContain('Skipper-Dank');
+    payButton(s)!.click();
+    expect(got).toEqual([{ amount: 300 }, { amount: 2000 }, { amount: 5000 }]);
+  });
+
+  it('[F-63] Klick auf ein Stufen-Icon wählt die Stufe', async () => {
+    const got = listen('sx-support-checkout');
+    const s = await mount('sx-support', { variant: 'offer', tiers: TIERS, status: status(1) });
+    (s.shadowRoot.querySelectorAll('.ticks span')[2] as HTMLElement).click();
+    await s.updateComplete;
+    expect(slider(s)!.value).toBe('2');
+    payButton(s)!.click();
+    expect(got).toEqual([{ amount: 1000 }]);
+  });
+
+  it('[F-63] während der Checkout angelegt wird, ist der Knopf gesperrt', async () => {
+    const got = listen('sx-support-checkout');
+    const s = await mount('sx-support', { variant: 'required', tiers: TIERS, status: status(3), busy: true });
+    const b = payButton(s)!;
+    expect(b.disabled).toBe(true);
+    expect(b.textContent).toContain('Bezahlseite wird geöffnet');
+    b.click();
+    expect(got).toEqual([]);
+  });
+
+  it('[F-63] erklärt Laufzeit, Aufbewahrung und Grenzen für Unterstützer', async () => {
+    const s = await mount('sx-support', { variant: 'required', tiers: TIERS, status: status(3) });
+    const t = deepText(s.shadowRoot);
+    expect(t).toContain('gilt 12 Monate pro Zahlung');
+    expect(t).toContain('Kostenlose Törns bleiben 3 Monate gespeichert');
+    expect(t).toContain('so lange die Unterstützung läuft und 3 Monate darüber hinaus');
+    expect(t).toContain('bis zu 100 Törns und 200 MB Speicher');
+  });
+
+  it('[F-63] Unterstützer sehen im Angebot nur den Dank – Slider erst nach „Verlängern“', async () => {
+    const s = await mount('sx-support', { variant: 'offer', tiers: TIERS, status: status(5, true) });
+    expect(deepText(s.shadowRoot)).toContain('Danke, dass du Sail Explorer unterstützt!');
+    expect(slider(s)).toBeNull();
+    const toggle = [...s.shadowRoot.querySelectorAll('button')].find((b) => /Verlängern/.test(b.textContent!))!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    toggle.click();
+    await s.updateComplete;
+    expect(slider(s)).not.toBeNull();
+  });
+
+  it('[F-62] ohne Stufen (nicht eingerichtet) kein Angebot', async () => {
+    const s = await mount('sx-support', { variant: 'offer', tiers: null, status: status(1) });
+    expect(s.shadowRoot.textContent!.trim()).toBe('');
+  });
+});
+
 describe('F-63 sx-share-dialog', () => {
   const base = { open: true, defaultTitle: 'Törn', summary: '12 sm', boats: [], result: null, busy: false, error: '' };
 
   it('[F-63] Formular zeigt „2 von 3 kostenlos“', async () => {
-    const el = await mount('sx-share-dialog', { ...base, support: LINKS, supportStatus: status(2) });
+    const el = await mount('sx-share-dialog', { ...base, supportTiers: TIERS, supportStatus: status(2) });
     expect(el.shadowRoot.querySelector('form')).not.toBeNull();
     expect(deepText(el.shadowRoot)).toContain('2 von 3 kostenlosen Freigaben genutzt');
   });
 
-  it('[F-63] beim 4. Törn: Karte mit Kaffee/Bier (Payment-Link) und „prüfen“ statt Formular', async () => {
+  it('[F-63] beim 4. Törn: Karte mit Slider und „Status prüfen“ statt Formular', async () => {
     const checks = listen('sx-support-check');
-    const el = await mount('sx-share-dialog', { ...base, support: LINKS, supportStatus: status(3) });
+    const checkouts = listen('sx-support-checkout');
+    const el = await mount('sx-share-dialog', { ...base, supportTiers: TIERS, supportStatus: status(3) });
     expect(el.shadowRoot.querySelector('form')).toBeNull();
     const card = (await supportEl(el))!;
     expect(deepText(el.shadowRoot)).toContain('Für weitere Törns: einmal unterstützen');
-    const links = [...card.shadowRoot.querySelectorAll('a')];
-    expect(links.map((a) => a.textContent!.trim())).toEqual(['Kaffee ausgeben', 'Bier ausgeben']);
-    expect(links[0].getAttribute('href')).toBe(LINKS.coffee);
-    expect(links[0].getAttribute('target')).toBe('_blank');
-    expect(links[0].getAttribute('rel')).toContain('noopener');
-    [...card.shadowRoot.querySelectorAll('button')].find((b) => /Ich habe unterstützt/.test(b.textContent!))!.click();
+    expect(card.shadowRoot.querySelectorAll('a')).toHaveLength(0); // keine Payment-Links mehr
+    await slide(card, 2);
+    payButton(card)!.click();
+    expect(checkouts).toEqual([{ amount: 1000 }]);
+    [...card.shadowRoot.querySelectorAll('button')].find((b) => /Status prüfen/.test(b.textContent!))!.click();
     expect(checks).toHaveLength(1);
   });
 
-  it('[F-62] ohne eingerichtetes Unterstützen: verständlicher Hinweis, keine Zahlungs-Knöpfe', async () => {
-    const el = await mount('sx-share-dialog', { ...base, support: null, supportStatus: status(3) });
+  it('[F-63] Checkout läuft: Knopf in der Karte gesperrt', async () => {
+    const el = await mount('sx-share-dialog', { ...base, supportTiers: TIERS, supportStatus: status(3), checkoutBusy: true });
+    const card = (await supportEl(el))!;
+    expect(payButton(card)!.disabled).toBe(true);
+  });
+
+  it('[F-62] ohne eingerichtetes Unterstützen: verständlicher Hinweis, kein Slider', async () => {
+    const accounts = listen('sx-account');
+    const el = await mount('sx-share-dialog', { ...base, supportTiers: null, supportStatus: status(3) });
     const card = (await supportEl(el))!;
     expect(el.shadowRoot.querySelector('form')).toBeNull();
-    expect(card.shadowRoot.querySelectorAll('a')).toHaveLength(0);
+    expect(slider(card)).toBeNull();
     expect(deepText(el.shadowRoot)).toMatch(/Lösche einen älteren Törn/);
+    card.shadowRoot.querySelector('button')!.click();
+    expect(accounts).toEqual(['shares']);
   });
 
   it('[F-63] Unterstützer sehen das Formular ohne Kontingent-Hinweis', async () => {
-    const el = await mount('sx-share-dialog', { ...base, support: LINKS, supportStatus: status(9, true) });
+    const el = await mount('sx-share-dialog', { ...base, supportTiers: TIERS, supportStatus: status(9, true) });
     expect(el.shadowRoot.querySelector('form')).not.toBeNull();
     expect(deepText(el.shadowRoot)).not.toContain('kostenlosen Freigaben');
   });
 
-  it('[F-63] Teilen-Ergebnis bietet dezent „Kaffee oder Bier“ an', async () => {
+  it('[F-63] Teilen-Ergebnis bietet dezent das Unterstützen an', async () => {
     const share = { id: 'S1', title: 'Törn', summary: '', visibility: 'unlisted', isOwner: true };
-    const el = await mount('sx-share-dialog', { ...base, support: LINKS, supportStatus: status(1), result: { share, url: 'http://localhost/s/S1' } });
-    await supportEl(el);
-    expect(deepText(el.shadowRoot)).toContain('Gefällt dir Sail Explorer? Spendier einen Kaffee oder ein Bier.');
+    const el = await mount('sx-share-dialog', { ...base, supportTiers: TIERS, supportStatus: status(1), result: { share, url: 'http://localhost/s/S1' } });
+    const s = (await supportEl(el))!;
+    expect(deepText(el.shadowRoot)).toContain('Gefällt dir Sail Explorer?');
+    expect(slider(s)).not.toBeNull();
   });
 });
 
 describe('F-63 sx-account-dialog', () => {
-  const props = { open: true, tab: 'shares', user: USER, shares: [], boats: [], loading: false, error: '', support: LINKS };
+  const props = { open: true, tab: 'shares', user: USER, shares: [], boats: [], loading: false, error: '', supportTiers: TIERS };
+  const share = (id: string, expiresAt: number | null) => ({ id, title: `Törn ${id}`, summary: '', visibility: 'unlisted', trackCount: 1, createdAt: T0, listed: false, boat: null, isOwner: true, expiresAt });
 
   it('[F-63] zeigt das genutzte Kontingent und das Angebot zu unterstützen', async () => {
-    const el = await mount('sx-account-dialog', { ...props, supportStatus: status(2), shares: [{ id: 'S1', title: 'A', summary: '', visibility: 'unlisted', trackCount: 1, createdAt: T0, listed: false, boat: null }] });
+    const el = await mount('sx-account-dialog', { ...props, supportStatus: status(2), shares: [share('S1', null)] });
     await supportEl(el);
     const t = deepText(el.shadowRoot);
     expect(t).toContain('2 von 3 kostenlosen Freigaben genutzt');
-    expect(t).toContain('Kaffee ausgeben');
-    expect(t).not.toContain('Unterstützer');
+    expect(t).toContain('Jetzt unterstützen');
+    expect(t).not.toContain('Unterstützer bis');
+    expect(el.shadowRoot.querySelector('.badge')).toBeNull();
   });
 
-  it('[F-63] Unterstützer bekommen ein Abzeichen und einen Dank statt Kontingent', async () => {
-    const el = await mount('sx-account-dialog', { ...props, supportStatus: status(5, true) });
+  it('[F-63] Unterstützer: Abzeichen, „Unterstützer bis …“ und Kontingent in Törns und MB', async () => {
+    const until = Date.now() + 200 * DAY;
+    const el = await mount('sx-account-dialog', { ...props, supportStatus: status(5, true, until) });
     await supportEl(el);
     const t = deepText(el.shadowRoot);
     expect(el.shadowRoot.querySelector('.badge')?.textContent).toContain('Unterstützer');
+    expect(t).toContain(`Unterstützer bis ${fmtDate(until)}`);
+    expect(t).toContain('5 von 100 Törns');
+    expect(t).toContain('12 MB von 200 MB');
     expect(t).toContain('Danke, dass du Sail Explorer unterstützt!');
     expect(t).not.toContain('kostenlosen Freigaben');
+  });
+
+  it('[F-63] abgelaufene Unterstützung: Hinweis mit Datum, Kontingent und Angebot', async () => {
+    const until = Date.now() - 10 * DAY;
+    const el = await mount('sx-account-dialog', { ...props, supportStatus: status(4, false, until) });
+    const s = (await supportEl(el))!;
+    const t = deepText(el.shadowRoot);
+    expect(t).toContain(`Unterstützung abgelaufen am ${fmtDate(until)}`);
+    expect(t).toContain('3 von 3 kostenlosen Freigaben genutzt');
+    expect(el.shadowRoot.querySelector('.badge')).toBeNull();
+    expect(slider(s)).not.toBeNull();
+  });
+
+  it('[F-63] eigene Törns zeigen den Löschtermin, in den letzten 14 Tagen hervorgehoben', async () => {
+    const later = Date.now() + 60 * DAY;
+    const soon = Date.now() + 5 * DAY;
+    const el = await mount('sx-account-dialog', {
+      ...props,
+      supportStatus: status(3),
+      shares: [share('S1', later), share('S2', soon), share('S3', null)],
+    });
+    const rows = [...el.shadowRoot.querySelectorAll('li')];
+    expect(rows).toHaveLength(3);
+    const exp = (li: Element) => li.querySelector('.expiry');
+    expect(exp(rows[0])?.textContent).toContain(`wird gelöscht am ${fmtDate(later)}`);
+    expect(exp(rows[0])?.classList.contains('soon')).toBe(false);
+    expect(exp(rows[1])?.textContent).toContain(`wird gelöscht am ${fmtDate(soon)}`);
+    expect(exp(rows[1])?.classList.contains('soon')).toBe(true);
+    expect(exp(rows[2])).toBeNull();
+    // Grenze: genau 14 Tage gilt als „bald“
+    const edge = await mount('sx-account-dialog', { ...props, supportStatus: status(1), shares: [share('S4', Date.now() + WARN_MS - 60_000)] });
+    expect(edge.shadowRoot.querySelector('.expiry')?.classList.contains('soon')).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import { metricRange } from '../domain/metrics';
 import { shareSummary } from '../domain/summary';
-import { needsSupport, supportUrl } from '../domain/support';
+import { needsSupport, type SupportTier } from '../domain/support';
 import {
   ApiError,
   api,
@@ -9,7 +9,6 @@ import {
   type Profile,
   type ShareMeta,
   type SharePatch,
-  type SupportLinks,
   type SupportStatus,
 } from '../services/api';
 import { deflateToBase64Url, gzipString } from '../services/compress';
@@ -49,9 +48,11 @@ export class SessionController {
   private lastShare: { key: string; share: ShareMeta } | null = null;
   private pendingToken: string | null = null;
   private channel = 'BroadcastChannel' in window ? new BroadcastChannel('sx-auth') : null;
-  /** Öffentliche Payment-Links aus /api/config (null = Unterstützen nicht eingerichtet) */
-  private supportCfg: SupportLinks | null = null;
+  /** Slider-Stufen aus /api/config (null = Unterstützen nicht eingerichtet) */
+  private supportTiers: SupportTier[] | null = null;
   private supportStatus: SupportStatus | null = null;
+  /** erfüllt, sobald Konfiguration und Anmeldung geladen sind */
+  private backendReady: Promise<void> = Promise.resolve();
 
   constructor(
     private store: Store,
@@ -62,19 +63,26 @@ export class SessionController {
       if (e.data === 'login') this.refreshUser().then(() => this.afterLogin());
       if (e.data === 'logout') this.store.set({ user: null });
     });
-    // Zurück aus dem Stripe-Tab: Status still neu laden, damit die Sperre ohne Klick verschwindet.
+    // Zurück aus einem anderen Tab (z. B. Zahlung dort abgeschlossen): Status still neu laden.
     window.addEventListener('focus', () => {
       if (this.ui.share.open && needsSupport(this.supportStatus)) this.refreshSupport();
     });
+    // Zurück per Browser-Verlauf von der Bezahlseite (bfcache): Knopf wieder freigeben.
+    window.addEventListener('pageshow', () => this.setCheckoutBusy(false));
   }
 
   // ---------------------------------------------------------------- Anmeldung
 
-  async checkBackend(): Promise<void> {
+  checkBackend(): Promise<void> {
+    this.backendReady = this.loadBackend();
+    return this.backendReady;
+  }
+
+  private async loadBackend(): Promise<void> {
     try {
       const cfg = await api.config();
       if (cfg.turnstileSiteKey) this.ui.login.mountCaptcha = turnstileMount(cfg.turnstileSiteKey);
-      this.supportCfg = cfg.support ?? null;
+      this.supportTiers = cfg.support?.tiers?.length ? cfg.support.tiers : null;
       this.store.set({ backend: cfg.sharing });
       await this.refreshUser();
     } catch {
@@ -213,7 +221,8 @@ export class SessionController {
       defaultTitle: s.mode.kind === 'share' ? s.mode.share.title : names.length > 1 ? `${names[0]} → ${names[names.length - 1]}` : names[0],
       summary: shareSummary(s.tracks),
       checking: false,
-      support: this.personalLinks(),
+      supportTiers: this.tiersForUser(),
+      checkoutBusy: false,
     });
     this.refreshImage();
     if (s.user) {
@@ -224,19 +233,69 @@ export class SessionController {
 
   // ---------------------------------------------------------------- Unterstützen
 
-  /** Payment-Links mit Konto-Zuordnung (client_reference_id) und vorausgefüllter E-Mail. */
-  private personalLinks(): SupportLinks | null {
-    const user = this.store.get().user;
-    const cfg = this.supportCfg;
-    if (!cfg || !user) return null;
-    return { coffee: cfg.coffee && supportUrl(cfg.coffee, user), beer: cfg.beer && supportUrl(cfg.beer, user) };
+  /** Stufen nur für angemeldete Konten – der Checkout braucht das Konto für die Zuordnung. */
+  private tiersForUser(): SupportTier[] | null {
+    return this.store.get().user ? this.supportTiers : null;
   }
 
   private setSupport(status: SupportStatus | null) {
     this.supportStatus = status;
-    const links = status ? this.personalLinks() : null;
-    Object.assign(this.ui.share, { supportStatus: status, support: links });
-    Object.assign(this.ui.account, { supportStatus: status, support: links });
+    const tiers = status ? this.tiersForUser() : null;
+    Object.assign(this.ui.share, { supportStatus: status, supportTiers: tiers });
+    Object.assign(this.ui.account, { supportStatus: status, supportTiers: tiers });
+  }
+
+  private setCheckoutBusy(busy: boolean) {
+    this.ui.share.checkoutBusy = busy;
+    this.ui.account.checkoutBusy = busy;
+  }
+
+  /**
+   * Slider-Knopf „Jetzt unterstützen“: Checkout-Session anlegen und zur Bezahlseite wechseln.
+   * Freigeschaltet wird erst durch den Webhook; zurück geht es über /?support=success|cancel.
+   */
+  async checkout(amount: number): Promise<void> {
+    if (!this.store.get().user) return this.openLogin('Zum Unterstützen meldest du dich einmal mit deiner E-Mail-Adresse an.');
+    this.setCheckoutBusy(true);
+    try {
+      const { url } = await api.supportCheckout(amount);
+      location.assign(url);
+      // Busy bleibt stehen, bis die Bezahlseite lädt – verhindert Doppelklicks.
+    } catch (e) {
+      this.setCheckoutBusy(false);
+      if (e instanceof ApiError && e.status === 401) {
+        this.store.set({ user: null });
+        this.closeAll();
+        return this.openLogin('Deine Anmeldung ist abgelaufen – bitte erneut anmelden.');
+      }
+      this.ui.toast(errorText(e), 7000);
+    }
+  }
+
+  /**
+   * Rückkehr von der Bezahlseite bzw. Link aus der Erinnerungsmail (?support=…).
+   * success: danken und Status laden; cancel: kurz bestätigen; open: Angebot im Konto zeigen.
+   */
+  async supportReturn(kind: 'success' | 'cancel' | 'open'): Promise<void> {
+    await this.backendReady;
+    if (kind === 'cancel') return this.ui.toast('Zahlung abgebrochen – es wurde nichts abgebucht.');
+    if (!this.store.get().user) {
+      return this.openLogin(
+        kind === 'success'
+          ? 'Danke für deine Unterstützung! Melde dich an, um deinen Unterstützer-Status zu sehen.'
+          : 'Melde dich an, um Sail Explorer zu unterstützen und deine Törns länger zu behalten.',
+      );
+    }
+    if (kind === 'open') return this.openAccount('shares');
+    const status = await this.refreshSupport();
+    this.ui.toast(
+      status?.supporter
+        ? 'Danke für deine Unterstützung! Du kannst jetzt weitere Törns speichern.'
+        : 'Danke für deine Unterstützung! Die Bestätigung kann ein paar Sekunden dauern.',
+      7000,
+    );
+    // Webhook noch nicht da: einmal nachladen, damit der Status ohne Klick erscheint.
+    if (!status?.supporter) setTimeout(() => void this.refreshSupport(), 5000);
   }
 
   private async refreshSupport(): Promise<SupportStatus | null> {

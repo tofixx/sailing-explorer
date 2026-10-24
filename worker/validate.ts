@@ -1,4 +1,5 @@
 // Reine Validierungsfunktionen – ohne Worker-APIs, damit sie unit-testbar sind.
+import { SUPPORT_TIERS } from '../src/domain/support';
 
 export const LIMITS = {
   /** komprimierte Upload-Größe */
@@ -8,7 +9,7 @@ export const LIMITS = {
   summaryLength: 200,
   viewLength: 200,
   emailLength: 254,
-  sharesPerUser: 500,
+  sharesPerUser: 100,
   /** Speicher pro Konto (komprimiert) */
   bytesPerUser: 200 * 1024 * 1024,
   boatsPerUser: 50,
@@ -87,16 +88,9 @@ export function parseFreeShares(input: unknown, fallback = 3): number {
   return Math.min(n, LIMITS.sharesPerUser);
 }
 
-/** Öffentlicher Payment-Link: nur https, ohne Zugangsdaten und ohne eigenen Querystring. */
-export function parseSupportLink(input: unknown): string | null {
-  if (typeof input !== 'string' || !input) return null;
-  try {
-    const url = new URL(input.trim());
-    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
+/** Betrag (Cent) nur aus den festen Slider-Stufen – keine frei wählbaren Summen. */
+export function parseSupportAmount(input: unknown): number | null {
+  return typeof input === 'number' && SUPPORT_TIERS.some((t) => t.amount === input) ? input : null;
 }
 
 /** Zerlegt den Stripe-Signature-Header „t=…,v1=…,v1=…“ (unbekannte Schemata wie v0 werden ignoriert). */

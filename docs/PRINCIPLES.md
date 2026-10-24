@@ -44,6 +44,9 @@ gilt die Reihenfolge innerhalb eines Abschnitts.
 6. **Billig im Betrieb.** Der Worker macht nur, was der Client nicht kann
    (Speichern, Ausliefern, Vorschau-Metadaten). Rechenarbeit passiert im
    Browser – so bleibt alles im Cloudflare-Free-Tier.
+   Daten haben ein Ablaufdatum: Ein nächtlicher Cron löscht, was nicht mehr
+   gebraucht wird, in kleinen Portionen pro Lauf. Auch zahlende Konten haben
+   feste Obergrenzen.
 7. **Erweiterbar ohne Tabellenneubau.** Rollen und Sichtbarkeiten prüft
    `worker/validate.ts`, nicht ein SQL-`CHECK` (SQLite ändert Constraints nur
    per Neubau). Eigentum ist explizit (`owner_id`/`user_id`), weitere
@@ -70,8 +73,8 @@ gilt die Reihenfolge innerhalb eines Abschnitts.
 6. **Fail closed.** Ohne echten Mailversand oder ohne Bot-Schutz verweigert
    der Server in Produktion die Anmeldung, statt still zu degradieren.
    Magic Links werden erst nach Bestätigung („Als … anmelden?“) eingelöst –
-   Schutz gegen untergeschobene Links. Ohne Webhook-Secret gibt es keine
-   Unterstützen-Knöpfe; freigeschaltet wird ausschließlich über einen
+   Schutz gegen untergeschobene Links. Ohne Stripe-Schlüssel und Webhook-Secret gibt es
+   kein Unterstützen-Angebot; freigeschaltet wird ausschließlich über einen
    signierten Webhook, nie über eine Angabe des Clients.
 7. **Least privilege in CI.** Der Cloudflare-API-Token darf nur Workers und
    R2 dieses Accounts; Secrets nur im Deploy-Schritt und nur auf `main`.
