@@ -70,7 +70,7 @@ export async function sendGroupDigests(env: Env, origin: string, now = Date.now(
       }
       sent++;
     }
-    // Auch ohne Neues als erledigt markieren – sonst würde dieselbe Person jede Woche wieder abgefragt, ohne Mail.
+    // Auch ohne Neues als erledigt markieren – sonst würde dasselbe Konto jede Nacht erneut abgefragt.
     await env.DB.prepare('UPDATE users SET groups_mailed_at = ? WHERE id = ?').bind(now, u.id).run();
   }
   return sent;

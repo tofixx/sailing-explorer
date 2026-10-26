@@ -206,14 +206,18 @@ describe('F-159/F-160 Neuigkeiten', () => {
     const db = await s.db();
     const now = Date.now();
     // 45 Beiträge direkt ins Log (die Tagesgrenze für Beiträge gilt über die API)
-    for (let i = 0; i < 45; i++) {
-      const id = `P${String(i).padStart(17, '0')}${g.id.slice(0, 4)}`;
-      const aid = `A${String(i).padStart(17, '0')}${g.id.slice(0, 4)}`;
-      await db.prepare('INSERT INTO posts (id, author_id, group_id, body, created_at) VALUES (?, ?, ?, ?, ?)').bind(id, owner.user.id, g.id, `Beitrag ${i}`, now - i * 1000).run();
-      await db.prepare(`INSERT INTO activity (id, kind, actor_id, subject_kind, subject_id, group_id, data, created_at, updated_at) VALUES (?, 'post', ?, 'post', ?, ?, '{}', ?, ?)`)
-        .bind(aid, owner.user.id, id, g.id, now - i * 1000, now - i * 1000).run();
-      await db.prepare(`INSERT INTO activity_target (activity_id, target_kind, target_id, created_at) VALUES (?, 'group', ?, ?)`).bind(aid, g.id, now - i * 1000).run();
-    }
+    const rows = Array.from({ length: 45 }, (_, i) => ({
+      id: `P${String(i).padStart(17, '0')}${g.id.slice(0, 4)}`,
+      aid: `A${String(i).padStart(17, '0')}${g.id.slice(0, 4)}`,
+      at: now - i * 1000,
+      i,
+    }));
+    // in einem Aufruf je Tabelle (schnell auch unter Last)
+    await db.prepare(`INSERT INTO posts (id, author_id, group_id, body, created_at) VALUES ${rows.map((r) => `('${r.id}', '${owner.user.id}', '${g.id}', 'Beitrag ${r.i}', ${r.at})`).join(',')}`).all();
+    await db
+      .prepare(`INSERT INTO activity (id, kind, actor_id, subject_kind, subject_id, group_id, data, created_at, updated_at) VALUES ${rows.map((r) => `('${r.aid}', 'post', '${owner.user.id}', 'post', '${r.id}', '${g.id}', '{}', ${r.at}, ${r.at})`).join(',')}`)
+      .all();
+    await db.prepare(`INSERT INTO activity_target (activity_id, target_kind, target_id, created_at) VALUES ${rows.map((r) => `('${r.aid}', 'group', '${g.id}', ${r.at})`).join(',')}`).all();
     // jeder dritte Beitrag ist ausgeblendet → wird beim Lesen aussortiert, Seiten bleiben trotzdem voll
     await db.prepare(`UPDATE posts SET hidden_at = 1 WHERE group_id = ? AND CAST(substr(id, 2, 17) AS INTEGER) % 3 = 2`).bind(g.id).run();
     const seen: string[] = [];
@@ -234,7 +238,7 @@ describe('F-159/F-160 Neuigkeiten', () => {
     expect(seen).not.toContain('Beitrag 2');
     expect((await s.send('GET', '/api/stream?cursor=kaputt', owner.cookie)).status).toBe(400);
     expect((await s.send('GET', '/api/stream', undefined)).status).toBe(401);
-  });
+  }, 20_000);
 
   it('[F-160] öffentlicher Gruppen-Stream ist 60 s gecacht (für Besucher), Verwalter und geschlossene Gruppen nie', async () => {
     const owner = await s.person({ supporter: true });

@@ -97,6 +97,8 @@ export class SxStream extends LitElement {
         overflow-wrap: anywhere;
       }
       time {
+        display: block;
+        margin-top: var(--s-1);
         font-size: var(--fs-xs);
         color: var(--text-3);
       }
