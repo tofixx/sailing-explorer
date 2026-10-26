@@ -4,8 +4,9 @@ import { canManageBoat } from './boats';
 import { randomId } from './crypto';
 import { HttpError, clientIp, countKeyFailure, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, nextShareKey, requestKey } from './access';
+import { assertActive, deleteShareReports, isAdmin } from './moderation';
 import { checkShareQuota, checkVisibilityChoice, supportStatus, visibilityRequiresSupport } from './supporter';
-import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseVisibility } from './validate';
+import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseCommentsMode, parseVisibility } from './validate';
 import { FREE_RETENTION_MS } from '../src/domain/support';
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
 
@@ -29,11 +30,16 @@ export interface ShareRow {
   started_at: number | null;
   has_image: number;
   expiry_warned_at?: number | null;
+  /** Kommentare: on | off | hidden (0009) */
+  comments_mode?: string;
+  /** per Meldung oder Admin ausgeblendet (0009) */
+  hidden_at?: number | null;
   /** aus EXPIRES_SQL */
   expires_at?: number | null;
   /** aus dem JOIN mit boats */
   boat_name?: string | null;
   boat_visibility?: string | null;
+  boat_hidden_at?: number | null;
 }
 
 const key = (id: string) => `shares/${id}`;
@@ -46,12 +52,13 @@ const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es 
  */
 export const EXPIRES_SQL = `(MAX(s.created_at, COALESCE((SELECT MAX(valid_until) FROM supports WHERE user_id = s.user_id), 0)) + ${FREE_RETENTION_MS})`;
 
-export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility, ${EXPIRES_SQL} AS expires_at
+export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at
   FROM shares s LEFT JOIN boats b ON b.id = s.boat_id`;
 
 export function shareShape(row: ShareRow, isOwner: boolean) {
   // Nicht öffentliche Boote nennt nur der Eigentümer der Freigabe (F-82).
-  const boat = row.boat_id && (isOwner || row.boat_visibility === 'public') ? { id: row.boat_id, name: row.boat_name ?? '' } : null;
+  // Ausgeblendete Boote (Meldung) ebenso.
+  const boat = row.boat_id && (isOwner || (row.boat_visibility === 'public' && !row.boat_hidden_at)) ? { id: row.boat_id, name: row.boat_name ?? '' } : null;
   return {
     id: row.id,
     title: row.title,
@@ -72,6 +79,10 @@ export function shareShape(row: ShareRow, isOwner: boolean) {
     updatedAt: row.updated_at,
     boat,
     isOwner,
+    // Kommentare & Melden (Phase D)
+    commentsMode: row.comments_mode ?? 'on',
+    /** nur der Eigentümer erfährt, dass sein Törn bis zur Prüfung ausgeblendet ist */
+    hiddenAt: isOwner ? (row.hidden_at ?? null) : null,
   };
 }
 
@@ -80,9 +91,12 @@ export async function getShareRow(env: Env, id: string): Promise<ShareRow | null
   return env.DB.prepare(`${SHARE_SELECT} WHERE s.id = ?`).bind(id).first<ShareRow>();
 }
 
-/** Zugriffsprüfung einer Freigabe (Altbestand „Nur mit Link“ ohne Schlüssel bleibt über die ID erreichbar). */
-export const canViewShare = (row: ShareRow, manager: boolean, key: string | null) =>
-  canView({ visibility: row.visibility, shareKey: row.share_key }, { manager, key }, true);
+/**
+ * Zugriffsprüfung einer Freigabe (Altbestand „Nur mit Link“ ohne Schlüssel bleibt über die ID erreichbar).
+ * Ausgeblendete Törns (Meldung) sehen nur Eigentümer und Admins.
+ */
+export const canViewShare = (row: ShareRow, manager: boolean, key: string | null, admin = false) =>
+  canView({ visibility: row.visibility, shareKey: row.share_key, hiddenAt: row.hidden_at ?? null }, { manager, key, admin }, true);
 
 /**
  * Lädt eine Freigabe, die der Anfragende sehen darf (worker/access.ts): öffentlich für alle, „Nur mit Link“ mit
@@ -94,7 +108,7 @@ export async function visibleShare(request: Request, env: Env, id: string, allow
   const user = await currentUser(request, env);
   const k = requestKey(request, allowQueryKey);
   const isOwner = !!row && !!user && user.id === row.user_id;
-  if (!row || !canViewShare(row, isOwner, k)) {
+  if (!row || !canViewShare(row, isOwner, k, isAdmin(env, user?.id))) {
     await countKeyFailure(env, request, k);
     throw NOT_FOUND();
   }
@@ -155,6 +169,7 @@ function decodeHeader(v: string | null): string {
 /** POST /api/shares – Body: gzip(JSON), Metadaten in Headern. */
 export async function createShare(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
+  await assertActive(env, user); // gesperrte Konten laden nichts hoch (Konzept 4.4)
   await rateLimit(env.UPLOAD_LIMITER, `upload:${user.id}:${clientIp(request)}`);
 
   const h = request.headers;
@@ -252,7 +267,7 @@ export async function getShareData(request: Request, env: Env, id: string): Prom
 /** PATCH /api/shares/:id – Titel, Sichtbarkeit, Link erneuern (rotateKey), Boot, gespeicherte Ansicht. */
 export async function updateShare(request: Request, env: Env, id: string): Promise<Response> {
   const { row, user } = await ownedShare(request, env, id);
-  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown }>(request);
+  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown; commentsMode?: unknown }>(request);
   const previous = row.visibility;
   if (body.title !== undefined) {
     const t = cleanText(body.title, LIMITS.titleLength);
@@ -268,9 +283,15 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
   row.share_key = nextShareKey(previous, row.visibility, row.share_key, body.rotateKey === true, true);
   if (body.boatId !== undefined) row.boat_id = await checkBoat(env, user.id, body.boatId);
   if (body.view !== undefined) row.view = cleanView(body.view);
+  // Kommentare an/aus/ausgeblendet (Konzept 4.1) – gesperrte Konten dürfen weiter abschalten.
+  if (body.commentsMode !== undefined) {
+    const mode = parseCommentsMode(body.commentsMode);
+    if (!mode) throw new HttpError(400, 'invalid_comments_mode', 'Unbekannte Einstellung für Kommentare.');
+    row.comments_mode = mode;
+  }
   row.updated_at = Date.now();
-  await env.DB.prepare('UPDATE shares SET title = ?, visibility = ?, share_key = ?, listed = ?, boat_id = ?, view = ?, updated_at = ? WHERE id = ?')
-    .bind(row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.updated_at, row.id)
+  await env.DB.prepare('UPDATE shares SET title = ?, visibility = ?, share_key = ?, listed = ?, boat_id = ?, view = ?, comments_mode = ?, updated_at = ? WHERE id = ?')
+    .bind(row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.comments_mode ?? 'on', row.updated_at, row.id)
     .run();
   const saved = await getShareRow(env, row.id);
   return json({ share: shareShape(saved ?? row, true) });
@@ -278,9 +299,14 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
 
 export async function deleteShare(request: Request, env: Env, id: string): Promise<Response> {
   const { row } = await ownedShare(request, env, id);
-  await env.TRACKS.delete([key(row.id), imageKey(row.id)]);
-  await env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(row.id).run();
+  await removeShare(env, row.id);
   return new Response(null, { status: 204 });
+}
+
+/** Löscht Datei, Vorschaubild, Meldungen und Datensatz eines Törns (Kommentare, Crew, Einladungen per CASCADE). */
+export async function removeShare(env: Env, id: string): Promise<void> {
+  await env.TRACKS.delete([key(id), imageKey(id)]);
+  await env.DB.batch([deleteShareReports(env, id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id)]);
 }
 
 /**
@@ -290,7 +316,7 @@ export async function deleteShare(request: Request, env: Env, id: string): Promi
 export async function publicShares(env: Env, where: 'user' | 'boat', id: string): Promise<ReturnType<typeof shareShape>[]> {
   const col = where === 'user' ? 's.user_id' : 's.boat_id';
   const { results } = await env.DB.prepare(
-    `${SHARE_SELECT} WHERE ${col} = ? AND s.visibility = 'public' ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
+    `${SHARE_SELECT} WHERE ${col} = ? AND s.visibility = 'public' AND s.hidden_at IS NULL ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
   )
     .bind(id)
     .all<ShareRow>();
@@ -301,7 +327,7 @@ export async function publicShares(env: Env, where: 'user' | 'boat', id: string)
 export async function crewShares(env: Env, userId: string): Promise<ReturnType<typeof shareShape>[]> {
   const { results } = await env.DB.prepare(
     `${SHARE_SELECT} JOIN share_crew c ON c.share_id = s.id
-     WHERE c.user_id = ? AND s.visibility = 'public' ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
+     WHERE c.user_id = ? AND s.visibility = 'public' AND s.hidden_at IS NULL ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
   )
     .bind(userId)
     .all<ShareRow>();
@@ -315,7 +341,8 @@ function isJpeg(b: Uint8Array): boolean {
 
 /** PUT /api/shares/:id/image – Übersichtsbild (JPEG) des Besitzers. */
 export async function putShareImage(request: Request, env: Env, id: string): Promise<Response> {
-  const { row } = await ownedShare(request, env, id);
+  const { row, user } = await ownedShare(request, env, id);
+  await assertActive(env, user);
   if ((request.headers.get('Content-Type') || '') !== 'image/jpeg') throw new HttpError(415, 'unsupported_media_type', 'Nur JPEG-Bilder.');
   const bytes = await readBodyCapped(request, LIMITS.imageBytes);
   if (!isJpeg(bytes)) throw new HttpError(400, 'invalid_image', 'Ungültiges Bild.');

@@ -12,6 +12,8 @@ import { runRetention } from './retention';
 import { isSameOrigin } from './validate';
 import { canView } from './access';
 import { isShareKey, type Visibility } from '../src/domain/visibility';
+// ---- Kommentare & Melden (Phase D) ----
+import { communityRoutes } from './community';
 
 const WEBHOOK_PATH = '/api/webhooks/stripe';
 
@@ -63,6 +65,8 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/crew$/, (r, env, [id]) => getCrew(r, env, id)],
   ['POST', /^\/api\/shares\/([A-Za-z0-9]+)\/invites$/, (r, env, [id]) => inviteCrew(r, env, id)],
   ['DELETE', /^\/api\/shares\/([A-Za-z0-9]+)\/crew\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => removeCrew(r, env, id, who)],
+  // ---- Kommentare & Melden (Phase D): worker/community.ts ----
+  ...communityRoutes,
 ];
 
 async function handleApi(request: Request, env: Env, path: string): Promise<Response> {
@@ -118,16 +122,16 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
     };
   }
   if (kind === 'u') {
-    const p = await env.DB.prepare('SELECT display_name, bio, visibility, share_key FROM profiles WHERE handle = ?')
+    const p = await env.DB.prepare('SELECT display_name, bio, visibility, share_key, hidden_at FROM profiles WHERE handle = ?')
       .bind(id)
-      .first<{ display_name: string; bio: string; visibility: Visibility; share_key: string | null }>();
-    if (!p || !canView({ visibility: p.visibility, shareKey: p.share_key }, viewer)) return fallback;
+      .first<{ display_name: string; bio: string; visibility: Visibility; share_key: string | null; hidden_at: number | null }>();
+    if (!p || !canView({ visibility: p.visibility, shareKey: p.share_key, hiddenAt: p.hidden_at }, viewer)) return fallback;
     return { title: `${p.display_name} · ${env.APP_NAME}`, description: p.bio || 'Segelprofil mit Törns und Booten', index: index(p.visibility) };
   }
-  const b = await env.DB.prepare('SELECT name, boat_type, home_port, visibility, share_key FROM boats WHERE id = ?')
+  const b = await env.DB.prepare('SELECT name, boat_type, home_port, visibility, share_key, hidden_at FROM boats WHERE id = ?')
     .bind(id)
-    .first<{ name: string; boat_type: string; home_port: string; visibility: Visibility; share_key: string | null }>();
-  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key }, viewer)) return fallback;
+    .first<{ name: string; boat_type: string; home_port: string; visibility: Visibility; share_key: string | null; hidden_at: number | null }>();
+  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key, hiddenAt: b.hidden_at }, viewer)) return fallback;
   const desc = [b.boat_type, b.home_port && `Heimathafen ${b.home_port}`].filter(Boolean).join(' · ');
   return { title: `${b.name} · ${env.APP_NAME}`, description: desc || 'Boot mit seinen Törns', index: index(b.visibility) };
 }

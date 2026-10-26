@@ -7,6 +7,8 @@ export interface Guarded {
   visibility: Visibility;
   /** gespeicherter Schlüssel; null = keiner (bei Törns: Altbestand) */
   shareKey: string | null;
+  /** per Meldung oder Admin ausgeblendet (Konzept 4.4): wie nicht existent außer für Verwalter und Admins */
+  hiddenAt?: number | null;
 }
 
 export interface Viewer {
@@ -14,16 +16,20 @@ export interface Viewer {
   manager: boolean;
   /** mitgeschickter Schlüssel (Header X-Share-Key, bei Bildern ?k=, auf Seiten das Pfadsegment) */
   key: string | null;
+  /** Moderation (ADMIN_USER_IDS): sieht Ausgeblendetes, aber keine fremden „Nur ich“-Objekte */
+  admin?: boolean;
 }
 
 /**
  * Darf der Betrachter das Objekt sehen?
+ * - Ausgeblendetes (Meldung/Admin) nur Verwalter und Admins, sonst gelten die Regeln unten.
  * - Verwalter immer; „Öffentlich“ immer (ein mitgeschickter Schlüssel wird ignoriert, auch ein falscher).
  * - „Nur ich“ nie.
  * - „Nur mit Link“ nur mit passendem Schlüssel. `legacyWithoutKey`: Altbestand ohne Schlüssel (nur Törns, F-91)
  *   bleibt über die ID allein erreichbar; für Boote/Profile gibt es keinen solchen Altbestand → fail closed.
  */
 export function canView(obj: Guarded, viewer: Viewer, legacyWithoutKey = false): boolean {
+  if (obj.hiddenAt && !viewer.manager && !viewer.admin) return false;
   if (viewer.manager || obj.visibility === 'public') return true;
   if (obj.visibility !== 'unlisted') return false;
   if (obj.shareKey === null) return legacyWithoutKey;

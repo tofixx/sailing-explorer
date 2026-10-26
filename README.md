@@ -152,6 +152,19 @@ npx wrangler secret put STRIPE_WEBHOOK_SECRET
 
 Lokal testen: Testmodus-Schlüssel `sk_test_…` in `.dev.vars` eintragen und Ereignisse mit der Stripe-CLI weiterleiten. `stripe listen --forward-to localhost:5173/api/webhooks/stripe` gibt das passende `whsec_…` aus.
 
+### Kommentare und Moderation
+
+Kommentare und Melden (Konzept Abschnitt 4) brauchen zwei Angaben:
+
+```bash
+# Konto-IDs der Moderation, kommagetrennt (ID z. B. per `wrangler d1 execute … "SELECT id FROM users WHERE email = '…'"`)
+npx wrangler secret put ADMIN_USER_IDS
+# Kontaktadresse für Meldungen ohne Konto (Impressum, Art. 16 DSA) – als Variable in wrangler.jsonc oder als Secret
+npx wrangler secret put REPORT_CONTACT
+```
+
+Ohne `ADMIN_USER_IDS` gibt es keine Admin-Oberfläche (die Admin-Routen antworten 404); Meldungen werden trotzdem gespeichert und blenden bei 3 Meldungen bzw. „Ich bin abgebildet“ automatisch aus. Admins sehen offene Meldungen im Konto unter „Meldungen“.
+
 ### Aufbewahrung und Aufräumen
 
 Ein Cron-Trigger (`17 3 * * *` UTC, siehe `wrangler.jsonc`) räumt nachts auf (`worker/retention.ts`):
@@ -163,6 +176,8 @@ Ein Cron-Trigger (`17 3 * * *` UTC, siehe `wrangler.jsonc`) räumt nachts auf (`
 | Erinnerung | eine Mail pro Konto 14 Tage vor dem Löschen, je Törn einmal |
 | Inaktive Konten | ohne Törns und 12 Monate ohne Anmeldung → Konto, Profil und Boote werden gelöscht |
 | Login-Links, Sessions | nach Ablauf |
+| Kommentare | mit ihrem Törn; Sammelmail (opt-in) höchstens 25 pro Lauf |
+| Meldungen | verwaiste sofort, entschiedene (anonymisiert) nach 180 Tagen; Spam-Zähler der Kommentare nach 24 h |
 
 Pro Lauf werden höchstens 200 Törns gelöscht und 50 Konten benachrichtigt bzw. entfernt; der Rest folgt in der nächsten Nacht. Das Ablaufdatum berechnet die Datenbank (`EXPIRES_SQL` in `worker/shares.ts`, gleiche Regel wie `shareExpiry()` in `src/domain/support.ts`). Eigentümer sehen es im Konto bei jedem Törn.
 

@@ -32,6 +32,12 @@ import type { SxShareDialog } from './components/sx-share-dialog';
 import type { SxToast } from './components/sx-toast';
 import type { SxTopbar } from './components/sx-topbar';
 import type { SxTrackList } from './components/sx-track-list';
+// ---- Kommentare & Melden (Phase D) ----
+import { CommunityController } from './controllers/community';
+import type { SxComments } from './components/sx-comments';
+import type { ReportTarget, SxReportDialog } from './components/sx-report-dialog';
+import type { AdminAction } from './services/api';
+import type { CommentsMode, NotifyMode, ReportReason } from './domain/comment-text';
 
 /** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
 const TRACK_COLORS = ['--c-track-1', '--c-track-2', '--c-track-3', '--c-track-4', '--c-track-5', '--c-track-6'];
@@ -84,8 +90,12 @@ export class App {
     invite: $<SxInviteDialog>('sx-invite-dialog'),
     crew: $<SxCrew>('sx-crew'),
     crewPanel: $<HTMLElement>('#crew-panel'),
+    comments: $<SxComments>('sx-comments'),
+    commentsPanel: $<HTMLElement>('#comments-panel'),
+    report: $<SxReportDialog>('sx-report-dialog'),
   };
   private session: SessionController;
+  private community: CommunityController;
   private timelinePts: TimedPoint[] = [];
 
   constructor() {
@@ -98,6 +108,14 @@ export class App {
       crew: this.ui.crew,
       crewPanel: this.ui.crewPanel,
       toast: (msg, ms) => this.toast(msg, ms),
+    });
+    this.community = new CommunityController(this.store, {
+      comments: this.ui.comments,
+      commentsPanel: this.ui.commentsPanel,
+      report: this.ui.report,
+      account: this.ui.account,
+      toast: (msg, ms) => this.toast(msg, ms),
+      openLogin: (reason) => this.session.openLogin(reason),
     });
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
@@ -197,6 +215,9 @@ export class App {
     if (changed('mode') || changed('user')) {
       if (s.mode.kind === 'share') void this.session.loadCrew(s.mode.share, s.mode.key);
       else this.session.hideCrew();
+      // Kommentare des geteilten Törns (Phase D)
+      if (s.mode.kind === 'share' && s.backend) void this.community.loadComments(s.mode.share, s.mode.key);
+      else this.community.hideComments();
     }
     if (prev && (changed('metric') || changed('layers')) && s.mode.kind === 'share') {
       // Schlüssel („Nur mit Link“) bleibt in der Adresse, sonst wäre der Link nach dem Kopieren tot.
@@ -326,6 +347,21 @@ export class App {
     on<string>('sx-boat-leave', (id) => s.leaveBoat(id));
     on('sx-logout', () => s.logout());
     on('sx-account-delete', () => s.deleteAccount());
+
+    // ---- Kommentare & Melden (Phase D) ----
+    const c = this.community;
+    on<{ body: string }>('sx-comment-post', (d) => c.postComment(d.body));
+    on<{ id: string }>('sx-comment-delete', (d) => c.deleteComment(d.id));
+    on<{ mode: CommentsMode }>('sx-comments-mode', (d) => c.setMode(d.mode));
+    on<ReportTarget>('sx-report', (t) => c.openReport(t));
+    on<{ reason: ReportReason; note: string }>('sx-report-submit', (d) => c.submitReport(d));
+    on('sx-report-login', () => c.reportLogin());
+    on('sx-report-close', () => c.closeReport());
+    on('sx-account-opened', () => c.loadSettings());
+    on<{ notifyComments: NotifyMode }>('sx-settings-save', (d) => c.saveSettings(d));
+    on('sx-admin-refresh', () => c.loadReports());
+    on<{ id: string; action: AdminAction }>('sx-admin-decide', (d) => c.decide(d.id, d.action));
+    on<{ userId: string; suspended: boolean }>('sx-admin-suspend', (d) => c.suspend(d.userId, d.suspended));
   }
 
   private wireDragDrop() {
@@ -488,6 +524,7 @@ export class App {
   private async openPage(route: { kind: 'profile'; handle: string; key?: string } | { kind: 'boat'; id: string; key?: string } | { kind: 'discover' }) {
     this.ui.app.setAttribute('data-page', '');
     if (route.kind === 'discover') return this.openDiscover();
+    this.community.setPageKey(route.key);
     const page = this.ui.page;
     page.hidden = false;
     Object.assign(page, { loading: true, error: '', data: null });

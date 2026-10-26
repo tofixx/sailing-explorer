@@ -2,6 +2,7 @@ import type { SupportTier } from '../domain/support';
 import { parseWeatherData, type WeatherData } from '../domain/weather';
 import type { Visibility } from '../domain/visibility';
 import { readCapped } from './compress';
+import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
 
 export type { Visibility };
 
@@ -356,3 +357,106 @@ export function validatePayload(input: unknown): SharePayload {
   const weather = p.weather === undefined ? null : parseWeatherData(p.weather);
   return { v: 1, tracks: p.tracks as SharePayload['tracks'], ...(weather ? { weather } : {}) };
 }
+
+// ================================================================ Kommentare & Melden (Phase D)
+// Eigener Block (Konzept 4, worker/comments.ts, worker/reports.ts). Ergänzt bestehende Typen per Declaration Merging.
+
+export interface ShareMeta {
+  /** Kommentare: on | off | hidden */
+  commentsMode?: CommentsMode;
+  /** nur für den Eigentümer: bis zur Prüfung ausgeblendet (Meldung) */
+  hiddenAt?: number | null;
+}
+export interface Profile {
+  hiddenAt?: number | null;
+}
+export interface Boat {
+  hiddenAt?: number | null;
+}
+
+export interface CommentItem {
+  id: string;
+  body: string;
+  createdAt: number;
+  /** Anzeigename; Profil-Link nur bei öffentlichem Profil */
+  author: { displayName: string; handle: string | null };
+  isMine: boolean;
+  canDelete: boolean;
+  /** ausgeblendet (Meldung) – sehen nur Autor:in und Admins */
+  hidden: boolean;
+}
+
+/** Warum nicht kommentiert werden kann: nicht angemeldet, abgeschaltet, gesperrt, ohne Profil. */
+export type CommentBlock = 'login' | 'off' | 'suspended' | 'profile' | null;
+
+export interface CommentList {
+  mode: CommentsMode;
+  comments: CommentItem[];
+  canComment: boolean;
+  block: CommentBlock;
+  isOwner: boolean;
+  limits: { maxLength: number; maxLinks: number };
+}
+
+export interface AccountSettings {
+  notifyComments: NotifyMode;
+  suspended: boolean;
+  hasProfile: boolean;
+  isAdmin: boolean;
+}
+
+export interface ReportInput {
+  kind: ReportKind;
+  /** bei Profilen der Profilname, sonst die ID */
+  id: string;
+  reason: ReportReason;
+  note: string;
+}
+
+export interface AdminReport {
+  /** eine der Meldungen – die Entscheidung gilt für alle offenen Meldungen zum selben Ziel */
+  id: string;
+  kind: ReportKind;
+  targetId: string;
+  count: number;
+  reporters: number;
+  firstAt: number;
+  lastAt: number;
+  reasons: Partial<Record<ReportReason, number>>;
+  notes: Array<{ reason: ReportReason; note: string; createdAt: number }>;
+  /** null: das Ziel gibt es nicht mehr */
+  target: {
+    title: string;
+    text: string;
+    path: string;
+    visibility: Visibility;
+    hiddenAt: number | null;
+    owner: { id: string; displayName: string; suspended: boolean };
+  } | null;
+}
+
+export type AdminAction = 'keep' | 'hide' | 'delete';
+
+export const communityApi = {
+  comments: (shareId: string, key?: string | null) => call<CommentList>(`/api/shares/${encodeURIComponent(shareId)}/comments`, keyInit(key)),
+  postComment: (shareId: string, body: string, key?: string | null) =>
+    call<{ comment: CommentItem }>(`/api/shares/${encodeURIComponent(shareId)}/comments`, {
+      ...jsonInit('POST', { body }),
+      headers: { 'Content-Type': 'application/json', ...(key ? { 'X-Share-Key': key } : {}) },
+    }),
+  deleteComment: (id: string) => call<void>(`/api/comments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setCommentsMode: (shareId: string, commentsMode: CommentsMode) =>
+    call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(shareId)}`, jsonInit('PATCH', { commentsMode })),
+  settings: () => call<AccountSettings>('/api/me/settings'),
+  saveSettings: (s: { notifyComments: NotifyMode }) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
+  report: (r: ReportInput, key?: string | null) =>
+    call<{ ok: true; already: boolean }>('/api/reports', {
+      ...jsonInit('POST', r),
+      headers: { 'Content-Type': 'application/json', ...(key ? { 'X-Share-Key': key } : {}) },
+    }),
+  reportInfo: () => call<{ contact: string | null; reasons: ReportReason[] }>('/api/reports/info'),
+  adminReports: () => call<{ reports: AdminReport[] }>('/api/admin/reports'),
+  decideReport: (id: string, action: AdminAction) => call<{ ok: true }>(`/api/admin/reports/${encodeURIComponent(id)}`, jsonInit('POST', { action })),
+  suspendUser: (userId: string, suspended: boolean) =>
+    call<{ suspended: boolean }>(`/api/admin/users/${encodeURIComponent(userId)}/suspend`, jsonInit('POST', { suspended })),
+};

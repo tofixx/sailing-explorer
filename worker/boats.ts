@@ -3,6 +3,7 @@ import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
 import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
+import { isAdmin } from './moderation';
 import { publicShares } from './shares';
 import { checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
@@ -20,6 +21,8 @@ interface BoatRow {
   visibility: Visibility;
   /** Schlüssel für „Nur mit Link“ (0006) */
   share_key: string | null;
+  /** per Meldung oder Admin ausgeblendet (0009) */
+  hidden_at?: number | null;
   created_at: number;
   updated_at: number;
   /** aus JOIN/Aggregaten */
@@ -48,12 +51,12 @@ export async function roleFor(env: Env, userId: string, boatId: string): Promise
   return row?.role ?? null;
 }
 
-const BOAT_SELECT = `SELECT b.*, p.handle AS owner_handle, p.display_name AS owner_name, (p.visibility = 'public') AS owner_public
+const BOAT_SELECT = `SELECT b.*, p.handle AS owner_handle, p.display_name AS owner_name, (p.visibility = 'public' AND p.hidden_at IS NULL) AS owner_public
   FROM boats b LEFT JOIN profiles p ON p.user_id = b.owner_id`;
 
 async function stats(env: Env, boatId: string) {
   const s = await env.DB.prepare(
-    `SELECT COUNT(*) AS voyages, COALESCE(SUM(dist_nm), 0) AS dist FROM shares WHERE boat_id = ? AND visibility = 'public'`,
+    `SELECT COUNT(*) AS voyages, COALESCE(SUM(dist_nm), 0) AS dist FROM shares WHERE boat_id = ? AND visibility = 'public' AND hidden_at IS NULL`,
   )
     .bind(boatId)
     .first<{ voyages: number; dist: number }>();
@@ -78,6 +81,8 @@ export function boatShape(b: BoatRow, role: Role) {
     // Eigner nur zeigen, wenn dessen Profil öffentlich ist (oder man selbst verwaltet)
     owner: b.owner_handle && (b.owner_public || role) ? { handle: b.owner_handle, displayName: b.owner_name ?? '' } : null,
     role,
+    /** nur Verwalter erfahren, dass die Seite bis zur Prüfung ausgeblendet ist (Konzept 4.4) */
+    hiddenAt: role ? (b.hidden_at ?? null) : null,
   };
 }
 
@@ -168,7 +173,7 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
   const b = BOAT_ID_RE.test(id) ? await env.DB.prepare(`${BOAT_SELECT} WHERE b.id = ?`).bind(id).first<BoatRow>() : null;
   const user = await currentUser(request, env);
   const role = b && user ? await roleFor(env, user.id, id) : null;
-  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key ?? null }, { manager: !!role, key })) {
+  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key ?? null, hiddenAt: b.hidden_at ?? null }, { manager: !!role, key, admin: isAdmin(env, user?.id) })) {
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }
@@ -202,6 +207,7 @@ export async function deleteBoat(request: Request, env: Env, id: string): Promis
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM boat_admins WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM invites WHERE boat_id = ?').bind(id),
+    env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'boat' AND target_id = ?`).bind(id),
     env.DB.prepare('DELETE FROM boats WHERE id = ?').bind(id),
   ]);
   return new Response(null, { status: 204 });

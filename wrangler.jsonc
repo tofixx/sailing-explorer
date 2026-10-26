@@ -36,6 +36,8 @@
     // Kostenlose gespeicherte Freigaben pro Konto; darüber braucht es den Unterstützer-Status.
     "FREE_SHARES": "3",
     // Unterstützen braucht die Secrets STRIPE_SECRET_KEY und STRIPE_WEBHOOK_SECRET (siehe README).
+    // Moderation (Kommentare & Melden): ADMIN_USER_IDS = kommagetrennte Konto-IDs (Variable oder Secret, leer = keine
+    // Admin-Oberfläche) und REPORT_CONTACT = Kontaktadresse für Meldungen ohne Konto (Impressum). Siehe README.
     // Links in Mails aus dem nächtlichen Aufräumen
     "APP_ORIGIN": "https://sailing.wollow.ski"
   },

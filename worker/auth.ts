@@ -2,6 +2,7 @@ import type { Env } from './env';
 import { randomId, randomToken, sha256Hex } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { magicLinkMail, sendMail } from './mail';
+import { purgeUserReports } from './moderation';
 import { TOKEN_RE, normalizeEmail } from './validate';
 
 const SECURE_COOKIE = '__Host-sx_session';
@@ -185,6 +186,11 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
   const { results } = await env.DB.prepare('SELECT id FROM shares WHERE user_id = ?').bind(user.id).all<{ id: string }>();
   if (results.length) await env.TRACKS.delete(results.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]));
   await env.DB.batch([
+    // Kommentare & Meldungen (Phase D): Meldungen zu eigenen Inhalten zuerst (sie verweisen auf Kommentare),
+    // dann eigene Kommentare und alle Kommentare auf eigenen Törns (fielen auch per ON DELETE CASCADE).
+    ...purgeUserReports(env, user.id),
+    env.DB.prepare('DELETE FROM comments WHERE user_id = ?1 OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)').bind(user.id),
+    env.DB.prepare('DELETE FROM comment_log WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM shares WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM login_tokens WHERE email = ?').bind(user.email),
