@@ -1,21 +1,22 @@
 // Reine Validierungsfunktionen – ohne Worker-APIs, damit sie unit-testbar sind.
 import { SUPPORT_TIERS } from '../src/domain/support';
 import { isVisibility, type Visibility } from '../src/domain/visibility';
+import { DEFAULT_FREE_SHARES, SHARE_IMAGE_BYTES, SHARE_UPLOAD_BYTES, STORAGE_HARD_BYTES, STORAGE_SOFT_BYTES, limitsFor } from '../src/domain/limits';
 
+/**
+ * Technische Obergrenzen einzelner Anfragen. Kontingente pro Konto (Törns, Speicher, Boote, Fotos) stehen je Stufe
+ * in src/domain/limits.ts (limitsFor).
+ */
 export const LIMITS = {
   /** komprimierte Upload-Größe */
-  uploadBytes: 12 * 1024 * 1024,
+  uploadBytes: SHARE_UPLOAD_BYTES,
   tracksPerShare: 20,
   titleLength: 120,
   summaryLength: 200,
   viewLength: 200,
   emailLength: 254,
-  sharesPerUser: 100,
-  /** Speicher pro Konto (komprimiert) */
-  bytesPerUser: 200 * 1024 * 1024,
-  boatsPerUser: 50,
   /** Übersichtsbild einer Freigabe */
-  imageBytes: 1.5 * 1024 * 1024,
+  imageBytes: SHARE_IMAGE_BYTES,
   nameLength: 80,
   bioLength: 500,
 } as const;
@@ -89,10 +90,21 @@ export function parseInviteKind(input: unknown): InviteKind | null {
 
 // ---------------------------------------------------------------- Unterstützen
 
-/** Kostenlose Freigaben pro Konto aus der Konfiguration (Standard 3, nie über dem Gesamtlimit). */
-export function parseFreeShares(input: unknown, fallback = 3): number {
+/** Kostenlose Freigaben pro Konto aus der Konfiguration (Standard 3, nie über der Unterstützer-Grenze). */
+export function parseFreeShares(input: unknown, fallback = DEFAULT_FREE_SHARES): number {
   const n = typeof input === 'string' && /^\d{1,4}$/.test(input.trim()) ? Number(input.trim()) : fallback;
-  return Math.min(n, LIMITS.sharesPerUser);
+  return Math.min(n, limitsFor('supporter').shares);
+}
+
+/** Schwellen der Notbremse (Konzept 5.2) aus den Worker-Variablen; soft nie über hard. */
+export function storageThresholds(vars: { STORAGE_SOFT_BYTES?: string; STORAGE_HARD_BYTES?: string }): { soft: number; hard: number } {
+  const hard = parseByteSize(vars.STORAGE_HARD_BYTES, STORAGE_HARD_BYTES);
+  return { soft: Math.min(parseByteSize(vars.STORAGE_SOFT_BYTES, STORAGE_SOFT_BYTES), hard), hard };
+}
+
+/** Byte-Angabe aus einer Worker-Variable (nur Ziffern, z. B. Schwellen der Notbremse); sonst der Standard. */
+export function parseByteSize(input: unknown, fallback: number): number {
+  return typeof input === 'string' && /^\d{1,16}$/.test(input.trim()) ? Number(input.trim()) : fallback;
 }
 
 /** Betrag (Cent) nur aus den festen Slider-Stufen – keine frei wählbaren Summen. */

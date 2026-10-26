@@ -1,6 +1,7 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import type { Boat, ShareMeta, SupportStatus } from '../services/api';
 import { needsSupport, quotaText, type SupportTier } from '../domain/support';
+import { storageHint } from '../domain/limits';
 import { CONTENT_LABELS, FORMATS, type ImageContent, type ImageFormat } from '../services/share-image';
 import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, isVisibility, type Visibility } from '../domain/visibility';
 import { icon } from './icons';
@@ -428,6 +429,7 @@ export class SxShareDialog extends LitElement {
         <input id="title" name="title" type="text" maxlength="120" .value=${this.defaultTitle} required />
         ${this.summary ? html`<div class="hint">${this.summary}</div>` : ''}
         ${quotaText(this.supportStatus) ? html`<div class="hint quota">${icon('info')} ${quotaText(this.supportStatus)}</div>` : ''}
+        ${this.limitHints()}
       </div>
       <div>
         <div class="label" aria-hidden="true">Wer darf es sehen?</div>
@@ -458,9 +460,19 @@ export class SxShareDialog extends LitElement {
       ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
       <div class="actions">
         <button type="button" class="btn" @click=${this.close}>Abbrechen</button>
-        <button type="submit" class="btn primary" ?disabled=${this.busy}>${icon('share')} ${this.busy ? 'Lade hoch …' : 'Link erstellen'}</button>
+        <button type="submit" class="btn primary" ?disabled=${this.busy || !!this.supportStatus?.storagePaused}>${icon('share')} ${this.busy ? 'Lade hoch …' : 'Link erstellen'}</button>
       </div>
     </form>`;
+  }
+
+  /** Speicher fast voll (Konto) bzw. Notbremse aktiv (Plattform) – Konzept 5.1/5.2. */
+  private limitHints() {
+    const st = this.supportStatus;
+    const storage = storageHint(st);
+    return html`${storage ? html`<div class="hint quota storage">${icon('info')} ${storage}</div>` : ''}
+      ${st?.storagePaused
+        ? html`<div class="note warn paused" role="status">${icon('info')}<span>Der Speicher von Sail Explorer ist gerade knapp – neue Törns sind vorübergehend pausiert.${st.supporter ? '' : ' Unterstützer können weiter speichern.'} Als Bild teilen geht weiterhin.</span></div>`
+        : ''}`;
   }
 
   /** Gesperrte Stufe gewählt: erklären und – wenn eingerichtet – das Unterstützen-Angebot zeigen. */

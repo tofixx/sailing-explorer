@@ -1,8 +1,9 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import type { Boat, BoatAdmins, BoatInput, Linkable, Profile, ShareMeta, SupportStatus, User } from '../services/api';
-import { WARN_MS, quotaText, type SupportTier } from '../domain/support';
+import { WARN_MS, type SupportTier } from '../domain/support';
+import { boatLimitText, usageText } from '../domain/limits';
 import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from '../domain/visibility';
-import { fmtDate, fmtMB, fmtNum, plural } from '../util/html';
+import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
@@ -692,8 +693,15 @@ export class SxAccountDialog extends LitElement {
             )}
           </ul>`
         : html`<div class="empty">Noch kein Boot angelegt. Boote bündeln deine Törns auf einer eigenen Seite.</div>`}
-      <div class="actions"><button class="btn primary" @click=${() => this.openBoatForm('new')}>${icon('sail')} Boot anlegen</button></div>
+      ${this.boatLimit()}
     `;
+  }
+
+  /** „Boot anlegen“ – oder, wenn das Kontingent der Stufe erreicht ist, die Grenze (Konzept 5.1). */
+  private boatLimit() {
+    const limit = boatLimitText(this.supportStatus, !!this.supportTiers?.length);
+    return html`${limit ? html`<div class="note boat-limit" role="status">${icon('info')}<span>${limit}</span></div>` : ''}
+      <div class="actions"><button class="btn primary" ?disabled=${!!limit} @click=${() => this.openBoatForm('new')}>${icon('sail')} Boot anlegen</button></div>`;
   }
 
   // ------------------------------------------------------------ Freigaben
@@ -774,13 +782,12 @@ export class SxAccountDialog extends LitElement {
     if (st.supporter) {
       return html`<div class="status on">
         <div class="quota">${icon('pennant')} <b>Unterstützer bis ${st.supporterUntil ? fmtDate(st.supporterUntil) : '–'}</b></div>
-        <div class="quota">${icon('folder')} ${st.sharesUsed.toLocaleString('de-DE')} von ${st.sharesMax.toLocaleString('de-DE')} Törns ·
-          ${fmtMB(st.bytesUsed)} von ${fmtMB(st.bytesMax)}</div>
+        <div class="quota usage">${icon('folder')} ${usageText(st)}</div>
       </div>`;
     }
     return html`<div class="status">
       ${st.supporterUntil ? html`<div class="quota">${icon('pennant')} Unterstützung abgelaufen am ${fmtDate(st.supporterUntil)}</div>` : ''}
-      <div class="quota">${icon('info')} ${quotaText(st)}</div>
+      <div class="quota usage">${icon('info')} Kostenlos: ${usageText(st)}</div>
     </div>`;
   }
 

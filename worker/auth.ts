@@ -2,6 +2,7 @@ import type { Env } from './env';
 import { randomId, randomToken, sha256Hex } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { magicLinkMail, sendMail } from './mail';
+import { subtractUserStmt } from './storage';
 import { TOKEN_RE, normalizeEmail } from './validate';
 
 const SECURE_COOKIE = '__Host-sx_session';
@@ -185,6 +186,8 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
   const { results } = await env.DB.prepare('SELECT id FROM shares WHERE user_id = ?').bind(user.id).all<{ id: string }>();
   if (results.length) await env.TRACKS.delete(results.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]));
   await env.DB.batch([
+    // Speicher der Törns vom globalen Zähler abziehen, bevor sie gelöscht werden (Konzept 5.2).
+    subtractUserStmt(env, user.id),
     env.DB.prepare('DELETE FROM shares WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM login_tokens WHERE email = ?').bind(user.email),

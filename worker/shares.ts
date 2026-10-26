@@ -4,7 +4,9 @@ import { canManageBoat } from './boats';
 import { randomId } from './crypto';
 import { HttpError, clientIp, countKeyFailure, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, nextShareKey, requestKey } from './access';
-import { checkShareQuota, checkVisibilityChoice, supportStatus, visibilityRequiresSupport } from './supporter';
+import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
+import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, subtractShareStmt } from './storage';
+import { quotaVerdict } from '../src/domain/limits';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseVisibility } from './validate';
 import { FREE_RETENTION_MS } from '../src/domain/support';
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
@@ -28,6 +30,8 @@ export interface ShareRow {
   dist_nm: number;
   started_at: number | null;
   has_image: number;
+  /** Größe des Übersichtsbilds (0008), zählt zum Speicher */
+  image_bytes?: number;
   expiry_warned_at?: number | null;
   /** aus EXPIRES_SQL */
   expires_at?: number | null;
@@ -165,13 +169,14 @@ export async function createShare(request: Request, env: Env): Promise<Response>
   // Ältere Oberflächen schicken „Öffentlich“ noch als unlisted + X-Share-Listed: 1.
   if (visibility === 'unlisted' && h.get('X-Share-Listed') === '1') visibility = 'public';
 
-  // Kontingent vor dem Einlesen prüfen (Anzahl, kostenlose Freigaben bzw. Unterstützer, Gesamtgröße pro Konto)
-  // und die Sichtbarkeit (E1: nicht öffentlich nur mit laufendem Unterstützer-Status).
+  // Kontingent vor dem Einlesen prüfen (Anzahl, kostenlose Freigaben bzw. Unterstützer, Speicher pro Konto inkl.
+  // Übersichtsbilder), die globale Notbremse (Konzept 5.2) und die Sichtbarkeit (E1: nicht öffentlich nur mit
+  // laufendem Unterstützer-Status).
   const usage = await supportStatus(env, user.id);
   checkShareQuota(env, usage);
+  const remaining = checkStorageQuota(env, usage);
+  checkBrake(await currentBrake(env), usage.supporter);
   if (!canChooseVisibility(visibility, usage.supporter)) throw visibilityRequiresSupport(env);
-  const remaining = LIMITS.bytesPerUser - usage.bytesUsed;
-  if (remaining <= 0) throw new HttpError(409, 'quota', 'Speicherkontingent erschöpft – bitte alte Freigaben löschen.');
 
   const boatId = await checkBoat(env, user.id, h.get('X-Share-Boat'));
 
@@ -206,15 +211,16 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' },
     customMetadata: { owner: user.id },
   });
-  await env.DB.prepare(
-    `INSERT INTO shares (id, user_id, title, summary, visibility, share_key, view, size_bytes, track_count, created_at, updated_at, boat_id, listed, dist_nm, started_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO shares (id, user_id, title, summary, visibility, share_key, view, size_bytes, track_count, created_at, updated_at, boat_id, listed, dist_nm, started_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
       row.id, row.user_id, row.title, row.summary, row.visibility, row.share_key, row.view, row.size_bytes, row.track_count, now, now, row.boat_id,
       row.visibility === 'public' ? 1 : 0, row.dist_nm, row.started_at,
-    )
-    .run();
+    ),
+    addStorageStmt(env, row.size_bytes),
+  ]);
   const saved = await getShareRow(env, row.id);
   return json({ share: shareShape(saved ?? row, true) }, { status: 201 });
 }
@@ -279,7 +285,8 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
 export async function deleteShare(request: Request, env: Env, id: string): Promise<Response> {
   const { row } = await ownedShare(request, env, id);
   await env.TRACKS.delete([key(row.id), imageKey(row.id)]);
-  await env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(row.id).run();
+  // Speicher im selben Batch vom globalen Zähler abziehen (vor dem Löschen der Zeile).
+  await env.DB.batch([subtractShareStmt(env, row.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(row.id)]);
   return new Response(null, { status: 204 });
 }
 
@@ -313,14 +320,28 @@ function isJpeg(b: Uint8Array): boolean {
   return b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
 }
 
-/** PUT /api/shares/:id/image – Übersichtsbild (JPEG) des Besitzers. */
+/**
+ * PUT /api/shares/:id/image – Übersichtsbild (JPEG) des Besitzers. Zählt zum Speicher (image_bytes): Ein Bild,
+ * das den Speicher über die Grenze der Stufe hebt, wird abgelehnt – außer es ersetzt ein mindestens gleich großes.
+ * Die Notbremse gilt hier nicht: das Bild gehört zu einem schon angenommenen Törn und ist klein.
+ */
 export async function putShareImage(request: Request, env: Env, id: string): Promise<Response> {
-  const { row } = await ownedShare(request, env, id);
+  const { row, user } = await ownedShare(request, env, id);
   if ((request.headers.get('Content-Type') || '') !== 'image/jpeg') throw new HttpError(415, 'unsupported_media_type', 'Nur JPEG-Bilder.');
   const bytes = await readBodyCapped(request, LIMITS.imageBytes);
   if (!isJpeg(bytes)) throw new HttpError(400, 'invalid_image', 'Ungültiges Bild.');
+  const previous = row.image_bytes ?? 0;
+  const delta = bytes.length - previous;
+  if (delta > 0) {
+    const usage = await supportStatus(env, user.id);
+    const v = quotaVerdict(usage.supporter, usage.bytesUsed, delta, (l) => l.bytes, usage.sharesFree);
+    if (v !== 'ok') throw storageQuotaError(env, usage, v);
+  }
   await env.TRACKS.put(imageKey(row.id), bytes, { httpMetadata: { contentType: 'image/jpeg' }, customMetadata: { owner: row.user_id } });
-  await env.DB.prepare('UPDATE shares SET has_image = 1, updated_at = ? WHERE id = ?').bind(Date.now(), row.id).run();
+  await env.DB.batch([
+    replaceImageStmt(env, row.id, bytes.length),
+    env.DB.prepare('UPDATE shares SET has_image = 1, image_bytes = ?, updated_at = ? WHERE id = ?').bind(bytes.length, Date.now(), row.id),
+  ]);
   return new Response(null, { status: 204 });
 }
 

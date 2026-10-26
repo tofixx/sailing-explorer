@@ -4,6 +4,7 @@ import type { Env } from './env';
 import { purgeUser } from './auth';
 import { expiryWarningMail, sendMail } from './mail';
 import { EXPIRES_SQL } from './shares';
+import { recomputeStorage, storageTotal, subtractShareStmt } from './storage';
 import { INACTIVE_ACCOUNT_MS, WARN_MS } from '../src/domain/support';
 
 /** Obergrenzen pro Lauf – hält den Cron im Free-Tier-CPU-Budget; der Rest folgt in der nächsten Nacht. */
@@ -17,6 +18,10 @@ export interface RetentionResult {
   deleted: number;
   warned: number;
   purged: number;
+  /** Gesamtspeicher nach dem Lauf (neu berechnet, Konzept 5.2) */
+  storageBytes: number;
+  /** Abweichung des inkrementell gepflegten Zählers vom neu berechneten Wert (null = Zeile fehlte) */
+  storageDrift: number | null;
 }
 
 function chunks<T>(list: T[], size = CHUNK): T[][] {
@@ -32,7 +37,8 @@ async function deleteExpired(env: Env, now: number): Promise<number> {
     .all<{ id: string }>();
   for (const part of chunks(results)) {
     await env.TRACKS.delete(part.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]));
-    await env.DB.batch(part.map((r) => env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)));
+    // Speicher je Törn vom globalen Zähler abziehen, im selben Batch wie das Löschen.
+    await env.DB.batch(part.flatMap((r) => [subtractShareStmt(env, r.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)]));
   }
   return results.length;
 }
@@ -98,5 +104,9 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     // abgelaufene und aufgebrauchte Einladungen (Konzept 10.5)
     env.DB.prepare('DELETE FROM invites WHERE expires_at < ? OR uses >= max_uses').bind(now),
   ]);
-  return { deleted, warned, purged };
+  // Notbremse: Zähler aus D1 neu berechnen – korrigiert Abweichungen der inkrementellen Pflege und legt eine
+  // fehlende Zeile wieder an (bis dahin gelten Uploads als pausiert).
+  const counted = await storageTotal(env);
+  const storageBytes = await recomputeStorage(env);
+  return { deleted, warned, purged, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
 }
