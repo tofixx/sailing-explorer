@@ -5,6 +5,7 @@ import { randomId } from './crypto';
 import { HttpError, clientIp, countKeyFailure, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, nextShareKey, requestKey } from './access';
 import { assertActive, deleteShareReports, isAdmin } from './moderation';
+import { deleteKeys, photoKeysForShares } from './photo-keys';
 import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
 import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, subtractShareStmt } from './storage';
 import { quotaVerdict } from '../src/domain/limits';
@@ -311,7 +312,9 @@ export async function deleteShare(request: Request, env: Env, id: string): Promi
 
 /** Löscht Datei, Vorschaubild, Meldungen und Datensatz eines Törns (Kommentare, Crew, Einladungen per CASCADE). */
 export async function removeShare(env: Env, id: string): Promise<void> {
-  await env.TRACKS.delete([key(id), imageKey(id)]);
+  // Dateien zuerst (Track, Übersichtsbild, Fotos aus der D1-Liste): scheitert danach D1, bleibt nur eine Zeile ohne
+  // Datei zurück statt einer Datei, die niemand mehr findet. Die Foto-Zeilen fallen per ON DELETE CASCADE.
+  await deleteKeys(env, [key(id), imageKey(id), ...(await photoKeysForShares(env, [id]))]);
   // Speicher vom globalen Zähler abziehen (vor dem Löschen der Zeile), Meldungen entfernen, Törn löschen – ein Batch.
   await env.DB.batch([subtractShareStmt(env, id), deleteShareReports(env, id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id)]);
 }

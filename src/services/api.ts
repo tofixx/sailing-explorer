@@ -439,6 +439,8 @@ export interface AdminReport {
     title: string;
     text: string;
     path: string;
+    /** Vorschaubild (nur bei Fotos) */
+    imagePath?: string;
     visibility: Visibility;
     hiddenAt: number | null;
     owner: { id: string; displayName: string; suspended: boolean };

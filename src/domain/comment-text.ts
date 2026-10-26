@@ -92,7 +92,7 @@ export function commentProblem(clean: string): CommentProblem | null {
 
 // ---------------------------------------------------------------- Melden
 
-export const REPORT_KINDS = ['share', 'comment', 'profile', 'boat'] as const;
+export const REPORT_KINDS = ['share', 'comment', 'photo', 'profile', 'boat'] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
 export const REPORT_REASONS = ['spam', 'abuse', 'illegal', 'depicted', 'other'] as const;
@@ -108,6 +108,9 @@ export const REPORT_REASON_LABEL: Record<ReportReason, string> = {
 
 /** Höchstlänge der Anmerkung zu einer Meldung. */
 export const REPORT_NOTE_MAX = 500;
+
+/** Bezeichnung der Art in Dialogen und der Admin-Liste. */
+export const REPORT_KIND_LABEL: Record<ReportKind, string> = { share: 'Törn', comment: 'Kommentar', photo: 'Foto', profile: 'Profil', boat: 'Boot' };
 
 // ---------------------------------------------------------------- Einstellungen
 

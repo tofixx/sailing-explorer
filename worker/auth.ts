@@ -4,6 +4,7 @@ import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { magicLinkMail, sendMail } from './mail';
 import { subtractUserStmt } from './storage';
 import { purgeUserReports } from './moderation';
+import { deleteKeys, photoKeysForUser } from './photo-keys';
 import { TOKEN_RE, normalizeEmail } from './validate';
 
 const SECURE_COOKIE = '__Host-sx_session';
@@ -185,7 +186,7 @@ export async function deleteAccount(request: Request, env: Env): Promise<Respons
 /** Entfernt ein Konto vollständig (auch vom nächtlichen Aufräumen für inaktive Konten genutzt). */
 export async function purgeUser(env: Env, user: User): Promise<void> {
   const { results } = await env.DB.prepare('SELECT id FROM shares WHERE user_id = ?').bind(user.id).all<{ id: string }>();
-  if (results.length) await env.TRACKS.delete(results.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]));
+  await deleteKeys(env, [...results.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]), ...(await photoKeysForUser(env, user.id))]);
   await env.DB.batch([
     // Speicher der Törns vom globalen Zähler abziehen, bevor sie gelöscht werden (Konzept 5.2).
     subtractUserStmt(env, user.id),
@@ -194,6 +195,8 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
     ...purgeUserReports(env, user.id),
     env.DB.prepare('DELETE FROM comments WHERE user_id = ?1 OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)').bind(user.id),
     env.DB.prepare('DELETE FROM comment_log WHERE user_id = ?').bind(user.id),
+    // Fotos (Phase C): Dateien sind oben schon weg, Bytes zieht subtractUserStmt ab.
+    env.DB.prepare('DELETE FROM photos WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM shares WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM login_tokens WHERE email = ?').bind(user.email),
