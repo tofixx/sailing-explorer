@@ -1,23 +1,46 @@
 import { isMetricKey } from '../domain/metrics';
 import type { MetricKey } from '../domain/types';
+import { sharePath } from '../domain/visibility';
+import type { Linkable } from './api';
 import type { Layers } from './store';
 
+/** key: Schlüssel aus dem Pfad („Nur mit Link“), wird bei API-Lesezugriffen als X-Share-Key mitgesendet. */
 export type Route =
   | { kind: 'home' }
-  | { kind: 'share'; id: string }
-  | { kind: 'profile'; handle: string }
-  | { kind: 'boat'; id: string }
+  | { kind: 'share'; id: string; key?: string }
+  | { kind: 'profile'; handle: string; key?: string }
+  | { kind: 'boat'; id: string; key?: string }
+  | { kind: 'discover' }
   | { kind: 'login'; token: string | null }
   | { kind: 'files'; names: string[] }
   | { kind: 'inline'; data: string };
 
+/** Optionales Schlüssel-Segment („Nur mit Link“): /s/<id>/<key>, /b/<id>/<key>, /u/<handle>/<key>. */
+const KEY = '(?:/([A-Za-z0-9]{16,64}))?';
+
+/** Schlüssel nur setzen, wenn vorhanden – ohne Schlüssel bleibt die Route wie bisher. */
+function withKey<T extends object>(route: T, key: string | undefined): T & { key?: string } {
+  return key ? { ...route, key } : route;
+}
+
+/** Pfad einer Seite mit optionalem Schlüssel – z. B. zum Nachführen der Adresse bei Ansichtswechseln. */
+export function routePath(kind: 's' | 'b' | 'u', idOrHandle: string, key?: string | null): string {
+  return `/${kind}/${idOrHandle}${key ? `/${key}` : ''}`;
+}
+
+/** Absoluter Teilen-Link eines eigenen Objekts: `link` vom Server, sonst aus Stufe und Schlüssel abgeleitet. */
+export function absoluteLink(kind: 's' | 'b' | 'u', idOrHandle: string, obj: Linkable, origin = location.origin): string {
+  return origin + (obj.link || sharePath(kind, idOrHandle, obj.visibility, obj.shareKey ?? null));
+}
+
 export function parseRoute(loc: Pick<Location, 'pathname' | 'search' | 'hash'>): Route {
-  const share = /^\/s\/([A-Za-z0-9]{12,32})\/?$/.exec(loc.pathname);
-  if (share) return { kind: 'share', id: share[1] };
-  const profile = /^\/u\/([a-z0-9-]{3,30})\/?$/i.exec(loc.pathname);
-  if (profile) return { kind: 'profile', handle: profile[1].toLowerCase() };
-  const boat = /^\/b\/([A-Za-z0-9]{12,32})\/?$/.exec(loc.pathname);
-  if (boat) return { kind: 'boat', id: boat[1] };
+  const share = new RegExp(`^/s/([A-Za-z0-9]{12,32})${KEY}/?$`).exec(loc.pathname);
+  if (share) return withKey({ kind: 'share', id: share[1] }, share[2]);
+  const profile = new RegExp(`^/u/([a-z0-9-]{3,30})${KEY}/?$`, 'i').exec(loc.pathname);
+  if (profile) return withKey({ kind: 'profile', handle: profile[1].toLowerCase() }, profile[2]);
+  const boat = new RegExp(`^/b/([A-Za-z0-9]{12,32})${KEY}/?$`).exec(loc.pathname);
+  if (boat) return withKey({ kind: 'boat', id: boat[1] }, boat[2]);
+  if (/^\/entdecken\/?$/.test(loc.pathname)) return { kind: 'discover' };
   if (loc.pathname === '/login') {
     const token = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(loc.hash)?.[1] ?? null;
     return { kind: 'login', token };

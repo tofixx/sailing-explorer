@@ -14,6 +14,8 @@ const API_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'Cross-Origin-Resource-Policy': 'same-origin',
+  // API-Antworten gehören in keinen Suchindex (F-84).
+  'X-Robots-Tag': 'noindex',
 };
 
 export function json(data: unknown, init: ResponseInit = {}): Response {
@@ -86,4 +88,12 @@ export async function rateLimit(limiter: RateLimit | undefined, key: string): Pr
   if (!limiter) return;
   const { success } = await limiter.limit({ key });
   if (!success) throw new HttpError(429, 'rate_limited', 'Zu viele Anfragen – bitte kurz warten.');
+}
+
+/**
+ * Fehlversuch mit Teilen-Schlüssel: zählt gegen LINK_LIMITER (pro IP) – nur auf dem Fehlerpfad und nur, wenn ein
+ * Schlüssel mitgeschickt wurde. Danach folgt die übliche 404 (bzw. 429, wenn das Limit erreicht ist).
+ */
+export async function countKeyFailure(env: { LINK_LIMITER?: RateLimit }, request: Request, key: string | null): Promise<void> {
+  if (key !== null) await rateLimit(env.LINK_LIMITER, `link:${clientIp(request)}`);
 }

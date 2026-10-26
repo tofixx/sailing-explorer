@@ -1,11 +1,22 @@
 import { metricRange } from '../domain/metrics';
 import { shareSummary } from '../domain/summary';
-import { ApiError, api, validatePayload, type BoatInput, type Profile, type ShareMeta, type SharePatch } from '../services/api';
+import { needsSupport, type SupportTier } from '../domain/support';
+import {
+  ApiError,
+  api,
+  validatePayload,
+  type BoatInput,
+  type ProfileInput,
+  type ShareMeta,
+  type SharePatch,
+  type SupportStatus,
+} from '../services/api';
 import { deflateToBase64Url, gzipString } from '../services/compress';
 import { DEFAULT_CONTENT, imageFileName, renderShareImage, type ImageContent, type ImageFormat } from '../services/share-image';
 import { visibleTracks, type Store } from '../services/store';
 import { turnstileMount } from '../services/turnstile';
-import { serializeView } from '../services/url-state';
+import { absoluteLink, routePath, serializeView } from '../services/url-state';
+import { DEFAULT_VISIBILITY, type Visibility } from '../domain/visibility';
 import type { AccountTab, SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxLoginDialog } from '../components/sx-login-dialog';
 import type { SxShareDialog } from '../components/sx-share-dialog';
@@ -23,8 +34,7 @@ export interface SessionUi {
 
 export interface ShareRequest {
   title: string;
-  visibility: 'unlisted' | 'private';
-  listed: boolean;
+  visibility: Visibility;
   boatId: string | null;
   includeView: boolean;
 }
@@ -38,6 +48,11 @@ export class SessionController {
   private lastShare: { key: string; share: ShareMeta } | null = null;
   private pendingToken: string | null = null;
   private channel = 'BroadcastChannel' in window ? new BroadcastChannel('sx-auth') : null;
+  /** Slider-Stufen aus /api/config (null = Unterstützen nicht eingerichtet) */
+  private supportTiers: SupportTier[] | null = null;
+  private supportStatus: SupportStatus | null = null;
+  /** erfüllt, sobald Konfiguration und Anmeldung geladen sind */
+  private backendReady: Promise<void> = Promise.resolve();
 
   constructor(
     private store: Store,
@@ -48,14 +63,26 @@ export class SessionController {
       if (e.data === 'login') this.refreshUser().then(() => this.afterLogin());
       if (e.data === 'logout') this.store.set({ user: null });
     });
+    // Zurück aus einem anderen Tab (z. B. Zahlung dort abgeschlossen): Status still neu laden.
+    window.addEventListener('focus', () => {
+      if (this.ui.share.open && needsSupport(this.supportStatus)) this.refreshSupport();
+    });
+    // Zurück per Browser-Verlauf von der Bezahlseite (bfcache): Knopf wieder freigeben.
+    window.addEventListener('pageshow', () => this.setCheckoutBusy(false));
   }
 
   // ---------------------------------------------------------------- Anmeldung
 
-  async checkBackend(): Promise<void> {
+  checkBackend(): Promise<void> {
+    this.backendReady = this.loadBackend();
+    return this.backendReady;
+  }
+
+  private async loadBackend(): Promise<void> {
     try {
       const cfg = await api.config();
       if (cfg.turnstileSiteKey) this.ui.login.mountCaptcha = turnstileMount(cfg.turnstileSiteKey);
+      this.supportTiers = cfg.support?.tiers?.length ? cfg.support.tiers : null;
       this.store.set({ backend: cfg.sharing });
       await this.refreshUser();
     } catch {
@@ -151,6 +178,7 @@ export class SessionController {
 
   private signedOut(msg: string) {
     this.store.set({ user: null });
+    this.setSupport(null);
     this.channel?.postMessage('logout');
     this.lastShare = null;
     this.closeAll();
@@ -177,9 +205,12 @@ export class SessionController {
     let result: { share: ShareMeta; url: string } | null = null;
     if (s.mode.kind === 'share') {
       // Geteilte Ansicht weitergeben – inkl. aktueller Einfärbung/Ebenen
-      result = { share: s.mode.share, url: `${location.origin}/s/${s.mode.share.id}?${serializeView(s.metric, s.layers)}` };
+      // Eigentümer bekommen den aktuellen Link vom Server, alle anderen geben den Link weiter, mit dem sie gekommen sind.
+      const { share, key } = s.mode;
+      const path = share.isOwner && share.link ? share.link : routePath('s', share.id, key);
+      result = { share, url: `${location.origin}${path}?${serializeView(s.metric, s.layers)}` };
     } else if (this.lastShare?.key === this.tracksKey()) {
-      result = { share: this.lastShare.share, url: `${location.origin}/s/${this.lastShare.share.id}` };
+      result = { share: this.lastShare.share, url: shareUrl(this.lastShare.share) };
     }
     const linkState = !s.backend ? 'offline' : s.user ? 'form' : 'login';
     Object.assign(this.ui.share, {
@@ -190,15 +221,108 @@ export class SessionController {
       error: '',
       busy: false,
       boats: [],
+      visibility: DEFAULT_VISIBILITY,
       defaultTitle: s.mode.kind === 'share' ? s.mode.share.title : names.length > 1 ? `${names[0]} → ${names[names.length - 1]}` : names[0],
       summary: shareSummary(s.tracks),
+      checking: false,
+      supportTiers: this.tiersForUser(),
+      checkoutBusy: false,
     });
     this.refreshImage();
-    if (s.user) api.myBoats().then((r) => (this.ui.share.boats = r.boats), () => {});
+    if (s.user) {
+      api.myBoats().then((r) => (this.ui.share.boats = r.boats), () => {});
+      this.refreshSupport();
+    }
   }
 
-  private showResult(share: ShareMeta, url = `${location.origin}/s/${share.id}`) {
-    Object.assign(this.ui.share, { open: true, tab: 'link', error: '', busy: false, result: { share, url } });
+  // ---------------------------------------------------------------- Unterstützen
+
+  /** Stufen nur für angemeldete Konten – der Checkout braucht das Konto für die Zuordnung. */
+  private tiersForUser(): SupportTier[] | null {
+    return this.store.get().user ? this.supportTiers : null;
+  }
+
+  private setSupport(status: SupportStatus | null) {
+    this.supportStatus = status;
+    const tiers = status ? this.tiersForUser() : null;
+    Object.assign(this.ui.share, { supportStatus: status, supportTiers: tiers });
+    Object.assign(this.ui.account, { supportStatus: status, supportTiers: tiers });
+  }
+
+  private setCheckoutBusy(busy: boolean) {
+    this.ui.share.checkoutBusy = busy;
+    this.ui.account.checkoutBusy = busy;
+  }
+
+  /**
+   * Slider-Knopf „Jetzt unterstützen“: Checkout-Session anlegen und zur Bezahlseite wechseln.
+   * Freigeschaltet wird erst durch den Webhook; zurück geht es über /?support=success|cancel.
+   */
+  async checkout(amount: number): Promise<void> {
+    if (!this.store.get().user) return this.openLogin('Zum Unterstützen meldest du dich einmal mit deiner E-Mail-Adresse an.');
+    this.setCheckoutBusy(true);
+    try {
+      const { url } = await api.supportCheckout(amount);
+      location.assign(url);
+      // Busy bleibt stehen, bis die Bezahlseite lädt – verhindert Doppelklicks.
+    } catch (e) {
+      this.setCheckoutBusy(false);
+      if (e instanceof ApiError && e.status === 401) {
+        this.store.set({ user: null });
+        this.closeAll();
+        return this.openLogin('Deine Anmeldung ist abgelaufen – bitte erneut anmelden.');
+      }
+      this.ui.toast(errorText(e), 7000);
+    }
+  }
+
+  /**
+   * Rückkehr von der Bezahlseite bzw. Link aus der Erinnerungsmail (?support=…).
+   * success: danken und Status laden; cancel: kurz bestätigen; open: Angebot im Konto zeigen.
+   */
+  async supportReturn(kind: 'success' | 'cancel' | 'open'): Promise<void> {
+    await this.backendReady;
+    if (kind === 'cancel') return this.ui.toast('Zahlung abgebrochen – es wurde nichts abgebucht.');
+    if (!this.store.get().user) {
+      return this.openLogin(
+        kind === 'success'
+          ? 'Danke für deine Unterstützung! Melde dich an, um deinen Unterstützer-Status zu sehen.'
+          : 'Melde dich an, um Sail Explorer zu unterstützen und deine Törns länger zu behalten.',
+      );
+    }
+    if (kind === 'open') return this.openAccount('shares');
+    const status = await this.refreshSupport();
+    this.ui.toast(
+      status?.supporter
+        ? 'Danke für deine Unterstützung! Du kannst jetzt weitere Törns speichern.'
+        : 'Danke für deine Unterstützung! Die Bestätigung kann ein paar Sekunden dauern.',
+      7000,
+    );
+    // Webhook noch nicht da: einmal nachladen, damit der Status ohne Klick erscheint.
+    if (!status?.supporter) setTimeout(() => void this.refreshSupport(), 5000);
+  }
+
+  private async refreshSupport(): Promise<SupportStatus | null> {
+    try {
+      const status = await api.support();
+      this.setSupport(status);
+      return status;
+    } catch {
+      return null; // offline/abgemeldet – der Server prüft beim Hochladen ohnehin selbst
+    }
+  }
+
+  /** „Ich habe unterstützt – prüfen“: Status neu laden; der Webhook kann ein paar Sekunden brauchen. */
+  async checkSupport(): Promise<void> {
+    Object.assign(this.ui.share, { checking: true, error: '' });
+    const status = await this.refreshSupport();
+    this.ui.share.checking = false;
+    if (status?.supporter) this.ui.toast('Danke für deine Unterstützung! Du kannst jetzt weitere Törns speichern.', 6000);
+    else this.ui.share.error = 'Noch ist keine Zahlung angekommen. Das kann ein paar Sekunden dauern – bitte gleich noch einmal prüfen.';
+  }
+
+  private showResult(share: ShareMeta) {
+    Object.assign(this.ui.share, { open: true, tab: 'link', error: '', busy: false, result: { share, url: shareUrl(share) } });
   }
 
   /** Aus dem Link-Reiter: erst anmelden, danach geht es im Dialog weiter. */
@@ -301,12 +425,12 @@ export class SessionController {
         view: d.includeView ? serializeView(s.metric, s.layers) : '',
         trackCount: s.tracks.length,
         visibility: d.visibility,
-        listed: d.listed,
         boatId: d.boatId,
         distNm: s.tracks.reduce((sum, t) => sum + t.stats.distNm, 0),
         startedAt: starts.length ? Math.min(...starts) : null,
       });
       this.lastShare = { key: this.tracksKey(), share };
+      if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: this.supportStatus.sharesUsed + 1 });
       this.showResult(share);
       // Übersichtsbild für die Link-Vorschau – immer im Querformat; Fehler sind nicht kritisch.
       this.imageFor({ format: 'landscape', content: this.imagePrefs().content })
@@ -319,6 +443,8 @@ export class SessionController {
         this.pendingShare = true;
         return this.openLogin('Deine Anmeldung ist abgelaufen – bitte erneut anmelden.');
       }
+      // Kontingent ausgeschöpft: Status laden, dann zeigt der Dialog die Unterstützen-Karte statt des Formulars.
+      if (e instanceof ApiError && e.code === 'supporter_required' && needsSupport(await this.refreshSupport())) return;
       this.ui.share.error = errorText(e);
     } finally {
       this.ui.share.busy = false;
@@ -333,6 +459,18 @@ export class SessionController {
       return this.ui.toast(`Track ist für einen Link zu groß (${Math.round(url.length / 1024)} kB) und Teilen per Server ist hier nicht verfügbar.`, 7000);
     }
     await this.copy(url);
+  }
+
+  /** Link einer eigenen Freigabe kopieren – mit Schlüssel, wenn sie „Nur mit Link“ ist. */
+  copyShare(id: string): Promise<void> {
+    const share = this.ui.account.shares.find((s) => s.id === id) ?? (this.lastShare?.share.id === id ? this.lastShare.share : null);
+    return this.copy(share ? shareUrl(share) : `${location.origin}/s/${id}`);
+  }
+
+  /** Pfad einer eigenen Seite (/b/…, /u/…, /s/…) als absoluten Link kopieren. */
+  copyPath(path: string): Promise<void> {
+    if (!/^\/[sbu]\/[A-Za-z0-9/-]+$/.test(path)) return Promise.resolve();
+    return this.copy(location.origin + path);
   }
 
   async copy(text: string): Promise<void> {
@@ -351,7 +489,7 @@ export class SessionController {
     this.ui.share.open = false; // keine gestapelten Dialoge
     Object.assign(this.ui.account, { open: true, tab, user: this.store.get().user, loading: true, error: '' });
     try {
-      const [shares, boats, me] = await Promise.all([api.listShares(), api.myBoats(), api.myProfile()]);
+      const [shares, boats, me] = await Promise.all([api.listShares(), api.myBoats(), api.myProfile(), this.refreshSupport()]);
       Object.assign(this.ui.account, { shares: shares.shares, boats: boats.boats, profile: me.profile, profileExists: me.exists });
     } catch (e) {
       this.ui.account.error = errorText(e);
@@ -373,11 +511,11 @@ export class SessionController {
     }
   }
 
-  saveProfile(p: Pick<Profile, 'handle' | 'displayName' | 'bio' | 'visibility'>) {
+  saveProfile(p: ProfileInput) {
     return this.act(async () => {
       const { profile } = await api.saveProfile(p);
       Object.assign(this.ui.account, { profile, profileExists: true });
-    }, 'Profil gespeichert');
+    }, p.rotateKey ? ROTATED : 'Profil gespeichert');
   }
 
   saveBoat(id: string | null, input: BoatInput) {
@@ -385,7 +523,7 @@ export class SessionController {
       const { boat } = id ? await api.updateBoat(id, input) : await api.createBoat(input);
       const boats = this.ui.account.boats;
       this.ui.account.boats = id ? boats.map((b) => (b.id === id ? boat : b)) : [...boats, boat];
-    }, id ? 'Boot gespeichert' : 'Boot angelegt');
+    }, input.rotateKey ? ROTATED : id ? 'Boot gespeichert' : 'Boot angelegt');
   }
 
   deleteBoat(id: string) {
@@ -401,9 +539,9 @@ export class SessionController {
       const { share } = await api.updateShare(id, patch);
       this.ui.account.shares = this.ui.account.shares.map((s) => (s.id === id ? share : s));
       const mode = this.store.get().mode;
-      if (mode.kind === 'share' && mode.share.id === id) this.store.set({ mode: { kind: 'share', share } });
+      if (mode.kind === 'share' && mode.share.id === id) this.store.set({ mode: { ...mode, share } });
       if (this.lastShare?.share.id === id) this.lastShare.share = share;
-    });
+    }, patch.rotateKey ? ROTATED : undefined);
   }
 
   deleteShare(id: string) {
@@ -411,8 +549,16 @@ export class SessionController {
       await api.deleteShare(id);
       this.ui.account.shares = this.ui.account.shares.filter((s) => s.id !== id);
       if (this.lastShare?.share.id === id) this.lastShare = null;
+      if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: Math.max(0, this.supportStatus.sharesUsed - 1) });
     }, 'Freigabe gelöscht');
   }
+}
+
+const ROTATED = 'Neuer Link erstellt – der alte Link funktioniert nicht mehr.';
+
+/** Absoluter Link einer eigenen Freigabe (mit Schlüssel bei „Nur mit Link“). */
+function shareUrl(share: ShareMeta): string {
+  return absoluteLink('s', share.id, share);
 }
 
 export function errorText(e: unknown): string {

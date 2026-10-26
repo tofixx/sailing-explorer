@@ -11,7 +11,7 @@ import { ApiError, api } from './services/api';
 import { inflateFromBase64Url } from './services/compress';
 import { fetchTrackFile } from './services/samples';
 import { Store, initialState, visibleTracks, type HoverSource, type Layers, type State } from './services/store';
-import { parseRoute, parseView, serializeView } from './services/url-state';
+import { parseRoute, parseView, routePath, serializeView } from './services/url-state';
 import { loadWeather } from './services/weather-api';
 import { workspace } from './services/workspace';
 import { SessionController, errorText } from './controllers/session';
@@ -20,6 +20,7 @@ import { fmtNum, fmtShort } from './util/html';
 import type { AccountTab, SxAccountDialog } from './components/sx-account-dialog';
 import type { ChartSeries, SxTimeChart } from './components/sx-time-chart';
 import type { SxConditions } from './components/sx-conditions';
+import type { SxDiscover } from './components/sx-discover';
 import type { SxEmptyState } from './components/sx-empty-state';
 import type { SxKpis } from './components/sx-kpis';
 import type { SxLoginDialog } from './components/sx-login-dialog';
@@ -62,6 +63,8 @@ export class App {
     topbar: $<SxTopbar>('sx-topbar'),
     empty: $<SxEmptyState>('sx-empty-state'),
     page: $<SxProfilePage>('sx-profile-page'),
+    discoverStrip: $<SxDiscover>('sx-discover[slot="discover"]'),
+    discoverPage: $<SxDiscover>('#discover-page'),
     conditions: $<SxConditions>('sx-conditions'),
     conditionsCtx: $<HTMLElement>('#conditions-ctx'),
     metric: $<SxMetricPicker>('sx-metric-picker'),
@@ -97,13 +100,17 @@ export class App {
 
   async start(): Promise<void> {
     this.session.checkBackend();
+    this.handleSupportParam();
     const route = parseRoute(location);
+    // Community-Leiste nur auf der Startseite; lädt nebenbei und blockiert nichts.
+    if (route.kind === 'home' || route.kind === 'login') void this.loadDiscoverStrip();
     try {
       switch (route.kind) {
         case 'share':
-          return await this.openShare(route.id);
+          return await this.openShare(route.id, route.key);
         case 'profile':
         case 'boat':
+        case 'discover':
           return await this.openPage(route);
         case 'login':
           history.replaceState(null, '', '/');
@@ -121,6 +128,19 @@ export class App {
       this.setLoading(null);
       this.toast(errorText(e));
     }
+  }
+
+  /**
+   * ?support=success|cancel (Rückkehr von Stripe) bzw. ?support=open (Erinnerungsmail):
+   * Parameter sofort entfernen, damit Neuladen oder Teilen der Adresse ihn nicht wiederholt.
+   */
+  private handleSupportParam() {
+    const url = new URL(location.href);
+    const kind = url.searchParams.get('support');
+    if (kind === null) return;
+    url.searchParams.delete('support');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    if (kind === 'success' || kind === 'cancel' || kind === 'open') void this.session.supportReturn(kind);
   }
 
   // ---------------------------------------------------------------- Rendering
@@ -157,7 +177,8 @@ export class App {
     }
     if (dataChanged || changed('hover') || changed('status')) this.renderHover(s);
     if (prev && (changed('metric') || changed('layers')) && s.mode.kind === 'share') {
-      history.replaceState(null, '', `/s/${s.mode.share.id}?${serializeView(s.metric, s.layers)}`);
+      // Schlüssel („Nur mit Link“) bleibt in der Adresse, sonst wäre der Link nach dem Kopieren tot.
+      history.replaceState(null, '', `${routePath('s', s.mode.share.id, s.mode.key)}?${serializeView(s.metric, s.layers)}`);
     }
   }
 
@@ -247,8 +268,11 @@ export class App {
     on('sx-image-download', () => s.downloadImage());
     on('sx-image-share', () => s.shareImage());
     on<Parameters<SessionController['upload']>[0]>('sx-share-submit', (d) => s.upload(d));
+    on('sx-support-check', () => s.checkSupport());
+    on<{ amount: number }>('sx-support-checkout', (d) => s.checkout(d.amount));
     on<string>('sx-share-open', (id) => location.assign(`/s/${id}`));
-    on<string>('sx-share-copy', (id) => s.copy(`${location.origin}/s/${id}`));
+    on<string>('sx-share-copy', (id) => s.copyShare(id));
+    on<string>('sx-link-copy', (path) => s.copyPath(path));
     on<{ id: string; patch: Parameters<SessionController['updateShare']>[1] }>('sx-share-update', (d) => s.updateShare(d.id, d.patch));
     on<string>('sx-share-delete', (id) => s.deleteShare(id));
     on<Parameters<SessionController['saveProfile']>[0]>('sx-profile-save', (p) => s.saveProfile(p));
@@ -385,15 +409,15 @@ export class App {
 
   // ---------------------------------------------------------------- Links & Seiten
 
-  private async openShare(id: string) {
+  private async openShare(id: string, key?: string) {
     this.setLoading('Lade geteilten Törn …');
     try {
-      const [{ share }, payload] = await Promise.all([api.shareMeta(id), api.shareData(id)]);
+      const [{ share }, payload] = await Promise.all([api.shareMeta(id, key), api.shareData(id, key)]);
       const tracks = this.build(payload.tracks.map((t) => ({ name: t.name, text: t.gpx })));
       const view = { ...parseView(share.view), ...parseView(location.search.slice(1)) };
       this.store.set({ metric: view.metric ?? this.store.get().metric, layers: view.layers ?? this.store.get().layers });
       document.title = `${share.title} · Sail Explorer`;
-      await this.setTracks(tracks, { mode: { kind: 'share', share }, fit: true });
+      await this.setTracks(tracks, { mode: key ? { kind: 'share', share, key } : { kind: 'share', share }, fit: true });
     } catch (e) {
       this.setLoading(null);
       this.toast(e instanceof ApiError && e.status === 404 ? 'Diese Freigabe gibt es nicht (mehr) – oder sie ist privat.' : errorText(e), 6000);
@@ -402,19 +426,20 @@ export class App {
     }
   }
 
-  /** Profil- oder Bootsseite statt Karte. */
-  private async openPage(route: { kind: 'profile'; handle: string } | { kind: 'boat'; id: string }) {
+  /** Profil-, Boots- oder Entdecken-Seite statt Karte. */
+  private async openPage(route: { kind: 'profile'; handle: string; key?: string } | { kind: 'boat'; id: string; key?: string } | { kind: 'discover' }) {
     this.ui.app.setAttribute('data-page', '');
+    if (route.kind === 'discover') return this.openDiscover();
     const page = this.ui.page;
     page.hidden = false;
     Object.assign(page, { loading: true, error: '', data: null });
     try {
       if (route.kind === 'profile') {
-        const d = await api.profile(route.handle);
+        const d = await api.profile(route.handle, route.key);
         page.data = { kind: 'profile', ...d };
         document.title = `${d.profile.displayName} · Sail Explorer`;
       } else {
-        const d = await api.boat(route.id);
+        const d = await api.boat(route.id, route.key);
         page.data = { kind: 'boat', ...d };
         document.title = `${d.boat.name} · Sail Explorer`;
       }
@@ -425,11 +450,39 @@ export class App {
     }
   }
 
-  /** Zurück von Profil-/Bootsseite zur Kartenansicht. */
+  /** Seite /entdecken: neueste öffentliche Törns, Boote und Segler. */
+  private async openDiscover() {
+    const page = this.ui.discoverPage;
+    page.hidden = false;
+    Object.assign(page, { loading: true, error: '', data: null });
+    document.title = 'Entdecken · Sail Explorer';
+    try {
+      page.data = await api.discover(24);
+    } catch (e) {
+      page.error = e instanceof ApiError && e.code === 'no_backend' ? 'Entdecken ist auf dieser Installation nicht verfügbar.' : errorText(e);
+    } finally {
+      page.loading = false;
+    }
+  }
+
+  /** Leiste „Zuletzt gesegelt“ im Einstieg – ohne Backend, bei Fehlern oder ohne Törns bleibt sie unsichtbar. */
+  private async loadDiscoverStrip() {
+    const strip = this.ui.discoverStrip;
+    try {
+      const data = await api.discover(6);
+      strip.data = data;
+      strip.hidden = !data.voyages.length;
+    } catch {
+      strip.hidden = true;
+    }
+  }
+
+  /** Zurück von Profil-/Boots-/Entdecken-Seite zur Kartenansicht. */
   private leavePage() {
     if (!this.ui.app.hasAttribute('data-page')) return;
     this.ui.app.removeAttribute('data-page');
     this.ui.page.hidden = true;
+    this.ui.discoverPage.hidden = true;
     document.title = 'Sail Explorer';
   }
 

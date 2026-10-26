@@ -1,0 +1,100 @@
+// Nächtliches Aufräumen (Cron): abgelaufene Törns löschen, vorher erinnern, inaktive leere Konten entfernen.
+// Regeln stehen in src/domain/support.ts; der Ablauf eines Törns wird per EXPIRES_SQL in der DB berechnet.
+import type { Env } from './env';
+import { purgeUser } from './auth';
+import { expiryWarningMail, sendMail } from './mail';
+import { EXPIRES_SQL } from './shares';
+import { INACTIVE_ACCOUNT_MS, WARN_MS } from '../src/domain/support';
+
+/** Obergrenzen pro Lauf – hält den Cron im Free-Tier-CPU-Budget; der Rest folgt in der nächsten Nacht. */
+const MAX_DELETE = 200;
+const MAX_WARN_USERS = 50;
+const MAX_PURGE_USERS = 50;
+/** D1-Batches klein halten. */
+const CHUNK = 50;
+
+export interface RetentionResult {
+  deleted: number;
+  warned: number;
+  purged: number;
+}
+
+function chunks<T>(list: T[], size = CHUNK): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+/** Löscht Törns, deren Aufbewahrung abgelaufen ist (Datei, Vorschaubild, Datensatz). */
+async function deleteExpired(env: Env, now: number): Promise<number> {
+  const { results } = await env.DB.prepare(`SELECT s.id FROM shares s WHERE ${EXPIRES_SQL} <= ? LIMIT ?`)
+    .bind(now, MAX_DELETE)
+    .all<{ id: string }>();
+  for (const part of chunks(results)) {
+    await env.TRACKS.delete(part.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]));
+    await env.DB.batch(part.map((r) => env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)));
+  }
+  return results.length;
+}
+
+/** Eine Mail pro Konto für alle Törns, die in den nächsten 14 Tagen ablaufen – je Törn nur einmal. */
+async function warnExpiring(env: Env, origin: string, now: number): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `SELECT s.id, s.title, s.user_id, u.email, ${EXPIRES_SQL} AS expires_at
+     FROM shares s JOIN users u ON u.id = s.user_id
+     WHERE ${EXPIRES_SQL} <= ?
+       -- Eine Warnung vor dem aktuellen Warnfenster ist veraltet (Ablauf wurde durch Unterstützung verschoben).
+       AND (s.expiry_warned_at IS NULL OR s.expiry_warned_at < ${EXPIRES_SQL} - ?)
+     ORDER BY s.user_id`,
+  )
+    .bind(now + WARN_MS, WARN_MS)
+    .all<{ id: string; title: string; user_id: string; email: string; expires_at: number }>();
+
+  const byUser = new Map<string, typeof results>();
+  for (const r of results) {
+    if (!byUser.has(r.user_id) && byUser.size >= MAX_WARN_USERS) break;
+    byUser.set(r.user_id, [...(byUser.get(r.user_id) ?? []), r]);
+  }
+  let warned = 0;
+  for (const shares of byUser.values()) {
+    try {
+      await sendMail(env, expiryWarningMail(env, shares[0].email, origin, shares.map((s) => ({ title: s.title, expiresAt: s.expires_at }))));
+    } catch (err) {
+      // Mail fehlgeschlagen → nicht als gewarnt markieren, nächste Nacht erneut.
+      console.error('expiry warning failed', err);
+      continue;
+    }
+    for (const part of chunks(shares)) {
+      await env.DB.batch(part.map((s) => env.DB.prepare('UPDATE shares SET expiry_warned_at = ? WHERE id = ?').bind(now, s.id)));
+    }
+    warned++;
+  }
+  return warned;
+}
+
+/** Konten ohne Törns, die seit 12 Monaten nicht angemeldet waren (und keinen laufenden Unterstützer-Status haben). */
+async function purgeInactive(env: Env, now: number): Promise<number> {
+  const cutoff = now - INACTIVE_ACCOUNT_MS;
+  const { results } = await env.DB.prepare(
+    `SELECT u.id, u.email FROM users u
+     WHERE COALESCE(u.last_login, u.created_at) < ?
+       AND NOT EXISTS (SELECT 1 FROM shares WHERE user_id = u.id)
+       AND NOT EXISTS (SELECT 1 FROM supports WHERE user_id = u.id AND valid_until > ?)
+     LIMIT ?`,
+  )
+    .bind(cutoff, now, MAX_PURGE_USERS)
+    .all<{ id: string; email: string }>();
+  for (const user of results) await purgeUser(env, user);
+  return results.length;
+}
+
+export async function runRetention(env: Env, origin: string, now = Date.now()): Promise<RetentionResult> {
+  const deleted = await deleteExpired(env, now);
+  const warned = await warnExpiring(env, origin, now);
+  const purged = await purgeInactive(env, now);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM login_tokens WHERE expires_at < ?').bind(now),
+    env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now),
+  ]);
+  return { deleted, warned, purged };
+}

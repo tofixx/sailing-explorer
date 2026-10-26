@@ -3,3 +3,6 @@ MAIL_PROVIDER=log
 # Cloudflare-Testschlüssel für Turnstile – bestehen immer
 TURNSTILE_SITE_KEY=1x00000000000000000000AA
 TURNSTILE_SECRET=1x0000000000000000000000000000000AA
+# Unterstützen lokal testen (Stripe-Testmodus, siehe README → Unterstützen)
+# STRIPE_SECRET_KEY=sk_test_...
+# STRIPE_WEBHOOK_SECRET=whsec_...   (gibt `stripe listen` aus)

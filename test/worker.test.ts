@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { randomId, randomToken, sha256Hex } from '../worker/crypto';
 import { CONTENT_SECURITY_POLICY, PAGE_HEADERS } from '../worker/security';
-import { SHARE_ID_RE, TOKEN_RE, cleanText, cleanView, isGzip, isSameOrigin, normalizeEmail, normalizeHandle, parsePublicVisibility, parseVisibility } from '../worker/validate';
+import { SHARE_ID_RE, TOKEN_RE, cleanText, cleanView, isGzip, isSameOrigin, normalizeEmail, normalizeHandle, parseVisibility } from '../worker/validate';
 
 describe('Validierung', () => {
   it('cleanText entfernt Steuer- und Bidi-Zeichen und kürzt', () => {
@@ -23,7 +23,11 @@ describe('Validierung', () => {
 
   it('Sichtbarkeit und Ansicht', () => {
     expect(parseVisibility('private')).toBe('private');
-    expect(parseVisibility('public')).toBeNull();
+    expect(parseVisibility('unlisted')).toBe('unlisted');
+    expect(parseVisibility('public')).toBe('public');
+    expect(parseVisibility('Public')).toBeNull();
+    expect(parseVisibility('')).toBeNull();
+    expect(parseVisibility(undefined)).toBeNull();
     expect(cleanView('m=wind&l=s,w')).toBe('m=wind&l=s,w');
     expect(cleanView('m=<script>')).toBe('');
   });
@@ -77,8 +81,8 @@ describe('Profile & Boote – Validierung', () => {
     expect(normalizeHandle('admin')).toBeNull();
     expect(normalizeHandle('a'.repeat(31))).toBeNull();
   });
-  it('[F-42] Sichtbarkeit von Profil/Boot', () => {
-    expect(parsePublicVisibility('public')).toBe('public');
-    expect(parsePublicVisibility('unlisted')).toBeNull();
+  it('[F-80] Sichtbarkeit von Profil/Boot: dieselben drei Stufen wie Törns', () => {
+    for (const v of ['public', 'unlisted', 'private']) expect(parseVisibility(v)).toBe(v);
+    expect(parseVisibility('listed')).toBeNull();
   });
 });

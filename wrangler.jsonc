@@ -7,8 +7,8 @@
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // API sowie Törn-, Profil- und Bootsseiten (Link-Vorschau-Metadaten) laufen durch den Worker
-    "run_worker_first": ["/api/*", "/s/*", "/u/*", "/b/*"]
+    // API sowie Törn-, Profil-, Boots- und Entdecken-Seite (Link-Vorschau-Metadaten) laufen durch den Worker
+    "run_worker_first": ["/api/*", "/s/*", "/u/*", "/b/*", "/entdecken"]
   },
   "routes": [{ "pattern": "sailing.wollow.ski", "custom_domain": true }],
   "d1_databases": [
@@ -22,7 +22,9 @@
   "r2_buckets": [{ "binding": "TRACKS", "bucket_name": "sailing-explorer-tracks" }],
   "ratelimits": [
     { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
-    { "name": "AUTH_LIMITER", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } }
+    { "name": "AUTH_LIMITER", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } },
+    // Fehlversuche mit Teilen-Schlüssel (nur auf dem 404-Pfad gezählt)
+    { "name": "LINK_LIMITER", "namespace_id": "1003", "simple": { "limit": 30, "period": 60 } }
   ],
   "vars": {
     "APP_NAME": "Sail Explorer",
@@ -30,8 +32,15 @@
     "MAIL_PROVIDER": "resend",
     "MAIL_FROM": "Sail Explorer <login@sailing.wollow.ski>",
     // Öffentlicher Turnstile-Site-Key (Dashboard → Turnstile). Lokal überschreibt .dev.vars.
-    "TURNSTILE_SITE_KEY": "0x4AAAAAAFjg4X6dcj2bWdib"
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFjg4X6dcj2bWdib",
+    // Kostenlose gespeicherte Freigaben pro Konto; darüber braucht es den Unterstützer-Status.
+    "FREE_SHARES": "3",
+    // Unterstützen braucht die Secrets STRIPE_SECRET_KEY und STRIPE_WEBHOOK_SECRET (siehe README).
+    // Links in Mails aus dem nächtlichen Aufräumen
+    "APP_ORIGIN": "https://sailing.wollow.ski"
   },
+  // Nächtliches Aufräumen: abgelaufene Törns, Erinnerungsmails, inaktive Konten (UTC)
+  "triggers": { "crons": ["17 3 * * *"] },
   "env": {},
   "observability": { "enabled": true }
 }

@@ -1,8 +1,17 @@
 import { LitElement, css, html } from 'lit';
-import type { Boat, PageStats, Profile, ShareMeta } from '../services/api';
+import type { Boat, Linkable, PageStats, Profile, ShareMeta } from '../services/api';
+import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
+import { VISIBILITY_ICON } from './sx-visibility-picker';
+
+/** Kurzer Hinweis für Eigentümer, wer die Seite sieht. */
+const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
+  public: 'für alle sichtbar',
+  unlisted: 'nur wer den Link hat',
+  private: 'nur du siehst diese Seite',
+};
 
 export type PageData =
   | { kind: 'profile'; profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[] }
@@ -102,6 +111,15 @@ export class SxProfilePage extends LitElement {
         text-decoration: none;
         font-weight: 600;
       }
+      .facts .vis {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .facts .vis svg {
+        width: 14px;
+        height: 14px;
+      }
       .edit {
         margin-left: auto;
         align-self: flex-start;
@@ -198,6 +216,18 @@ export class SxProfilePage extends LitElement {
     </div>`;
   }
 
+  /**
+   * Eigentümer (bzw. Boots-Admins): Stufe der Seite; bei „Nur mit Link“ den Link kopieren.
+   * Ändern und Erneuern geht über „Bearbeiten“ (Konto).
+   */
+  private ownerFacts(kind: 'b' | 'u', id: string, o: Linkable) {
+    const v = o.visibility;
+    return html`<span class="vis">${icon(VISIBILITY_ICON[v] ?? 'lock')} ${VISIBILITY_LABEL[v] ?? v} – ${PAGE_VISIBILITY[v] ?? ''}</span>
+      ${v === 'unlisted'
+        ? html`<button class="btn small" @click=${() => emit(this, 'sx-link-copy', o.link || sharePath(kind, id, v, o.shareKey ?? null))}>${icon('copy')} Link kopieren</button>`
+        : ''}`;
+  }
+
   private stats(s: PageStats) {
     const avg = s.voyages ? s.distNm / s.voyages : 0;
     return html`<div class="stats">
@@ -215,7 +245,7 @@ export class SxProfilePage extends LitElement {
         <div>
           <h1>${p.displayName}</h1>
           ${p.bio ? html`<div class="lead">${p.bio}</div>` : ''}
-          <div class="facts"><span>/u/${p.handle}</span>${p.visibility === 'private' ? html`<span>${icon('lock')} privat – nur du siehst diese Seite</span>` : ''}</div>
+          <div class="facts"><span>/u/${p.handle}</span>${p.isSelf ? this.ownerFacts('u', p.handle, p) : ''}</div>
         </div>
         ${p.isSelf ? html`<button class="btn edit" @click=${() => emit(this, 'sx-account', 'profile')}>${icon('pencil')} Bearbeiten</button>` : ''}
       </header>
@@ -249,7 +279,7 @@ export class SxProfilePage extends LitElement {
           <div class="facts">
             ${facts.map((f) => html`<span>${f}</span>`)}
             ${b.owner ? html`<span>Eigner: <a href="/u/${b.owner.handle}">${b.owner.displayName}</a></span>` : ''}
-            ${b.visibility === 'private' ? html`<span>${icon('lock')} privat</span>` : ''}
+            ${b.role ? this.ownerFacts('b', b.id, b) : ''}
           </div>
         </div>
         ${b.role ? html`<button class="btn edit" @click=${() => emit(this, 'sx-account', 'boats')}>${icon('pencil')} Bearbeiten</button>` : ''}

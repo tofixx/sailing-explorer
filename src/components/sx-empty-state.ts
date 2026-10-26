@@ -7,7 +7,7 @@ export interface Sample {
   label: string;
 }
 
-/** Einstieg über der Karte: Datei wählen, ablegen oder Beispiel öffnen. */
+/** Einstieg über der Karte: Datei wählen, ablegen oder Beispiel öffnen; Slot „discover“ für die Entdecken-Leiste. */
 export class SxEmptyState extends LitElement {
   static properties = {
     samples: { attribute: false },
@@ -29,10 +29,23 @@ export class SxEmptyState extends LitElement {
         position: absolute;
         inset: 0;
         z-index: 800;
-        display: grid;
-        place-items: center;
+        display: flex;
+        overflow-y: auto;
         padding: var(--s-4);
         pointer-events: none;
+      }
+      /* Einstiegskarte und darunter optional die Entdecken-Leiste (Slot) – zusammen zentriert */
+      .stack {
+        margin: auto;
+        width: min(720px, 100%);
+        display: grid;
+        gap: var(--s-3);
+        justify-items: center;
+      }
+      ::slotted(*) {
+        pointer-events: auto;
+        width: 100%;
+        min-width: 0;
       }
       .card {
         pointer-events: auto;
@@ -118,7 +131,7 @@ export class SxEmptyState extends LitElement {
   ];
 
   render() {
-    return html`
+    return html`<div class="stack">
       <section class="card" aria-labelledby="t">
         <div class="badge">${icon('map')}</div>
         <h1 id="t">Deinen Törn auf die Seekarte bringen</h1>
@@ -135,7 +148,8 @@ export class SxEmptyState extends LitElement {
           : ''}
         <div class="privacy">${icon('lock')} Dateien werden lokal im Browser ausgewertet.</div>
       </section>
-    `;
+      <slot name="discover"></slot>
+    </div>`;
   }
 }
 customElements.define('sx-empty-state', SxEmptyState);

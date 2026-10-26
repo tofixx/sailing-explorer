@@ -1,8 +1,12 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { Boat, BoatInput, Profile, ShareMeta, User } from '../services/api';
-import { fmtDate, fmtNum, plural } from '../util/html';
+import type { Boat, BoatInput, Linkable, Profile, ShareMeta, SupportStatus, User } from '../services/api';
+import { WARN_MS, quotaText, type SupportTier } from '../domain/support';
+import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from '../domain/visibility';
+import { fmtDate, fmtMB, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
+import { VISIBILITY_ICON } from './sx-visibility-picker';
+import './sx-support';
 
 export type AccountTab = 'profile' | 'boats' | 'shares';
 
@@ -22,12 +26,20 @@ export class SxAccountDialog extends LitElement {
     profileExists: { type: Boolean },
     boats: { attribute: false },
     shares: { attribute: false },
+    supportTiers: { attribute: false },
+    checkoutBusy: { type: Boolean },
+    supportStatus: { attribute: false },
     loading: { type: Boolean },
     busy: { type: Boolean },
     error: { type: String },
     confirm: { state: true },
     editing: { state: true },
     editBoat: { state: true },
+    expanded: { state: true },
+    rotate: { state: true },
+    offer: { state: true },
+    boatVis: { state: true },
+    profileVis: { state: true },
   };
   declare open: boolean;
   declare tab: AccountTab;
@@ -36,6 +48,11 @@ export class SxAccountDialog extends LitElement {
   declare profileExists: boolean;
   declare boats: Boat[];
   declare shares: ShareMeta[];
+  /** Stufen des Unterstützen-Sliders; null = Unterstützen nicht eingerichtet */
+  declare supportTiers: SupportTier[] | null;
+  /** Checkout wird angelegt */
+  declare checkoutBusy: boolean;
+  declare supportStatus: SupportStatus | null;
   declare loading: boolean;
   declare busy: boolean;
   declare error: string;
@@ -45,6 +62,16 @@ export class SxAccountDialog extends LitElement {
   declare editing: string | null;
   /** Boot im Formular: ID, "new" oder null */
   declare editBoat: string | null;
+  /** aufgeklappter Bereich „Sichtbarkeit & Link“: Freigabe-ID oder "boat:<id>" */
+  declare expanded: string | null;
+  /** „Link erneuern“ wartet auf Bestätigung: "share:<id>", "boat:<id>" oder "profile" */
+  declare rotate: string | null;
+  /** gesperrte Stufe angetippt – Unterstützen-Angebot an dieser Stelle zeigen ("share:<id>", "boat-form", "profile-form") */
+  declare offer: string | null;
+  /** gewählte Stufe im Boot-Formular */
+  declare boatVis: Visibility;
+  /** gewählte Stufe im Profil-Formular; null = gespeicherte (bzw. Standard für neue Profile) */
+  declare profileVis: Visibility | null;
 
   constructor() {
     super();
@@ -55,12 +82,20 @@ export class SxAccountDialog extends LitElement {
     this.profileExists = false;
     this.boats = [];
     this.shares = [];
+    this.supportTiers = null;
+    this.checkoutBusy = false;
+    this.supportStatus = null;
     this.loading = false;
     this.busy = false;
     this.error = '';
     this.confirm = null;
     this.editing = null;
     this.editBoat = null;
+    this.expanded = null;
+    this.rotate = null;
+    this.offer = null;
+    this.boatVis = DEFAULT_VISIBILITY;
+    this.profileVis = null;
   }
 
   static styles = [
@@ -162,6 +197,61 @@ export class SxAccountDialog extends LitElement {
         color: var(--accent);
         border-color: transparent;
       }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        margin-left: var(--s-1);
+        padding: 0 var(--s-2);
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: var(--fs-s);
+        font-weight: 600;
+        vertical-align: middle;
+      }
+      .badge svg {
+        width: 13px;
+        height: 13px;
+      }
+      .quota {
+        display: flex;
+        align-items: center;
+        gap: var(--s-1);
+        font-size: var(--fs-s);
+        color: var(--text-2);
+      }
+      .quota svg {
+        width: 14px;
+        height: 14px;
+        flex: none;
+      }
+      .status {
+        display: grid;
+        gap: var(--s-1);
+      }
+      .status.on .quota b {
+        color: var(--text);
+      }
+      .status.on .quota:first-child svg {
+        color: var(--accent);
+      }
+      .expiry {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .expiry.soon {
+        padding: 0 var(--s-2);
+        border-radius: 999px;
+        background: var(--warn-bg);
+        border: 1px solid var(--warn);
+        color: var(--text);
+        font-weight: 600;
+      }
+      .expiry.soon svg {
+        color: var(--warn);
+      }
       .empty {
         padding: var(--s-5);
         text-align: center;
@@ -237,6 +327,35 @@ export class SxAccountDialog extends LitElement {
         font-size: var(--fs-s);
         padding: 0 var(--s-2);
       }
+      .vis-btn svg {
+        width: 15px;
+        height: 15px;
+      }
+      .panel {
+        flex-basis: 100%;
+        display: grid;
+        gap: var(--s-3);
+        padding: var(--s-2) 0 var(--s-1);
+      }
+      .linkrow {
+        display: flex;
+        gap: var(--s-2);
+      }
+      .linkrow input {
+        font-family: var(--font-mono);
+        font-size: var(--fs-s);
+      }
+      .confirm {
+        display: flex;
+        gap: var(--s-2);
+        align-items: center;
+        flex-wrap: wrap;
+        font-size: var(--fs-s);
+      }
+      .confirm span {
+        flex: 1;
+        min-width: 12rem;
+      }
       .foot {
         display: flex;
         justify-content: space-between;
@@ -253,6 +372,11 @@ export class SxAccountDialog extends LitElement {
     `,
   ];
 
+  willUpdate(changed: PropertyValues<this>) {
+    // Neues Profil vom Server (gespeichert/neu geladen): Formular zeigt wieder die gespeicherte Stufe.
+    if (changed.has('profile')) this.profileVis = null;
+  }
+
   updated(changed: PropertyValues<this>) {
     const dlg = this.renderRoot.querySelector('dialog')!;
     if (changed.has('open')) {
@@ -260,12 +384,67 @@ export class SxAccountDialog extends LitElement {
         this.confirm = null;
         this.editing = null;
         this.editBoat = null;
+        this.expanded = null;
+        this.rotate = null;
+        this.offer = null;
+        this.profileVis = null;
         dlg.showModal();
       } else if (!this.open && dlg.open) dlg.close();
     }
   }
 
   private close = () => emit(this, 'sx-close', 'account');
+
+  private get supporter() {
+    return !!this.supportStatus?.supporter;
+  }
+
+  /** Auswahl der Sichtbarkeit; gesperrte Stufen zeigen an Ort und Stelle das Unterstützen-Angebot. */
+  private picker(where: string, value: Visibility, current: Visibility | null, label: string, onChange: (v: Visibility) => void) {
+    return html`<sx-visibility-picker
+        .value=${value}
+        .current=${current}
+        ?supporter=${this.supporter}
+        ?disabled=${this.busy}
+        label=${label}
+        @sx-visibility-change=${(e: CustomEvent<{ value: Visibility }>) => {
+          this.offer = null;
+          onChange(e.detail.value);
+        }}
+        @sx-visibility-locked=${() => (this.offer = where)}
+      ></sx-visibility-picker>
+      ${this.offer === where ? this.lockedOffer() : ''}`;
+  }
+
+  private lockedOffer() {
+    return html`<div class="note" role="status">${icon('pennant')}<span>„Nur mit Link“ und „Nur ich“ gibt es für Unterstützer. ${this.supportTiers?.length ? 'Mit einer Unterstützung schaltest du beide frei.' : 'Unterstützen ist auf dieser Installation nicht eingerichtet.'}</span></div>
+      ${this.supportTiers?.length ? html`<sx-support variant="offer" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy}></sx-support>` : ''}`;
+  }
+
+  /**
+   * Link eines eigenen Objekts: anzeigen, kopieren und – nur bei „Nur mit Link“ – erneuern (mit Bestätigung,
+   * weil alte Links danach sofort ungültig sind).
+   */
+  private linkBlock(where: string, kind: 's' | 'b' | 'u', id: string, obj: Linkable, name: string, copy: () => void, rotate: () => void) {
+    if (obj.visibility === 'private') return html`<p class="hint">${icon('lock')} Nur du siehst ${name}. Es gibt keinen Link zum Teilen.</p>`;
+    const url = location.origin + (obj.link || sharePath(kind, id, obj.visibility, obj.shareKey ?? null));
+    return html`<div class="linkrow">
+        <input type="text" readonly .value=${url} aria-label="Link: ${name}" @focus=${(e: Event) => (e.target as HTMLInputElement).select()} />
+        <button class="btn small" type="button" @click=${copy}>${icon('copy')} Kopieren</button>
+      </div>
+      ${obj.visibility !== 'unlisted'
+        ? ''
+        : this.rotate === where
+          ? html`<div class="confirm" role="alert">
+              <span>Neuen Link erzeugen? Der bisherige Link funktioniert dann sofort nicht mehr – auch bei allen, denen du ihn geschickt hast.</span>
+              <button class="btn small danger" type="button" @click=${() => {
+                this.rotate = null;
+                rotate();
+              }}>${icon('link')} Ja, Link erneuern</button>
+              <button class="btn small" type="button" @click=${() => (this.rotate = null)}>Abbrechen</button>
+            </div>`
+          : html`<div><button class="btn small" type="button" ?disabled=${this.busy} @click=${() => (this.rotate = where)}>${icon('link')} Link erneuern</button></div>`}`;
+  }
 
   // ------------------------------------------------------------ Profil
 
@@ -276,8 +455,28 @@ export class SxAccountDialog extends LitElement {
       handle: String(d.get('handle') || ''),
       displayName: String(d.get('displayName') || ''),
       bio: String(d.get('bio') || ''),
-      visibility: d.get('public') === 'on' ? 'public' : 'private',
+      visibility: this.profileVisibility(),
     });
+  }
+
+  private profileVisibility(): Visibility {
+    return this.profileVis ?? (this.profileExists && this.profile ? this.profile.visibility : DEFAULT_VISIBILITY);
+  }
+
+  private profileLink(p: Profile) {
+    if (!this.profileExists) return '';
+    return html`<div class="full panel">
+      <div class="label">Link zu deinem Profil</div>
+      ${this.linkBlock(
+        'profile',
+        'u',
+        p.handle,
+        p,
+        'dein Profil',
+        () => emit(this, 'sx-link-copy', p.link || sharePath('u', p.handle, p.visibility, p.shareKey ?? null)),
+        () => emit(this, 'sx-profile-save', { handle: p.handle, displayName: p.displayName, bio: p.bio, visibility: p.visibility, rotateKey: true }),
+      )}
+    </div>`;
   }
 
   private profileTab() {
@@ -297,9 +496,13 @@ export class SxAccountDialog extends LitElement {
         <label class="label" for="bio">Über dich</label>
         <textarea id="bio" name="bio" maxlength="500" .value=${p.bio} placeholder="Revier, Boot, Erfahrung …"></textarea>
       </div>
-      <label class="full check"><input type="checkbox" name="public" ?checked=${p.visibility === 'public'} /> Profil öffentlich zeigen</label>
+      <div class="full">
+        <div class="label" aria-hidden="true">Wer darf dein Profil sehen?</div>
+        ${this.picker('profile-form', this.profileVisibility(), this.profileExists ? p.visibility : null, 'Wer darf dein Profil sehen?', (v) => (this.profileVis = v))}
+      </div>
+      ${this.profileLink(p)}
       <div class="full actions">
-        ${this.profileExists ? html`<a class="btn" href="/u/${p.handle}">${icon('open')} Ansehen</a>` : ''}
+        ${this.profileExists ? html`<a class="btn" href=${p.link || `/u/${p.handle}`}>${icon('open')} Ansehen</a>` : ''}
         <button class="btn primary" type="submit" ?disabled=${this.busy}>${icon('check')} ${this.profileExists ? 'Speichern' : 'Profil anlegen'}</button>
       </div>
     </form>`;
@@ -318,10 +521,16 @@ export class SxAccountDialog extends LitElement {
       sailNumber: String(d.get('sailNumber') || ''),
       homePort: String(d.get('homePort') || ''),
       description: String(d.get('description') || ''),
-      visibility: d.get('public') === 'on' ? 'public' : 'private',
+      visibility: this.boatVis,
     };
     emit(this, 'sx-boat-save', { id: id === 'new' ? null : id, input });
     this.editBoat = null;
+  }
+
+  private openBoatForm(id: string) {
+    this.boatVis = this.boats.find((b) => b.id === id)?.visibility ?? DEFAULT_VISIBILITY;
+    this.offer = null;
+    this.editBoat = id;
   }
 
   private boatForm(b: Boat | null) {
@@ -351,7 +560,10 @@ export class SxAccountDialog extends LitElement {
         <label class="label" for="bd">Beschreibung</label>
         <textarea id="bd" name="description" maxlength="500" .value=${b?.description ?? ''}></textarea>
       </div>
-      <label class="full check"><input type="checkbox" name="public" ?checked=${b?.visibility === 'public'} /> Bootsseite öffentlich zeigen</label>
+      <div class="full">
+        <div class="label" aria-hidden="true">Wer darf die Bootsseite sehen?</div>
+        ${this.picker('boat-form', this.boatVis, b?.visibility ?? null, 'Wer darf die Bootsseite sehen?', (v) => (this.boatVis = v))}
+      </div>
       <div class="full actions">
         <button class="btn" type="button" @click=${() => (this.editBoat = null)}>Abbrechen</button>
         <button class="btn primary" type="submit" ?disabled=${this.busy}>${icon('check')} ${b ? 'Speichern' : 'Boot anlegen'}</button>
@@ -370,16 +582,35 @@ export class SxAccountDialog extends LitElement {
                   <div class="title">${b.name}</div>
                   <div class="sub">
                     ${[b.boatType, b.lengthM != null ? `${fmtNum(b.lengthM, 1)} m` : '', b.sailNumber].filter(Boolean).join(' · ') || 'Keine Angaben'}
-                    <span class="chip ${b.visibility === 'public' ? 'on' : ''}">${icon(b.visibility === 'public' ? 'globe' : 'lock')}${b.visibility === 'public' ? 'Öffentlich' : 'Privat'}</span>
+                    <span class="chip ${b.visibility === 'public' ? 'on' : ''}">${icon(VISIBILITY_ICON[b.visibility] ?? 'lock')}${VISIBILITY_LABEL[b.visibility] ?? b.visibility}</span>
                     ${b.role === 'admin' ? html`<span class="chip">Admin</span>` : ''}
                   </div>
                 </div>
                 ${this.confirm === b.id
                   ? html`<button class="btn small danger" @click=${() => emit(this, 'sx-boat-delete', b.id)}>${icon('trash')} Boot löschen</button>
                       <button class="btn small" @click=${() => (this.confirm = null)}>Abbrechen</button>`
+                  : this.expanded === `boat:${b.id}`
+                  ? html`<button class="btn ghost small icon" title="Link schließen" aria-label="Link schließen: ${b.name}" aria-expanded="true" @click=${() => (this.expanded = null)}>${icon('x')}</button>
+                      <div class="panel">
+                        ${this.linkBlock(
+                          `boat:${b.id}`,
+                          'b',
+                          b.id,
+                          b,
+                          'die Bootsseite',
+                          () => emit(this, 'sx-link-copy', b.link || sharePath('b', b.id, b.visibility, b.shareKey ?? null)),
+                          () => emit(this, 'sx-boat-save', { id: b.id, input: { rotateKey: true } }),
+                        )}
+                      </div>`
                   : html`<div class="tools">
-                      <a class="btn ghost small icon" href="/b/${b.id}" title="Bootsseite öffnen" aria-label="Bootsseite öffnen: ${b.name}">${icon('open')}</a>
-                      <button class="btn ghost small icon" title="Bearbeiten" aria-label="Bearbeiten: ${b.name}" @click=${() => (this.editBoat = b.id)}>${icon('pencil')}</button>
+                      <a class="btn ghost small icon" href=${b.link || `/b/${b.id}`} title="Bootsseite öffnen" aria-label="Bootsseite öffnen: ${b.name}">${icon('open')}</a>
+                      ${b.visibility !== 'private'
+                        ? html`<button class="btn ghost small icon" title="Link" aria-label="Link: ${b.name}" aria-expanded="false" @click=${() => {
+                            this.expanded = `boat:${b.id}`;
+                            this.rotate = null;
+                          }}>${icon('link')}</button>`
+                        : ''}
+                      <button class="btn ghost small icon" title="Bearbeiten" aria-label="Bearbeiten: ${b.name}" @click=${() => this.openBoatForm(b.id)}>${icon('pencil')}</button>
                       ${b.role === 'owner'
                         ? html`<button class="btn ghost small icon danger" title="Löschen" aria-label="Löschen: ${b.name}" @click=${() => (this.confirm = b.id)}>${icon('trash')}</button>`
                         : ''}
@@ -388,7 +619,7 @@ export class SxAccountDialog extends LitElement {
             )}
           </ul>`
         : html`<div class="empty">Noch kein Boot angelegt. Boote bündeln deine Törns auf einer eigenen Seite.</div>`}
-      <div class="actions"><button class="btn primary" @click=${() => (this.editBoat = 'new')}>${icon('sail')} Boot anlegen</button></div>
+      <div class="actions"><button class="btn primary" @click=${() => this.openBoatForm('new')}>${icon('sail')} Boot anlegen</button></div>
     `;
   }
 
@@ -401,6 +632,13 @@ export class SxAccountDialog extends LitElement {
     this.editing = null;
   }
 
+  /** „wird gelöscht am …“ – hervorgehoben, wenn es in den nächsten 14 Tagen so weit ist. */
+  private expiry(s: ShareMeta) {
+    if (s.expiresAt == null) return '';
+    const soon = s.expiresAt - Date.now() <= WARN_MS;
+    return html`<span class="expiry ${soon ? 'soon' : ''}">${soon ? icon('info') : ''}wird gelöscht am ${fmtDate(s.expiresAt)}</span>`;
+  }
+
   private shareRow(s: ShareMeta) {
     if (this.editing === s.id) {
       return html`<li>
@@ -411,28 +649,31 @@ export class SxAccountDialog extends LitElement {
         </form>
       </li>`;
     }
-    const isPrivate = s.visibility === 'private';
     const update = (patch: object) => emit(this, 'sx-share-update', { id: s.id, patch });
+    const open = this.expanded === s.id;
     return html`<li>
       <div class="meta">
         <div class="title" title=${s.title}>${s.title}</div>
         <div class="sub">
           ${s.summary || plural(s.trackCount, 'Track', 'Tracks')} · ${fmtDate(s.createdAt)}
-          ${s.listed && !isPrivate ? html`<span class="chip on">${icon('globe')}Auf Profil</span>` : ''}
+          ${this.expiry(s)}
         </div>
       </div>
       ${this.confirm === s.id
         ? html`<button class="btn small danger" @click=${() => emit(this, 'sx-share-delete', s.id)}>${icon('trash')} Endgültig löschen</button>
             <button class="btn small" @click=${() => (this.confirm = null)}>Abbrechen</button>`
         : html`<div class="tools">
-            <select class="small" aria-label="Sichtbarkeit: ${s.title}" @change=${(e: Event) => {
-              const v = (e.target as HTMLSelectElement).value;
-              update({ visibility: v === 'private' ? 'private' : 'unlisted', listed: v === 'public' });
-            }}>
-              <option value="public" ?selected=${s.listed && !isPrivate}>Öffentlich</option>
-              <option value="unlisted" ?selected=${!s.listed && !isPrivate}>Mit Link</option>
-              <option value="private" ?selected=${isPrivate}>Nur ich</option>
-            </select>
+            <button
+              class="btn small vis-btn ${s.visibility === 'public' ? '' : 'ghost'}"
+              aria-expanded=${open ? 'true' : 'false'}
+              aria-controls="vis-${s.id}"
+              aria-label="Sichtbarkeit und Link: ${s.title} (${VISIBILITY_LABEL[s.visibility] ?? s.visibility})"
+              @click=${() => {
+                this.expanded = open ? null : s.id;
+                this.offer = null;
+                this.rotate = null;
+              }}
+            >${icon(VISIBILITY_ICON[s.visibility] ?? 'lock')} ${VISIBILITY_LABEL[s.visibility] ?? s.visibility}</button>
             ${this.boats.length
               ? html`<select class="small" aria-label="Boot: ${s.title}" @change=${(e: Event) => update({ boatId: (e.target as HTMLSelectElement).value || null })}>
                   <option value="" ?selected=${!s.boat}>Kein Boot</option>
@@ -444,13 +685,40 @@ export class SxAccountDialog extends LitElement {
             <button class="btn ghost small icon" title="Umbenennen" aria-label="Umbenennen: ${s.title}" @click=${() => (this.editing = s.id)}>${icon('pencil')}</button>
             <button class="btn ghost small icon danger" title="Löschen" aria-label="Löschen: ${s.title}" @click=${() => (this.confirm = s.id)}>${icon('trash')}</button>
           </div>`}
+      ${open && this.confirm !== s.id
+        ? html`<div class="panel" id="vis-${s.id}">
+            ${this.picker(`share:${s.id}`, s.visibility, s.visibility, `Wer darf „${s.title}“ sehen?`, (visibility) => update({ visibility }))}
+            ${this.linkBlock(`share:${s.id}`, 's', s.id, s, 'diesen Törn', () => emit(this, 'sx-share-copy', s.id), () => update({ rotateKey: true }))}
+          </div>`
+        : ''}
     </li>`;
   }
 
+  /** Unterstützer-Status und Kontingent über der Liste. */
+  private supportSummary() {
+    const st = this.supportStatus;
+    if (!st) return '';
+    if (st.supporter) {
+      return html`<div class="status on">
+        <div class="quota">${icon('pennant')} <b>Unterstützer bis ${st.supporterUntil ? fmtDate(st.supporterUntil) : '–'}</b></div>
+        <div class="quota">${icon('folder')} ${st.sharesUsed.toLocaleString('de-DE')} von ${st.sharesMax.toLocaleString('de-DE')} Törns ·
+          ${fmtMB(st.bytesUsed)} von ${fmtMB(st.bytesMax)}</div>
+      </div>`;
+    }
+    return html`<div class="status">
+      ${st.supporterUntil ? html`<div class="quota">${icon('pennant')} Unterstützung abgelaufen am ${fmtDate(st.supporterUntil)}</div>` : ''}
+      <div class="quota">${icon('info')} ${quotaText(st)}</div>
+    </div>`;
+  }
+
   private sharesTab() {
-    return this.shares.length
-      ? html`<ul>${this.shares.map((s) => this.shareRow(s))}</ul>`
-      : html`<div class="empty">Noch nichts geteilt. Lade einen Track und klicke auf „Teilen“.</div>`;
+    return html`
+      ${this.supportSummary()}
+      ${this.shares.length
+        ? html`<ul>${this.shares.map((s) => this.shareRow(s))}</ul>`
+        : html`<div class="empty">Noch nichts geteilt. Lade einen Track und klicke auf „Teilen“.</div>`}
+      <sx-support variant="offer" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy}></sx-support>
+    `;
   }
 
   // ------------------------------------------------------------ Rahmen
@@ -472,7 +740,10 @@ export class SxAccountDialog extends LitElement {
         ${u
           ? html`<div class="who">
               <span class="avatar">${name[0]}</span>
-              <div><div class="mail">${name}</div><div class="hint">${u.email} · angemeldet per E-Mail-Link</div></div>
+              <div>
+                <div class="mail">${name}${this.supportStatus?.supporter ? html`<span class="badge" title="Danke für deine Unterstützung!">${icon('pennant')} Unterstützer</span>` : ''}</div>
+                <div class="hint">${u.email} · angemeldet per E-Mail-Link</div>
+              </div>
             </div>`
           : ''}
         <div class="tabs" role="tablist">

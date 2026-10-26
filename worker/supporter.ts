@@ -1,0 +1,242 @@
+// Unterstützen („Kaffee/Bier ausgeben“): Kontingent kostenloser Freigaben, Status, Stripe-Checkout und -Webhook.
+// Bewusst ohne Stripe-SDK – Checkout ist ein Form-POST, die Signaturprüfung HMAC-SHA256 mit WebCrypto.
+import type { Env } from './env';
+import { isDevHost, requireUser } from './auth';
+import { randomId } from './crypto';
+import { HttpError, clientIp, json, rateLimit, readBodyCapped, readJson } from './http';
+import { LIMITS, SHARE_ID_RE, parseFreeShares, parseStripeSignature, parseSupportAmount, timingSafeEqual } from './validate';
+import { SUPPORT_MS, SUPPORT_TIERS, formatEuro, tierFor, type SupportTier } from '../src/domain/support';
+import { VISIBILITY_LABEL, canChooseVisibility, type Visibility } from '../src/domain/visibility';
+
+/** Maximales Alter einer Webhook-Signatur (Schutz gegen Wiedereinspielen). */
+const SIGNATURE_TOLERANCE_S = 5 * 60;
+/** Checkout-Events sind wenige kB groß. */
+const MAX_WEBHOOK_BYTES = 256 * 1024;
+/** Kennung in den Metadaten – Webhooks fremder Checkouts desselben Stripe-Kontos werden ignoriert. */
+const METADATA_APP = 'sail-explorer';
+const STRIPE_API = 'https://api.stripe.com';
+
+/**
+ * Unterstützen ist nur aktiv, wenn Checkout-Schlüssel und Webhook-Secret gesetzt sind.
+ * Fail closed: ohne Webhook könnte eine Zahlung nie freischalten, also kein Angebot.
+ */
+export const supportConfigured = (env: Env) => !!(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
+
+/** Öffentliche Konfiguration für /api/config: die Slider-Stufen oder null. */
+export function supportConfig(env: Env): { tiers: SupportTier[] } | null {
+  return supportConfigured(env) ? { tiers: SUPPORT_TIERS } : null;
+}
+
+export const freeShares = (env: Env) => parseFreeShares(env.FREE_SHARES);
+
+export interface SupportStatus {
+  supporter: boolean;
+  /** Ende des Unterstützer-Status (ms) – auch wenn abgelaufen; null = nie unterstützt */
+  supporterUntil: number | null;
+  sharesUsed: number;
+  sharesFree: number;
+  sharesMax: number;
+  /** Speicher in Bytes – gilt auch für Unterstützer */
+  bytesUsed: number;
+  bytesMax: number;
+}
+
+export async function supportStatus(env: Env, userId: string, now = Date.now()): Promise<SupportStatus> {
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS bytes,
+       (SELECT MAX(valid_until) FROM supports WHERE user_id = ?) AS until
+     FROM shares WHERE user_id = ?`,
+  )
+    .bind(userId, userId)
+    .first<{ n: number; bytes: number; until: number | null }>();
+  const until = row?.until ?? null;
+  return {
+    supporter: until !== null && until > now,
+    supporterUntil: until,
+    sharesUsed: row?.n ?? 0,
+    sharesFree: freeShares(env),
+    sharesMax: LIMITS.sharesPerUser,
+    bytesUsed: row?.bytes ?? 0,
+    bytesMax: LIMITS.bytesPerUser,
+  };
+}
+
+/**
+ * Kontingent vor dem Upload: ab der (FREE_SHARES + 1)-ten Freigabe braucht es den Unterstützer-Status.
+ * Bestehende Freigaben bleiben unangetastet – auch wenn jemand schon mehr hat.
+ */
+export function checkShareQuota(env: Env, s: SupportStatus): void {
+  if (s.sharesUsed >= s.sharesMax) throw new HttpError(409, 'quota', `Maximal ${s.sharesMax} Törns pro Konto – bitte einen älteren löschen.`);
+  if (s.supporter || s.sharesUsed < s.sharesFree) return;
+  const free = s.sharesFree === 1 ? 'einen Törn' : `${s.sharesFree} Törns`;
+  throw new HttpError(
+    402,
+    'supporter_required',
+    supportConfigured(env)
+      ? `Kostenlos kannst du ${free} speichern. Für weitere Törns unterstütze Sail Explorer mit einem Kaffee oder Bier – oder lösche einen älteren Törn.`
+      : `Kostenlos kannst du ${free} speichern. Lösche einen älteren Törn unter „Konto & Freigaben“, um Platz zu schaffen.`,
+  );
+}
+
+/** Läuft der Unterstützer-Status gerade? (Eine Abfrage, ohne die Zählungen aus supportStatus.) */
+export async function isSupporter(env: Env, userId: string, now = Date.now()): Promise<boolean> {
+  const row = await env.DB.prepare('SELECT MAX(valid_until) AS until FROM supports WHERE user_id = ?').bind(userId).first<{ until: number | null }>();
+  return row?.until != null && row.until > now;
+}
+
+/** 402 für „Nur mit Link“/„Nur ich“ ohne laufenden Unterstützer-Status (E1). */
+export function visibilityRequiresSupport(env: Env): HttpError {
+  return new HttpError(
+    402,
+    'supporter_required',
+    `„${VISIBILITY_LABEL.unlisted}“ und „${VISIBILITY_LABEL.private}“ gibt es nur für Unterstützer – kostenlos ist alles öffentlich.` +
+      (supportConfigured(env) ? ' Unterstütze Sail Explorer mit einem Kaffee oder Bier, um die Sichtbarkeit selbst zu wählen.' : ''),
+  );
+}
+
+/**
+ * E1/E4: „Nur mit Link“ und „Nur ich“ nur mit laufendem Unterstützer-Status; eine schon gesetzte Stufe darf bleiben,
+ * auf „Öffentlich“ geht immer. Sonst 402 supporter_required. Den Status fragt sie nur ab, wenn es darauf ankommt.
+ */
+export async function checkVisibilityChoice(env: Env, userId: string, next: Visibility, current?: Visibility): Promise<void> {
+  if (canChooseVisibility(next, false, current)) return;
+  if (!canChooseVisibility(next, await isSupporter(env, userId), current)) throw visibilityRequiresSupport(env);
+}
+
+/** GET /api/me/support – Unterstützer-Status und genutzte Freigaben. */
+export async function getSupport(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  return json(await supportStatus(env, user.id));
+}
+
+// ---------------------------------------------------------------- Stripe-Checkout
+
+/** Basis-URL der Stripe-API. Überschreiben nur auf lokale Adressen (Tests mit Stub-Server) – nie anderswohin mit dem Schlüssel. */
+function stripeBase(env: Env): string {
+  if (!env.STRIPE_API_BASE) return STRIPE_API;
+  const url = new URL(env.STRIPE_API_BASE);
+  if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') throw new HttpError(500, 'stripe_base', 'STRIPE_API_BASE ist nur lokal erlaubt.');
+  return url.origin;
+}
+
+/**
+ * POST /api/support/checkout { amount } – legt eine Stripe-Checkout-Session über eine der festen Stufen an
+ * und liefert deren URL. Freigeschaltet wird erst durch den signierten Webhook.
+ */
+export async function createCheckout(request: Request, env: Env): Promise<Response> {
+  if (!supportConfigured(env)) throw new HttpError(503, 'support_unconfigured', 'Unterstützen ist auf diesem Server nicht eingerichtet.');
+  const user = await requireUser(request, env);
+  await rateLimit(env.UPLOAD_LIMITER, `checkout:${clientIp(request)}`);
+  const { amount: raw } = await readJson<{ amount?: unknown }>(request);
+  const amount = parseSupportAmount(raw);
+  const tier = amount === null ? undefined : tierFor(amount);
+  if (amount === null || !tier) throw new HttpError(400, 'invalid_amount', 'Bitte einen der angebotenen Beträge wählen.');
+
+  const origin = new URL(request.url).origin;
+  const form = new URLSearchParams({
+    mode: 'payment',
+    'line_items[0][quantity]': '1',
+    'line_items[0][price_data][currency]': 'eur',
+    'line_items[0][price_data][unit_amount]': String(amount),
+    'line_items[0][price_data][product_data][name]': `${env.APP_NAME} unterstützen – ${tier.label}`,
+    'line_items[0][price_data][product_data][description]': `Unterstützer-Status für 12 Monate (${formatEuro(amount)})`,
+    client_reference_id: user.id,
+    customer_email: user.email,
+    'metadata[app]': METADATA_APP,
+    'metadata[user_id]': user.id,
+    locale: 'de',
+    submit_type: 'donate',
+    success_url: `${origin}/?support=success`,
+    cancel_url: `${origin}/?support=cancel`,
+  });
+  const res = await fetch(`${stripeBase(env)}/v1/checkout/sessions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form,
+  });
+  if (!res.ok) {
+    console.error('stripe checkout failed', res.status, await res.text());
+    throw new HttpError(502, 'checkout_failed', 'Die Bezahlseite konnte nicht geöffnet werden – bitte später erneut versuchen.');
+  }
+  const session = (await res.json()) as { url?: unknown };
+  // Nur auf Stripes eigene Checkout-Seite weiterleiten (bzw. den lokalen Stub in Tests).
+  const url = typeof session.url === 'string' && URL.canParse(session.url) ? new URL(session.url) : null;
+  const allowed = url && (url.protocol === 'https:' && url.hostname === 'checkout.stripe.com' || (env.STRIPE_API_BASE && isDevHost(url)));
+  if (!url || !allowed) throw new HttpError(502, 'checkout_failed', 'Die Bezahlseite konnte nicht geöffnet werden.');
+  return json({ url: url.href });
+}
+
+// ---------------------------------------------------------------- Stripe-Webhook
+
+async function hmacHex(secret: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Prüft den Stripe-Signature-Header gegen den rohen Body (HMAC-SHA256 über „t.body“). */
+export async function verifyStripeSignature(secret: string, header: string | null, body: string, nowMs = Date.now()): Promise<boolean> {
+  const parsed = parseStripeSignature(header);
+  if (!parsed) return false;
+  if (Math.abs(nowMs / 1000 - parsed.timestamp) > SIGNATURE_TOLERANCE_S) return false;
+  const expected = await hmacHex(secret, `${parsed.timestamp}.${body}`);
+  // Alle Kandidaten prüfen (kein frühes Ende), Vergleich in konstanter Laufzeit.
+  let ok = false;
+  for (const sig of parsed.signatures) ok = timingSafeEqual(sig, expected) || ok;
+  return ok;
+}
+
+interface CheckoutSession {
+  id?: unknown;
+  client_reference_id?: unknown;
+  payment_status?: unknown;
+  amount_total?: unknown;
+  currency?: unknown;
+  metadata?: { app?: unknown } | null;
+}
+
+/**
+ * POST /api/webhooks/stripe – verlängert nach bezahltem Checkout den Unterstützer-Status um 12 Monate.
+ * Ausnahme von der Origin-Prüfung (Stripe sendet keinen Origin); geschützt durch die Signatur.
+ * Ereignisse, die nicht zu uns passen, werden mit 200 quittiert und ignoriert (sonst wiederholt Stripe sie).
+ */
+export async function stripeWebhook(request: Request, env: Env): Promise<Response> {
+  if (!env.STRIPE_WEBHOOK_SECRET) throw new HttpError(503, 'support_unconfigured', 'Unterstützen ist auf diesem Server nicht eingerichtet.');
+  const raw = new TextDecoder().decode(await readBodyCapped(request, MAX_WEBHOOK_BYTES));
+  if (!(await verifyStripeSignature(env.STRIPE_WEBHOOK_SECRET, request.headers.get('Stripe-Signature'), raw))) {
+    throw new HttpError(400, 'invalid_signature', 'Ungültige Signatur.');
+  }
+  let event: { type?: unknown; data?: { object?: CheckoutSession } };
+  try {
+    event = JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, 'invalid_json');
+  }
+
+  const ignored = (reason: string) => json({ received: true, ignored: reason });
+  // Sofort bezahlt → completed (payment_status=paid); verzögerte Zahlarten (z. B. SEPA) → async_payment_succeeded.
+  if (event.type !== 'checkout.session.completed' && event.type !== 'checkout.session.async_payment_succeeded') return ignored('event');
+  const session = event.data?.object ?? {};
+  if (session.metadata?.app !== METADATA_APP) return ignored('app');
+  if (session.payment_status !== 'paid') return ignored('unpaid');
+  if (typeof session.id !== 'string' || !/^cs_[A-Za-z0-9_]{1,250}$/.test(session.id)) return ignored('session');
+  const userId = session.client_reference_id;
+  if (typeof userId !== 'string' || !SHARE_ID_RE.test(userId)) return ignored('user');
+  const user = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(userId).first<{ id: string }>();
+  if (!user) return ignored('user');
+
+  const amount = Number.isSafeInteger(session.amount_total) ? Math.max(0, session.amount_total as number) : 0;
+  const currency = typeof session.currency === 'string' && /^[a-z]{3}$/.test(session.currency) ? session.currency : '';
+  const now = Date.now();
+  // Verlängert ein laufendes Ende, sonst ab heute (wie extendSupport() in src/domain/support.ts) – in einer
+  // Anweisung, damit parallele Webhooks sich nicht überholen. Idempotent: dieselbe Session zählt nur einmal.
+  await env.DB.prepare(
+    `INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at, valid_until)
+     VALUES (?, ?, 'stripe', ?, ?, ?, ?, MAX(COALESCE((SELECT MAX(valid_until) FROM supports WHERE user_id = ?), 0), ?) + ?)
+     ON CONFLICT(provider_ref) DO NOTHING`,
+  )
+    .bind(randomId(), user.id, session.id, amount, currency, now, user.id, now, SUPPORT_MS)
+    .run();
+  return json({ received: true });
+}

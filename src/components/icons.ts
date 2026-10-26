@@ -8,8 +8,8 @@ const paths = {
   sail: svg`<path class="f" d="M11.5 3.5 5 16h6.5z"/><path d="M11.5 3.5 5 16h6.5zM13.5 6.5c3 2.5 4.6 5.7 4.8 9.5h-4.8z"/><path d="M3.5 18.5h17l-2 2.5h-13z"/>`,
   // GPX laden: Seekarte mit Kurslinie + Pfeil
   upload: svg`<path class="f" d="M5 4h9l5 5v11H5z"/><path d="M14 4H5v16h14V9zM14 4v5h5"/><path d="M8.5 16.5 11 13l2 2 2.5-3.5"/><path d="M12 2v0"/>`,
-  // Teilen: Flaschenpost
-  share: svg`<path class="f" d="M9 9.5 14.5 4l5.5 5.5L14.5 15z"/><path d="M9 9.5 14.5 4l5.5 5.5L14.5 15zM9 9.5l-5 5L9.5 20l5-5"/><path d="m16.5 2 5.5 5.5"/><path d="M11.5 12.5l2 2"/>`,
+  // Teilen: das bekannte Symbol – drei verbundene Punkte
+  share: svg`<circle class="f" cx="18" cy="5.5" r="2.75"/><circle class="f" cx="6" cy="12" r="2.75"/><circle class="f" cx="18" cy="18.5" r="2.75"/><circle cx="18" cy="5.5" r="2.75"/><circle cx="6" cy="12" r="2.75"/><circle cx="18" cy="18.5" r="2.75"/><path d="m8.4 10.7 7.2-3.9M8.4 13.3l7.2 3.9"/>`,
   link: svg`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>`,
   copy: svg`<rect class="f" x="9" y="9" width="11" height="11" rx="2.5"/><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/>`,
   // Konto: Kapitänsmütze-Silhouette
@@ -43,9 +43,35 @@ const paths = {
   image: svg`<rect class="f" x="3" y="4.5" width="18" height="15" rx="2.5"/><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="16.5" cy="9" r="1.6"/><path d="m3.5 17 5-5 3.5 3.5 2.5-2.5 6 5"/>`,
   download: svg`<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/>`,
   anchor: svg`<circle cx="12" cy="5" r="2"/><path d="M12 7v13M8 10.5h8M4.5 13.5c0 4 3.4 6.5 7.5 6.5s7.5-2.5 7.5-6.5"/><path d="m3 15 1.5-1.5L6 15M18 15l1.5-1.5L21 15"/>`,
+  // Unterstützen: Kaffeebecher mit Dampf
+  coffee: svg`<path class="f" d="M4.5 10h11v4.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M4.5 10h11v4.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5zM15.5 11.5h1.5a2.5 2.5 0 0 1 0 5h-1.8M3.5 21.5h13"/><path d="M8 3.5c-.8 1 .8 2 0 3.5M11.5 3.5c-.8 1 .8 2 0 3.5"/>`,
+  // Unterstützen: Bierkrug mit Schaumkrone
+  beer: svg`<path class="f" d="M5.5 9h10v10a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2z"/><path d="M5.5 9h10v10a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2zM15.5 11h1.5a2 2 0 0 1 2 2v2.5a2 2 0 0 1-2 2h-1.5M9 12.5v5M12 12.5v5"/><path d="M5.5 9a2.3 2.3 0 0 1 .6-4.3 3 3 0 0 1 4.9-1.2 2.7 2.7 0 0 1 4.3 1.8A1.9 1.9 0 0 1 15.5 9"/>`,
+  // Unterstützen: eine Runde – drei Gläser mit Schaum
+  round: svg`<path class="f" d="M3 9.5h5l-.6 9.6a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9zM9.5 9.5h5l-.6 9.6a1 1 0 0 1-1 .9h-1.8a1 1 0 0 1-1-.9zM16 9.5h5l-.6 9.6a1 1 0 0 1-1 .9h-1.8a1 1 0 0 1-1-.9z"/><path d="M3 9.5h5l-.6 9.6a1 1 0 0 1-1 .9H4.6a1 1 0 0 1-1-.9zM9.5 9.5h5l-.6 9.6a1 1 0 0 1-1 .9h-1.8a1 1 0 0 1-1-.9zM16 9.5h5l-.6 9.6a1 1 0 0 1-1 .9h-1.8a1 1 0 0 1-1-.9zM3.3 12.5h4.4M9.8 12.5h4.4M16.3 12.5h4.4"/><path d="M5.5 4.5v2M12 3.5v2.5M18.5 4.5v2"/>`,
+  // Unterstützen: Kiste mit Flaschenhälsen
+  crate: svg`<rect class="f" x="3" y="11" width="18" height="9.5" rx="1.5"/><rect x="3" y="11" width="18" height="9.5" rx="1.5"/><path d="M6.5 11V8.3c0-.8.7-1.3.7-2.1V3.5h1.6v2.7c0 .8.7 1.3.7 2.1V11M11 11V8.3c0-.8.7-1.3.7-2.1V3.5h1.6v2.7c0 .8.7 1.3.7 2.1V11M15.5 11V8.3c0-.8.7-1.3.7-2.1V3.5h1.6v2.7c0 .8.7 1.3.7 2.1V11"/><path d="M10 15.5h4"/>`,
+  // Unterstützer-Abzeichen: Wimpel am Mast
+  pennant: svg`<path class="f" d="M6 4.5 19.5 9 6 13.5z"/><path d="M6 21V3M6 4.5 19.5 9 6 13.5"/>`,
 };
 
 export type IconName = keyof typeof paths;
+
+/**
+ * Logo „Segel im Kompass“ (32er-Raster, gefüllt). Kachel in --accent, Zeichen in --on-accent;
+ * dieselbe Form steht in public/favicon.svg und wird in services/share-image.ts gezeichnet.
+ */
+export function logo(size = 32): SVGTemplateResult {
+  return svg`<svg width=${size} height=${size} viewBox="0 0 32 32" aria-hidden="true">
+    <rect width="32" height="32" rx="8" fill="var(--accent)"/>
+    <g fill="var(--on-accent)" stroke="var(--on-accent)">
+      <circle cx="16" cy="16" r="10.5" fill="none" stroke-width="1.6" opacity=".55"/>
+      <path d="M16 3.5v3" stroke-width="2" stroke-linecap="round"/>
+      <path d="M16 9 22 21H16z" stroke="none"/>
+      <path d="M14.5 11.5 10 21h4.5z" stroke="none" opacity=".75"/>
+    </g>
+  </svg>`;
+}
 
 export function icon(name: IconName, cls = 'i'): SVGTemplateResult {
   return svg`<svg class=${cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><style>.f{fill:currentColor;fill-opacity:.16;stroke:none}</style>${paths[name]}</svg>`;

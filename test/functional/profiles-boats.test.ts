@@ -1,7 +1,7 @@
 // Funktionale Tests: Profile, Boote, Eigentum, Sichtbarkeit, Profil-/Bootsseiten, Link-Vorschau (F-41 … F-46)
 // Echter Worker in workerd (Miniflare) mit lokalen D1-/R2-Bindings – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createShare, login, startWorker, type Harness, type ShareOpts } from './worker-harness';
+import { createShare, grantSupport, login, loginSupporter, startWorker, type Harness, type ShareOpts } from './worker-harness';
 
 let h: Harness;
 let n = 0;
@@ -18,7 +18,7 @@ afterAll(async () => {
 const send = (method: string, path: string, cookie: string | undefined, body?: unknown) =>
   h.fetch(path, { method, cookie, headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined, body: body !== undefined ? JSON.stringify(body) : undefined });
 
-interface ProfileIn { handle: string; displayName: string; bio?: string; visibility?: 'public' | 'private' }
+interface ProfileIn { handle: string; displayName: string; bio?: string; visibility?: 'public' | 'unlisted' | 'private' }
 async function putProfile(cookie: string, p: ProfileIn) {
   return send('PUT', '/api/me/profile', cookie, { bio: '', ...p });
 }
@@ -30,9 +30,11 @@ async function newBoat(cookie: string, input: Record<string, unknown> = {}): Pro
   return ((await res.json()) as { boat: Boat }).boat;
 }
 
-interface Share { id: string; visibility: string; listed: boolean; boat: { id: string; name: string } | null; distNm: number; startedAt: number | null; isOwner: boolean }
+interface Share { id: string; visibility: string; shareKey: string | null; boat: { id: string; name: string } | null; distNm: number; startedAt: number | null; isOwner: boolean }
+/** listed: true = „Öffentlich“ (Standard), false = „Nur mit Link“ – sofern keine Sichtbarkeit angegeben ist. */
 async function newShare(cookie: string, o: ShareOpts & { listed?: boolean; boatId?: string; distNm?: number; startedAt?: number } = {}): Promise<Share> {
-  const headers: Record<string, string> = { 'X-Share-Listed': o.listed ? '1' : '0', 'X-Share-Distance': String(o.distNm ?? 10) };
+  const headers: Record<string, string> = { 'X-Share-Distance': String(o.distNm ?? 10) };
+  o = { ...o, visibility: o.visibility ?? (o.listed === false ? 'unlisted' : 'public') };
   if (o.boatId) headers['X-Share-Boat'] = o.boatId;
   if (o.startedAt) headers['X-Share-Started'] = String(o.startedAt);
   const res = await createShare(h, cookie, { ...o, headers });
@@ -40,10 +42,10 @@ async function newShare(cookie: string, o: ShareOpts & { listed?: boolean; boatI
   return ((await res.json()) as { share: Share }).share;
 }
 
-/** Nutzer mit öffentlichem Profil */
-async function sailor(visibility: 'public' | 'private' = 'public') {
+/** Nutzer mit Profil; als Unterstützer, damit alle drei Stufen wählbar sind (E1 prüft visibility.test.ts). */
+async function sailor(visibility: 'public' | 'unlisted' | 'private' = 'public') {
   const mail = email();
-  const s = await login(h, mail);
+  const s = await loginSupporter(h, mail);
   const handle = uniq('crew');
   const res = await putProfile(s.cookie, { handle, displayName: 'Käpt’n Test', bio: 'Ostsee', visibility });
   expect(res.status).toBe(200);
@@ -55,21 +57,23 @@ const getJson = async <T>(res: Response) => (await res.json()) as T;
 // ---------------------------------------------------------------- F-41 Profil
 
 describe('F-41 Profil', () => {
-  it('[F-41] Profil anlegen mit Profiladresse, Anzeigename und Bio; standardmäßig privat', async () => {
+  it('[F-41] Profil anlegen mit Profiladresse, Anzeigename und Bio; standardmäßig öffentlich (F-80)', async () => {
     const { cookie } = await login(h, email());
     const handle = uniq('anna');
     const res = await putProfile(cookie, { handle, displayName: 'Anna', bio: 'Jollen und Ostsee' });
     expect(res.status).toBe(200);
-    expect((await getJson<{ profile: unknown }>(res)).profile).toEqual({ handle, displayName: 'Anna', bio: 'Jollen und Ostsee', visibility: 'private', isSelf: true });
+    expect((await getJson<{ profile: unknown }>(res)).profile).toEqual({
+      handle, displayName: 'Anna', bio: 'Jollen und Ostsee', visibility: 'public', shareKey: null, link: `/u/${handle}`, isSelf: true,
+    });
     const mine = await getJson<{ profile: { handle: string }; exists: boolean }>(await send('GET', '/api/me/profile', cookie));
     expect(mine).toMatchObject({ exists: true, profile: { handle } });
   });
 
-  it('[F-41] ohne Profil gibt es einen Vorschlag (exists=false), noch nichts ist öffentlich', async () => {
+  it('[F-41] ohne Profil gibt es einen Vorschlag (exists=false, Standard „Öffentlich“), gespeichert ist noch nichts', async () => {
     const { cookie } = await login(h, email());
     const r = await getJson<{ profile: { handle: string; visibility: string }; exists: boolean }>(await send('GET', '/api/me/profile', cookie));
     expect(r.exists).toBe(false);
-    expect(r.profile.visibility).toBe('private');
+    expect(r.profile.visibility).toBe('public');
     expect((await h.fetch(`/api/profiles/${r.profile.handle}`)).status).toBe(404);
   });
 
@@ -160,7 +164,7 @@ describe('F-42 Boote', () => {
     const s = await sailor();
     const ok = await send('POST', '/api/boats', s.cookie, { name: 'Nur Name' });
     expect(ok.status).toBe(201);
-    expect((await getJson<{ boat: Record<string, unknown> }>(ok)).boat).toMatchObject({ homePort: '', lengthM: null, visibility: 'private' });
+    expect((await getJson<{ boat: Record<string, unknown> }>(ok)).boat).toMatchObject({ homePort: '', lengthM: null, visibility: 'public' });
     expect((await send('POST', '/api/boats', s.cookie, { boatType: 'ohne Namen' })).status).toBe(400);
   });
 
@@ -168,7 +172,8 @@ describe('F-42 Boote', () => {
     const s = await sailor();
     expect((await send('POST', '/api/boats', s.cookie, { name: 'X', lengthM: 0.5 })).status).toBe(400);
     expect((await send('POST', '/api/boats', s.cookie, { name: 'X', lengthM: 500 })).status).toBe(400);
-    expect((await send('POST', '/api/boats', s.cookie, { name: 'X', visibility: 'unlisted' })).status).toBe(400);
+    expect((await send('POST', '/api/boats', s.cookie, { name: 'X', visibility: 'listed' })).status).toBe(400);
+    expect((await send('POST', '/api/boats', s.cookie, { name: 'X', visibility: null })).status).toBe(400);
   });
 
   it('[F-42] Eigner darf bearbeiten', async () => {
@@ -313,15 +318,14 @@ describe('F-43 Eigentum und Boot-Zuordnung', () => {
 // ---------------------------------------------------------------- F-44 Sichtbarkeit
 
 describe('F-44 Sichtbarkeit „Öffentlich“ / „Mit Link“ / „Nur ich“', () => {
-  it('[F-44] nur „Öffentlich“ (visibility=unlisted UND listed=1) erscheint auf Profil- und Bootsseite', async () => {
+  it('[F-83] nur „Öffentlich“ (visibility=public) erscheint auf Profil- und Bootsseite', async () => {
     const s = await sailor('public');
     const b = await newBoat(s.cookie, { visibility: 'public' });
-    const pub = await newShare(s.cookie, { title: 'Öffentlich', visibility: 'unlisted', listed: true, boatId: b.id });
-    const link = await newShare(s.cookie, { title: 'Mit Link', visibility: 'unlisted', listed: false, boatId: b.id });
-    const privListed = await newShare(s.cookie, { title: 'Nur ich (listed)', visibility: 'private', listed: true, boatId: b.id });
-    expect(pub.listed).toBe(true);
-    expect(link.listed).toBe(false);
-    expect(privListed).toMatchObject({ visibility: 'private', listed: true });
+    const pub = await newShare(s.cookie, { title: 'Öffentlich', visibility: 'public', boatId: b.id });
+    const link = await newShare(s.cookie, { title: 'Mit Link', visibility: 'unlisted', boatId: b.id });
+    const priv = await newShare(s.cookie, { title: 'Nur ich', visibility: 'private', boatId: b.id });
+    expect([pub.visibility, link.visibility, priv.visibility]).toEqual(['public', 'unlisted', 'private']);
+    expect(pub).not.toHaveProperty('listed');
 
     const prof = await getJson<{ voyages: Share[] }>(await h.fetch(`/api/profiles/${s.handle}`));
     expect(prof.voyages.map((v) => v.id)).toEqual([pub.id]);
@@ -332,11 +336,12 @@ describe('F-44 Sichtbarkeit „Öffentlich“ / „Mit Link“ / „Nur ich“',
     expect(own.voyages.map((v) => v.id)).toEqual([pub.id]);
   });
 
-  it('[F-44] „Mit Link“ ist per Link abrufbar, „Nur ich“ nicht (404)', async () => {
+  it('[F-44] „Mit Link“ ist mit dem Schlüssel abrufbar, „Nur ich“ nicht (404)', async () => {
     const s = await sailor();
-    const link = await newShare(s.cookie, { visibility: 'unlisted', listed: false });
+    const link = await newShare(s.cookie, { visibility: 'unlisted' });
     const priv = await newShare(s.cookie, { visibility: 'private' });
-    expect((await h.fetch(`/api/shares/${link.id}`)).status).toBe(200);
+    expect((await h.fetch(`/api/shares/${link.id}`, { headers: { 'X-Share-Key': link.shareKey! } })).status).toBe(200);
+    expect((await h.fetch(`/api/shares/${link.id}`)).status).toBe(404);
     expect((await h.fetch(`/api/shares/${priv.id}`)).status).toBe(404);
   });
 
@@ -345,7 +350,7 @@ describe('F-44 Sichtbarkeit „Öffentlich“ / „Mit Link“ / „Nur ich“',
     const share = await newShare(s.cookie, { listed: false });
     const voyages = async () => (await getJson<{ voyages: Share[] }>(await h.fetch(`/api/profiles/${s.handle}`))).voyages.map((v) => v.id);
     expect(await voyages()).toEqual([]);
-    await send('PATCH', `/api/shares/${share.id}`, s.cookie, { listed: true });
+    await send('PATCH', `/api/shares/${share.id}`, s.cookie, { visibility: 'public' });
     expect(await voyages()).toEqual([share.id]);
     await send('PATCH', `/api/shares/${share.id}`, s.cookie, { visibility: 'private' });
     expect(await voyages()).toEqual([]);
@@ -369,6 +374,7 @@ describe('F-44 Sichtbarkeit „Öffentlich“ / „Mit Link“ / „Nur ich“',
 describe('F-45 Profil- und Bootsseiten', () => {
   it('[F-45] Profilseite: Kennzahlen (Seemeilen, Törns), öffentliche Törns und öffentliche Boote', async () => {
     const s = await sailor('public');
+    await grantSupport(h, s.user.id); // vier Freigaben – mehr als das kostenlose Kontingent (F-60)
     const pubBoat = await newBoat(s.cookie, { name: 'Alpha', visibility: 'public' });
     await newBoat(s.cookie, { name: 'Beta privat', visibility: 'private' });
     await newShare(s.cookie, { listed: true, distNm: 20.5, boatId: pubBoat.id });
@@ -507,12 +513,16 @@ describe('F-46 Link-Vorschau /u/ und /b/', () => {
     }
   });
 
-  it('[F-46] geteilte Törns werden nie indexiert – auch öffentliche (listed) nicht', async () => {
+  it('[F-84] öffentliche Törns sind indexierbar (E2), dieselbe Seite mit Schlüssel im Pfad nie', async () => {
     const s = await sailor('public');
-    const share = await newShare(s.cookie, { title: 'Öffentlicher Törn', listed: true });
+    const share = await newShare(s.cookie, { title: 'Öffentlicher Törn' });
     const m = await head(`/s/${share.id}`);
     expect(m.title).toBe('Öffentlicher Törn · Sail Explorer');
-    expect(m.noindex).toBe(true);
+    expect(m.noindex).toBe(false);
+    // öffentliche Objekte ignorieren einen (auch falschen) Schlüssel – Vorschau ja, Index nein
+    const k = await head(`/s/${share.id}/${'Q'.repeat(22)}`);
+    expect(k.title).toBe('Öffentlicher Törn · Sail Explorer');
+    expect(k.noindex).toBe(true);
   });
 
   it('[F-46] Vorschau-Text mit Sonderzeichen bricht nicht aus dem Attribut aus', async () => {

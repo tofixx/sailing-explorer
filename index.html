@@ -19,7 +19,9 @@
       <div class="workspace">
         <main class="map-area" aria-label="Karte">
           <div id="map"></div>
-          <sx-empty-state></sx-empty-state>
+          <sx-empty-state>
+            <sx-discover slot="discover" variant="strip" hidden></sx-discover>
+          </sx-empty-state>
         </main>
         <aside class="sidebar" aria-label="Auswertung">
           <sx-panel heading="Bedingungen">
@@ -49,6 +51,7 @@
         </aside>
       </div>
       <sx-profile-page hidden></sx-profile-page>
+      <sx-discover id="discover-page" variant="page" hidden></sx-discover>
     </div>
     <sx-toast></sx-toast>
     <sx-login-dialog></sx-login-dialog>

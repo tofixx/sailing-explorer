@@ -6,8 +6,10 @@ import {
   SAMPLE_GPX,
   bodyText,
   createShare,
+  grantSupport,
   gzip,
   login,
+  loginSupporter,
   payloadJson,
   startWorker,
   type Harness,
@@ -36,7 +38,9 @@ const verify = (token: string, ip?: string) => h.fetch('/api/auth/verify', jsonP
 async function newShare(cookie: string, opts: Parameters<typeof createShare>[2] = {}) {
   const res = await createShare(h, cookie, opts);
   expect(res.status).toBe(201);
-  return ((await res.json()) as { share: { id: string; title: string; visibility: string; view: string; summary: string; isOwner: boolean; trackCount: number } }).share;
+  return ((await res.json()) as {
+    share: { id: string; title: string; visibility: string; view: string; summary: string; isOwner: boolean; trackCount: number; shareKey: string | null; link: string | null };
+  }).share;
 }
 
 beforeAll(async () => {
@@ -198,27 +202,32 @@ describe('F-31 Teilen setzt Anmeldung voraus', () => {
 });
 
 describe('F-33 Freigabe anlegen', () => {
-  it('[F-33] erzeugt eine Freigabe „Alle mit dem Link“ mit Titel und Ansicht und liefert die ID für /s/<id>', async () => {
+  it('[F-33] erzeugt eine öffentliche Freigabe mit Titel und Ansicht und liefert die ID und den Link /s/<id>', async () => {
     const { cookie } = await login(h, freshEmail());
-    const share = await newShare(cookie, { title: 'Stralsund → Prerow', view: 'm=wind&l=s,w', visibility: 'unlisted', summary: '28,4 sm · 13.06.2026' });
+    const share = await newShare(cookie, { title: 'Stralsund → Prerow', view: 'm=wind&l=s,w', visibility: 'public', summary: '28,4 sm · 13.06.2026' });
     expect(share.id).toMatch(/^[A-Za-z0-9]{12,32}$/);
-    expect(share).toMatchObject({ title: 'Stralsund → Prerow', visibility: 'unlisted', view: 'm=wind&l=s,w', summary: '28,4 sm · 13.06.2026', isOwner: true, trackCount: 1 });
+    expect(share).toMatchObject({ title: 'Stralsund → Prerow', visibility: 'public', view: 'm=wind&l=s,w', summary: '28,4 sm · 13.06.2026', isOwner: true, trackCount: 1 });
+    expect(share).toMatchObject({ shareKey: null, link: `/s/${share.id}` });
+    expect(share).not.toHaveProperty('listed');
     const page = await h.fetch(`/s/${share.id}`);
     expect(page.status).toBe(200);
     expect(page.headers.get('Content-Type')).toMatch(/text\/html/);
   });
 
-  it('[F-33] Sichtbarkeit „Nur ich“ (private) wird übernommen', async () => {
-    const { cookie } = await login(h, freshEmail());
+  it('[F-33] Sichtbarkeit „Nur ich“ (private) wird übernommen (Unterstützer)', async () => {
+    const { cookie } = await loginSupporter(h, freshEmail());
     expect((await newShare(cookie, { visibility: 'private' })).visibility).toBe('private');
   });
 
-  it('[F-33] ohne Ansicht/Titel: leere Ansicht, Standardtitel; unbekannte Sichtbarkeit → unlisted', async () => {
+  it('[F-33] ohne Ansicht/Titel/Sichtbarkeit: leere Ansicht, Standardtitel, öffentlich; unbekannte Sichtbarkeit → 400', async () => {
     const { cookie } = await login(h, freshEmail());
-    const share = await newShare(cookie, { title: '', view: '', visibility: 'public' });
+    const share = await newShare(cookie, { title: '', view: '', visibility: '' });
     expect(share.title).toBe('Törn');
     expect(share.view).toBe('');
-    expect(share.visibility).toBe('unlisted');
+    expect(share.visibility).toBe('public');
+    const bad = await createShare(h, cookie, { visibility: 'listed' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toBe('invalid_visibility');
   });
 
   it('[F-33] Titel wird bereinigt, ungültige Ansicht verworfen', async () => {
@@ -297,7 +306,7 @@ describe('F-34 Geteilte Links öffnen ohne Anmeldung', () => {
   });
 
   it('[F-34] Daten werden per ETag revalidiert (304 ohne Body), aber nur solange sichtbar', async () => {
-    const { cookie } = await login(h, freshEmail());
+    const { cookie } = await loginSupporter(h, freshEmail());
     const share = await newShare(cookie);
     const first = await h.fetch(`/api/shares/${share.id}/data`);
     const etag = first.headers.get('ETag')!;
@@ -316,7 +325,7 @@ describe('F-34 Geteilte Links öffnen ohne Anmeldung', () => {
   });
 
   it('[F-34] „Nur ich“-Freigabe ist für den Besitzer abrufbar', async () => {
-    const { cookie } = await login(h, freshEmail());
+    const { cookie } = await loginSupporter(h, freshEmail());
     const share = await newShare(cookie, { visibility: 'private' });
     expect((await h.fetch(`/api/shares/${share.id}`, { cookie })).status).toBe(200);
     const data = await h.fetch(`/api/shares/${share.id}/data`, { cookie });
@@ -327,7 +336,7 @@ describe('F-34 Geteilte Links öffnen ohne Anmeldung', () => {
 
 describe('F-35 Private Freigaben', () => {
   it('[F-35] privat ist für Anonyme und andere Nutzer nicht von unbekannt unterscheidbar (404, gleicher Body)', async () => {
-    const owner = await login(h, freshEmail());
+    const owner = await loginSupporter(h, freshEmail());
     const other = await login(h, freshEmail());
     const share = await newShare(owner.cookie, { visibility: 'private' });
     const unknown = 'ABCDEFGHJKLMNPQRST';
@@ -356,8 +365,8 @@ describe('F-35 Private Freigaben', () => {
     expect((await h.fetch(`/api/shares/${share.id}/data`)).status).toBe(404);
   });
 
-  it('[F-35] von „Alle mit dem Link“ auf „Nur ich“ umgestellt → sofort 404 für andere', async () => {
-    const { cookie } = await login(h, freshEmail());
+  it('[F-35] von „Öffentlich“ auf „Nur ich“ umgestellt → sofort 404 für andere', async () => {
+    const { cookie } = await loginSupporter(h, freshEmail());
     const share = await newShare(cookie);
     expect((await h.fetch(`/api/shares/${share.id}/data`)).status).toBe(200);
     await h.fetch(`/api/shares/${share.id}`, { method: 'PATCH', cookie, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visibility: 'private' }) });
@@ -370,7 +379,7 @@ describe('F-36 Meine Tracks', () => {
     h.fetch(`/api/shares/${id}`, { method: 'PATCH', cookie, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
   it('[F-36] listet nur eigene Freigaben, neueste zuerst', async () => {
-    const a = await login(h, freshEmail());
+    const a = await loginSupporter(h, freshEmail());
     const b = await login(h, freshEmail());
     const s1 = await newShare(a.cookie, { title: 'Erste' });
     await new Promise((r) => setTimeout(r, 5));
@@ -388,7 +397,7 @@ describe('F-36 Meine Tracks', () => {
   });
 
   it('[F-36] umbenennen und Sichtbarkeit ändern', async () => {
-    const { cookie } = await login(h, freshEmail());
+    const { cookie } = await loginSupporter(h, freshEmail());
     const share = await newShare(cookie, { title: 'Alt' });
     const res = await patch(share.id, cookie, { title: '  Neu  ', visibility: 'private' });
     expect(res.status).toBe(200);
@@ -401,7 +410,8 @@ describe('F-36 Meine Tracks', () => {
     const { cookie } = await login(h, freshEmail());
     const share = await newShare(cookie);
     expect((await patch(share.id, cookie, { title: '   ' })).status).toBe(400);
-    expect((await patch(share.id, cookie, { visibility: 'public' })).status).toBe(400);
+    expect((await patch(share.id, cookie, { visibility: 'listed' })).status).toBe(400);
+    expect((await patch(share.id, cookie, { visibility: null })).status).toBe(400);
   });
 
   it('[F-36] löschen entfernt Metadaten und Datei', async () => {
@@ -430,6 +440,7 @@ describe('F-37 Konto', () => {
     const email = freshEmail();
     const first = await login(h, email);
     const second = await login(h, email); // zweites Gerät
+    await grantSupport(h, first.user.id);
     const s1 = await newShare(first.cookie);
     const s2 = await newShare(first.cookie, { visibility: 'private' });
     const other = await login(h, freshEmail());
@@ -473,7 +484,7 @@ describe('F-38 Fremde Freigaben', () => {
     expect(d.status).toBe(404);
 
     const meta = await h.fetch(`/api/shares/${share.id}`);
-    expect(((await meta.json()) as { share: { title: string; visibility: string } }).share).toMatchObject({ title: 'Original', visibility: 'unlisted' });
+    expect(((await meta.json()) as { share: { title: string; visibility: string } }).share).toMatchObject({ title: 'Original', visibility: 'public' });
     expect(await (await h.r2()).head(`shares/${share.id}`)).not.toBeNull();
   });
 
@@ -495,7 +506,7 @@ describe('F-39 Link-Vorschau /s/:id', () => {
     return { html, title, ogTitle, ogDesc, desc };
   };
 
-  it('[F-39] öffentliche Freigabe: Titel und Kurzinfo in title/og:title/og:description, noindex', async () => {
+  it('[F-39] öffentliche Freigabe: Titel und Kurzinfo in title/og:title/og:description, indexierbar (E2, F-84)', async () => {
     const { cookie } = await login(h, freshEmail());
     const share = await newShare(cookie, { title: 'Prerow → Rostock', summary: '31,2 sm · 14.06.2026' });
     const res = await h.fetch(`/s/${share.id}`);
@@ -505,12 +516,12 @@ describe('F-39 Link-Vorschau /s/:id', () => {
     expect(m.ogTitle).toBe('Prerow → Rostock · Sail Explorer');
     expect(m.ogDesc).toBe('31,2 sm · 14.06.2026');
     expect(m.desc).toBe('31,2 sm · 14.06.2026');
-    expect(m.html).toContain('<meta name="robots" content="noindex">');
+    expect(m.html).not.toContain('noindex');
     expect(res.headers.get('Content-Security-Policy')).toMatch(/script-src 'self'/);
   });
 
   it('[F-39] private Freigabe bleibt neutral (kein Titel, keine Kurzinfo)', async () => {
-    const { cookie } = await login(h, freshEmail());
+    const { cookie } = await loginSupporter(h, freshEmail());
     const share = await newShare(cookie, { title: 'Geheimer Törn', summary: 'Geheim 12 sm', visibility: 'private' });
     const res = await h.fetch(`/s/${share.id}`, { cookie }); // auch für den Besitzer (Crawler hätten kein Cookie)
     const m = await head(res);
@@ -520,7 +531,7 @@ describe('F-39 Link-Vorschau /s/:id', () => {
   });
 
   it('[F-39] unbekannte Freigabe sieht aus wie eine private', async () => {
-    const { cookie } = await login(h, freshEmail());
+    const { cookie } = await loginSupporter(h, freshEmail());
     const priv = await newShare(cookie, { title: 'P', summary: 'S', visibility: 'private' });
     const a = await head(await h.fetch(`/s/${priv.id}`));
     const b = await head(await h.fetch('/s/ABCDEFGHJKLMNPQRST'));

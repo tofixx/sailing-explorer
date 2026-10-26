@@ -14,10 +14,10 @@ export type HoverSource = 'map' | 'chart' | 'kpi';
 
 /**
  * local: eigener Arbeitsbereich (wird im Browser gespeichert)
- * share: geöffnete Freigabe vom Server
+ * share: geöffnete Freigabe vom Server (key: Schlüssel aus dem Link, falls „Nur mit Link“)
  * link:  Daten aus einem Link (?track=…, #g=…), nicht gespeichert
  */
-export type Mode = { kind: 'local' } | { kind: 'share'; share: ShareMeta } | { kind: 'link'; title: string };
+export type Mode = { kind: 'local' } | { kind: 'share'; share: ShareMeta; key?: string } | { kind: 'link'; title: string };
 
 export interface State {
   tracks: Track[];

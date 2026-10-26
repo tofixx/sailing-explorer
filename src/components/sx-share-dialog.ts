@@ -1,8 +1,26 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { Boat, ShareMeta } from '../services/api';
+import type { Boat, ShareMeta, SupportStatus } from '../services/api';
+import { needsSupport, quotaText, type SupportTier } from '../domain/support';
 import { CONTENT_LABELS, FORMATS, type ImageContent, type ImageFormat } from '../services/share-image';
+import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, isVisibility, type Visibility } from '../domain/visibility';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
+import { VISIBILITY_ICON } from './sx-visibility-picker';
+import './sx-support';
+
+/** Was nach dem Hochladen wer sieht – ein Satz je Stufe (Konzept 1.1). */
+export const SHARE_CONSEQUENCE: Record<Visibility, string> = {
+  public: 'Track mit Positionen und Zeiten und der Titel sind für alle sichtbar – auf deinem Profil, der Bootsseite und unter Entdecken, auch für Suchmaschinen.',
+  unlisted: 'Nur wer den geheimen Link hat, sieht den Track mit Positionen und Zeiten; nirgends gelistet, den Link kannst du jederzeit erneuern.',
+  private: 'Nur du siehst den Törn, wenn du angemeldet bist – freigeben kannst du ihn später.',
+};
+
+/** Erklärung über dem fertigen Link. */
+const RESULT_TEXT: Record<Visibility, string> = {
+  public: 'Jeder sieht den Törn interaktiv mit Karte, Wind, Wellen und Diagrammen – auch auf deinem Profil und unter Entdecken. In Messengern erscheint das Übersichtsbild als Vorschau.',
+  unlisted: 'Wer diesen Link hat, sieht den Törn interaktiv mit Karte, Wind, Wellen und Diagrammen. Nirgends gelistet; unter „Konto & Freigaben“ kannst du den Link erneuern.',
+  private: 'Diese Freigabe siehst nur du, wenn du angemeldet bist.',
+};
 
 export interface ShareResult {
   share: ShareMeta;
@@ -39,7 +57,13 @@ export class SxShareDialog extends LitElement {
     result: { attribute: false },
     boats: { attribute: false },
     image: { attribute: false },
+    supportTiers: { attribute: false },
+    checkoutBusy: { type: Boolean },
+    supportStatus: { attribute: false },
+    checking: { type: Boolean },
+    visibility: { type: String },
     copied: { state: true },
+    offer: { state: true },
   };
   declare open: boolean;
   declare tab: ShareTab;
@@ -51,7 +75,19 @@ export class SxShareDialog extends LitElement {
   declare result: ShareResult | null;
   declare boats: Boat[];
   declare image: ImageState | null;
+  /** Stufen des Unterstützen-Sliders; null = Unterstützen nicht eingerichtet */
+  declare supportTiers: SupportTier[] | null;
+  /** Checkout wird angelegt */
+  declare checkoutBusy: boolean;
+  /** Kontingent des Kontos; null = (noch) unbekannt */
+  declare supportStatus: SupportStatus | null;
+  /** Unterstützer-Status wird gerade neu geladen */
+  declare checking: boolean;
+  /** gewählte Sichtbarkeit im Formular (Standard „Öffentlich“, E1) */
+  declare visibility: Visibility;
   declare copied: boolean;
+  /** gesperrte Stufe angetippt: Unterstützen-Angebot unter der Auswahl zeigen */
+  declare offer: boolean;
 
   constructor() {
     super();
@@ -65,7 +101,13 @@ export class SxShareDialog extends LitElement {
     this.result = null;
     this.boats = [];
     this.image = null;
+    this.supportTiers = null;
+    this.checkoutBusy = false;
+    this.supportStatus = null;
+    this.checking = false;
+    this.visibility = DEFAULT_VISIBILITY;
     this.copied = false;
+    this.offer = false;
   }
 
   static styles = [
@@ -99,16 +141,6 @@ export class SxShareDialog extends LitElement {
         color: var(--accent);
         border-bottom-color: var(--accent);
       }
-      fieldset {
-        border: 0;
-        margin: 0;
-        padding: 0;
-        display: grid;
-        gap: var(--s-2);
-      }
-      legend {
-        padding: 0;
-      }
       .opt {
         display: flex;
         gap: var(--s-3);
@@ -139,6 +171,22 @@ export class SxShareDialog extends LitElement {
         display: block;
         color: var(--text-2);
         font-size: var(--fs-s);
+      }
+      .vis {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-1);
+        font-weight: 600;
+        color: var(--text);
+        margin-right: var(--s-1);
+      }
+      .vis svg {
+        width: 15px;
+        height: 15px;
+      }
+      .locked-offer {
+        display: grid;
+        gap: var(--s-3);
       }
       .check {
         display: flex;
@@ -185,6 +233,19 @@ export class SxShareDialog extends LitElement {
         padding: 2px var(--s-3);
         font-size: var(--fs-s);
       }
+      .quota {
+        display: flex;
+        align-items: center;
+        gap: var(--s-1);
+      }
+      .quota svg {
+        width: 14px;
+        height: 14px;
+      }
+      .support {
+        padding-top: var(--s-3);
+        border-top: 1px solid var(--border-soft);
+      }
       .chips {
         display: flex;
         flex-wrap: wrap;
@@ -228,6 +289,7 @@ export class SxShareDialog extends LitElement {
     if (changed.has('open')) {
       if (this.open && !dlg.open) {
         this.copied = false;
+        this.offer = false;
         dlg.showModal();
       } else if (!this.open && dlg.open) dlg.close();
     }
@@ -289,11 +351,9 @@ export class SxShareDialog extends LitElement {
   private submit(e: Event) {
     e.preventDefault();
     const data = new FormData(e.target as HTMLFormElement);
-    const v = data.get('visibility');
     emit(this, 'sx-share-submit', {
       title: String(data.get('title') || ''),
-      visibility: v === 'private' ? 'private' : 'unlisted',
-      listed: v === 'public',
+      visibility: isVisibility(this.visibility) ? this.visibility : DEFAULT_VISIBILITY,
       boatId: String(data.get('boat') || '') || null,
       includeView: data.get('view') === 'on',
     });
@@ -317,11 +377,11 @@ export class SxShareDialog extends LitElement {
   private linkTab() {
     const r = this.result;
     if (r) {
+      const vis: Visibility = isVisibility(r.share.visibility) ? r.share.visibility : 'public';
       return html`<div class="body">
-        <p class="muted">
-          ${r.share.visibility === 'private'
-            ? 'Diese Freigabe ist privat – nur du siehst sie, wenn du angemeldet bist.'
-            : 'Wer diesen Link hat, sieht den Törn interaktiv: Karte, Wind, Wellen, Diagramme. In Messengern erscheint das Übersichtsbild als Vorschau.'}
+        <p class="muted visibility-note">
+          <span class="vis">${icon(VISIBILITY_ICON[vis])} ${VISIBILITY_LABEL[vis]}</span>
+          ${RESULT_TEXT[vis]}
         </p>
         <div class="linkrow">
           <input type="text" readonly .value=${r.url} aria-label="Freigabe-Link" @focus=${(e: Event) => (e.target as HTMLInputElement).select()} />
@@ -332,6 +392,9 @@ export class SxShareDialog extends LitElement {
           <a class="btn" href=${r.url} target="_blank" rel="noopener">${icon('open')} Öffnen</a>
           ${r.share.isOwner ? html`<button class="btn" @click=${() => emit(this, 'sx-account')}>${icon('folder')} Konto &amp; Freigaben</button>` : ''}
         </div>
+        ${this.supportTiers && !this.supportStatus?.supporter
+          ? html`<sx-support class="support" variant="offer" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy}></sx-support>`
+          : ''}
       </div>`;
     }
     if (this.linkState === 'login') {
@@ -350,21 +413,37 @@ export class SxShareDialog extends LitElement {
         <div class="actions"><button class="btn primary" @click=${() => emit(this, 'sx-share-inline')}>${icon('link')} Link kopieren</button></div>
       </div>`;
     }
+    if (needsSupport(this.supportStatus)) {
+      return html`<div class="body">
+        <sx-support variant="required" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy} ?checking=${this.checking}></sx-support>
+        ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
+        <div class="actions">
+          <button class="btn" @click=${() => this.selectTab('image')}>${icon('image')} Als Bild teilen</button>
+        </div>
+      </div>`;
+    }
     return html`<form class="body" @submit=${this.submit}>
       <div>
         <label class="label" for="title">Titel</label>
         <input id="title" name="title" type="text" maxlength="120" .value=${this.defaultTitle} required />
         ${this.summary ? html`<div class="hint">${this.summary}</div>` : ''}
+        ${quotaText(this.supportStatus) ? html`<div class="hint quota">${icon('info')} ${quotaText(this.supportStatus)}</div>` : ''}
       </div>
-      <fieldset>
-        <legend class="label">Wer darf es sehen?</legend>
-        <label class="opt"><input type="radio" name="visibility" value="public" />
-          <span><b>${icon('globe')} Öffentlich</b><small>Erscheint auf deinem Profil und der Bootsseite (wenn diese öffentlich sind).</small></span></label>
-        <label class="opt"><input type="radio" name="visibility" value="unlisted" checked />
-          <span><b>${icon('link')} Alle mit dem Link</b><small>Nicht auffindbar, aber jeder mit dem Link kann den Törn ansehen.</small></span></label>
-        <label class="opt"><input type="radio" name="visibility" value="private" />
-          <span><b>${icon('lock')} Nur ich</b><small>Gespeichert in deinem Konto, später freigebbar.</small></span></label>
-      </fieldset>
+      <div>
+        <div class="label" aria-hidden="true">Wer darf es sehen?</div>
+        <sx-visibility-picker
+          label="Wer darf es sehen?"
+          .value=${this.visibility}
+          ?supporter=${!!this.supportStatus?.supporter}
+          @sx-visibility-change=${(e: CustomEvent<{ value: Visibility }>) => {
+            this.visibility = e.detail.value;
+            this.offer = false;
+          }}
+          @sx-visibility-locked=${() => (this.offer = true)}
+        ></sx-visibility-picker>
+        <div class="hint consequence" aria-live="polite">${SHARE_CONSEQUENCE[isVisibility(this.visibility) ? this.visibility : 'public']}</div>
+      </div>
+      ${this.offer ? this.lockedOffer() : ''}
       ${this.boats.length
         ? html`<div>
             <label class="label" for="boat">Boot</label>
@@ -382,6 +461,16 @@ export class SxShareDialog extends LitElement {
         <button type="submit" class="btn primary" ?disabled=${this.busy}>${icon('share')} ${this.busy ? 'Lade hoch …' : 'Link erstellen'}</button>
       </div>
     </form>`;
+  }
+
+  /** Gesperrte Stufe gewählt: erklären und – wenn eingerichtet – das Unterstützen-Angebot zeigen. */
+  private lockedOffer() {
+    return html`<div class="locked-offer" role="status">
+      <div class="note">${icon('pennant')}<span>„Nur mit Link“ und „Nur ich“ gibt es für Unterstützer. Kostenlos geteilte Törns sind öffentlich.${this.supportTiers?.length ? '' : ' Unterstützen ist auf dieser Installation nicht eingerichtet.'}</span></div>
+      ${this.supportTiers?.length
+        ? html`<sx-support variant="offer" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy}></sx-support>`
+        : ''}
+    </div>`;
   }
 
   render() {

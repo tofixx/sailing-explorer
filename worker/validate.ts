@@ -1,4 +1,6 @@
 // Reine Validierungsfunktionen – ohne Worker-APIs, damit sie unit-testbar sind.
+import { SUPPORT_TIERS } from '../src/domain/support';
+import { isVisibility, type Visibility } from '../src/domain/visibility';
 
 export const LIMITS = {
   /** komprimierte Upload-Größe */
@@ -8,7 +10,7 @@ export const LIMITS = {
   summaryLength: 200,
   viewLength: 200,
   emailLength: 254,
-  sharesPerUser: 500,
+  sharesPerUser: 100,
   /** Speicher pro Konto (komprimiert) */
   bytesPerUser: 200 * 1024 * 1024,
   boatsPerUser: 50,
@@ -21,7 +23,7 @@ export const LIMITS = {
 export const SHARE_ID_RE = /^[A-Za-z0-9]{12,32}$/;
 export const TOKEN_RE = /^[A-Za-z0-9_-]{40,64}$/;
 
-export type Visibility = 'unlisted' | 'private';
+export type { Visibility };
 
 /** Steuerzeichen, Zero-Width- und Bidi-Override-Zeichen (Spoofing in Titeln). */
 function isInvisible(cp: number): boolean {
@@ -48,8 +50,9 @@ export function normalizeEmail(input: unknown): string | null {
   return email;
 }
 
+/** Sichtbarkeit von Törns, Booten und Profilen: public | unlisted | private (Konzept 1.1). Alles andere → null. */
 export function parseVisibility(input: unknown): Visibility | null {
-  return input === 'unlisted' || input === 'private' ? input : null;
+  return isVisibility(input) ? input : null;
 }
 
 /** Ansichtszustand ist ein Querystring-Fragment wie "m=wind&l=s,w" – nur bekannte Zeichen. */
@@ -74,9 +77,41 @@ export function isSameOrigin(request: Request): boolean {
 
 export const BOAT_ID_RE = SHARE_ID_RE;
 
-/** Sichtbarkeit von Profilen und Booten. */
-export function parsePublicVisibility(input: unknown): 'public' | 'private' | null {
-  return input === 'public' || input === 'private' ? input : null;
+// ---------------------------------------------------------------- Unterstützen
+
+/** Kostenlose Freigaben pro Konto aus der Konfiguration (Standard 3, nie über dem Gesamtlimit). */
+export function parseFreeShares(input: unknown, fallback = 3): number {
+  const n = typeof input === 'string' && /^\d{1,4}$/.test(input.trim()) ? Number(input.trim()) : fallback;
+  return Math.min(n, LIMITS.sharesPerUser);
+}
+
+/** Betrag (Cent) nur aus den festen Slider-Stufen – keine frei wählbaren Summen. */
+export function parseSupportAmount(input: unknown): number | null {
+  return typeof input === 'number' && SUPPORT_TIERS.some((t) => t.amount === input) ? input : null;
+}
+
+/** Zerlegt den Stripe-Signature-Header „t=…,v1=…,v1=…“ (unbekannte Schemata wie v0 werden ignoriert). */
+export function parseStripeSignature(header: string | null): { timestamp: number; signatures: string[] } | null {
+  if (!header || header.length > 2048) return null;
+  let timestamp = NaN;
+  const signatures: string[] = [];
+  for (const part of header.split(',')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    const k = part.slice(0, i).trim();
+    const v = part.slice(i + 1).trim();
+    if (k === 't' && /^\d{1,12}$/.test(v)) timestamp = Number(v);
+    else if (k === 'v1' && /^[0-9a-f]{64}$/.test(v)) signatures.push(v);
+  }
+  return Number.isFinite(timestamp) && signatures.length ? { timestamp, signatures } : null;
+}
+
+/** Vergleich in konstanter Laufzeit (bei gleicher Länge) – gegen Timing-Angriffe auf Signaturen. */
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 /** Reservierte Profilnamen (Routen, Verwechslungsgefahr). */

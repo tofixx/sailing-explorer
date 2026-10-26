@@ -2,25 +2,35 @@ import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { canManageBoat } from './boats';
 import { randomId } from './crypto';
-import { HttpError, clientIp, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
+import { HttpError, clientIp, countKeyFailure, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
+import { canView, nextShareKey, requestKey } from './access';
+import { checkShareQuota, checkVisibilityChoice, supportStatus, visibilityRequiresSupport } from './supporter';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseVisibility } from './validate';
+import { FREE_RETENTION_MS } from '../src/domain/support';
+import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
 
 export interface ShareRow {
   id: string;
   user_id: string;
   title: string;
   summary: string;
-  visibility: 'unlisted' | 'private';
+  visibility: Visibility;
+  /** Schlüssel für „Nur mit Link“; NULL = keiner (Altbestand: /s/<id> genügt, F-91) */
+  share_key: string | null;
   view: string;
   size_bytes: number;
   track_count: number;
   created_at: number;
   updated_at: number;
   boat_id: string | null;
-  listed: number;
+  /** veraltet seit 0006: wird nur noch geschrieben (= visibility public), nie gelesen */
+  listed?: number;
   dist_nm: number;
   started_at: number | null;
   has_image: number;
+  expiry_warned_at?: number | null;
+  /** aus EXPIRES_SQL */
+  expires_at?: number | null;
   /** aus dem JOIN mit boats */
   boat_name?: string | null;
   boat_visibility?: string | null;
@@ -30,24 +40,34 @@ const key = (id: string) => `shares/${id}`;
 const imageKey = (id: string) => `previews/${id}.jpg`;
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
-export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility
+/**
+ * Löschzeitpunkt eines Törns: 3 Monate nach Upload bzw. nach Ende der Unterstützung (später gilt).
+ * Gleiche Regel wie shareExpiry() in src/domain/support.ts.
+ */
+export const EXPIRES_SQL = `(MAX(s.created_at, COALESCE((SELECT MAX(valid_until) FROM supports WHERE user_id = s.user_id), 0)) + ${FREE_RETENTION_MS})`;
+
+export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility, ${EXPIRES_SQL} AS expires_at
   FROM shares s LEFT JOIN boats b ON b.id = s.boat_id`;
 
 export function shareShape(row: ShareRow, isOwner: boolean) {
-  // Private Boote sieht nur der Eigentümer der Freigabe.
+  // Nicht öffentliche Boote nennt nur der Eigentümer der Freigabe (F-82).
   const boat = row.boat_id && (isOwner || row.boat_visibility === 'public') ? { id: row.boat_id, name: row.boat_name ?? '' } : null;
   return {
     id: row.id,
     title: row.title,
     summary: row.summary,
     visibility: row.visibility,
-    listed: !!row.listed,
+    // Schlüssel und Teilen-Link sieht nur der Eigentümer (Konzept 2.4).
+    shareKey: isOwner ? row.share_key : null,
+    link: isOwner ? sharePath('s', row.id, row.visibility, row.share_key) : null,
     view: row.view,
     sizeBytes: row.size_bytes,
     trackCount: row.track_count,
     distNm: row.dist_nm,
     startedAt: row.started_at,
     hasImage: !!row.has_image,
+    // nur der Besitzer sieht, wann sein Törn gelöscht wird
+    expiresAt: isOwner ? (row.expires_at ?? null) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     boat,
@@ -60,13 +80,24 @@ export async function getShareRow(env: Env, id: string): Promise<ShareRow | null
   return env.DB.prepare(`${SHARE_SELECT} WHERE s.id = ?`).bind(id).first<ShareRow>();
 }
 
-/** Lädt eine Freigabe, die der Anfragende sehen darf – private nur für den Besitzer. */
-async function visibleShare(request: Request, env: Env, id: string) {
+/** Zugriffsprüfung einer Freigabe (Altbestand „Nur mit Link“ ohne Schlüssel bleibt über die ID erreichbar). */
+export const canViewShare = (row: ShareRow, manager: boolean, key: string | null) =>
+  canView({ visibility: row.visibility, shareKey: row.share_key }, { manager, key }, true);
+
+/**
+ * Lädt eine Freigabe, die der Anfragende sehen darf (worker/access.ts): öffentlich für alle, „Nur mit Link“ mit
+ * Schlüssel (X-Share-Key, bei Bildern ?k=), privat nur für den Besitzer. Alles andere ist dieselbe 404 wie eine
+ * unbekannte ID – mit denselben Abfragen.
+ */
+async function visibleShare(request: Request, env: Env, id: string, allowQueryKey = false) {
   const row = await getShareRow(env, id);
-  if (!row) throw NOT_FOUND();
   const user = await currentUser(request, env);
-  const isOwner = !!user && user.id === row.user_id;
-  if (row.visibility === 'private' && !isOwner) throw NOT_FOUND();
+  const k = requestKey(request, allowQueryKey);
+  const isOwner = !!row && !!user && user.id === row.user_id;
+  if (!row || !canViewShare(row, isOwner, k)) {
+    await countKeyFailure(env, request, k);
+    throw NOT_FOUND();
+  }
   return { row, isOwner };
 }
 
@@ -126,15 +157,22 @@ export async function createShare(request: Request, env: Env): Promise<Response>
   const user = await requireUser(request, env);
   await rateLimit(env.UPLOAD_LIMITER, `upload:${user.id}:${clientIp(request)}`);
 
-  // Kontingent vor dem Einlesen prüfen (Anzahl und Gesamtgröße pro Konto).
-  const usage = await env.DB.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS bytes FROM shares WHERE user_id = ?')
-    .bind(user.id)
-    .first<{ n: number; bytes: number }>();
-  if ((usage?.n ?? 0) >= LIMITS.sharesPerUser) throw new HttpError(409, 'quota', 'Maximale Anzahl an Freigaben erreicht.');
-  const remaining = LIMITS.bytesPerUser - (usage?.bytes ?? 0);
+  const h = request.headers;
+  // Sichtbarkeit: fehlt sie, gilt „Öffentlich“ (E1); Unbekanntes wird abgelehnt statt still umgedeutet.
+  const rawVisibility = h.get('X-Share-Visibility');
+  let visibility = rawVisibility ? parseVisibility(rawVisibility) : DEFAULT_VISIBILITY;
+  if (!visibility) throw new HttpError(400, 'invalid_visibility', 'Unbekannte Sichtbarkeit.');
+  // Ältere Oberflächen schicken „Öffentlich“ noch als unlisted + X-Share-Listed: 1.
+  if (visibility === 'unlisted' && h.get('X-Share-Listed') === '1') visibility = 'public';
+
+  // Kontingent vor dem Einlesen prüfen (Anzahl, kostenlose Freigaben bzw. Unterstützer, Gesamtgröße pro Konto)
+  // und die Sichtbarkeit (E1: nicht öffentlich nur mit laufendem Unterstützer-Status).
+  const usage = await supportStatus(env, user.id);
+  checkShareQuota(env, usage);
+  if (!canChooseVisibility(visibility, usage.supporter)) throw visibilityRequiresSupport(env);
+  const remaining = LIMITS.bytesPerUser - usage.bytesUsed;
   if (remaining <= 0) throw new HttpError(409, 'quota', 'Speicherkontingent erschöpft – bitte alte Freigaben löschen.');
 
-  const h = request.headers;
   const boatId = await checkBoat(env, user.id, h.get('X-Share-Boat'));
 
   const bytes = await readBodyCapped(request, Math.min(LIMITS.uploadBytes, remaining)).catch((e: unknown) => {
@@ -150,14 +188,14 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     user_id: user.id,
     title: cleanText(decodeHeader(h.get('X-Share-Title')), LIMITS.titleLength) || 'Törn',
     summary: cleanText(decodeHeader(h.get('X-Share-Summary')), LIMITS.summaryLength),
-    visibility: parseVisibility(h.get('X-Share-Visibility')) ?? 'unlisted',
+    visibility,
+    share_key: nextShareKey(null, visibility, null, false, true),
     view: cleanView(decodeHeader(h.get('X-Share-View'))),
     size_bytes: bytes.length,
     track_count: Math.max(1, Math.min(LIMITS.tracksPerShare, Number(h.get('X-Share-Tracks')) || 1)),
     created_at: now,
     updated_at: now,
     boat_id: boatId,
-    listed: h.get('X-Share-Listed') === '1' ? 1 : 0,
     // Angaben des Clients nur plausibilisiert übernehmen – sie dienen nur der Anzeige.
     dist_nm: Math.max(0, Math.min(100_000, Number(h.get('X-Share-Distance')) || 0)),
     started_at: Number.isFinite(started) && started > 0 && started < now + 86_400_000 ? started : null,
@@ -169,10 +207,13 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     customMetadata: { owner: user.id },
   });
   await env.DB.prepare(
-    `INSERT INTO shares (id, user_id, title, summary, visibility, view, size_bytes, track_count, created_at, updated_at, boat_id, listed, dist_nm, started_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO shares (id, user_id, title, summary, visibility, share_key, view, size_bytes, track_count, created_at, updated_at, boat_id, listed, dist_nm, started_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(row.id, row.user_id, row.title, row.summary, row.visibility, row.view, row.size_bytes, row.track_count, now, now, row.boat_id, row.listed, row.dist_nm, row.started_at)
+    .bind(
+      row.id, row.user_id, row.title, row.summary, row.visibility, row.share_key, row.view, row.size_bytes, row.track_count, now, now, row.boat_id,
+      row.visibility === 'public' ? 1 : 0, row.dist_nm, row.started_at,
+    )
     .run();
   const saved = await getShareRow(env, row.id);
   return json({ share: shareShape(saved ?? row, true) }, { status: 201 });
@@ -200,18 +241,19 @@ export async function getShareData(request: Request, env: Env, id: string): Prom
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Encoding': 'gzip',
     ETag: obj.httpEtag,
-    // Revalidieren statt cachen: gelöschte/privat gestellte Freigaben verschwinden sofort.
+    // Revalidieren statt cachen: gelöschte/privat gestellte Freigaben und erneuerte Links greifen sofort.
     'Cache-Control': 'private, no-cache',
-    Vary: 'Cookie',
+    Vary: 'Cookie, X-Share-Key',
   });
   if (!('body' in obj)) return withApiHeaders(new Response(null, { status: 304, headers }));
   return withApiHeaders(new Response(obj.body, { headers, encodeBody: 'manual' }));
 }
 
-/** PATCH /api/shares/:id – Titel, Sichtbarkeit, Profil-Anzeige, Boot, gespeicherte Ansicht. */
+/** PATCH /api/shares/:id – Titel, Sichtbarkeit, Link erneuern (rotateKey), Boot, gespeicherte Ansicht. */
 export async function updateShare(request: Request, env: Env, id: string): Promise<Response> {
   const { row, user } = await ownedShare(request, env, id);
-  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; listed?: unknown; boatId?: unknown }>(request);
+  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown }>(request);
+  const previous = row.visibility;
   if (body.title !== undefined) {
     const t = cleanText(body.title, LIMITS.titleLength);
     if (!t) throw new HttpError(400, 'invalid_title', 'Titel darf nicht leer sein.');
@@ -219,15 +261,16 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
   }
   if (body.visibility !== undefined) {
     const v = parseVisibility(body.visibility);
-    if (!v) throw new HttpError(400, 'invalid_visibility');
+    if (!v) throw new HttpError(400, 'invalid_visibility', 'Unbekannte Sichtbarkeit.');
+    await checkVisibilityChoice(env, user.id, v, previous);
     row.visibility = v;
   }
-  if (body.listed !== undefined) row.listed = body.listed === true ? 1 : 0;
+  row.share_key = nextShareKey(previous, row.visibility, row.share_key, body.rotateKey === true, true);
   if (body.boatId !== undefined) row.boat_id = await checkBoat(env, user.id, body.boatId);
   if (body.view !== undefined) row.view = cleanView(body.view);
   row.updated_at = Date.now();
-  await env.DB.prepare('UPDATE shares SET title = ?, visibility = ?, listed = ?, boat_id = ?, view = ?, updated_at = ? WHERE id = ?')
-    .bind(row.title, row.visibility, row.listed, row.boat_id, row.view, row.updated_at, row.id)
+  await env.DB.prepare('UPDATE shares SET title = ?, visibility = ?, share_key = ?, listed = ?, boat_id = ?, view = ?, updated_at = ? WHERE id = ?')
+    .bind(row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.updated_at, row.id)
     .run();
   const saved = await getShareRow(env, row.id);
   return json({ share: shareShape(saved ?? row, true) });
@@ -240,11 +283,14 @@ export async function deleteShare(request: Request, env: Env, id: string): Promi
   return new Response(null, { status: 204 });
 }
 
-/** Öffentlich gelistete Törns (für Profil- und Bootsseiten). */
-export async function listedShares(env: Env, where: 'user' | 'boat', id: string): Promise<ReturnType<typeof shareShape>[]> {
+/**
+ * Öffentliche Törns für Profil- und Bootsseiten (F-83) – nie „Nur mit Link“ oder „Nur ich“, auch nicht für Verwalter:
+ * ein Schlüssel öffnet genau ein Objekt, ein Boots- oder Profil-Link also keine anderen Törns (Konzept 1.2).
+ */
+export async function publicShares(env: Env, where: 'user' | 'boat', id: string): Promise<ReturnType<typeof shareShape>[]> {
   const col = where === 'user' ? 's.user_id' : 's.boat_id';
   const { results } = await env.DB.prepare(
-    `${SHARE_SELECT} WHERE ${col} = ? AND s.listed = 1 AND s.visibility = 'unlisted' ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
+    `${SHARE_SELECT} WHERE ${col} = ? AND s.visibility = 'public' ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
   )
     .bind(id)
     .all<ShareRow>();
@@ -267,21 +313,20 @@ export async function putShareImage(request: Request, env: Env, id: string): Pro
   return new Response(null, { status: 204 });
 }
 
-/** GET /api/shares/:id/image – Vorschaubild; gleiche Sichtbarkeit wie die Freigabe. */
+/** GET /api/shares/:id/image[?k=] – Vorschaubild; gleiche Sichtbarkeit wie die Freigabe (Schlüssel als ?k=). */
 export async function getShareImage(request: Request, env: Env, id: string): Promise<Response> {
-  const { row } = await visibleShare(request, env, id);
+  const { row } = await visibleShare(request, env, id, true);
   if (!row.has_image) throw NOT_FOUND();
   const obj = await env.TRACKS.get(imageKey(row.id), { onlyIf: request.headers });
   if (!obj) throw NOT_FOUND();
   const headers = new Headers({
     'Content-Type': 'image/jpeg',
     ETag: obj.httpEtag,
-    // Öffentliche Bilder dürfen Messenger kurz cachen, private nie.
-    'Cache-Control': row.visibility === 'private' ? 'private, no-cache' : 'public, max-age=300',
-    'Cross-Origin-Resource-Policy': 'cross-origin',
+    // Öffentliche Bilder dürfen Messenger kurz cachen; „Nur mit Link“ und „Nur ich“ nie (erneuerte Links greifen sofort).
+    'Cache-Control': row.visibility === 'public' ? 'public, max-age=300' : 'private, no-cache',
   });
   const res = withApiHeaders(new Response('body' in obj ? obj.body : null, { status: 'body' in obj ? 200 : 304, headers }));
-  // Messenger-Crawler laden das Bild von fremden Seiten.
-  res.headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  // Messenger-Crawler laden das Bild von fremden Seiten (auch über den Schlüssel-Link); private Bilder bleiben same-origin.
+  if (row.visibility !== 'private') res.headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
   return res;
 }

@@ -9,4 +9,4 @@ export function cssVar(el: Element, name: string): string {
   return getComputedStyle(el).getPropertyValue(name).trim();
 }
 
-export { fmtDate, fmtDateTime, fmtDuration, fmtNum, fmtShort, plural } from '../domain/format';
+export { fmtDate, fmtDateTime, fmtDuration, fmtMB, fmtNum, fmtShort, plural } from '../domain/format';

@@ -23,6 +23,10 @@ export interface Harness {
   fetch: (path: string, init?: RequestInit & { cookie?: string; origin?: string | null; ip?: string }) => Promise<Response>;
   db: () => Promise<D1Like>;
   r2: () => Promise<R2Like>;
+  /** Löst den Cron-Handler (scheduled) des Workers aus und wartet, bis er samt waitUntil fertig ist. */
+  scheduled: (cron?: string) => Promise<{ outcome: string }>;
+  /** Alle Worker-Logs (console.log/error) seit dem Start – z. B. „[mail:log] …“ */
+  logs: string[];
   dispose: () => Promise<void>;
 }
 
@@ -37,7 +41,29 @@ export interface R2Like {
   list(opts?: { prefix?: string }): Promise<{ objects: Array<{ key: string }> }>;
 }
 
-export async function startWorker(): Promise<Harness> {
+/** Migrationsdateien in Reihenfolge, optional nur die ab (`from`) bzw. vor (`before`) einem Namenspräfix wie '0006'. */
+export function migrationFiles(o: { from?: string; before?: string } = {}): string[] {
+  return readdirSync(resolve('migrations'))
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .filter((f) => (!o.from || f >= o.from) && (!o.before || f < o.before));
+}
+
+/** Wendet Migrationen an wie `wrangler d1 migrations apply` (Anweisung für Anweisung, ohne Kommentare). */
+export async function applyMigrations(db: D1Like, files: string[]): Promise<void> {
+  for (const file of files) {
+    const sql = readFileSync(resolve('migrations', file), 'utf8').replace(/--[^\n]*/g, '');
+    for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
+      await db.prepare(stmt).all();
+    }
+  }
+}
+
+/**
+ * bindings: zusätzliche/abweichende vars und Secrets (z. B. Stripe-Konfiguration für die Unterstützen-Tests).
+ * opts.migrateBefore: nur die Migrationen vor diesem Präfix anwenden (Migrationstests mit Altbestand).
+ */
+export async function startWorker(bindings: Record<string, string> = {}, opts: { migrateBefore?: string } = {}): Promise<Harness> {
   // Worker-Quelltext (TypeScript) wie wrangler zu einem ES-Modul bündeln – nur im Speicher.
   const out = await build({
     entryPoints: [resolve('worker/index.ts')],
@@ -49,11 +75,13 @@ export async function startWorker(): Promise<Harness> {
     logLevel: 'silent',
   });
   const script = out.outputFiles[0].text;
+  const logs: string[] = [];
 
   // Miniflare 5 (Beta) hat eine neue Options-Struktur; die bekannte v4-Form wird konvertiert.
   const mf = new Miniflare(convertV4MiniflareOptions({
     // Worker-Logs (z. B. „[mail:log] …“) nicht in die Testausgabe, Fehler schon
     handleStructuredLogs: (log: { level: string; message: string }) => {
+      logs.push(log.message);
       if (log.level === 'error') console.error(log.message);
     },
     workers: [
@@ -71,6 +99,7 @@ export async function startWorker(): Promise<Harness> {
         ratelimits: {
           UPLOAD_LIMITER: { namespace_id: '1001', simple: { limit: 10, period: 60 } },
           AUTH_LIMITER: { namespace_id: '1002', simple: { limit: 5, period: 60 } },
+          LINK_LIMITER: { namespace_id: '1003', simple: { limit: 30, period: 60 } },
         },
         bindings: {
           APP_NAME: 'Sail Explorer',
@@ -78,6 +107,9 @@ export async function startWorker(): Promise<Harness> {
           MAIL_FROM: 'Sail Explorer <login@example.test>',
           TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
           // kein TURNSTILE_SECRET → Captcha wird lokal übersprungen
+          FREE_SHARES: '3',
+          // ohne Payment-Links und Webhook-Secret (wie wrangler.jsonc ohne Secrets) → Unterstützen ist aus
+          ...bindings,
         },
         serviceBindings: {
           ASSETS: async () => new Response(INDEX_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } }) as never,
@@ -87,15 +119,9 @@ export async function startWorker(): Promise<Harness> {
   }));
   await mf.ready;
 
-  // Alle Migrationen in Reihenfolge selbst anwenden (wie `wrangler d1 migrations apply`).
+  // Migrationen in Reihenfolge selbst anwenden (wie `wrangler d1 migrations apply`).
   const db = (await mf.getD1Database('DB')) as unknown as D1Like;
-  const files = readdirSync(resolve('migrations')).filter((f) => f.endsWith('.sql')).sort();
-  for (const file of files) {
-    const sql = readFileSync(resolve('migrations', file), 'utf8').replace(/--[^\n]*/g, '');
-    for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
-      await db.prepare(stmt).all();
-    }
-  }
+  await applyMigrations(db, migrationFiles({ before: opts.migrateBefore }));
 
   return {
     mf,
@@ -112,6 +138,11 @@ export async function startWorker(): Promise<Harness> {
     },
     db: async () => db,
     r2: async () => (await mf.getR2Bucket('TRACKS')) as unknown as R2Like,
+    async scheduled(cron = '0 3 * * *') {
+      const worker = (await mf.getWorker()) as unknown as { scheduled(o: { cron?: string; scheduledTime?: Date }): Promise<{ outcome: string }> };
+      return worker.scheduled({ cron, scheduledTime: new Date() });
+    },
+    logs,
     async dispose() {
       await mf.dispose();
     },
@@ -193,9 +224,34 @@ export async function createShare(h: Harness, cookie: string | undefined, o: Sha
       'X-Share-Summary': encodeURIComponent(o.summary ?? '1,2 sm · 13.06.2026'),
       'X-Share-View': encodeURIComponent(o.view ?? ''),
       'X-Share-Tracks': String(o.tracks?.length ?? 1),
-      'X-Share-Visibility': o.visibility ?? 'unlisted',
+      'X-Share-Visibility': o.visibility ?? 'public',
       ...(o.headers ?? {}),
     },
     body,
   });
+}
+
+// ---------------------------------------------------------------- Unterstützen
+
+/** Schaltet ein Konto direkt in der Datenbank als Unterstützer frei (für Tests, die viele Freigaben brauchen). */
+export async function grantSupport(h: Harness, userId: string, validUntil = Date.now() + 365 * 86_400_000): Promise<void> {
+  const ref = `test_${userId}_${Math.random().toString(36).slice(2)}`;
+  await (await h.db())
+    .prepare("INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at, valid_until) VALUES (?, ?, 'test', ?, 0, 'eur', ?, ?)")
+    .bind(ref, userId, ref, Date.now(), validUntil)
+    .run();
+}
+
+/** Anmeldung als laufender Unterstützer – darf „Nur mit Link“ und „Nur ich“ wählen (E1). */
+export async function loginSupporter(h: Harness, email: string): Promise<{ cookie: string; user: { id: string; email: string } }> {
+  const s = await login(h, email);
+  await grantSupport(h, s.user.id);
+  return s;
+}
+
+/** Stripe-Signature-Header wie Stripe ihn bildet: t=<sek>,v1=HMAC-SHA256(secret, "t.body") als Hex. */
+export async function stripeSignature(secret: string, body: string, timestamp = Math.floor(Date.now() / 1000)): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(`${timestamp}.${body}`)));
+  return `t=${timestamp},v1=${[...mac].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
 }
