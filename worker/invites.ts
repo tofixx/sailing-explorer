@@ -6,6 +6,7 @@ import { roleFor } from './boats';
 import { randomId, randomToken, sha256Hex } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { inviteMail, sendMail } from './mail';
+import { assertActive } from './moderation';
 import { getShareRow, ownedShare, visibleShare } from './shares';
 import { BOAT_ID_RE, TOKEN_RE, normalizeEmail, parseInviteKind, type InviteKind } from './validate';
 import { funnyName } from '../src/domain/names';
@@ -82,6 +83,7 @@ interface NewInvite {
 
 /** Legt eine Einladung an (Grenzen pro Konto und Mail-Budget) und verschickt bei gebundenen Einladungen die Mail. */
 async function createInvite(request: Request, env: Env, user: User, o: NewInvite) {
+  await assertActive(env, user); // gesperrte Konten laden nicht ein (Konzept 4.4)
   await rateLimit(env.AUTH_LIMITER, `invite:${user.id}`);
   const now = Date.now();
   if ((await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE inviter_id = ? AND created_at > ?', user.id, now - DAY)) >= INVITE_LIMITS.perUserPerDay) {
@@ -139,7 +141,7 @@ export async function listBoatAdmins(request: Request, env: Env, id: string): Pr
   if (!role) throw BOAT_NOT_FOUND();
   const owner = role === 'owner';
   const { results } = await env.DB.prepare(
-    `SELECT a.user_id, a.created_at, p.handle, p.display_name, p.visibility FROM boat_admins a
+    `SELECT a.user_id, a.created_at, p.handle, p.display_name, CASE WHEN p.hidden_at IS NULL THEN p.visibility END AS visibility FROM boat_admins a
      LEFT JOIN profiles p ON p.user_id = a.user_id WHERE a.boat_id = ? ORDER BY a.created_at`,
   )
     .bind(id)
@@ -206,7 +208,7 @@ interface CrewRow {
 
 async function crewRows(env: Env, shareId: string): Promise<CrewRow[]> {
   const { results } = await env.DB.prepare(
-    `SELECT c.user_id, c.created_at, p.handle, p.display_name, p.visibility FROM share_crew c
+    `SELECT c.user_id, c.created_at, p.handle, p.display_name, CASE WHEN p.hidden_at IS NULL THEN p.visibility END AS visibility FROM share_crew c
      LEFT JOIN profiles p ON p.user_id = c.user_id WHERE c.share_id = ? ORDER BY c.created_at`,
   )
     .bind(shareId)
@@ -339,6 +341,7 @@ export async function peekInvite(request: Request, env: Env): Promise<Response> 
 /** POST /api/invites/accept – angemeldet, ausdrücklich bestätigt. Prüfungen in Konzept 10.2. */
 export async function acceptInvite(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
+  await assertActive(env, user);
   const inv = await loadInvite(request, env, (await readJson<{ token?: unknown }>(request)).token);
   if (inv.email && inv.email !== user.email) {
     throw new HttpError(403, 'invite_wrong_account', 'Diese Einladung gilt für eine andere E-Mail-Adresse. Bitte mit der eingeladenen Adresse anmelden.');

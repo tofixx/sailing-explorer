@@ -4,6 +4,10 @@ import { isVisibility, type Visibility } from '../src/domain/visibility';
 import { DEFAULT_FREE_SHARES, PHOTO_CAPTION_LENGTH, SHARE_IMAGE_BYTES, SHARE_UPLOAD_BYTES, STORAGE_HARD_BYTES, STORAGE_SOFT_BYTES, limitsFor } from '../src/domain/limits';
 import { isPhotoVisibility, type PhotoVisibility } from '../src/domain/visibility';
 import { isPlacement, roundCoord, type Placement } from '../src/domain/photo-place';
+import {
+  isCommentsMode, isNotifyMode, isReportKind, isReportReason,
+  type CommentsMode, type NotifyMode, type ReportKind, type ReportReason,
+} from '../src/domain/comment-text';
 
 /**
  * Technische Obergrenzen einzelner Anfragen. Kontingente pro Konto (Törns, Speicher, Boote, Fotos) stehen je Stufe
@@ -199,3 +203,26 @@ export function parsePhotoMeta(header: string | null, now = Date.now()): PhotoMe
   if (!pos || !visibility) return null;
   return { caption: cleanText(raw.caption, PHOTO_CAPTION_LENGTH), takenAt: parseTakenAt(raw.takenAt, now), ...pos, visibility };
 }
+
+// ---------------------------------------------------------------- Kommentare & Melden (Phase D)
+
+/** Kommentare am Törn: on | off | hidden (Konzept 4.1). */
+export const parseCommentsMode = (input: unknown): CommentsMode | null => (isCommentsMode(input) ? input : null);
+/** Mail-Benachrichtigung über neue Kommentare: off | daily. */
+export const parseNotifyMode = (input: unknown): NotifyMode | null => (isNotifyMode(input) ? input : null);
+/** Meldbare Objekte (Fotos folgen mit Phase C). */
+export const parseReportKind = (input: unknown): ReportKind | null => (isReportKind(input) ? input : null);
+export const parseReportReason = (input: unknown): ReportReason | null => (isReportReason(input) ? input : null);
+export const COMMENT_ID_RE = SHARE_ID_RE;
+
+/** Konto-IDs aus ADMIN_USER_IDS (kommagetrennt). Ungültige Einträge werden ignoriert; leer = niemand (fail closed). */
+export function adminIds(env: { ADMIN_USER_IDS?: string }): Set<string> {
+  return new Set(
+    (env.ADMIN_USER_IDS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => SHARE_ID_RE.test(s)),
+  );
+}
+
+export const isAdmin = (env: { ADMIN_USER_IDS?: string }, userId: string | null | undefined): boolean => !!userId && adminIds(env).has(userId);

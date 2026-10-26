@@ -3,6 +3,7 @@ import { currentUser, requireUser } from './auth';
 import { boatShape } from './boats';
 import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
+import { isAdmin } from './moderation';
 import { crewShares, publicShares } from './shares';
 import { checkVisibilityChoice } from './supporter';
 import { LIMITS, cleanText, normalizeHandle, parseVisibility } from './validate';
@@ -17,6 +18,8 @@ interface ProfileRow {
   visibility: Visibility;
   /** Schlüssel für „Nur mit Link“ (0006) */
   share_key: string | null;
+  /** per Meldung oder Admin ausgeblendet (0009) */
+  hidden_at?: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -33,6 +36,8 @@ function profileShape(p: ProfileRow, isSelf: boolean) {
     shareKey: isSelf ? p.share_key : null,
     link: isSelf ? sharePath('u', p.handle, p.visibility, p.share_key) : null,
     isSelf,
+    /** nur für sich selbst und nur, wenn das Profil bis zur Prüfung ausgeblendet ist (Konzept 4.4) */
+    ...(isSelf && p.hidden_at ? { hiddenAt: p.hidden_at } : {}),
   };
 }
 
@@ -108,14 +113,14 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
   const p = handle ? await env.DB.prepare('SELECT * FROM profiles WHERE handle = ?').bind(handle).first<ProfileRow>() : null;
   const user = await currentUser(request, env);
   const isSelf = !!p && user?.id === p.user_id;
-  if (!p || !canView({ visibility: p.visibility, shareKey: p.share_key }, { manager: isSelf, key })) {
+  if (!p || !canView({ visibility: p.visibility, shareKey: p.share_key, hiddenAt: p.hidden_at ?? null }, { manager: isSelf, key, admin: isAdmin(env, user?.id) })) {
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }
 
   const { results: boats } = await env.DB.prepare(
     `SELECT b.*, ?2 AS owner_handle, ?3 AS owner_name, 1 AS owner_public FROM boats b
-     WHERE b.owner_id = ?1 AND (b.visibility = 'public' OR ?4) ORDER BY b.name`,
+     WHERE b.owner_id = ?1 AND ((b.visibility = 'public' AND b.hidden_at IS NULL) OR ?4) ORDER BY b.name`,
   )
     .bind(p.user_id, p.handle, p.display_name, isSelf ? 1 : 0)
     .all();

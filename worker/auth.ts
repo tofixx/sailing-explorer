@@ -3,6 +3,7 @@ import { randomId, randomToken, sha256Hex } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { magicLinkMail, sendMail } from './mail';
 import { subtractUserStmt } from './storage';
+import { purgeUserReports } from './moderation';
 import { TOKEN_RE, normalizeEmail } from './validate';
 
 const SECURE_COOKIE = '__Host-sx_session';
@@ -188,6 +189,11 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
   await env.DB.batch([
     // Speicher der Törns vom globalen Zähler abziehen, bevor sie gelöscht werden (Konzept 5.2).
     subtractUserStmt(env, user.id),
+    // Kommentare & Meldungen (Phase D): Meldungen zu eigenen Inhalten zuerst (sie verweisen auf Kommentare),
+    // dann eigene Kommentare und alle Kommentare auf eigenen Törns (fielen auch per ON DELETE CASCADE).
+    ...purgeUserReports(env, user.id),
+    env.DB.prepare('DELETE FROM comments WHERE user_id = ?1 OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)').bind(user.id),
+    env.DB.prepare('DELETE FROM comment_log WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM shares WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM login_tokens WHERE email = ?').bind(user.email),

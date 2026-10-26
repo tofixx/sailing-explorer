@@ -785,8 +785,10 @@ describe('Phase A: Sichtbarkeit und Schlüssel-Links', () => {
     await settled();
     expect(state().mode).toMatchObject({ kind: 'share', key: KEY, share: { id: 'AbCdEfGhJkLmNpQr23' } });
     const calls = reads('/api/shares/AbCdEfGhJkLmNpQr23');
-    // Crew (F-134) wird mit demselben Schlüssel geladen wie Metadaten und Daten.
-    expect(calls.map((c) => c.url).sort()).toEqual(['/api/shares/AbCdEfGhJkLmNpQr23', '/api/shares/AbCdEfGhJkLmNpQr23/crew', '/api/shares/AbCdEfGhJkLmNpQr23/data']);
+    // Crew (F-134) und Kommentare (F-110) werden mit demselben Schlüssel geladen wie Metadaten und Daten.
+    expect(calls.map((c) => c.url).sort()).toEqual([
+      '/api/shares/AbCdEfGhJkLmNpQr23', '/api/shares/AbCdEfGhJkLmNpQr23/comments', '/api/shares/AbCdEfGhJkLmNpQr23/crew', '/api/shares/AbCdEfGhJkLmNpQr23/data',
+    ]);
     expect(calls.every((c) => c.headers['x-share-key'] === KEY)).toBe(true);
   });
 

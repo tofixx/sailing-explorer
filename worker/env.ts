@@ -30,4 +30,10 @@ export interface Env {
   STRIPE_API_BASE?: string;
   /** Signatur-Geheimnis des Stripe-Webhooks (Worker-Secret, whsec_…). */
   STRIPE_WEBHOOK_SECRET?: string;
+
+  // ---- Kommentare & Melden (Phase D) ----
+  /** Konto-IDs der Moderation, kommagetrennt (Variable oder Secret). Leer = keine Admin-Oberfläche, Meldungen werden trotzdem gespeichert. */
+  ADMIN_USER_IDS?: string;
+  /** Kontaktadresse für Meldungen ohne Konto (Impressum, Art. 16 DSA) – erscheint im Melden-Dialog. */
+  REPORT_CONTACT?: string;
 }

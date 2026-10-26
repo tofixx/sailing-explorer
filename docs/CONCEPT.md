@@ -279,6 +279,10 @@ gewähltem Titelbild), `X-Robots-Tag: noindex`.
 
 ## 4. Kommentare
 
+*Umgesetzt (Phase D, Oktober 2026): `migrations/0009_comments.sql`, `worker/comments.ts`, `worker/reports.ts`,
+`worker/moderation.ts`, `sx-comments`, `sx-report-dialog`, `sx-admin-reports`; Anforderungen F-110 … F-114.
+Abweichungen vom ursprünglichen Vorschlag sind unten vermerkt („Umgesetzt:“).*
+
 ### 4.1 Regeln
 
 | Punkt | Entscheidung |
@@ -289,8 +293,10 @@ gewähltem Titelbild), `X-Robots-Tag: noindex`.
 | Format | reiner Text, max. **1000 Zeichen**, `cleanText` ohne Zeilenumbruch-Zusammenfassung (max. 3 Leerzeilen). Kein HTML, kein Markdown. Auto-Links nur für `https?://…`, max. 2 Links pro Kommentar (sonst 400). Darstellung über Lit-Templates (escaped), Links als `<a>` aus dem geparsten Text, nie `innerHTML` |
 | Bearbeiten | nein (Phase 1); eigene Kommentare löschen jederzeit |
 | Moderation durch Eigentümer | jeden Kommentar auf seinem Törn löschen; `comments_mode` am Törn: `on` (Standard), `off` (Formular weg, Bestehendes bleibt sichtbar), `hidden` (alles ausgeblendet) |
-| Mail-Benachrichtigung | **opt-in** pro Konto: `aus` (Standard) / `täglich` (eine Sammelmail pro Tag, nur wenn neue Kommentare) – schont Resend Free (100/Tag). Globales Tageslimit im Cron, Rest am Folgetag |
+| Mail-Benachrichtigung | **opt-in** pro Konto: `aus` (Standard) / `täglich` (eine Sammelmail pro Tag, nur wenn neue Kommentare) – schont Resend Free (100/Tag). Globales Tageslimit im Cron, Rest am Folgetag. Umgesetzt: höchstens 25 Mails pro Lauf, Inhalt nur Törn + Anzahl (keine Kommentartexte, keine Namen), Einschalten zählt erst ab dann |
 | Kontolöschung | Kommentare des Kontos werden gelöscht (`ON DELETE CASCADE`), ebenso alle Kommentare auf seinen Törns |
+| Moderationsstatus | Umgesetzt als `hidden_at` (statt `status visible/hidden`), einheitlich für Törns, Kommentare, Profile und Boote. Ausgeblendete Kommentare sehen nur Autor:in (markiert) und Admins |
+| Fotos | `photo_id` existiert (nullable, ohne Fremdschlüssel), bleibt bis Phase C ungenutzt; ein mitgeschicktes `photoId` wird mit 400 abgelehnt |
 
 ### 4.2 Spam und Limits
 
@@ -298,6 +304,9 @@ gewähltem Titelbild), `X-Robots-Tag: noindex`.
   `comments(user_id, created_at)`; die Rate-Limit-Bindings kennen nur 10/60 s).
 - Pro Törn: max. 500 Kommentare.
 - Doppelter Text innerhalb 24 h desselben Kontos → 409.
+- Umgesetzt: Gezählt wird in `comment_log` (Konto, Zeitpunkt, SHA-256 des Textes, 24 h aufbewahrt) statt in
+  `comments` – sonst ließen sich die Grenzen durch Löschen umgehen. Fehlercodes: 429 `comment_too_fast`,
+  `comment_new_account`, `comment_quota`; 409 `duplicate_comment`, `comment_share_full`.
 - Gleiche Limits für alle Stufen: Unterstützen kauft Speicher und Aufbewahrung,
   nicht mehr Reichweite.
 
@@ -306,6 +315,10 @@ gewähltem Titelbild), `X-Robots-Tag: noindex`.
 `sx-comments` unter den Kennzahlen im Panel (mobil im Bottom-Sheet als eigener
 Abschnitt): Liste, Formular, Zeichenzähler, „Melden“, für Eigentümer „Löschen“
 und der Schalter Kommentare an/aus. Anzahl als Badge in der Lightbox.
+
+Umgesetzt: Panel „Kommentare“ nach „Crew“; ohne Anmeldung, ohne Profil, gesperrt oder abgeschaltet erscheint statt
+des Formulars der Grund (mit „Anmelden“ bzw. „Profil anlegen“). „Törn melden“ unter der Liste, „Melden“ auf Profil-
+und Bootsseiten. Die tägliche Sammelmail schaltet man im Konto unter „Einstellungen“.
 
 ### 4.4 Melden (DSA)
 
@@ -323,7 +336,21 @@ und der Schalter Kommentare an/aus. Anzahl als Badge in der Lightbox.
   (`users.suspended_at`). Gesperrte Konten können nicht mehr hochladen,
   kommentieren oder melden; ihre öffentlichen Inhalte verschwinden aus Listen.
 - Meldende bekommen keine Rückmeldung per Mail (Mail-Budget), aber den Status
-  in der App.
+  in der App. *Umgesetzt: nur die Bestätigung im Dialog; eine Statusliste für Meldende fehlt noch, weil entschiedene
+  Meldungen den Meldenden nicht mehr speichern.*
+
+**Umgesetzt (Details):**
+
+| Punkt | Umsetzung |
+|---|---|
+| Was | `share`, `comment`, `profile` (Ziel-ID = Konto-ID, gemeldet über den Profilnamen), `boat`; Fotos folgen mit Phase C |
+| Nur Sichtbares | Gleiche Prüfung wie beim Ansehen inkl. Schlüssel – sonst 404. Eigene Inhalte: 400 `own_object`. Höchstens 20 Meldungen pro Konto und Tag; doppelte Meldung zählt einmal |
+| Ausgeblendet | `hidden_at` an `shares`, `comments`, `profiles`, `boats`: wie nicht existent außer für Eigentümer bzw. Autor:in und Admins – API 404, keine Listen (Profil, Boot, Entdecken), neutrale Link-Vorschau, Autor/Boot/Crew ohne Namen-Link. Admins sehen Ausgeblendetes, aber nie fremde „Nur ich“-Objekte |
+| Admins | `ADMIN_USER_IDS` (kommagetrennte Konto-IDs, Variable oder Secret). Leer = keine Admin-Oberfläche (Routen 404), Meldungen werden trotzdem gespeichert. Reiter „Meldungen“ im Konto: je Ziel Gründe, Anmerkungen (ohne Meldende), Vorschau, Link (bei „Nur mit Link“ mit Schlüssel), Eigentümer |
+| Entscheiden | `POST /api/admin/reports/:id { action: keep \| hide \| delete }` gilt für alle offenen Meldungen zum Ziel. Danach ohne `reporter_id` und `note`; nach 180 Tagen gelöscht. Bei `delete` fallen Ziel und Meldungen weg (Profil: nur das Profil, Konto und Törns bleiben) |
+| Sperren | `POST /api/admin/users/:id/suspend { suspended }` setzt `users.suspended_at`: keine Uploads (Törn, Übersichtsbild), Kommentare, Meldungen, Einladungen (anlegen und annehmen), Inhalte verschwinden aus /entdecken. Ansehen, Löschen, Abmelden, Einstellungen gehen weiter. Admins sind nicht sperrbar. Fail closed: ein nicht (mehr) vorhandenes Konto gilt als gesperrt |
+| Kontakt ohne Konto | `REPORT_CONTACT` (Worker-Variable), angezeigt im Melden-Dialog (`GET /api/reports/info`) |
+| Aufräumen | Törn löschen/ablaufen und Konto löschen entfernen Meldungen zu den betroffenen Inhalten; eigene Meldungen eines gelöschten Kontos bleiben anonym. Nächtlich: verwaiste Meldungen, entschiedene > 180 Tage, `comment_log` > 24 h |
 
 ## 5. Kontingente und Stufen
 
@@ -502,6 +529,10 @@ gültig); `private` bleibt. Boote und Profile bleiben, wie sie sind – **keine
 stille Hochstufung** auf öffentlich; der neue Standard gilt nur für neu
 Angelegtes. Einmaliger Hinweis im Konto: „Neu: Öffentliche Törns erscheinen
 auch unter Entdecken.“
+
+*Umgesetzt: Kommentare und Meldungen kamen vor den Fotos als `0009_comments.sql` (ohne `photos`, `counters`;
+`comment_log` zusätzlich, `hidden_at` statt `status`, `comments_mode`/`hidden_at` an `shares` und `hidden_at` an
+`boats`/`profiles` per `ALTER TABLE`, `users.suspended_at`/`notify_comments`/`comments_mailed_at`).*
 
 ```sql
 -- 0006_photos_comments.sql

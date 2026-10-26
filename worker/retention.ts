@@ -5,6 +5,8 @@ import { purgeUser } from './auth';
 import { expiryWarningMail, sendMail } from './mail';
 import { EXPIRES_SQL } from './shares';
 import { recomputeStorage, storageTotal, subtractShareStmt } from './storage';
+import { sendCommentDigests } from './comments';
+import { deleteOrphanReports, deleteShareReports } from './moderation';
 import { INACTIVE_ACCOUNT_MS, WARN_MS } from '../src/domain/support';
 
 /** Obergrenzen pro Lauf – hält den Cron im Free-Tier-CPU-Budget; der Rest folgt in der nächsten Nacht. */
@@ -13,6 +15,10 @@ const MAX_WARN_USERS = 50;
 const MAX_PURGE_USERS = 50;
 /** D1-Batches klein halten. */
 const CHUNK = 50;
+/** Entschiedene (anonymisierte) Meldungen bleiben so lange als Nachweis, dann weg. */
+const RESOLVED_REPORTS_MS = 180 * 86_400_000;
+/** Spam-Zähler für Kommentare (comment_log) braucht nur die letzten 24 h. */
+const COMMENT_LOG_MS = 86_400_000;
 
 export interface RetentionResult {
   deleted: number;
@@ -22,6 +28,8 @@ export interface RetentionResult {
   storageBytes: number;
   /** Abweichung des inkrementell gepflegten Zählers vom neu berechneten Wert (null = Zeile fehlte) */
   storageDrift: number | null;
+  /** verschickte Sammelmails über neue Kommentare */
+  digests: number;
 }
 
 function chunks<T>(list: T[], size = CHUNK): T[][] {
@@ -37,8 +45,8 @@ async function deleteExpired(env: Env, now: number): Promise<number> {
     .all<{ id: string }>();
   for (const part of chunks(results)) {
     await env.TRACKS.delete(part.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]));
-    // Speicher je Törn vom globalen Zähler abziehen, im selben Batch wie das Löschen.
-    await env.DB.batch(part.flatMap((r) => [subtractShareStmt(env, r.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)]));
+    // Speicher vom globalen Zähler abziehen und Meldungen zum Törn entfernen – im selben Batch wie das Löschen.
+    await env.DB.batch(part.flatMap((r) => [subtractShareStmt(env, r.id), deleteShareReports(env, r.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)]));
   }
   return results.length;
 }
@@ -98,15 +106,24 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   const deleted = await deleteExpired(env, now);
   const warned = await warnExpiring(env, origin, now);
   const purged = await purgeInactive(env, now);
+  // Sammelmail nach dem Aufräumen: Kommentare auf gerade gelöschten Törns zählen nicht mehr.
+  const digests = await sendCommentDigests(env, origin, now).catch((err) => {
+    console.error('comment digests failed', err);
+    return 0;
+  });
   await env.DB.batch([
     env.DB.prepare('DELETE FROM login_tokens WHERE expires_at < ?').bind(now),
     env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now),
     // abgelaufene und aufgebrauchte Einladungen (Konzept 10.5)
     env.DB.prepare('DELETE FROM invites WHERE expires_at < ? OR uses >= max_uses').bind(now),
+    // Kommentare & Melden (Phase D)
+    env.DB.prepare('DELETE FROM comment_log WHERE created_at < ?').bind(now - COMMENT_LOG_MS),
+    env.DB.prepare('DELETE FROM reports WHERE resolved_at IS NOT NULL AND resolved_at < ?').bind(now - RESOLVED_REPORTS_MS),
+    deleteOrphanReports(env),
   ]);
   // Notbremse: Zähler aus D1 neu berechnen – korrigiert Abweichungen der inkrementellen Pflege und legt eine
   // fehlende Zeile wieder an (bis dahin gelten Uploads als pausiert).
   const counted = await storageTotal(env);
   const storageBytes = await recomputeStorage(env);
-  return { deleted, warned, purged, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
+  return { deleted, warned, purged, digests, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
 }
