@@ -1,0 +1,121 @@
+// Kontingente pro Stufe (Konzept 5.1, E3) und globale Notbremse (Konzept 5.2): reine Regeln ohne DOM und Netz –
+// genutzt von Worker (Prüfung) und Oberfläche (Anzeige „x von y“). Technische Obergrenzen einzelner Anfragen
+// (Titel-Länge, Upload pro Törn, …) bleiben in worker/validate.ts (LIMITS).
+import { fmtMB } from './format';
+
+export type Tier = 'free' | 'supporter';
+
+const MB = 1024 * 1024;
+
+/** Upload pro Törn (Track-Payload, gzip) – technische Grenze, gleich für alle Stufen. */
+export const SHARE_UPLOAD_BYTES = 12 * MB;
+/** Übersichtsbild einer Freigabe (JPEG) – technische Grenze. */
+export const SHARE_IMAGE_BYTES = 1.5 * MB;
+/** Standard für kostenlose Törns (Worker-Variable FREE_SHARES kann das ändern). */
+export const DEFAULT_FREE_SHARES = 3;
+
+export interface TierLimits {
+  /** gespeicherte Törns pro Konto */
+  shares: number;
+  /** Speicher gesamt in Bytes: Track-Payloads + Übersichtsbilder (+ Fotos ab Phase C) */
+  bytes: number;
+  /** Boote als Eigner */
+  boats: number;
+  /** Fotos pro Törn (kostenlos: keine, E3) */
+  photosPerShare: number;
+}
+
+const SUPPORTER: TierLimits = { shares: 100, bytes: 200 * MB, boats: 20, photosPerShare: 100 };
+
+/**
+ * Grenzen einer Stufe. Kostenlos ist der Speicher nur implizit begrenzt: so viele Törns, wie kostenlos erlaubt sind,
+ * je mit maximalem Upload und Übersichtsbild – die Zahl dient vor allem der Anzeige.
+ */
+export function limitsFor(tier: Tier, freeShares = DEFAULT_FREE_SHARES): TierLimits {
+  if (tier === 'supporter') return { ...SUPPORTER };
+  const shares = Math.max(0, Math.min(freeShares, SUPPORTER.shares));
+  return { shares, bytes: shares * (SHARE_UPLOAD_BYTES + SHARE_IMAGE_BYTES), boats: 3, photosPerShare: 0 };
+}
+
+export const tierOf = (supporter: boolean): Tier => (supporter ? 'supporter' : 'free');
+
+/**
+ * Ergebnis einer Kontingentprüfung für „ein weiteres …“: ok, oder die Unterstützung würde helfen (402),
+ * oder auch Unterstützer dürften nicht mehr (409). Bestehendes über der Grenze bleibt immer erhalten.
+ */
+export type QuotaVerdict = 'ok' | 'supporter_required' | 'quota';
+
+/** Darf zu `used` noch `adding` hinzukommen? `pick` wählt die Grenze (z. B. l => l.boats). */
+export function quotaVerdict(supporter: boolean, used: number, adding: number, pick: (l: TierLimits) => number, freeShares?: number): QuotaVerdict {
+  if (used + adding <= pick(limitsFor(tierOf(supporter), freeShares))) return 'ok';
+  if (!supporter && used + adding <= pick(limitsFor('supporter'))) return 'supporter_required';
+  return 'quota';
+}
+
+// ---------------------------------------------------------------- Globale Notbremse (Konzept 5.2)
+
+const GB = 1000 ** 3;
+/** Ab hier pausieren neue Uploads kostenloser Konten (Worker-Variable STORAGE_SOFT_BYTES). */
+export const STORAGE_SOFT_BYTES = 8 * GB;
+/** Ab hier pausieren alle neuen Uploads (Worker-Variable STORAGE_HARD_BYTES). */
+export const STORAGE_HARD_BYTES = 9.5 * GB;
+
+export type BrakeLevel = 'ok' | 'soft' | 'hard';
+
+/** Füllstand → Stufe. Fail closed: unbekannter Gesamtspeicher (null) gilt als „hart“. */
+export function brakeLevel(totalBytes: number | null, soft = STORAGE_SOFT_BYTES, hard = STORAGE_HARD_BYTES): BrakeLevel {
+  if (totalBytes === null || !Number.isFinite(totalBytes)) return 'hard';
+  if (totalBytes >= hard) return 'hard';
+  if (totalBytes >= soft) return 'soft';
+  return 'ok';
+}
+
+/** Sind neue Uploads für diese Stufe pausiert? Ab „soft“ kostenlose, ab „hard“ alle. */
+export const brakeBlocks = (level: BrakeLevel, supporter: boolean) => level === 'hard' || (level === 'soft' && !supporter);
+
+// ---------------------------------------------------------------- Anzeige
+
+export interface UsageStatus {
+  supporter: boolean;
+  sharesUsed: number;
+  sharesMax: number;
+  bytesUsed: number;
+  bytesMax: number;
+  /** fehlen bei älteren Servern – dann ohne Boote */
+  boatsUsed?: number;
+  boatsMax?: number;
+}
+
+const n = (v: number) => v.toLocaleString('de-DE');
+
+/** „2 von 3 Törns · 1,2 MB von 41 MB · 1 von 3 Booten“ – für die aktuelle Stufe. */
+export function usageText(s: UsageStatus): string {
+  const parts = [`${n(s.sharesUsed)} von ${n(s.sharesMax)} Törns`, `${fmtMB(s.bytesUsed)} von ${fmtMB(s.bytesMax)}`];
+  if (s.boatsUsed !== undefined && s.boatsMax !== undefined) parts.push(`${n(s.boatsUsed)} von ${n(s.boatsMax)} ${s.boatsMax === 1 ? 'Boot' : 'Booten'}`);
+  return parts.join(' · ');
+}
+
+/** Ab diesem Anteil am Speicher weist der Teilen-Dialog auf das Kontingent hin. */
+export const STORAGE_HINT_RATIO = 0.8;
+
+/** Hinweis im Teilen-Dialog, wenn der Speicher fast voll ist (sonst leer). */
+export function storageHint(s: Pick<UsageStatus, 'supporter' | 'bytesUsed' | 'bytesMax'> | null): string {
+  if (!s || s.bytesMax <= 0 || s.bytesUsed < s.bytesMax * STORAGE_HINT_RATIO) return '';
+  const used = `${fmtMB(s.bytesUsed)} von ${fmtMB(s.bytesMax)} Speicher belegt`;
+  if (s.bytesUsed >= s.bytesMax) return `Speicher voll (${used}) – lösche ältere Törns, um neue zu speichern.`;
+  return `Fast voll: ${used}. Große Törns passen eventuell nicht mehr.`;
+}
+
+/** Meldung, wenn kein weiteres Boot angelegt werden kann (sonst leer) – gleicher Wortlaut wie der Server. */
+export function boatLimitText(s: Pick<UsageStatus, 'supporter' | 'boatsUsed'> | null, supportOffered = true): string {
+  if (!s || s.boatsUsed === undefined) return '';
+  const v = quotaVerdict(s.supporter, s.boatsUsed, 1, (l) => l.boats);
+  return v === 'ok' ? '' : boatLimitMessage(v, supportOffered);
+}
+
+export function boatLimitMessage(v: Exclude<QuotaVerdict, 'ok'>, supportOffered: boolean): string {
+  const free = limitsFor('free').boats;
+  const max = limitsFor('supporter').boats;
+  if (v === 'quota') return `Maximal ${max} Boote pro Konto – lösche ein Boot, um ein neues anzulegen.`;
+  return `Kostenlos kannst du ${free} Boote anlegen.` + (supportOffered ? ` Als Unterstützer sind es bis zu ${max}.` : ' Lösche ein Boot, um ein neues anzulegen.');
+}

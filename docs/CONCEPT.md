@@ -332,7 +332,7 @@ und der Schalter Kommentare an/aus. Anzahl als Badge in der Lightbox.
 | Grenze | Kostenlos | Unterstützer | heute |
 |---|---|---|---|
 | Törns pro Konto | **3** | **100** (harte Grenze) | 3 / 100 |
-| Speicher gesamt (Tracks + Übersichtsbilder + Fotos) | ergibt sich aus 3 Törns (≤ 3 × 12 MB) | **200 MB** (E3) | 200 MB nur Tracks |
+| Speicher gesamt (Tracks + Übersichtsbilder + Fotos) | ergibt sich aus 3 Törns (≤ 3 × (12 MB + 1,5 MB Bild) = 40,5 MB) | **200 MB** (E3) | 200 MB nur Tracks |
 | Upload pro Törn (Track, komprimiert) | 12 MB | 12 MB | 12 MB |
 | Fotos pro Törn | **keine** (E3) | **100** | – |
 | Fotos pro Konto | **keine** | durch 200 MB begrenzt (≈ 450) | – |
@@ -344,30 +344,39 @@ und der Schalter Kommentare an/aus. Anzahl als Badge in der Lightbox.
 | Aufbewahrung Törn | 3 Monate ab Upload | bis Ende Unterstützung + 3 Monate | gleich |
 | Fotos, Kommentare | folgen ihrem Törn | folgen ihrem Törn | – |
 
+**Umgesetzt (Phase B, `0008_limits.sql`):** Werte wie oben in `src/domain/limits.ts`;
+Boote, Törns und Speicher inkl. Übersichtsbild (`shares.image_bytes`) werden geprüft, Fotos folgen in Phase C
+(Haken `PHOTO_BYTES_*` in `worker/storage.ts`). Altbestand mit Bild wird auf 150 kB geschätzt.
+
 Regeln wie F-60: **Bestehendes bleibt**, nur Neues wird blockiert (402
-`supporter_required` bzw. 409 `quota`). Wer nach Ende der Unterstützung über
+`supporter_required`, wenn die Unterstützer-Stufe reichen würde, sonst 409 `quota`). Wer nach Ende der Unterstützung über
 den kostenlosen Grenzen liegt, behält alles bis zum Ablauf, kann aber nichts
 hinzufügen. Speicher wird **vor** dem Einlesen geprüft (wie heute in
 `createShare`), Fotos genauso.
 
 Die Werte wandern aus `LIMITS` in `src/domain/limits.ts`:
 `limitsFor(tier: 'free' | 'supporter')`, genutzt von Worker und UI (Anzeige
-„12 von 20 Fotos“). `GET /api/me/support` liefert zusätzlich `photosUsed`,
-`photosMax`, `bytesUsed`, `bytesMax`, `boatsUsed`, `boatsMax`.
+„12 von 20 Fotos“). `GET /api/me/support` liefert zusätzlich `bytesUsed`,
+`bytesMax`, `boatsUsed`, `boatsMax` (aktuelle Stufe), `limits` (beide Stufen) und
+`storagePaused`; `photosUsed`/`photosMax` kommen mit Phase C.
 
 ### 5.2 Globale Notbremse
 
-Zusätzlich zur Grenze pro Konto: `storage_total` (Summe aus D1, im Cron
-nachgerechnet, bei Upload/Löschen inkrementell gepflegt).
+Zusätzlich zur Grenze pro Konto: `counters.storage_bytes` (Summe aus D1, im Cron
+nachgerechnet, bei Upload/Bild/Löschen/Ablauf/Kontolöschung inkrementell im selben Batch gepflegt).
 
-| Füllstand R2 | Wirkung |
+| Füllstand (Zähler) | Wirkung |
 |---|---|
 | < 8 GB | normal |
-| 8–9,5 GB | **Foto-Uploads für kostenlose Konten pausiert** („Speicher gerade knapp“), Unterstützer weiter |
-| ≥ 9,5 GB | alle Foto-Uploads pausiert; Track-Uploads (klein) laufen weiter |
+| 8–9,5 GB | **neue Uploads kostenloser Konten pausiert** („Speicher gerade knapp“, 503 `storage_paused`), Unterstützer weiter |
+| ≥ 9,5 GB | alle neuen Uploads pausiert |
 
-Fail closed: Fehlt der Wert, gilt „pausiert“. Die Schwellen sind
-Worker-Variablen; nach einem bewussten Wechsel auf bezahltes R2 (siehe 5.4)
+*Umgesetzt (Phase B):* Heute bremst sie neue Törns (es gibt noch keine Fotos); Fotos
+nutzen in Phase C dieselbe Prüfung. Übersichtsbilder, Löschen und Bearbeiten laufen
+immer. GB hier dezimal (8·10⁹ Byte), also mit Reserve unter dem 10-GB-Free-Tier.
+
+Fail closed: Fehlt der Wert, gilt „pausiert“ (der Cron legt die Zeile wieder an). Die Schwellen sind
+Worker-Variablen (`STORAGE_SOFT_BYTES`, `STORAGE_HARD_BYTES`); nach einem bewussten Wechsel auf bezahltes R2 (siehe 5.4)
 werden sie angehoben.
 
 ### 5.3 Abgleich mit dem Free Tier
@@ -669,7 +678,7 @@ und die Prüfungen in `boats.ts`/`profiles.ts`), `worker/links.ts`
 - **F-120** Grenzen pro Konto wie in Abschnitt 5.1 (kostenlos / Unterstützer); bestehende Inhalte bleiben bei Überschreitung erhalten, nur Neues wird abgelehnt.
 - **F-121** Auch Unterstützer haben harte Obergrenzen (100 Törns, 200 MB inkl. Fotos, 100 Fotos pro Törn, 20 Boote).
 - **F-124** Kostenlose Konten speichern nur Öffentliches und keine Fotos; „Nur mit Link“, „Nur ich“ und Fotos verlangen laufenden Unterstützer-Status (sonst 402). Endet die Unterstützung, bleiben bestehende nicht öffentliche Objekte unverändert bis zu ihrem Ablauf.
-- **F-122** Ab 8 GB Gesamtspeicher pausieren Foto-Uploads kostenloser Konten, ab 9,5 GB alle Foto-Uploads; fehlt der Zähler, gilt „pausiert“.
+- **F-122** Ab 8 GB Gesamtspeicher pausieren neue Uploads (Törns, ab Phase C auch Fotos) kostenloser Konten, ab 9,5 GB alle; fehlt der Zähler, gilt „pausiert“. *(umgesetzt in Phase B, siehe REQUIREMENTS F-120–F-123)*
 - **F-123** Konto und Teilen-Dialog zeigen Törns, Fotos und Speicher als „x von y“.
 
 ## 9. Offene Fragen an den Betreiber

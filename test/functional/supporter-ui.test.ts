@@ -7,6 +7,7 @@ import '../../src/components/sx-account-dialog';
 import '../../src/components/sx-support';
 import { SUPPORT_TIERS, WARN_MS, formatEuro, needsSupport, quotaText } from '../../src/domain/support';
 import { fmtDate } from '../../src/domain/format';
+import { limitsFor } from '../../src/domain/limits';
 import { T0 } from './helpers';
 
 type LitEl = HTMLElement & { updateComplete: Promise<boolean>; shadowRoot: ShadowRoot } & Record<string, unknown>;
@@ -24,9 +25,14 @@ const status = (sharesUsed: number, supporter = false, supporterUntil: number | 
   supporterUntil,
   sharesUsed,
   sharesFree: 3,
-  sharesMax: 100,
+  // Grenzen der aktuellen Stufe (Phase B, src/domain/limits.ts)
+  sharesMax: supporter ? 100 : 3,
   bytesUsed: Math.round(12.4 * 1024 * 1024),
-  bytesMax: 200 * 1024 * 1024,
+  bytesMax: supporter ? 200 * 1024 * 1024 : limitsFor('free').bytes,
+  boatsUsed: 1,
+  boatsMax: supporter ? 20 : 3,
+  limits: { free: limitsFor('free'), supporter: limitsFor('supporter') },
+  storagePaused: false,
 });
 
 async function mount(tag: string, props: Record<string, unknown>): Promise<LitEl> {
@@ -148,7 +154,7 @@ describe('F-63 sx-support Slider', () => {
     expect(t).toContain('gilt 12 Monate pro Zahlung');
     expect(t).toContain('Kostenlose Törns bleiben 3 Monate gespeichert');
     expect(t).toContain('so lange die Unterstützung läuft und 3 Monate darüber hinaus');
-    expect(t).toContain('bis zu 100 Törns und 200 MB Speicher');
+    expect(t).toContain('bis zu 100 Törns, 200 MB Speicher und 20 Boote');
   });
 
   it('[F-63] Unterstützer sehen im Angebot nur den Dank – Slider erst nach „Verlängern“', async () => {
@@ -232,7 +238,7 @@ describe('F-63 sx-account-dialog', () => {
     const el = await mount('sx-account-dialog', { ...props, supportStatus: status(2), shares: [share('S1', null)] });
     await supportEl(el);
     const t = deepText(el.shadowRoot);
-    expect(t).toContain('2 von 3 kostenlosen Freigaben genutzt');
+    expect(t).toContain('Kostenlos: 2 von 3 Törns · 12 MB von 41 MB · 1 von 3 Booten');
     expect(t).toContain('Jetzt unterstützen');
     expect(t).not.toContain('Unterstützer bis');
     expect(el.shadowRoot.querySelector('.badge')).toBeNull();
@@ -245,8 +251,7 @@ describe('F-63 sx-account-dialog', () => {
     const t = deepText(el.shadowRoot);
     expect(el.shadowRoot.querySelector('.badge')?.textContent).toContain('Unterstützer');
     expect(t).toContain(`Unterstützer bis ${fmtDate(until)}`);
-    expect(t).toContain('5 von 100 Törns');
-    expect(t).toContain('12 MB von 200 MB');
+    expect(t).toContain('5 von 100 Törns · 12 MB von 200 MB · 1 von 20 Booten');
     expect(t).toContain('Danke, dass du Sail Explorer unterstützt!');
     expect(t).not.toContain('kostenlosen Freigaben');
   });
@@ -257,7 +262,8 @@ describe('F-63 sx-account-dialog', () => {
     const s = (await supportEl(el))!;
     const t = deepText(el.shadowRoot);
     expect(t).toContain(`Unterstützung abgelaufen am ${fmtDate(until)}`);
-    expect(t).toContain('3 von 3 kostenlosen Freigaben genutzt');
+    // über der kostenlosen Grenze: ehrlich „4 von 3“ – Bestehendes bleibt (F-120)
+    expect(t).toContain('Kostenlos: 4 von 3 Törns');
     expect(el.shadowRoot.querySelector('.badge')).toBeNull();
     expect(slider(s)).not.toBeNull();
   });

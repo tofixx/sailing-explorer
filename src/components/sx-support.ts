@@ -2,6 +2,7 @@ import { LitElement, html, css, nothing, type PropertyValues } from 'lit';
 import type { SupportStatus } from '../services/api';
 import { FREE_RETENTION_DAYS, SUPPORT_DAYS, formatEuro, type SupportTier } from '../domain/support';
 import { fmtMB } from '../util/html';
+import { limitsFor } from '../domain/limits';
 import { icon } from './icons';
 import { base, emit } from './shared';
 
@@ -219,14 +220,14 @@ export class SxSupport extends LitElement {
 
   /** Was die Unterstützung bringt – kurz und ehrlich. */
   private terms() {
-    const s = this.status;
+    const sup = this.status?.limits?.supporter ?? limitsFor('supporter');
     const keep = months(FREE_RETENTION_DAYS);
     return html`<ul class="terms">
       <li>Der Unterstützer-Status gilt ${months(SUPPORT_DAYS)} Monate pro Zahlung – jede weitere Zahlung verlängert ihn.</li>
       <li>Kostenlose Törns bleiben ${keep} Monate gespeichert, Törns von Unterstützern so lange die Unterstützung läuft und ${keep} Monate darüber hinaus.</li>
       <li>
         Als Unterstützer speicherst du
-        ${s ? `bis zu ${s.sharesMax.toLocaleString('de-DE')} Törns und ${fmtMB(s.bytesMax)} Speicher.` : 'deutlich mehr Törns.'}
+        bis zu ${sup.shares.toLocaleString('de-DE')} Törns, ${fmtMB(sup.bytes)} Speicher und ${sup.boats.toLocaleString('de-DE')} Boote.
       </li>
     </ul>`;
   }

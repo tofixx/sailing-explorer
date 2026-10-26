@@ -1,6 +1,7 @@
 import type { SupportTier } from '../domain/support';
 import { parseWeatherData, type WeatherData } from '../domain/weather';
 import type { Visibility } from '../domain/visibility';
+import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 
 export type { Visibility };
@@ -57,10 +58,19 @@ export interface SupportStatus {
   supporterUntil: number | null;
   sharesUsed: number;
   sharesFree: number;
+  /** Grenze der aktuellen Stufe (kostenlos = sharesFree) */
   sharesMax: number;
-  /** belegter Speicher und Obergrenze in Bytes */
+  /** belegter Speicher (Tracks + Übersichtsbilder) und Obergrenze der aktuellen Stufe in Bytes */
   bytesUsed: number;
   bytesMax: number;
+  // ---- Kontingente (Phase B)
+  /** Boote als Eigner und Grenze der aktuellen Stufe */
+  boatsUsed?: number;
+  boatsMax?: number;
+  /** Grenzen beider Stufen */
+  limits?: Record<Tier, TierLimits>;
+  /** Notbremse: neue Törns gerade pausiert */
+  storagePaused?: boolean;
 }
 
 export interface Profile extends Linkable {

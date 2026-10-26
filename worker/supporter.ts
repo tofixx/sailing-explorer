@@ -4,8 +4,11 @@ import type { Env } from './env';
 import { isDevHost, requireUser } from './auth';
 import { randomId } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readBodyCapped, readJson } from './http';
-import { LIMITS, SHARE_ID_RE, parseFreeShares, parseStripeSignature, parseSupportAmount, timingSafeEqual } from './validate';
+import { SHARE_ID_RE, parseFreeShares, storageThresholds, parseStripeSignature, parseSupportAmount, timingSafeEqual } from './validate';
 import { SUPPORT_MS, SUPPORT_TIERS, formatEuro, tierFor, type SupportTier } from '../src/domain/support';
+import { boatLimitMessage, brakeBlocks, brakeLevel, limitsFor, quotaVerdict, tierOf, type Tier, type TierLimits } from '../src/domain/limits';
+import { fmtMB } from '../src/domain/format';
+import { STORAGE_COUNTER, USER_BYTES_SQL } from './storage';
 import { VISIBILITY_LABEL, canChooseVisibility, type Visibility } from '../src/domain/visibility';
 
 /** Maximales Alter einer Webhook-Signatur (Schutz gegen Wiedereinspielen). */
@@ -34,40 +37,63 @@ export interface SupportStatus {
   /** Ende des Unterstützer-Status (ms) – auch wenn abgelaufen; null = nie unterstützt */
   supporterUntil: number | null;
   sharesUsed: number;
+  /** kostenlose Törns (FREE_SHARES) */
   sharesFree: number;
+  /** Grenzen der aktuellen Stufe (kostenlos bzw. Unterstützer), siehe limits */
   sharesMax: number;
-  /** Speicher in Bytes – gilt auch für Unterstützer */
+  /** Speicher in Bytes: Track-Payloads + Übersichtsbilder (+ Fotos ab Phase C) */
   bytesUsed: number;
   bytesMax: number;
+  /** Boote als Eigner */
+  boatsUsed: number;
+  boatsMax: number;
+  /** Grenzen beider Stufen – für „Als Unterstützer bis zu …“ */
+  limits: Record<Tier, TierLimits>;
+  /** Notbremse: neue Törns für dieses Konto gerade pausiert (Konzept 5.2) */
+  storagePaused: boolean;
 }
 
 export async function supportStatus(env: Env, userId: string, now = Date.now()): Promise<SupportStatus> {
   const row = await env.DB.prepare(
-    `SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS bytes,
-       (SELECT MAX(valid_until) FROM supports WHERE user_id = ?) AS until
-     FROM shares WHERE user_id = ?`,
+    `SELECT (SELECT COUNT(*) FROM shares WHERE user_id = ?1) AS n,
+       ${USER_BYTES_SQL} AS bytes,
+       (SELECT COUNT(*) FROM boats WHERE owner_id = ?1) AS boats,
+       (SELECT MAX(valid_until) FROM supports WHERE user_id = ?1) AS until,
+       (SELECT value FROM counters WHERE name = ?2) AS total`,
   )
-    .bind(userId, userId)
-    .first<{ n: number; bytes: number; until: number | null }>();
+    .bind(userId, STORAGE_COUNTER)
+    .first<{ n: number; bytes: number; boats: number; until: number | null; total: number | null }>();
   const until = row?.until ?? null;
+  const supporter = until !== null && until > now;
+  const free = freeShares(env);
+  const limits = { free: limitsFor('free', free), supporter: limitsFor('supporter') };
+  const current = limits[tierOf(supporter)];
+  const { soft, hard } = storageThresholds(env);
   return {
-    supporter: until !== null && until > now,
+    supporter,
     supporterUntil: until,
     sharesUsed: row?.n ?? 0,
-    sharesFree: freeShares(env),
-    sharesMax: LIMITS.sharesPerUser,
+    sharesFree: free,
+    sharesMax: current.shares,
     bytesUsed: row?.bytes ?? 0,
-    bytesMax: LIMITS.bytesPerUser,
+    bytesMax: current.bytes,
+    boatsUsed: row?.boats ?? 0,
+    boatsMax: current.boats,
+    limits,
+    storagePaused: brakeBlocks(brakeLevel(row?.total ?? null, soft, hard), supporter),
   };
 }
 
 /**
- * Kontingent vor dem Upload: ab der (FREE_SHARES + 1)-ten Freigabe braucht es den Unterstützer-Status.
- * Bestehende Freigaben bleiben unangetastet – auch wenn jemand schon mehr hat.
+ * Kontingent vor dem Upload: ab der (FREE_SHARES + 1)-ten Freigabe braucht es den Unterstützer-Status, ab der
+ * 101. geht es auch für Unterstützer nicht weiter. Bestehende Freigaben bleiben unangetastet – auch wenn jemand
+ * schon mehr hat (z. B. nach Ende der Unterstützung).
  */
 export function checkShareQuota(env: Env, s: SupportStatus): void {
-  if (s.sharesUsed >= s.sharesMax) throw new HttpError(409, 'quota', `Maximal ${s.sharesMax} Törns pro Konto – bitte einen älteren löschen.`);
-  if (s.supporter || s.sharesUsed < s.sharesFree) return;
+  const v = quotaVerdict(s.supporter, s.sharesUsed, 1, (l) => l.shares, s.sharesFree);
+  if (v === 'ok') return;
+  const max = s.limits.supporter.shares;
+  if (v === 'quota') throw new HttpError(409, 'quota', `Maximal ${max} Törns pro Konto – bitte einen älteren löschen.`);
   const free = s.sharesFree === 1 ? 'einen Törn' : `${s.sharesFree} Törns`;
   throw new HttpError(
     402,
@@ -76,6 +102,41 @@ export function checkShareQuota(env: Env, s: SupportStatus): void {
       ? `Kostenlos kannst du ${free} speichern. Für weitere Törns unterstütze Sail Explorer mit einem Kaffee oder Bier – oder lösche einen älteren Törn.`
       : `Kostenlos kannst du ${free} speichern. Lösche einen älteren Törn unter „Konto & Freigaben“, um Platz zu schaffen.`,
   );
+}
+
+/**
+ * Speicher vor dem Upload: Wie viele Bytes dürfen noch dazukommen? Ist das Konto schon voll, 402 (Unterstützung
+ * würde helfen) bzw. 409. Liefert den Rest für die Obergrenze beim Einlesen.
+ */
+export function checkStorageQuota(env: Env, s: SupportStatus, adding = 1): number {
+  const v = quotaVerdict(s.supporter, s.bytesUsed, adding, (l) => l.bytes, s.sharesFree);
+  if (v === 'ok') return s.bytesMax - s.bytesUsed;
+  throw storageQuotaError(env, s, v);
+}
+
+export function storageQuotaError(env: Env, s: SupportStatus, v: 'supporter_required' | 'quota'): HttpError {
+  if (v === 'quota') {
+    return new HttpError(409, 'quota', `Speicher voll: Höchstens ${fmtMB(s.limits.supporter.bytes)} pro Konto – bitte ältere Törns löschen.`);
+  }
+  return new HttpError(
+    402,
+    'supporter_required',
+    `Kostenlos stehen dir ${fmtMB(s.limits.free.bytes)} Speicher zur Verfügung.` +
+      (supportConfigured(env) ? ` Als Unterstützer sind es ${fmtMB(s.limits.supporter.bytes)} – oder lösche einen älteren Törn.` : ' Lösche einen älteren Törn, um Platz zu schaffen.'),
+  );
+}
+
+/** Boote als Eigner: kostenlos 3, Unterstützer 20 (402 bzw. 409). Bestehende Boote bleiben. */
+export async function checkBoatQuota(env: Env, userId: string): Promise<void> {
+  const row = await env.DB.prepare(
+    `SELECT (SELECT COUNT(*) FROM boats WHERE owner_id = ?1) AS n, (SELECT MAX(valid_until) FROM supports WHERE user_id = ?1) AS until`,
+  )
+    .bind(userId)
+    .first<{ n: number; until: number | null }>();
+  const supporter = row?.until != null && row.until > Date.now();
+  const v = quotaVerdict(supporter, row?.n ?? 0, 1, (l) => l.boats);
+  if (v === 'ok') return;
+  throw new HttpError(v === 'quota' ? 409 : 402, v, boatLimitMessage(v, supportConfigured(env)));
 }
 
 /** Läuft der Unterstützer-Status gerade? (Eine Abfrage, ohne die Zählungen aus supportStatus.) */
@@ -103,7 +164,7 @@ export async function checkVisibilityChoice(env: Env, userId: string, next: Visi
   if (!canChooseVisibility(next, await isSupporter(env, userId), current)) throw visibilityRequiresSupport(env);
 }
 
-/** GET /api/me/support – Unterstützer-Status und genutzte Freigaben. */
+/** GET /api/me/support – Unterstützer-Status, genutzte Törns, Speicher und Boote samt Grenzen beider Stufen. */
 export async function getSupport(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   return json(await supportStatus(env, user.id));

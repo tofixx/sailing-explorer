@@ -713,6 +713,8 @@ export class SessionController {
       const { boat } = id ? await api.updateBoat(id, input) : await api.createBoat(input);
       const boats = this.ui.account.boats;
       this.ui.account.boats = id ? boats.map((b) => (b.id === id ? boat : b)) : [...boats, boat];
+      // Boote-Kontingent („c von d Booten“) nachladen
+      if (!id) void this.refreshSupport();
     }, input.rotateKey ? ROTATED : id ? 'Boot gespeichert' : 'Boot angelegt');
   }
 
@@ -721,6 +723,7 @@ export class SessionController {
       await api.deleteBoat(id);
       this.ui.account.boats = this.ui.account.boats.filter((b) => b.id !== id);
       this.ui.account.shares = this.ui.account.shares.map((s) => (s.boat?.id === id ? { ...s, boat: null } : s));
+      void this.refreshSupport();
     }, 'Boot gelöscht – die Törns bleiben erhalten');
   }
 
@@ -740,6 +743,8 @@ export class SessionController {
       this.ui.account.shares = this.ui.account.shares.filter((s) => s.id !== id);
       if (this.lastShare?.share.id === id) this.lastShare = null;
       if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: Math.max(0, this.supportStatus.sharesUsed - 1) });
+      // Speicher („a MB von b MB“) nachladen
+      void this.refreshSupport();
     }, 'Freigabe gelöscht');
   }
 }

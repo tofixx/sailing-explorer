@@ -20,6 +20,10 @@ export interface Env {
 
   /** Kostenlose gespeicherte Freigaben pro Konto (Standard 3); darüber braucht es den Unterstützer-Status. */
   FREE_SHARES?: string;
+  /** Notbremse (Konzept 5.2): ab so vielen Bytes Gesamtspeicher pausieren neue Uploads kostenloser Konten (Standard 8 GB). */
+  STORAGE_SOFT_BYTES?: string;
+  /** … und ab so vielen Bytes alle neuen Uploads (Standard 9,5 GB). */
+  STORAGE_HARD_BYTES?: string;
   /** Stripe-Secret-Key (Worker-Secret, sk_…) für Checkout-Sessions – ohne ihn kein Unterstützen. */
   STRIPE_SECRET_KEY?: string;
   /** Nur Tests: lokale Stripe-Stub-Adresse (andere Hosts werden abgelehnt). */

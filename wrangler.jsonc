@@ -35,6 +35,10 @@
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFjg4X6dcj2bWdib",
     // Kostenlose gespeicherte Freigaben pro Konto; darüber braucht es den Unterstützer-Status.
     "FREE_SHARES": "3",
+    // Notbremse für den Gesamtspeicher (R2 Free Tier 10 GB): ab soft pausieren neue Uploads kostenloser Konten,
+    // ab hard alle. Bytes; nach einem Wechsel auf bezahltes R2 anheben.
+    "STORAGE_SOFT_BYTES": "8000000000",
+    "STORAGE_HARD_BYTES": "9500000000",
     // Unterstützen braucht die Secrets STRIPE_SECRET_KEY und STRIPE_WEBHOOK_SECRET (siehe README).
     // Links in Mails aus dem nächtlichen Aufräumen
     "APP_ORIGIN": "https://sailing.wollow.ski"

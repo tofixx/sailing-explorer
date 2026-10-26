@@ -11,6 +11,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createShare, grantSupport, login, startWorker, stripeSignature, type Harness } from './worker-harness';
 import { parseFreeShares, parseStripeSignature, timingSafeEqual } from '../../worker/validate';
 import { SUPPORT_TIERS } from '../../src/domain/support';
+import { limitsFor } from '../../src/domain/limits';
 
 const SECRET = 'whsec_test_0123456789abcdef';
 const KEY = 'sk_test_0123456789abcdef';
@@ -183,7 +184,11 @@ describe('F-60 Kostenloses Kontingent', () => {
     const res = await h.fetch('/api/me/support', { cookie });
     expect(res.status).toBe(200);
     const s = await body(res);
-    expect(s).toMatchObject({ supporter: false, supporterUntil: null, sharesUsed: 2, sharesFree: 3, sharesMax: 100, bytesMax: 200 * 1024 * 1024 });
+    // sharesMax/bytesMax/boatsMax gelten für die aktuelle Stufe; limits nennt beide (Phase B)
+    expect(s).toMatchObject({
+      supporter: false, supporterUntil: null, sharesUsed: 2, sharesFree: 3, sharesMax: 3, bytesMax: limitsFor('free').bytes, boatsUsed: 0, boatsMax: 3,
+      limits: { free: limitsFor('free'), supporter: limitsFor('supporter') }, storagePaused: false,
+    });
     expect(s.bytesUsed).toBeGreaterThan(0);
     expect((await h.fetch('/api/me/support')).status).toBe(401);
   });

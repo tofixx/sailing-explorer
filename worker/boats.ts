@@ -4,7 +4,7 @@ import { randomId } from './crypto';
 import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
 import { publicShares } from './shares';
-import { checkVisibilityChoice } from './supporter';
+import { checkBoatQuota, checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 
@@ -140,8 +140,8 @@ export async function listMyBoats(request: Request, env: Env): Promise<Response>
 /** POST /api/boats – Boot anlegen; der Anlegende wird Eigner. */
 export async function createBoat(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM boats WHERE owner_id = ?').bind(user.id).first<{ n: number }>();
-  if ((n?.n ?? 0) >= LIMITS.boatsPerUser) throw new HttpError(409, 'quota', 'Maximale Anzahl an Booten erreicht.');
+  // Kontingent (Konzept 5.1): kostenlos 3, Unterstützer 20 Boote als Eigner – 402 bzw. 409, bestehende bleiben.
+  await checkBoatQuota(env, user.id);
   const now = Date.now();
   const b: BoatRow = {
     id: randomId(), owner_id: user.id, name: '', boat_type: '', length_m: null, sail_number: '', home_port: '',
