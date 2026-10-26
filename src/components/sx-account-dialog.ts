@@ -602,14 +602,13 @@ export class SxAccountDialog extends LitElement {
             ${d.admins.map(
               (a) => html`<li>
                 <div class="meta">
-                  <div class="title">${a.displayName || a.email || 'Admin ohne Profil'}${a.isSelf ? ' (du)' : ''}</div>
-                  ${a.email && a.displayName ? html`<div class="sub">${a.email}</div>` : ''}
+                  <div class="title">${a.displayName}${a.isSelf ? ' (du)' : ''}</div>
                 </div>
                 ${owner
                   ? this.confirm === `admin:${a.id}`
                     ? html`<button class="btn small danger" @click=${() => emit(this, 'sx-boat-admin-remove', { boatId: b.id, userId: a.id })}>${icon('trash')} Entfernen</button>
                         <button class="btn small" @click=${() => (this.confirm = null)}>Abbrechen</button>`
-                    : html`<button class="btn ghost small icon danger" title="Entfernen" aria-label="Admin entfernen: ${a.displayName || a.email}" ?disabled=${this.busy} @click=${() => (this.confirm = `admin:${a.id}`)}>${icon('x')}</button>`
+                    : html`<button class="btn ghost small icon danger" title="Entfernen" aria-label="Admin entfernen: ${a.displayName}" ?disabled=${this.busy} @click=${() => (this.confirm = `admin:${a.id}`)}>${icon('x')}</button>`
                   : ''}
               </li>`,
             )}

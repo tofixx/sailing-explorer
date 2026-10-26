@@ -755,14 +755,16 @@ erzeugt einen neuen und zieht den alten zurück.
    keinem Server-Log, keinem Referrer), die App löst per POST ein – Mail-Scanner,
    die nur GET machen, verbrauchen nichts (wie der Magic Link).
 2. `POST /api/invites/peek` zeigt, wozu eingeladen wird (Boot bzw. Törn, wer
-   einlädt, maskierte Adresse bei gebundenen Einladungen) – ohne einzulösen.
+   einlädt, ob die Einladung an eine Adresse gebunden ist und ob sie zum
+   angemeldeten Konto passt – die Adresse selbst nie) – ohne einzulösen.
 3. Nicht angemeldet → Anmeldedialog (Magic Link); nach der Anmeldung (auch aus
    einem anderen Tab) erscheint die Einladung wieder.
 4. **Ausdrückliche Bestätigung** „Annehmen“ (`POST /api/invites/accept`), nie
    automatisch – gleicher Schutz wie „Als … anmelden?“.
 5. Prüfungen beim Annehmen: gültig, nicht abgelaufen, Nutzungen frei;
    gebundene Einladung nur für das Konto mit genau dieser Adresse (sonst 403
-   `invite_wrong_account`); Crew nur mit Profil (409 `profile_required`);
+   `invite_wrong_account`, ohne die Adresse zu nennen); Crew braucht kein Profil
+   (ohne eigenen Namen gilt der Spaßname, 10.6);
    Eigentümer bzw. Eigner (409 `own_object`) und bestehende Mitglieder werden
    nicht doppelt eingetragen (ohne eine Nutzung zu verbrauchen); Obergrenzen
    (10.5). Die Nutzung wird atomar gezählt
@@ -774,19 +776,21 @@ Alle Mutationen same-origin, angemeldet; fremde Objekte 404.
 
 | Methode | Pfad | Wer | Zweck |
 |---|---|---|---|
-| GET | `/api/boats/:id/admins` | Eigner, Admins | Admins (Name/Profil; E-Mail nur für den Eigner) und offene Einladungen (nur Eigner) |
+| GET | `/api/boats/:id/admins` | Eigner, Admins | Admins mit Anzeigenamen (nie E-Mail) und offene Einladungen (nur Eigner) |
 | POST | `/api/boats/:id/invites` | Eigner | `{ email }` – Einladung per Mail |
 | DELETE | `/api/boats/:id/admins/:userId` | Eigner (jeden), Admin (nur sich: „Boot verlassen“) | entfernen |
 | GET | `/api/shares/:id/crew` | wer den Törn sehen darf | Crew (Regeln 10.6); Eigentümer zusätzlich IDs und offene Einladungen |
 | POST | `/api/shares/:id/invites` | Eigentümer | `{ email }` per Mail oder `{}` → Einladungslink (Token einmalig in der Antwort) |
 | DELETE | `/api/shares/:id/crew/:userId` | Eigentümer (jeden), Crew (nur sich) | entfernen |
 | DELETE | `/api/invites/:id` | Eigentümer des Ziels | Einladung zurückziehen (Zeile wird gelöscht) |
-| POST | `/api/invites/peek` | alle | `{ token }` → Art, Ziel, Einladender, maskierte Adresse, Ablauf |
+| POST | `/api/invites/peek` | alle | `{ token }` → Art, Ziel, Einladender, gebunden ja/nein, Ablauf |
 | POST | `/api/invites/accept` | angemeldet | `{ token }` → Mitgliedschaft |
 | GET | `/api/profiles/:handle` | wie bisher | zusätzlich `crewVoyages`: öffentliche Törns, auf denen die Person Crew ist |
 
 Die Antwort auf das Erzeugen einer Mail-Einladung ist gleich, ob es zur Adresse
-schon ein Konto gibt oder nicht (keine Konto-Enumeration). Lokal im Log-Modus
+schon ein Konto gibt oder nicht, und auch, ob die Person schon Admin bzw. Crew
+ist (keine Konto-Enumeration, kein Ausprobieren fremder Adressen) – ein
+bestehendes Mitglied verbraucht beim Annehmen einfach nichts. Lokal im Log-Modus
 liefert der Server wie beim Login einen `devLink`. „Mich selbst“ heißt im Pfad
 `me` (`/api/boats/:id/admins/me`, `/api/shares/:id/crew/me`).
 
@@ -795,7 +799,7 @@ liefert der Server wie beim Login einen `devLink`. „Mich selbst“ heißt im P
 Eine neue Vorlage `inviteMail` in `worker/mail.ts`, Text und HTML, deutsch:
 „<Name> lädt dich ein, das Boot „<Boot>“ bei Sail Explorer mitzuverwalten“
 bzw. „… in die Crew des Törns „<Titel>““. Der Name ist der Anzeigename des
-Profils (sonst „Ein Segler oder eine Seglerin“), Boots- und Törnnamen sind
+Profils, sonst der Spaßname des Kontos (10.6) – nie die E-Mail-Adresse, Boots- und Törnnamen sind
 Nutzertext und werden **escaped** und gekürzt. Hinweis auf Gültigkeit und
 „Wenn du niemanden kennst, ignoriere die Mail“. Kein Tracking, keine Bilder.
 
@@ -807,7 +811,7 @@ Nutzertext und werden **escaped** und gekürzt. Hinweis auf Gültigkeit und
 | Schnelle Folge | `AUTH_LIMITER` pro Konto (5 pro 60 s) beim Erzeugen |
 | Boots-Admins | höchstens 10 je Boot, offene Einladungen mitgezählt |
 | Crew | höchstens 30 je Törn; höchstens 10 offene Einladungen je Törn |
-| Doppelt | offene Einladung für dieselbe Adresse und dasselbe Ziel → 409 `already_invited` (zurückziehen und neu einladen) |
+| Doppelt | offene Einladung für dieselbe Adresse und dasselbe Ziel → 409 `already_invited` (zurückziehen und neu einladen); geprüft wird nur gegen eigene offene Einladungen, nie gegen Adressen von Konten |
 | Mail-Budget | höchstens 50 Einladungsmails in 24 h für den ganzen Server (Resend Free: 100/Tag, der Rest bleibt für Anmeldungen) → 429 mit Hinweis auf den Einladungslink |
 | Fehlversuche | ungültige Tokens bei peek/accept zählen gegen `LINK_LIMITER` (pro IP) |
 | Aufräumen | der nächtliche Cron löscht abgelaufene und aufgebrauchte Einladungen |
@@ -826,11 +830,18 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
   öffentliche Törns (ein Schlüssel öffnet genau ein Objekt, 1.2). Admin-Sein
   gibt die Verwalter-Rechte aus `canManageBoat` (bearbeiten, Törns zuordnen,
   „Nur mit Link“-Seite sehen) – nicht löschen, nicht weitere Admins einladen.
-- E-Mail-Adressen sieht nur, wer sie eingegeben hat: der Eigner bei seinen
-  Admins und offenen Einladungen, der Törn-Eigentümer bei offenen
-  Crew-Einladungen. Peek zeigt nur eine maskierte Adresse (`a…@example.org`).
-- Der Törn-Eigentümer sieht die Anzeigenamen seiner Crew auch bei nicht
-  öffentlichem Profil – sie haben seine Einladung angenommen.
+- **E-Mail-Adressen erreichen nie die Öffentlichkeit oder andere Konten** –
+  auch nicht Eigner, Admins oder Törn-Eigentümer, auch nicht maskiert. Einzige
+  Anzeige: die Adresse, die der Einladende selbst für eine **offene** Einladung
+  eingegeben hat (in seiner eigenen Liste, bis sie angenommen, abgelaufen oder
+  zurückgezogen ist).
+- **Namen statt Adressen:** Jedes Konto hat einen Anzeigenamen – den selbst
+  gewählten aus dem Profil, sonst einen **Spaßnamen** wie „Verwegener
+  Klabautermann“ (`src/domain/names.ts`, stabil aus der Konto-ID abgeleitet,
+  nichts aus der Adresse). Neue Profile bekommen ihn als Vorschlag.
+- Der Törn-Eigentümer und der Eigner sehen die Anzeigenamen ihrer Crew bzw.
+  Admins auch bei nicht öffentlichem Profil – sie haben die Einladung
+  angenommen.
 - Jeder kann sich selbst entfernen (Crew: „Mich entfernen“, Admin: „Boot
   verlassen“); der Eigentümer kann jederzeit entfernen. Konto löschen entfernt
   alle Mitgliedschaften und Einladungen.
@@ -841,7 +852,7 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
 |---|---|
 | `sx-account-dialog`, Reiter Boote | Knopf „Admins“ je Boot: Liste, entfernen, offene Einladungen zurückziehen, Feld „Per E-Mail einladen“ (nur Eigner); als Admin „Boot verlassen“ mit Bestätigung |
 | `sx-crew` (neu, Panel „Crew“ in der Törn-Ansicht) | Besucher: Namen mit Profil-Link, „+ n weitere“; Eigentümer: entfernen, „Einladungslink erzeugen“ (einmal anzeigen, kopieren), per E-Mail einladen, offene Einladungen; Crew: „Mich entfernen“ |
-| `sx-invite-dialog` (neu) | Einladung zeigen, anmelden, Profil anlegen, annehmen, Ergebnis |
+| `sx-invite-dialog` (neu) | Einladung zeigen, anmelden, annehmen, Ergebnis |
 | `sx-profile-page` | Abschnitt „Mitgesegelt“ (öffentliche Törns, auf denen die Person Crew ist) |
 | `SessionController` | alle Aufrufe; Komponenten melden nur Absichten (Events) |
 

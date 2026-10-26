@@ -44,8 +44,8 @@ export function expiryWarningMail(env: Env, to: string, origin: string, shares: 
 
 export interface InviteMailInput {
   kind: 'boat_admin' | 'crew';
-  /** Anzeigename aus dem Profil des Einladenden; null = ohne Profil */
-  inviter: string | null;
+  /** Anzeigename des Einladenden (selbst gewählt oder Spaßname) – nie die E-Mail-Adresse */
+  inviter: string;
   /** Boots- bzw. Törnname (Nutzertext) */
   target: string;
   link: string;
@@ -56,7 +56,7 @@ export interface InviteMailInput {
 export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
   const app = env.APP_NAME;
   const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-  const who = short(m.inviter?.trim() || 'Ein Segler oder eine Seglerin', 60);
+  const who = short(m.inviter.trim() || 'Ein Segler oder eine Seglerin', 60);
   const target = short(m.target.trim() || (m.kind === 'crew' ? 'Törn' : 'Boot'), 80);
   const what = m.kind === 'boat_admin' ? `das Boot „${target}“ bei ${app} mitzuverwalten` : `in die Crew des Törns „${target}“ bei ${app}`;
   const whatHtml = m.kind === 'boat_admin' ? `das Boot <b>„${escapeHtml(target)}“</b> bei <b>${app}</b> mitzuverwalten` : `in die Crew des Törns <b>„${escapeHtml(target)}“</b> bei <b>${app}</b>`;

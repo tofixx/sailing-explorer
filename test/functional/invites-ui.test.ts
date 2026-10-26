@@ -45,7 +45,7 @@ afterEach(() => {
 
 describe('sx-invite-dialog', () => {
   const peek = (over: Record<string, unknown> = {}) => ({
-    kind: 'boat_admin', target: 'Albatros', inviter: 'Anna', email: 'a…@example.org', expiresAt: Date.now() + 7 * DAY,
+    kind: 'boat_admin', target: 'Albatros', inviter: 'Anna', bound: true, expiresAt: Date.now() + 7 * DAY,
     emailMatches: true, isOwner: false, alreadyMember: false, ...over,
   });
 
@@ -55,7 +55,7 @@ describe('sx-invite-dialog', () => {
     const t = text(el);
     expect(t).toContain('Anna lädt dich ein, das Boot „Albatros“ mitzuverwalten.');
     expect(t).toContain('Löschen und weitere Admins einladen kann nur der Eigner');
-    expect(t).toContain('gilt nur für a…@example.org');
+    expect(t).toContain('gilt nur für die eingeladene E-Mail-Adresse');
     button(el, /Annehmen/)!.click();
     expect(accepted).toHaveLength(1);
   });
@@ -64,15 +64,15 @@ describe('sx-invite-dialog', () => {
     const logins = listen('sx-invite-login');
     const el = await mount('sx-invite-dialog', { open: true, state: 'ready', peek: peek({ kind: 'crew', target: 'Rügen rund', emailMatches: null }), signedIn: false });
     expect(text(el)).toContain('in die Crew des Törns „Rügen rund“');
-    expect(text(el)).toContain('solange der Törn öffentlich ist');
+    expect(text(el)).toContain('Solange der Törn öffentlich ist');
     expect(button(el, /Annehmen/)).toBeUndefined();
     button(el, /Anmelden/)!.click();
     expect(logins).toHaveLength(1);
   });
 
-  it('[F-138] falsches Konto: Hinweis mit beiden Adressen, kein „Annehmen“', async () => {
+  it('[F-138] falsches Konto: Hinweis ohne die eingeladene Adresse, kein „Annehmen“', async () => {
     const el = await mount('sx-invite-dialog', { open: true, state: 'ready', peek: peek({ emailMatches: false }), signedIn: true, userEmail: 'bob@example.org' });
-    expect(text(el)).toContain('Diese Einladung gilt für a…@example.org. Du bist als bob@example.org angemeldet.');
+    expect(text(el)).toContain('Diese Einladung gilt für eine andere E-Mail-Adresse. Du bist als bob@example.org angemeldet.');
     expect(button(el, /Annehmen/)).toBeUndefined();
     expect(button(el, /Mit dieser Adresse anmelden/)).toBeDefined();
   });
@@ -85,15 +85,13 @@ describe('sx-invite-dialog', () => {
     expect(text(member)).toContain('Du bist schon dabei.');
   });
 
-  it('[F-138] Profil fehlt: Fehlermeldung und „Profil anlegen“ (sx-account profile)', async () => {
-    const account = listen('sx-account');
+  it('[F-138] Fehler beim Annehmen erscheint im Dialog, „Annehmen“ bleibt möglich', async () => {
     const el = await mount('sx-invite-dialog', {
-      open: true, state: 'ready', peek: peek({ kind: 'crew', email: null, emailMatches: null }), signedIn: true,
-      error: 'Für die Crew brauchst du ein Profil.', errorCode: 'profile_required',
+      open: true, state: 'ready', peek: peek({ kind: 'crew', bound: false, emailMatches: null }), signedIn: true,
+      error: 'Die Crew dieses Törns ist voll.', errorCode: 'quota',
     });
-    expect(el.shadowRoot.querySelector('[role="alert"]')!.textContent).toContain('Profil');
-    button(el, /Profil anlegen/)!.click();
-    expect(account).toEqual(['profile']);
+    expect(el.shadowRoot.querySelector('[role="alert"]')!.textContent).toContain('voll');
+    expect(button(el, /Annehmen/)).toBeDefined();
   });
 
   it('[F-138] angenommen: Crew auf nicht öffentlichem Törn ohne Link, mit Hinweis; Boot mit Link zur Bootsseite', async () => {
@@ -195,7 +193,7 @@ describe('sx-account-dialog: Admins', () => {
     return el;
   }
 
-  it('[F-130] Eigner: Admins mit Adresse, offene Einladungen, Einladen per E-Mail', async () => {
+  it('[F-130] Eigner: Admins mit Namen (nie Adresse), offene Einladungen, Einladen per E-Mail', async () => {
     const invites = listen('sx-boat-admin-invite');
     const revokes = listen('sx-invite-revoke');
     const el = await openAdmins('owner');
@@ -203,14 +201,14 @@ describe('sx-account-dialog: Admins', () => {
       boatId: 'B1234567890abcdefg',
       data: {
         role: 'owner',
-        admins: [{ id: 'A1', displayName: 'Mats', handle: 'mats', email: 'mats@example.org', isSelf: false, createdAt: 0 }],
+        admins: [{ id: 'A1', displayName: 'Mats', handle: 'mats', isSelf: false, createdAt: 0 }, { id: 'A2', displayName: 'Munteres Seepferdchen', handle: null, isSelf: false, createdAt: 0 }],
         invites: [{ id: 'I1', email: 'neu@example.org', usesLeft: 1, createdAt: 0, expiresAt: Date.now() + DAY }],
       },
     };
     await el.updateComplete;
     const t = text(el);
     expect(t).toContain('Mats');
-    expect(t).toContain('mats@example.org');
+    expect(t).toContain('Munteres Seepferdchen');
     expect(t).toContain('neu@example.org');
     const form = el.shadowRoot.querySelector(`#admins-B1234567890abcdefg form`) as HTMLFormElement;
     (form.querySelector('input') as HTMLInputElement).value = 'crew@example.org';
@@ -223,7 +221,7 @@ describe('sx-account-dialog: Admins', () => {
   it('[F-132] Eigner entfernt einen Admin nach Bestätigung (sx-boat-admin-remove)', async () => {
     const removes = listen('sx-boat-admin-remove');
     const el = await openAdmins('owner');
-    el.admins = { boatId: 'B1234567890abcdefg', data: { role: 'owner', admins: [{ id: 'A1', displayName: 'Mats', handle: null, email: 'mats@example.org', isSelf: false, createdAt: 0 }], invites: [] } };
+    el.admins = { boatId: 'B1234567890abcdefg', data: { role: 'owner', admins: [{ id: 'A1', displayName: 'Mats', handle: null, isSelf: false, createdAt: 0 }], invites: [] } };
     await el.updateComplete;
     button(el, /Admin entfernen: Mats/)!.click();
     await el.updateComplete;
@@ -234,7 +232,7 @@ describe('sx-account-dialog: Admins', () => {
   it('[F-132] Admin: keine Adressen, kein Einladen, „Boot verlassen“ mit Bestätigung (sx-boat-leave)', async () => {
     const leaves = listen('sx-boat-leave');
     const el = await openAdmins('admin');
-    el.admins = { boatId: 'B1234567890abcdefg', data: { role: 'admin', admins: [{ id: 'U1', displayName: 'Ich', handle: null, email: null, isSelf: true, createdAt: 0 }], invites: [] } };
+    el.admins = { boatId: 'B1234567890abcdefg', data: { role: 'admin', admins: [{ id: 'U1', displayName: 'Ich', handle: null, isSelf: true, createdAt: 0 }], invites: [] } };
     await el.updateComplete;
     expect(text(el)).toContain('Ich (du)');
     expect(el.shadowRoot.querySelector('#admins-B1234567890abcdefg form')).toBeNull();

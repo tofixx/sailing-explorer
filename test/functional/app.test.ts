@@ -77,8 +77,8 @@ interface Server {
   checkout: 'ok' | 'fail';
   /** öffentliches bzw. per Schlüssel lesbares Profil für /api/profiles/:handle */
   profile: { handle: string; visibility: string; shareKey: string | null } | null;
-  /** Einladung für /api/invites/peek und /accept (fehlt = ungültig); acceptError: Fehler beim ersten Annehmen */
-  invite?: { peek: Record<string, unknown>; accept: Record<string, unknown>; acceptError?: { status: number; error: string; message: string } };
+  /** Einladung für /api/invites/peek und /accept (fehlt = ungültig) */
+  invite?: { peek: Record<string, unknown>; accept: Record<string, unknown> };
   /** Antwort von /api/shares/:id/crew (fehlt = 404) */
   crew?: Record<string, unknown>;
 }
@@ -160,16 +160,7 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
   }
   if (url === '/api/invites/accept' && method === 'POST') {
     if (!server.user) return json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
-    const err = server.invite?.acceptError;
-    if (err) {
-      delete server.invite!.acceptError;
-      return json({ error: err.error, message: err.message }, err.status);
-    }
     return json(server.invite!.accept);
-  }
-  if (url === '/api/me/profile' && method === 'PUT') {
-    const p = JSON.parse(String(init.body)) as Record<string, unknown>;
-    return json({ profile: { ...p, shareKey: null, link: `/u/${p.handle}`, isSelf: true } });
   }
   if (/^\/api\/shares\/[^/]+\/crew$/.test(url)) return server.crew ? json(server.crew) : json({ error: 'not_found', message: 'Nicht gefunden.' }, 404);
   if (/^\/api\/shares\/[^/]+\/invites$/.test(url) && method === 'POST') {
@@ -1055,7 +1046,7 @@ describe('F-138 Einladungen in der App', () => {
   const posts = (url: string) => server.calls.filter((c) => c.method === 'POST' && c.url === url);
   const seedInvite = () =>
     (server.invite = {
-      peek: { kind: 'crew', target: 'Rügen rund', inviter: 'Anna', email: null, expiresAt: Date.now() + 86_400_000, isOwner: false, alreadyMember: false },
+      peek: { kind: 'crew', target: 'Rügen rund', inviter: 'Anna', bound: false, expiresAt: Date.now() + 86_400_000, isOwner: false, alreadyMember: false },
       accept: { kind: 'crew', path: '/s/AbCdEfGhJkLmNpQr23', target: 'Rügen rund', already: false },
     });
 
@@ -1083,23 +1074,6 @@ describe('F-138 Einladungen in der App', () => {
     await vi.waitFor(() => expect(invite().state).toBe('done'));
     expect(invite().result).toMatchObject({ path: '/s/AbCdEfGhJkLmNpQr23' });
     expect(JSON.parse(String(posts('/api/invites/accept')[0].body))).toEqual({ token: TOKEN });
-  });
-
-  it('[F-138] ohne Profil: „Profil anlegen“ öffnet das Konto, nach dem Speichern geht es zurück zur Einladung', async () => {
-    seedInvite();
-    server.invite!.acceptError = { status: 409, error: 'profile_required', message: 'Für die Crew brauchst du ein Profil.' };
-    server.user = { id: 'u1', email: 'skipper@example.org' };
-    await startApp(`/einladung#token=${TOKEN}`);
-    emit('sx-invite-accept');
-    await vi.waitFor(() => expect(invite().errorCode).toBe('profile_required'));
-    emit('sx-account', 'profile');
-    await vi.waitFor(() => expect(el<{ open: boolean; loading: boolean }>('sx-account-dialog')).toMatchObject({ open: true, loading: false }));
-    expect(invite().open).toBe(false);
-    emit('sx-profile-save', { handle: 'mats', displayName: 'Mats', bio: '', visibility: 'public' });
-    await vi.waitFor(() => expect(invite()).toMatchObject({ open: true, state: 'ready' }));
-    expect(el<{ open: boolean }>('sx-account-dialog').open).toBe(false);
-    emit('sx-invite-accept');
-    await vi.waitFor(() => expect(invite().state).toBe('done'));
   });
 
   it('[F-138] ungültige Einladung: verständliche Meldung, Schließen vergisst sie', async () => {

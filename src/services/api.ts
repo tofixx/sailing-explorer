@@ -101,11 +101,10 @@ export interface PendingInvite {
 
 export interface BoatAdmin {
   id: string;
-  displayName: string | null;
+  /** selbst gewählter Name oder Spaßname – nie die E-Mail-Adresse */
+  displayName: string;
   /** nur bei öffentlichem Profil */
   handle: string | null;
-  /** nur für den Eigner */
-  email: string | null;
   isSelf: boolean;
   createdAt: number;
 }
@@ -141,8 +140,8 @@ export interface InvitePeek {
   kind: InviteKind;
   target: string | null;
   inviter: string | null;
-  /** maskierte Adresse bei gebundenen Einladungen */
-  email: string | null;
+  /** an eine E-Mail-Adresse gebunden (welche, verrät der Server nicht) */
+  bound: boolean;
   expiresAt: number;
   /** null: nicht angemeldet bzw. nicht an eine Adresse gebunden */
   emailMatches: boolean | null;

@@ -7,7 +7,8 @@ import { randomId, randomToken, sha256Hex } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { inviteMail, sendMail } from './mail';
 import { getShareRow, ownedShare, visibleShare } from './shares';
-import { BOAT_ID_RE, TOKEN_RE, maskEmail, normalizeEmail, parseInviteKind, type InviteKind } from './validate';
+import { BOAT_ID_RE, TOKEN_RE, normalizeEmail, parseInviteKind, type InviteKind } from './validate';
+import { funnyName } from '../src/domain/names';
 
 const DAY = 86_400_000;
 
@@ -63,8 +64,10 @@ async function count(env: Env, sql: string, ...args: unknown[]): Promise<number>
   return (await env.DB.prepare(sql).bind(...args).first<{ n: number }>())?.n ?? 0;
 }
 
-async function displayName(env: Env, userId: string): Promise<string | null> {
-  return (await env.DB.prepare('SELECT display_name FROM profiles WHERE user_id = ?').bind(userId).first<{ display_name: string }>())?.display_name ?? null;
+/** Selbst gewählter Anzeigename, sonst der Spaßname des Kontos – nie die E-Mail-Adresse. */
+async function displayName(env: Env, userId: string): Promise<string> {
+  const row = await env.DB.prepare('SELECT display_name FROM profiles WHERE user_id = ?').bind(userId).first<{ display_name: string }>();
+  return row?.display_name || funnyName(userId);
 }
 
 interface NewInvite {
@@ -126,28 +129,29 @@ function readEmail(input: unknown, required: boolean): string | null {
 
 // ---------------------------------------------------------------- Boots-Admins
 
-/** GET /api/boats/:id/admins – Eigner und Admins. E-Mail-Adressen und offene Einladungen nur für den Eigner. */
+/**
+ * GET /api/boats/:id/admins – Eigner und Admins. Admins erscheinen mit Anzeigenamen (sonst Spaßname), nie mit
+ * E-Mail-Adresse; offene Einladungen (mit der Adresse, die der Eigner selbst eingegeben hat) nur für den Eigner.
+ */
 export async function listBoatAdmins(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   const role = BOAT_ID_RE.test(id) ? await roleFor(env, user.id, id) : null;
   if (!role) throw BOAT_NOT_FOUND();
   const owner = role === 'owner';
   const { results } = await env.DB.prepare(
-    `SELECT a.user_id, a.created_at, u.email, p.handle, p.display_name, p.visibility FROM boat_admins a
-     JOIN users u ON u.id = a.user_id LEFT JOIN profiles p ON p.user_id = a.user_id
-     WHERE a.boat_id = ? ORDER BY a.created_at`,
+    `SELECT a.user_id, a.created_at, p.handle, p.display_name, p.visibility FROM boat_admins a
+     LEFT JOIN profiles p ON p.user_id = a.user_id WHERE a.boat_id = ? ORDER BY a.created_at`,
   )
     .bind(id)
-    .all<{ user_id: string; created_at: number; email: string; handle: string | null; display_name: string | null; visibility: string | null }>();
+    .all<{ user_id: string; created_at: number; handle: string | null; display_name: string | null; visibility: string | null }>();
   const invites = owner ? (await env.DB.prepare(pendingSql('boat_id')).bind(id, Date.now()).all<InviteRow>()).results.map(inviteShape) : [];
   return json({
     role,
     admins: results.map((a) => ({
       id: a.user_id,
-      displayName: a.display_name,
+      displayName: a.display_name || funnyName(a.user_id),
       // Profil-Link nur bei öffentlichem Profil – sonst wäre die Seite ohnehin 404.
       handle: a.visibility === 'public' ? a.handle : null,
-      email: owner ? a.email : null,
       isSelf: a.user_id === user.id,
       createdAt: a.created_at,
     })),
@@ -163,8 +167,8 @@ export async function inviteBoatAdmin(request: Request, env: Env, id: string): P
   if (role !== 'owner') throw NOT_OWNER();
   const email = readEmail((await readJson<{ email?: unknown }>(request)).email, true)!;
   if (email === user.email) throw new HttpError(409, 'own_object', 'Du bist schon Eigner dieses Boots.');
-  const already = await count(env, 'SELECT COUNT(*) AS n FROM boat_admins a JOIN users u ON u.id = a.user_id WHERE a.boat_id = ? AND u.email = ?', id, email);
-  if (already) throw new HttpError(409, 'already_member', 'Diese Person ist schon Admin.');
+  // Bewusst kein Abgleich mit den Adressen bestehender Admins: sonst ließe sich ausprobieren, welche Adresse zu wem
+  // gehört. Wer schon Admin ist, verbraucht beim Annehmen nichts (already).
   const now = Date.now();
   const used =
     (await count(env, 'SELECT COUNT(*) AS n FROM boat_admins WHERE boat_id = ?', id)) +
@@ -222,7 +226,7 @@ export async function getCrew(request: Request, env: Env, id: string): Promise<R
   if (isOwner) {
     const invites = (await env.DB.prepare(pendingSql('share_id')).bind(row.id, Date.now()).all<InviteRow>()).results.map(inviteShape);
     return json({
-      members: rows.map((r) => ({ id: r.user_id, handle: r.visibility === 'public' ? r.handle : null, displayName: r.display_name ?? '' })),
+      members: rows.map((r) => ({ id: r.user_id, handle: r.visibility === 'public' ? r.handle : null, displayName: r.display_name || funnyName(r.user_id) })),
       others: 0,
       isOwner: true,
       isCrew: false,
@@ -253,11 +257,8 @@ export async function inviteCrew(request: Request, env: Env, id: string): Promis
   if ((await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE share_id = ? AND expires_at > ? AND uses < max_uses', row.id, now)) >= INVITE_LIMITS.pendingPerShare) {
     throw new HttpError(409, 'quota', `Höchstens ${INVITE_LIMITS.pendingPerShare} offene Einladungen je Törn – zieh alte zurück.`);
   }
-  if (email) {
-    if (email === user.email) throw new HttpError(409, 'own_object', 'Das ist dein eigener Törn.');
-    const already = await count(env, 'SELECT COUNT(*) AS n FROM share_crew c JOIN users u ON u.id = c.user_id WHERE c.share_id = ? AND u.email = ?', row.id, email);
-    if (already) throw new HttpError(409, 'already_member', 'Diese Person ist schon in der Crew.');
-  }
+  // Kein Abgleich mit den Adressen der Crew (wie bei Admins): Adressen anderer bleiben unprüfbar.
+  if (email === user.email) throw new HttpError(409, 'own_object', 'Das ist dein eigener Törn.');
   const { invite, link } = await createInvite(request, env, user, {
     kind: 'crew', shareId: row.id, email, maxUses: email ? 1 : INVITE_LIMITS.crewPerShare - crew, days: INVITE_LIMITS.crewDays, targetName: row.title,
   });
@@ -315,7 +316,7 @@ async function isMember(env: Env, inv: LoadedInvite, userId: string): Promise<bo
 
 /**
  * POST /api/invites/peek – wozu die Einladung ist, ohne sie einzulösen. Nennt Boot/Törn und den Einladenden
- * (Anzeigename, falls Profil), die gebundene Adresse nur maskiert.
+ * (Anzeigename bzw. Spaßname). Die gebundene Adresse erscheint nicht, nur ob es eine gibt und ob sie passt.
  */
 export async function peekInvite(request: Request, env: Env): Promise<Response> {
   const inv = await loadInvite(request, env, (await readJson<{ token?: unknown }>(request)).token);
@@ -325,7 +326,8 @@ export async function peekInvite(request: Request, env: Env): Promise<Response> 
     kind: inv.kind,
     target: inv.kind === 'boat_admin' ? inv.boat_name : inv.share_title,
     inviter: await displayName(env, inv.inviter_id),
-    email: inv.email ? maskEmail(inv.email) : null,
+    /** an eine Adresse gebunden (welche, verrät die Antwort nicht) */
+    bound: !!inv.email,
     expiresAt: inv.expires_at,
     /** null: nicht angemeldet bzw. nicht an eine Adresse gebunden */
     emailMatches: user && inv.email ? user.email === inv.email : null,
@@ -339,7 +341,7 @@ export async function acceptInvite(request: Request, env: Env): Promise<Response
   const user = await requireUser(request, env);
   const inv = await loadInvite(request, env, (await readJson<{ token?: unknown }>(request)).token);
   if (inv.email && inv.email !== user.email) {
-    throw new HttpError(403, 'invite_wrong_account', `Diese Einladung gilt für ${maskEmail(inv.email)}. Bitte mit dieser Adresse anmelden.`);
+    throw new HttpError(403, 'invite_wrong_account', 'Diese Einladung gilt für eine andere E-Mail-Adresse. Bitte mit der eingeladenen Adresse anmelden.');
   }
   const boat = inv.kind === 'boat_admin';
   const targetId = (boat ? inv.boat_id : inv.share_id)!;
@@ -359,9 +361,7 @@ export async function acceptInvite(request: Request, env: Env): Promise<Response
       throw new HttpError(409, 'quota', 'Dieses Boot hat schon die höchste Zahl an Admins.');
     }
   } else {
-    if (!(await env.DB.prepare('SELECT 1 FROM profiles WHERE user_id = ?').bind(user.id).first())) {
-      throw new HttpError(409, 'profile_required', 'Für die Crew brauchst du ein Profil mit Anzeigenamen. Leg es unter „Konto“ an und nimm die Einladung dann an.');
-    }
+    // Kein Profil nötig: ohne eigenen Namen trägt das Konto seinen Spaßnamen, öffentlich zählt es nur als Anzahl.
     if ((await count(env, 'SELECT COUNT(*) AS n FROM share_crew WHERE share_id = ?', targetId)) >= INVITE_LIMITS.crewPerShare) {
       throw new HttpError(409, 'quota', 'Die Crew dieses Törns ist voll.');
     }

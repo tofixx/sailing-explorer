@@ -7,6 +7,7 @@ import { crewShares, publicShares } from './shares';
 import { checkVisibilityChoice } from './supporter';
 import { LIMITS, cleanText, normalizeHandle, parseVisibility } from './validate';
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
+import { funnyName } from '../src/domain/names';
 
 interface ProfileRow {
   user_id: string;
@@ -54,7 +55,8 @@ export async function getMyProfile(request: Request, env: Env): Promise<Response
   const p = await env.DB.prepare('SELECT * FROM profiles WHERE user_id = ?').bind(user.id).first<ProfileRow>();
   if (p) return json({ profile: profileShape(p, true), exists: true });
   return json({
-    profile: { handle: await suggestion(env), displayName: '', bio: '', visibility: DEFAULT_VISIBILITY, shareKey: null, link: null, isSelf: true },
+    // Anzeigename vorgeschlagen: der Spaßname des Kontos – nie etwas aus der E-Mail-Adresse.
+    profile: { handle: await suggestion(env), displayName: funnyName(user.id), bio: '', visibility: DEFAULT_VISIBILITY, shareKey: null, link: null, isSelf: true },
     exists: false,
   });
 }

@@ -31,7 +31,7 @@ export class SxInviteDialog extends LitElement {
   declare userEmail: string;
   declare busy: boolean;
   declare error: string;
-  /** Fehlercode vom Server, z. B. profile_required */
+  /** Fehlercode vom Server, z. B. invite_wrong_account */
   declare errorCode: string;
 
   constructor() {
@@ -96,7 +96,7 @@ export class SxInviteDialog extends LitElement {
   private explain(p: InvitePeek) {
     return p.kind === 'boat_admin'
       ? 'Als Admin bearbeitest du die Bootsseite und ordnest deine Törns dem Boot zu. Löschen und weitere Admins einladen kann nur der Eigner. Du kannst das Boot jederzeit wieder verlassen.'
-      : 'Mit deinem Profil erscheinst du auf dem Törn und auf deiner Profilseite unter „Mitgesegelt“ – aber nur, solange der Törn öffentlich ist. Du kannst dich jederzeit wieder entfernen.';
+      : 'Solange der Törn öffentlich ist, erscheinst du dort – mit öffentlichem Profil namentlich und auf deiner Profilseite unter „Mitgesegelt“, sonst nur als Anzahl. Deine E-Mail-Adresse sieht niemand. Du kannst dich jederzeit wieder entfernen.';
   }
 
   /** Was als Nächstes zu tun ist: anmelden, andere Adresse, Profil anlegen oder annehmen. */
@@ -111,19 +111,17 @@ export class SxInviteDialog extends LitElement {
         <div class="actions"><button class="btn" @click=${this.close}>Schließen</button></div>`;
     }
     if (!this.signedIn) {
-      return html`<div class="note">${icon('mail')}<span>Zum Annehmen meldest du dich ${p.email ? html`mit <b>${p.email}</b>` : 'mit deiner E-Mail-Adresse'} an – ohne Passwort, per Link.</span></div>
+      return html`<div class="note">${icon('mail')}<span>Zum Annehmen meldest du dich ${p.bound ? 'mit der E-Mail-Adresse an, an die die Einladung ging' : 'mit deiner E-Mail-Adresse an'} – ohne Passwort, per Link.</span></div>
         <div class="actions">${cancel}<button class="btn primary" @click=${() => emit(this, 'sx-invite-login')}>${icon('user')} Anmelden</button></div>`;
     }
     if (p.emailMatches === false) {
-      return html`<div class="note warn">${icon('info')}<span>Diese Einladung gilt für <b>${p.email}</b>. Du bist als <b>${this.userEmail}</b> angemeldet.</span></div>
+      return html`<div class="note warn">${icon('info')}<span>Diese Einladung gilt für eine andere E-Mail-Adresse. Du bist als <b>${this.userEmail}</b> angemeldet.</span></div>
         <div class="actions">${cancel}<button class="btn primary" @click=${() => emit(this, 'sx-invite-login')}>${icon('user')} Mit dieser Adresse anmelden</button></div>`;
     }
     return html`${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
       <div class="actions">
         ${cancel}
-        ${this.errorCode === 'profile_required'
-          ? html`<button class="btn primary" @click=${() => emit(this, 'sx-account', 'profile')}>${icon('user')} Profil anlegen</button>`
-          : html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-invite-accept')}>${icon('check')} ${this.busy ? 'Nehme an …' : 'Annehmen'}</button>`}
+        <button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-invite-accept')}>${icon('check')} ${this.busy ? 'Nehme an …' : 'Annehmen'}</button>
       </div>`;
   }
 
@@ -157,7 +155,7 @@ export class SxInviteDialog extends LitElement {
         <p><b>${p.inviter || 'Ein Segler oder eine Seglerin'}</b> lädt dich ein, ${this.what(p)}.</p>
       </div>
       <p class="muted">${this.explain(p)}</p>
-      <p class="hint">Gültig bis ${fmtDate(p.expiresAt)}${p.email ? html` · gilt nur für ${p.email}` : ''}</p>
+      <p class="hint">Gültig bis ${fmtDate(p.expiresAt)}${p.bound ? ' · gilt nur für die eingeladene E-Mail-Adresse' : ''}</p>
       ${this.next(p)}
     </div>`;
   }

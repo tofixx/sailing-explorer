@@ -87,13 +87,6 @@ export function parseInviteKind(input: unknown): InviteKind | null {
   return typeof input === 'string' && (INVITE_KINDS as readonly string[]).includes(input) ? (input as InviteKind) : null;
 }
 
-/** Adresse für die Anzeige an Dritte: erster Buchstabe und Domain („a…@example.org“). */
-export function maskEmail(email: string): string {
-  const at = email.lastIndexOf('@');
-  if (at < 1) return '…';
-  return `${email[0]}…${email.slice(at)}`;
-}
-
 // ---------------------------------------------------------------- Unterstützen
 
 /** Kostenlose Freigaben pro Konto aus der Konfiguration (Standard 3, nie über dem Gesamtlimit). */

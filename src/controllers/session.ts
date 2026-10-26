@@ -61,8 +61,6 @@ export class SessionController {
   private backendReady: Promise<void> = Promise.resolve();
   /** geöffnete Einladung (Token), bis sie angenommen oder geschlossen ist */
   private pendingInvite: string | null = null;
-  /** Einladung wartet auf ein Profil (Crew) – nach dem Speichern geht es dort weiter */
-  private inviteWaitsForProfile = false;
   /** Törn, dessen Crew gerade gezeigt wird */
   private crewShare: { share: ShareMeta; key?: string } | null = null;
 
@@ -231,14 +229,13 @@ export class SessionController {
   closeInvite(): void {
     this.ui.invite.open = false;
     this.pendingInvite = null;
-    this.inviteWaitsForProfile = false;
   }
 
   /** Erst anmelden (bzw. mit der eingeladenen Adresse) – danach erscheint die Einladung wieder. */
   inviteLogin(): void {
-    const email = this.ui.invite.peek?.email;
+    const bound = this.ui.invite.peek?.bound;
     this.ui.invite.open = false;
-    this.openLogin(`Melde dich ${email ? `mit ${email} ` : ''}an, um die Einladung anzunehmen. Danach geht es direkt weiter.`);
+    this.openLogin(`Melde dich ${bound ? 'mit der eingeladenen E-Mail-Adresse ' : ''}an, um die Einladung anzunehmen. Danach geht es direkt weiter.`);
   }
 
   async acceptInvite(): Promise<void> {
@@ -253,9 +250,7 @@ export class SessionController {
         this.store.set({ user: null });
         return this.inviteLogin();
       }
-      const code = e instanceof ApiError ? e.code : '';
-      this.inviteWaitsForProfile = code === 'profile_required';
-      Object.assign(this.ui.invite, { error: errorText(e), errorCode: code });
+      Object.assign(this.ui.invite, { error: errorText(e), errorCode: e instanceof ApiError ? e.code : '' });
     } finally {
       this.ui.invite.busy = false;
     }
@@ -709,12 +704,6 @@ export class SessionController {
     return this.act(async () => {
       const { profile } = await api.saveProfile(p);
       Object.assign(this.ui.account, { profile, profileExists: true });
-      // Crew-Einladung wartete auf das Profil: zurück zur Einladung.
-      if (this.inviteWaitsForProfile && this.pendingInvite) {
-        this.inviteWaitsForProfile = false;
-        this.ui.account.open = false;
-        void this.openInvite(this.pendingInvite);
-      }
     }, p.rotateKey ? ROTATED : 'Profil gespeichert');
   }
 

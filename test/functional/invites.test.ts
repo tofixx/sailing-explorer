@@ -2,6 +2,7 @@
 // Echter Worker in workerd (Miniflare) mit lokalen D1-/R2-Bindings – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createShare, login, loginSupporter, startWorker, type Harness } from './worker-harness';
+import { funnyName } from '../../src/domain/names';
 
 let h: Harness;
 let n = 0;
@@ -82,8 +83,8 @@ describe('F-130 Boots-Admins per E-Mail einladen', () => {
 
     const token = tokenOf(out.devLink!);
     const pk = await getJson<Record<string, unknown>>(await peek(admin, token));
-    expect(pk).toMatchObject({ kind: 'boat_admin', target: 'Albatros', inviter: `Name ${owner.handle}`, emailMatches: true, isOwner: false, alreadyMember: false });
-    expect(pk.email).toBe(`${admin.email[0]}…@example.org`);
+    expect(pk).toMatchObject({ kind: 'boat_admin', target: 'Albatros', inviter: `Name ${owner.handle}`, bound: true, emailMatches: true, isOwner: false, alreadyMember: false });
+    expect(JSON.stringify(pk)).not.toContain('@'); // keine Adresse, auch nicht maskiert
 
     const res = await accept(admin, token);
     expect(res.status).toBe(200);
@@ -111,22 +112,32 @@ describe('F-130 Boots-Admins per E-Mail einladen', () => {
     expect((await getJson<{ error: string }>(again)).error).toBe('invalid_invite');
   });
 
-  it('[F-130] Liste: Eigner sieht Admins mit Adresse und offene Einladungen, Admins nur Namen', async () => {
+  it('[F-130] Liste: Admins mit Namen (sonst Spaßname), nie mit Adresse; offene Einladungen nur für den Eigner', async () => {
     const owner = await person();
     const boat = await newBoat(owner.cookie);
     const a = await person({ profile: 'public' });
+    const b = await person(); // ohne Profil
     const pending = email();
     expect((await accept(a, tokenOf((await inviteAdmin(owner, boat.id, a.email)).devLink!))).status).toBe(200);
+    expect((await accept(b, tokenOf((await inviteAdmin(owner, boat.id, b.email)).devLink!))).status).toBe(200);
     await inviteAdmin(owner, boat.id, pending);
 
-    const asOwner = await getJson<{ role: string; admins: Array<Record<string, unknown>>; invites: Array<Record<string, unknown>> }>(await send('GET', `/api/boats/${boat.id}/admins`, owner.cookie));
+    const res = await send('GET', `/api/boats/${boat.id}/admins`, owner.cookie);
+    const raw = await res.clone().text();
+    const asOwner = await getJson<{ role: string; admins: Array<Record<string, unknown>>; invites: Array<Record<string, unknown>> }>(res);
     expect(asOwner.role).toBe('owner');
-    expect(asOwner.admins).toEqual([expect.objectContaining({ id: a.user.id, displayName: `Name ${a.handle}`, handle: a.handle, email: a.email, isSelf: false })]);
+    expect(asOwner.admins).toEqual([
+      { id: a.user.id, displayName: `Name ${a.handle}`, handle: a.handle, isSelf: false, createdAt: expect.any(Number) },
+      { id: b.user.id, displayName: funnyName(b.user.id), handle: null, isSelf: false, createdAt: expect.any(Number) },
+    ]);
+    expect(raw).not.toContain(a.email);
+    expect(raw).not.toContain(b.email);
+    // Die offene Einladung zeigt nur die Adresse, die der Eigner selbst eingegeben hat.
     expect(asOwner.invites).toEqual([expect.objectContaining({ email: pending, usesLeft: 1 })]);
 
     const asAdmin = await getJson<{ role: string; admins: Array<Record<string, unknown>>; invites: unknown[] }>(await send('GET', `/api/boats/${boat.id}/admins`, a.cookie));
     expect(asAdmin.role).toBe('admin');
-    expect(asAdmin.admins[0]).toMatchObject({ email: null, isSelf: true });
+    expect(asAdmin.admins[0]).toMatchObject({ isSelf: true });
     expect(asAdmin.invites).toEqual([]);
 
     const stranger = await person();
@@ -165,7 +176,7 @@ describe('F-131 Prüfungen beim Einladen und Annehmen', () => {
     expect((await send('POST', `/api/boats/${boat.id}/invites`, undefined, { email: email() })).status).toBe(401);
   });
 
-  it('[F-131] ungültige Adresse 400, eigene Adresse 409, schon Admin 409, doppelte Einladung 409', async () => {
+  it('[F-131] ungültige Adresse 400, eigene Adresse 409, doppelte Einladung 409; Adressen bestehender Admins lassen sich nicht abfragen', async () => {
     const owner = await person();
     const boat = await newBoat(owner.cookie);
     const bad = await send('POST', `/api/boats/${boat.id}/invites`, owner.cookie, { email: 'kein-mail' });
@@ -173,7 +184,10 @@ describe('F-131 Prüfungen beim Einladen und Annehmen', () => {
     expect((await send('POST', `/api/boats/${boat.id}/invites`, owner.cookie, { email: owner.email })).status).toBe(409);
     const admin = await person();
     await accept(admin, tokenOf((await inviteAdmin(owner, boat.id, admin.email)).devLink!));
-    expect(await getJson(await send('POST', `/api/boats/${boat.id}/invites`, owner.cookie, { email: admin.email }))).toMatchObject({ error: 'already_member' });
+    // Kein already_member beim Einladen (sonst ließe sich prüfen, welche Adresse zu einem Admin gehört) –
+    // beim Annehmen verbraucht ein bestehender Admin die Einladung nicht.
+    const again = await inviteAdmin(owner, boat.id, admin.email);
+    expect(await getJson(await accept(admin, tokenOf(again.devLink!)))).toMatchObject({ already: true });
     const to = email();
     await inviteAdmin(owner, boat.id, to);
     expect(await getJson(await send('POST', `/api/boats/${boat.id}/invites`, owner.cookie, { email: to }))).toMatchObject({ error: 'already_invited' });
@@ -261,7 +275,7 @@ describe('F-133 Crew per Link oder E-Mail', () => {
     const token = tokenOf(out.link!);
     const a = await person({ profile: 'public' });
     const b = await person({ profile: 'public' });
-    expect(await getJson(await peek(a, token))).toMatchObject({ kind: 'crew', target: 'Rügen rund', email: null, emailMatches: null });
+    expect(await getJson(await peek(a, token))).toMatchObject({ kind: 'crew', target: 'Rügen rund', bound: false, emailMatches: null });
     expect(await getJson(await accept(a, token))).toMatchObject({ kind: 'crew', path: `/s/${share.id}`, already: false });
     expect((await accept(b, token)).status).toBe(200);
     // Schon dabei: verbraucht keine Nutzung
@@ -282,14 +296,14 @@ describe('F-133 Crew per Link oder E-Mail', () => {
     expect((await accept(mate, tokenOf(out.devLink!))).status).toBe(200);
   });
 
-  it('[F-133] ohne Profil: 409 profile_required, Einladung bleibt gültig', async () => {
+  it('[F-140] ohne Profil: Beitritt geht; Eigentümer sieht den Spaßnamen, Besucher nur eine Anzahl', async () => {
     const owner = await person({ profile: 'public' });
     const share = await newShare(owner.cookie);
     const { link } = await inviteCrew(owner, share.id);
     const noProfile = await person();
-    expect(await getJson(await accept(noProfile, tokenOf(link!)))).toMatchObject({ error: 'profile_required' });
-    await send('PUT', '/api/me/profile', noProfile.cookie, { handle: uniq('neu'), displayName: 'Neu', bio: '' });
-    expect((await accept(noProfile, tokenOf(link!))).status).toBe(200);
+    expect(await getJson(await accept(noProfile, tokenOf(link!)))).toMatchObject({ already: false });
+    expect((await getJson<CrewOut>(await crewOf(share.id, owner))).members).toEqual([{ id: noProfile.user.id, handle: null, displayName: funnyName(noProfile.user.id) }]);
+    expect(await getJson(await crewOf(share.id))).toMatchObject({ members: [], others: 1 });
   });
 
   it('[F-133] nur der Eigentümer lädt ein; fremde und private Törns 404; eigene Adresse 409', async () => {
@@ -494,5 +508,61 @@ describe('F-137 Löschen nimmt Einladungen und Mitgliedschaften mit', () => {
     expect(await db.prepare('SELECT 1 FROM boat_admins WHERE user_id = ?').bind(mate.user.id).first()).toBeNull();
     expect(await db.prepare('SELECT 1 FROM invites WHERE inviter_id = ?').bind(mate.user.id).first()).toBeNull();
     expect((await getJson<CrewOut>(await crewOf(share.id, owner))).members).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------- F-140 Keine Adressen an andere
+
+describe('F-140 E-Mail-Adressen erreichen nie andere Konten', () => {
+  it('[F-140] Admin-Liste, Crew, Peek, Fehler, Profil- und Bootsseite enthalten keine fremde Adresse', async () => {
+    const owner = await person({ profile: 'public' });
+    const boat = await newBoat(owner.cookie);
+    const share = await newShare(owner.cookie);
+    const admin = await person();
+    const mate = await person({ profile: 'public' });
+    const stranger = await person();
+    const adminToken = tokenOf((await inviteAdmin(owner, boat.id, admin.email)).devLink!);
+    const crewToken = tokenOf((await inviteCrew(owner, share.id)).link!);
+    const wrong = await accept(stranger, adminToken); // falsches Konto
+    expect(wrong.status).toBe(403);
+    const bodies = [
+      await wrong.text(),
+      await (await peek(stranger, adminToken)).text(),
+      await (await peek(undefined, adminToken)).text(),
+    ];
+    await accept(admin, adminToken);
+    await accept(mate, crewToken);
+    const nameless = await person();
+    await accept(nameless, crewToken);
+    for (const [path, who] of [
+      [`/api/boats/${boat.id}/admins`, owner], [`/api/boats/${boat.id}/admins`, admin],
+      [`/api/shares/${share.id}/crew`, owner], [`/api/shares/${share.id}/crew`, mate], [`/api/shares/${share.id}/crew`, undefined],
+      [`/api/boats/${boat.id}`, admin], [`/api/profiles/${mate.handle}`, undefined], [`/api/profiles/${owner.handle}`, admin],
+    ] as Array<[string, Person | undefined]>) {
+      bodies.push(await (await h.fetch(path, { cookie: who?.cookie })).text());
+    }
+    // Der Eigner sieht nur die Adressen, die er selbst für offene Einladungen eingegeben hat – hier sind alle angenommen.
+    for (const body of bodies) {
+      for (const p of [owner, admin, mate, stranger, nameless]) expect(body).not.toContain(p.email);
+      expect(body).not.toMatch(/…@/);
+    }
+  });
+
+  it('[F-140] Vorschlag für ein neues Profil: Spaßname als Anzeigename, nichts aus der Adresse', async () => {
+    const p = await person();
+    const r = await getJson<{ profile: { displayName: string; handle: string }; exists: boolean }>(await send('GET', '/api/me/profile', p.cookie));
+    expect(r.exists).toBe(false);
+    expect(r.profile.displayName).toBe(funnyName(p.user.id));
+    expect(r.profile.displayName).not.toContain(p.email.split('@')[0]);
+  });
+
+  it('[F-140] Einladungsmail nennt den Einladenden mit Spaßnamen, wenn er keinen Namen gesetzt hat – nie mit Adresse', async () => {
+    const owner = await person();
+    const boat = await newBoat(owner.cookie, 'Kutter');
+    const to = email();
+    await inviteAdmin(owner, boat.id, to);
+    const mail = h.logs.find((l) => l.includes(`an ${to}:`))!;
+    expect(mail).toContain(funnyName(owner.user.id));
+    expect(mail).not.toContain(owner.email);
   });
 });
