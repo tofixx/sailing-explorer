@@ -18,6 +18,8 @@ import { turnstileMount } from '../services/turnstile';
 import { absoluteLink, routePath, serializeView } from '../services/url-state';
 import { DEFAULT_VISIBILITY, type Visibility } from '../domain/visibility';
 import type { AccountTab, SxAccountDialog } from '../components/sx-account-dialog';
+import type { SxCrew } from '../components/sx-crew';
+import type { SxInviteDialog } from '../components/sx-invite-dialog';
 import type { SxLoginDialog } from '../components/sx-login-dialog';
 import type { SxShareDialog } from '../components/sx-share-dialog';
 
@@ -29,6 +31,10 @@ export interface SessionUi {
   login: SxLoginDialog;
   share: SxShareDialog;
   account: SxAccountDialog;
+  invite: SxInviteDialog;
+  crew: SxCrew;
+  /** Panel „Crew“ in der Törn-Ansicht (sichtbar, wenn es etwas zu zeigen oder zu verwalten gibt) */
+  crewPanel: HTMLElement;
   toast: (msg: string, ms?: number) => void;
 }
 
@@ -53,6 +59,10 @@ export class SessionController {
   private supportStatus: SupportStatus | null = null;
   /** erfüllt, sobald Konfiguration und Anmeldung geladen sind */
   private backendReady: Promise<void> = Promise.resolve();
+  /** geöffnete Einladung (Token), bis sie angenommen oder geschlossen ist */
+  private pendingInvite: string | null = null;
+  /** Törn, dessen Crew gerade gezeigt wird */
+  private crewShare: { share: ShareMeta; key?: string } | null = null;
 
   constructor(
     private store: Store,
@@ -159,6 +169,9 @@ export class SessionController {
     if (this.pendingShare && this.store.get().user) {
       this.pendingShare = false;
       this.share();
+    } else if (this.pendingInvite && this.store.get().user) {
+      // Einladung nach der Anmeldung (auch aus einem anderen Tab) wieder zeigen – angenommen wird erst per Klick.
+      void this.openInvite(this.pendingInvite);
     }
   }
 
@@ -189,6 +202,165 @@ export class SessionController {
     this.ui.login.open = false;
     this.ui.share.open = false;
     this.ui.account.open = false;
+    this.ui.invite.open = false;
+  }
+
+  // ---------------------------------------------------------------- Einladungen
+
+  /** /einladung#token=…: zeigen, wozu eingeladen wird – eingelöst wird erst nach Klick auf „Annehmen“. */
+  async openInvite(token: string): Promise<void> {
+    await this.backendReady;
+    this.pendingInvite = token;
+    const user = this.store.get().user;
+    this.ui.account.open = false;
+    Object.assign(this.ui.invite, {
+      open: true, state: 'loading', peek: null, result: null, error: '', errorCode: '', busy: false,
+      signedIn: !!user, userEmail: user?.email ?? '',
+    });
+    try {
+      Object.assign(this.ui.invite, { state: 'ready', peek: await api.peekInvite(token) });
+    } catch (e) {
+      this.pendingInvite = null;
+      Object.assign(this.ui.invite, { state: 'error', error: errorText(e) });
+    }
+  }
+
+  /** Dialog geschlossen: die Einladung bleibt im Postfach, hier wird sie vergessen. */
+  closeInvite(): void {
+    this.ui.invite.open = false;
+    this.pendingInvite = null;
+  }
+
+  /** Erst anmelden (bzw. mit der eingeladenen Adresse) – danach erscheint die Einladung wieder. */
+  inviteLogin(): void {
+    const bound = this.ui.invite.peek?.bound;
+    this.ui.invite.open = false;
+    this.openLogin(`Melde dich ${bound ? 'mit der eingeladenen E-Mail-Adresse ' : ''}an, um die Einladung anzunehmen. Danach geht es direkt weiter.`);
+  }
+
+  async acceptInvite(): Promise<void> {
+    if (!this.pendingInvite) return;
+    Object.assign(this.ui.invite, { busy: true, error: '', errorCode: '' });
+    try {
+      const result = await api.acceptInvite(this.pendingInvite);
+      this.pendingInvite = null;
+      Object.assign(this.ui.invite, { state: 'done', result });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        this.store.set({ user: null });
+        return this.inviteLogin();
+      }
+      Object.assign(this.ui.invite, { error: errorText(e), errorCode: e instanceof ApiError ? e.code : '' });
+    } finally {
+      this.ui.invite.busy = false;
+    }
+  }
+
+  // ---------------------------------------------------------------- Crew
+
+  /** Crew des geöffneten Törns laden; das Panel erscheint nur, wenn es etwas zu zeigen oder zu verwalten gibt. */
+  async loadCrew(share: ShareMeta, key?: string): Promise<void> {
+    this.crewShare = { share, key };
+    const crewEl = this.ui.crew;
+    Object.assign(crewEl, { visibility: share.visibility, error: '', busy: false });
+    try {
+      const crew = await api.crew(share.id, key);
+      if (this.crewShare?.share.id !== share.id) return;
+      Object.assign(crewEl, { crew, isOwner: crew.isOwner });
+      if (!crew.isOwner) crewEl.newLink = '';
+      this.ui.crewPanel.hidden = !(crew.isOwner || crew.isCrew || crew.members.length || crew.others);
+    } catch {
+      this.ui.crewPanel.hidden = true; // ohne Backend oder ohne Zugriff: kein Panel
+    }
+  }
+
+  hideCrew(): void {
+    this.crewShare = null;
+    this.ui.crewPanel.hidden = true;
+    Object.assign(this.ui.crew, { crew: null, newLink: '' });
+  }
+
+  private async crewAct(fn: (shareId: string) => Promise<void>, done?: string) {
+    const cur = this.crewShare;
+    if (!cur) return;
+    Object.assign(this.ui.crew, { busy: true, error: '' });
+    try {
+      await fn(cur.share.id);
+      if (done) this.ui.toast(done);
+      await this.loadCrew(cur.share, cur.key);
+    } catch (e) {
+      this.ui.crew.error = errorText(e);
+    } finally {
+      this.ui.crew.busy = false;
+    }
+  }
+
+  /** Crew einladen: per E-Mail oder (email = null) als Einladungslink, der nur jetzt angezeigt wird. */
+  inviteCrew(email: string | null) {
+    return this.crewAct(async (id) => {
+      const res = await api.inviteCrew(id, email || null);
+      if (res.link) this.ui.crew.newLink = res.link;
+      if (res.devLink) console.info('Einladungslink (Entwicklung, kein Mailversand):', res.devLink);
+    }, email ? `Einladung an ${email} verschickt` : undefined);
+  }
+
+  removeCrew(userId: string) {
+    return this.crewAct((id) => api.removeCrew(id, userId), 'Aus der Crew entfernt');
+  }
+
+  leaveCrew() {
+    return this.crewAct((id) => api.removeCrew(id, 'me'), 'Du bist nicht mehr in der Crew dieses Törns');
+  }
+
+  /** Einladungslink kopieren – nur eigene Links dieser Origin. */
+  copyInvite(url: string): Promise<void> {
+    if (!url.startsWith(`${location.origin}/einladung#token=`)) return Promise.resolve();
+    return this.copy(url);
+  }
+
+  /** Offene Einladung zurückziehen (Crew im Törn-Panel oder Admin im Konto). */
+  revokeInvite(d: { id: string; scope: 'crew' | 'boat'; boatId?: string }) {
+    if (d.scope === 'crew') return this.crewAct(() => api.revokeInvite(d.id), 'Einladung zurückgezogen');
+    return this.act(async () => {
+      await api.revokeInvite(d.id);
+      if (d.boatId) await this.loadAdmins(d.boatId);
+    }, 'Einladung zurückgezogen');
+  }
+
+  // ---------------------------------------------------------------- Boots-Admins
+
+  async loadAdmins(boatId: string): Promise<void> {
+    if (this.ui.account.admins?.boatId !== boatId) this.ui.account.admins = { boatId, data: null };
+    try {
+      const data = await api.boatAdmins(boatId);
+      if (this.ui.account.admins?.boatId === boatId) this.ui.account.admins = { boatId, data };
+    } catch (e) {
+      this.ui.account.error = errorText(e);
+    }
+  }
+
+  inviteAdmin(boatId: string, email: string) {
+    return this.act(async () => {
+      const res = await api.inviteBoatAdmin(boatId, email);
+      if (res.devLink) console.info('Einladungslink (Entwicklung, kein Mailversand):', res.devLink);
+      await this.loadAdmins(boatId);
+    }, `Einladung an ${email} verschickt`);
+  }
+
+  removeAdmin(boatId: string, userId: string) {
+    return this.act(async () => {
+      await api.removeBoatAdmin(boatId, userId);
+      await this.loadAdmins(boatId);
+    }, 'Admin entfernt');
+  }
+
+  /** Als Admin das Boot verlassen – es verschwindet aus „Meine Boote“. */
+  leaveBoat(boatId: string) {
+    return this.act(async () => {
+      await api.removeBoatAdmin(boatId, 'me');
+      this.ui.account.boats = this.ui.account.boats.filter((b) => b.id !== boatId);
+      this.ui.account.admins = null;
+    }, 'Boot verlassen');
   }
 
   // ---------------------------------------------------------------- Teilen
@@ -504,7 +676,8 @@ export class SessionController {
   async openAccount(tab: AccountTab = 'shares'): Promise<void> {
     if (!this.store.get().user) return this.openLogin();
     this.ui.share.open = false; // keine gestapelten Dialoge
-    Object.assign(this.ui.account, { open: true, tab, user: this.store.get().user, loading: true, error: '' });
+    this.ui.invite.open = false;
+    Object.assign(this.ui.account, { open: true, tab, user: this.store.get().user, loading: true, error: '', admins: null });
     try {
       const [shares, boats, me] = await Promise.all([api.listShares(), api.myBoats(), api.myProfile(), this.refreshSupport()]);
       Object.assign(this.ui.account, { shares: shares.shares, boats: boats.boats, profile: me.profile, profileExists: me.exists });

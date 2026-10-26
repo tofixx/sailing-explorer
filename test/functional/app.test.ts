@@ -77,6 +77,10 @@ interface Server {
   checkout: 'ok' | 'fail';
   /** öffentliches bzw. per Schlüssel lesbares Profil für /api/profiles/:handle */
   profile: { handle: string; visibility: string; shareKey: string | null } | null;
+  /** Einladung für /api/invites/peek und /accept (fehlt = ungültig) */
+  invite?: { peek: Record<string, unknown>; accept: Record<string, unknown> };
+  /** Antwort von /api/shares/:id/crew (fehlt = 404) */
+  crew?: Record<string, unknown>;
 }
 
 let server: Server;
@@ -150,6 +154,18 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     withLink(meta, visibility === 'unlisted' ? nextKey() : null);
     server.shares.set(id, { meta, payload: JSON.parse(gunzipSync(init.body as Uint8Array).toString('utf8')) });
     return json({ share: meta }, 201);
+  }
+  if (url === '/api/invites/peek' && method === 'POST') {
+    return server.invite ? json({ ...server.invite.peek, emailMatches: server.user ? true : null }) : json({ error: 'invalid_invite', message: 'Die Einladung ist ungültig, abgelaufen oder wurde schon benutzt.' }, 400);
+  }
+  if (url === '/api/invites/accept' && method === 'POST') {
+    if (!server.user) return json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
+    return json(server.invite!.accept);
+  }
+  if (/^\/api\/shares\/[^/]+\/crew$/.test(url)) return server.crew ? json(server.crew) : json({ error: 'not_found', message: 'Nicht gefunden.' }, 404);
+  if (/^\/api\/shares\/[^/]+\/invites$/.test(url) && method === 'POST') {
+    const invite = { id: 'Inv1234567890abcde', email: null, usesLeft: 30, createdAt: Date.now(), expiresAt: Date.now() + 14 * 86_400_000 };
+    return json({ invite, link: `${location.origin}/einladung#token=${'b'.repeat(43)}` }, 201);
   }
   const prof = /^\/api\/profiles\/([^/]+)$/.exec(url);
   if (prof) {
@@ -769,7 +785,8 @@ describe('Phase A: Sichtbarkeit und Schlüssel-Links', () => {
     await settled();
     expect(state().mode).toMatchObject({ kind: 'share', key: KEY, share: { id: 'AbCdEfGhJkLmNpQr23' } });
     const calls = reads('/api/shares/AbCdEfGhJkLmNpQr23');
-    expect(calls.map((c) => c.url).sort()).toEqual(['/api/shares/AbCdEfGhJkLmNpQr23', '/api/shares/AbCdEfGhJkLmNpQr23/data']);
+    // Crew (F-134) wird mit demselben Schlüssel geladen wie Metadaten und Daten.
+    expect(calls.map((c) => c.url).sort()).toEqual(['/api/shares/AbCdEfGhJkLmNpQr23', '/api/shares/AbCdEfGhJkLmNpQr23/crew', '/api/shares/AbCdEfGhJkLmNpQr23/data']);
     expect(calls.every((c) => c.headers['x-share-key'] === KEY)).toBe(true);
   });
 
@@ -1024,5 +1041,103 @@ describe('F-70 Entdecken', () => {
     server.backend = 'html';
     await startApp('/entdecken');
     expect(page().error).toMatch(/nicht verfügbar/);
+  });
+});
+
+describe('F-138 Einladungen in der App', () => {
+  const TOKEN = 'c'.repeat(43);
+  const invite = () => el<{ open: boolean; state: string; signedIn: boolean; peek: Record<string, unknown> | null; result: Record<string, unknown> | null; errorCode: string }>('sx-invite-dialog');
+  const login = () => el<{ open: boolean; reason: string }>('sx-login-dialog');
+  const posts = (url: string) => server.calls.filter((c) => c.method === 'POST' && c.url === url);
+  const seedInvite = () =>
+    (server.invite = {
+      peek: { kind: 'crew', target: 'Rügen rund', inviter: 'Anna', bound: false, expiresAt: Date.now() + 86_400_000, isOwner: false, alreadyMember: false },
+      accept: { kind: 'crew', path: '/s/AbCdEfGhJkLmNpQr23', target: 'Rügen rund', already: false },
+    });
+
+  it('[F-138] /einladung#token=…: Token verschwindet aus der Adresse, Einladung wird gezeigt, nichts wird ohne Klick eingelöst', async () => {
+    seedInvite();
+    await startApp(`/einladung#token=${TOKEN}`);
+    expect(location.pathname + location.hash).toBe('/');
+    expect(invite()).toMatchObject({ open: true, state: 'ready', signedIn: false, peek: { kind: 'crew', target: 'Rügen rund' } });
+    expect(JSON.parse(String(posts('/api/invites/peek')[0].body))).toEqual({ token: TOKEN });
+    expect(posts('/api/invites/accept')).toEqual([]);
+  });
+
+  it('[F-138] nicht angemeldet → Anmelden; nach der Anmeldung in einem anderen Tab erscheint die Einladung wieder, Annehmen löst ein', async () => {
+    seedInvite();
+    await startApp(`/einladung#token=${TOKEN}`);
+    emit('sx-invite-login');
+    expect(invite().open).toBe(false);
+    expect(login().open).toBe(true);
+    expect(login().reason).toMatch(/Einladung/);
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    FakeChannel.all[0].receive('login');
+    await vi.waitFor(() => expect(invite()).toMatchObject({ open: true, state: 'ready', signedIn: true }));
+    expect(login().open).toBe(false);
+    emit('sx-invite-accept');
+    await vi.waitFor(() => expect(invite().state).toBe('done'));
+    expect(invite().result).toMatchObject({ path: '/s/AbCdEfGhJkLmNpQr23' });
+    expect(JSON.parse(String(posts('/api/invites/accept')[0].body))).toEqual({ token: TOKEN });
+  });
+
+  it('[F-138] ungültige Einladung: verständliche Meldung, Schließen vergisst sie', async () => {
+    await startApp(`/einladung#token=${TOKEN}`);
+    expect(invite()).toMatchObject({ open: true, state: 'error' });
+    emit('sx-close', 'invite');
+    expect(invite().open).toBe(false);
+  });
+});
+
+describe('F-139 Crew in der Törn-Ansicht', () => {
+  const seed = (isOwner: boolean) =>
+    server.shares.set('AbCdEfGhJkLmNpQr23', {
+      meta: { id: 'AbCdEfGhJkLmNpQr23', title: 'Crew-Törn', summary: '', visibility: 'public', shareKey: null, link: '/s/AbCdEfGhJkLmNpQr23', view: '', isOwner },
+      payload: { v: 1, tracks: [{ name: 'Etappe', gpx: leg('Etappe') }] },
+    });
+  const panel = () => el<HTMLElement>('#crew-panel');
+  const crew = () => el<{ crew: Record<string, unknown> | null; isOwner: boolean; newLink: string }>('sx-crew');
+
+  it('[F-139] Besucher: Panel nur, wenn Crew eingetragen ist', async () => {
+    seed(false);
+    server.crew = { members: [{ id: null, handle: 'mats', displayName: 'Mats' }], others: 1, isOwner: false, isCrew: false, invites: [] };
+    await startApp('/s/AbCdEfGhJkLmNpQr23');
+    await settled();
+    await vi.waitFor(() => expect(panel().hidden).toBe(false));
+    expect(crew().crew).toMatchObject({ others: 1 });
+    expect(crew().isOwner).toBe(false);
+  });
+
+  it('[F-139] Besucher ohne Crew: kein Panel; ohne Backend-Antwort ebenfalls nicht', async () => {
+    seed(false);
+    server.crew = { members: [], others: 0, isOwner: false, isCrew: false, invites: [] };
+    await startApp('/s/AbCdEfGhJkLmNpQr23');
+    await settled();
+    await vi.waitFor(() => expect(server.calls.some((c) => c.url.endsWith('/crew'))).toBe(true));
+    expect(panel().hidden).toBe(true);
+  });
+
+  it('[F-139] Eigentümer: Panel auch ohne Crew; Einladungslink erzeugen zeigt ihn einmal, Kopieren nimmt nur eigene Links', async () => {
+    seed(true);
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    server.crew = { members: [], others: 0, isOwner: true, isCrew: false, invites: [] };
+    await startApp('/s/AbCdEfGhJkLmNpQr23');
+    await settled();
+    await vi.waitFor(() => expect(panel().hidden).toBe(false));
+    emit('sx-crew-invite', { email: null });
+    await vi.waitFor(() => expect(crew().newLink).toMatch(/\/einladung#token=b{43}$/));
+    emit('sx-invite-copy', 'https://evil.example/einladung#token=x');
+    emit('sx-invite-copy', crew().newLink);
+    await vi.waitFor(() => expect(clipboard).toEqual([crew().newLink]));
+  });
+
+  it('[F-139] zurück zum eigenen Arbeitsbereich blendet das Panel aus', async () => {
+    seed(false);
+    server.crew = { members: [{ id: null, handle: 'mats', displayName: 'Mats' }], others: 0, isOwner: false, isCrew: false, invites: [] };
+    await startApp('/s/AbCdEfGhJkLmNpQr23');
+    await settled();
+    await vi.waitFor(() => expect(panel().hidden).toBe(false));
+    await load(file('eigen.gpx', leg('Eigen')));
+    expect(panel().hidden).toBe(true);
   });
 });

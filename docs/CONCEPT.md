@@ -699,3 +699,171 @@ und die Prüfungen in `boats.ts`/`profiles.ts`), `worker/links.ts`
     oder nach einer Frist auf Schlüssel umstellen?
 11. **Gast-Fotos lokal** (ohne Konto, IndexedDB) wie die Tracks – lohnt sich
     das, oder sind Fotos ein reines Teilen-Feature?
+
+## 10. Einladungen
+
+Stand: Oktober 2026. Zwei Fälle: **Boots-Admins** (Eigner lädt per E-Mail zum
+Mitverwalten ein) und **Crew auf einem Törn** (Eigentümer trägt Mitsegler mit
+Profil ein, per Einladungslink oder E-Mail). Anforderungen: **F-130 ff.**
+(`REQUIREMENTS.md`). Umsetzung: `migrations/0007_invites.sql`,
+`worker/invites.ts`, `src/components/sx-crew.ts`, `sx-invite-dialog.ts`,
+Admin-Bereich im Boote-Reiter von `sx-account-dialog`.
+
+### 10.1 Datenmodell (`0007_invites.sql`)
+
+```sql
+CREATE TABLE invites (
+  id          TEXT PRIMARY KEY,          -- randomId(), zum Zurückziehen; nie das Geheimnis
+  token_hash  TEXT NOT NULL UNIQUE,      -- SHA-256 des Tokens (wie login_tokens)
+  kind        TEXT NOT NULL,             -- boat_admin | crew (worker/validate.ts, kein CHECK)
+  boat_id     TEXT REFERENCES boats(id)  ON DELETE CASCADE,   -- genau eins von boat_id/share_id
+  share_id    TEXT REFERENCES shares(id) ON DELETE CASCADE,
+  inviter_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  email       TEXT,                      -- gebunden an diese Adresse; NULL = Einladungslink (nur Crew)
+  max_uses    INTEGER NOT NULL DEFAULT 1,
+  uses        INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL
+);
+CREATE TABLE share_crew (                -- Mitsegler eines Törns
+  share_id   TEXT NOT NULL REFERENCES shares(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (share_id, user_id)
+);
+```
+
+`boat_admins` (0002) bleibt unverändert. Zwei Fremdschlüssel statt einer
+generischen `target_id`, damit Löschen von Boot, Törn oder Konto die
+Einladungen per `ON DELETE CASCADE` mitnimmt (D1 erzwingt Fremdschlüssel;
+`purgeUser` und `deleteBoat` löschen zusätzlich explizit).
+
+| Einladung | Bindung | Gültig | Nutzungen |
+|---|---|---|---|
+| Boots-Admin | nur per E-Mail, an die Adresse gebunden | 7 Tage | 1 |
+| Crew per E-Mail | an die Adresse gebunden | 14 Tage | 1 |
+| Crew per Link | ohne Adresse, wer den Link hat | 14 Tage | bis 30 (= Crew-Obergrenze) |
+
+Token: `randomToken()` (256 Bit, base64url), gespeichert nur als Hash. Der
+Klartext steht **nur** im Link der Mail bzw. in der Antwort beim Erzeugen eines
+Einladungslinks – später lässt er sich nicht erneut anzeigen; wer ihn verliert,
+erzeugt einen neuen und zieht den alten zurück.
+
+### 10.2 Ablauf
+
+1. Link `https://…/einladung#token=<token>`: Token im **Fragment** (landet in
+   keinem Server-Log, keinem Referrer), die App löst per POST ein – Mail-Scanner,
+   die nur GET machen, verbrauchen nichts (wie der Magic Link).
+2. `POST /api/invites/peek` zeigt, wozu eingeladen wird (Boot bzw. Törn, wer
+   einlädt, ob die Einladung an eine Adresse gebunden ist und ob sie zum
+   angemeldeten Konto passt – die Adresse selbst nie) – ohne einzulösen.
+3. Nicht angemeldet → Anmeldedialog (Magic Link); nach der Anmeldung (auch aus
+   einem anderen Tab) erscheint die Einladung wieder.
+4. **Ausdrückliche Bestätigung** „Annehmen“ (`POST /api/invites/accept`), nie
+   automatisch – gleicher Schutz wie „Als … anmelden?“.
+5. Prüfungen beim Annehmen: gültig, nicht abgelaufen, Nutzungen frei;
+   gebundene Einladung nur für das Konto mit genau dieser Adresse (sonst 403
+   `invite_wrong_account`, ohne die Adresse zu nennen); Crew braucht kein Profil
+   (ohne eigenen Namen gilt der Spaßname, 10.6);
+   Eigentümer bzw. Eigner (409 `own_object`) und bestehende Mitglieder werden
+   nicht doppelt eingetragen (ohne eine Nutzung zu verbrauchen); Obergrenzen
+   (10.5). Die Nutzung wird atomar gezählt
+   (`UPDATE … SET uses = uses + 1 WHERE uses < max_uses … RETURNING`).
+
+### 10.3 API
+
+Alle Mutationen same-origin, angemeldet; fremde Objekte 404.
+
+| Methode | Pfad | Wer | Zweck |
+|---|---|---|---|
+| GET | `/api/boats/:id/admins` | Eigner, Admins | Admins mit Anzeigenamen (nie E-Mail) und offene Einladungen (nur Eigner) |
+| POST | `/api/boats/:id/invites` | Eigner | `{ email }` – Einladung per Mail |
+| DELETE | `/api/boats/:id/admins/:userId` | Eigner (jeden), Admin (nur sich: „Boot verlassen“) | entfernen |
+| GET | `/api/shares/:id/crew` | wer den Törn sehen darf | Crew (Regeln 10.6); Eigentümer zusätzlich IDs und offene Einladungen |
+| POST | `/api/shares/:id/invites` | Eigentümer | `{ email }` per Mail oder `{}` → Einladungslink (Token einmalig in der Antwort) |
+| DELETE | `/api/shares/:id/crew/:userId` | Eigentümer (jeden), Crew (nur sich) | entfernen |
+| DELETE | `/api/invites/:id` | Eigentümer des Ziels | Einladung zurückziehen (Zeile wird gelöscht) |
+| POST | `/api/invites/peek` | alle | `{ token }` → Art, Ziel, Einladender, gebunden ja/nein, Ablauf |
+| POST | `/api/invites/accept` | angemeldet | `{ token }` → Mitgliedschaft |
+| GET | `/api/profiles/:handle` | wie bisher | zusätzlich `crewVoyages`: öffentliche Törns, auf denen die Person Crew ist |
+
+Die Antwort auf das Erzeugen einer Mail-Einladung ist gleich, ob es zur Adresse
+schon ein Konto gibt oder nicht, und auch, ob die Person schon Admin bzw. Crew
+ist (keine Konto-Enumeration, kein Ausprobieren fremder Adressen) – ein
+bestehendes Mitglied verbraucht beim Annehmen einfach nichts. Lokal im Log-Modus
+liefert der Server wie beim Login einen `devLink`. „Mich selbst“ heißt im Pfad
+`me` (`/api/boats/:id/admins/me`, `/api/shares/:id/crew/me`).
+
+### 10.4 Mails
+
+Eine neue Vorlage `inviteMail` in `worker/mail.ts`, Text und HTML, deutsch:
+„<Name> lädt dich ein, das Boot „<Boot>“ bei Sail Explorer mitzuverwalten“
+bzw. „… in die Crew des Törns „<Titel>““. Der Name ist der Anzeigename des
+Profils, sonst der Spaßname des Kontos (10.6) – nie die E-Mail-Adresse, Boots- und Törnnamen sind
+Nutzertext und werden **escaped** und gekürzt. Hinweis auf Gültigkeit und
+„Wenn du niemanden kennst, ignoriere die Mail“. Kein Tracking, keine Bilder.
+
+### 10.5 Missbrauchsgrenzen
+
+| Grenze | Wert |
+|---|---|
+| Einladungen pro Konto | 20 in 24 h (Mail und Link zusammen, gezählt in D1) |
+| Schnelle Folge | `AUTH_LIMITER` pro Konto (5 pro 60 s) beim Erzeugen |
+| Boots-Admins | höchstens 10 je Boot, offene Einladungen mitgezählt |
+| Crew | höchstens 30 je Törn; höchstens 10 offene Einladungen je Törn |
+| Doppelt | offene Einladung für dieselbe Adresse und dasselbe Ziel → 409 `already_invited` (zurückziehen und neu einladen); geprüft wird nur gegen eigene offene Einladungen, nie gegen Adressen von Konten |
+| Mail-Budget | höchstens 50 Einladungsmails in 24 h für den ganzen Server (Resend Free: 100/Tag, der Rest bleibt für Anmeldungen) → 429 mit Hinweis auf den Einladungslink |
+| Fehlversuche | ungültige Tokens bei peek/accept zählen gegen `LINK_LIMITER` (pro IP) |
+| Aufräumen | der nächtliche Cron löscht abgelaufene und aufgebrauchte Einladungen |
+
+Gleiche Grenzen für kostenlos und Unterstützer (Unterstützen kauft Platz, nicht
+Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
+
+### 10.6 Datenschutz
+
+- **Crew erscheint nur auf öffentlichen Törns** – auf der Törn-Ansicht und auf
+  dem eigenen Profil („Mitgesegelt“). Für „Nur mit Link“ und „Nur ich“ sehen
+  Besucher keine Crew; der Eigentümer sieht sie immer.
+- Namentlich (mit Link zum Profil) nur Mitglieder mit **öffentlichem Profil**;
+  alle anderen zählen nur als „+ n weitere“ (wie der Autor in F-82).
+- **Crew-Sein öffnet nichts**: Mitgliedschaft gibt keinen Zugriff auf nicht
+  öffentliche Törns (ein Schlüssel öffnet genau ein Objekt, 1.2). Admin-Sein
+  gibt die Verwalter-Rechte aus `canManageBoat` (bearbeiten, Törns zuordnen,
+  „Nur mit Link“-Seite sehen) – nicht löschen, nicht weitere Admins einladen.
+- **E-Mail-Adressen erreichen nie die Öffentlichkeit oder andere Konten** –
+  auch nicht Eigner, Admins oder Törn-Eigentümer, auch nicht maskiert. Einzige
+  Anzeige: die Adresse, die der Einladende selbst für eine **offene** Einladung
+  eingegeben hat (in seiner eigenen Liste, bis sie angenommen, abgelaufen oder
+  zurückgezogen ist).
+- **Namen statt Adressen:** Jedes Konto hat einen Anzeigenamen – den selbst
+  gewählten aus dem Profil, sonst einen **Spaßnamen** wie „Verwegener
+  Klabautermann“ (`src/domain/names.ts`, stabil aus der Konto-ID abgeleitet,
+  nichts aus der Adresse). Neue Profile bekommen ihn als Vorschlag.
+- Der Törn-Eigentümer und der Eigner sehen die Anzeigenamen ihrer Crew bzw.
+  Admins auch bei nicht öffentlichem Profil – sie haben die Einladung
+  angenommen.
+- Jeder kann sich selbst entfernen (Crew: „Mich entfernen“, Admin: „Boot
+  verlassen“); der Eigentümer kann jederzeit entfernen. Konto löschen entfernt
+  alle Mitgliedschaften und Einladungen.
+
+### 10.7 Oberfläche
+
+| Stelle | Inhalt |
+|---|---|
+| `sx-account-dialog`, Reiter Boote | Knopf „Admins“ je Boot: Liste, entfernen, offene Einladungen zurückziehen, Feld „Per E-Mail einladen“ (nur Eigner); als Admin „Boot verlassen“ mit Bestätigung |
+| `sx-crew` (neu, Panel „Crew“ in der Törn-Ansicht) | Besucher: Namen mit Profil-Link, „+ n weitere“; Eigentümer: entfernen, „Einladungslink erzeugen“ (einmal anzeigen, kopieren), per E-Mail einladen, offene Einladungen; Crew: „Mich entfernen“ |
+| `sx-invite-dialog` (neu) | Einladung zeigen, anmelden, annehmen, Ergebnis |
+| `sx-profile-page` | Abschnitt „Mitgesegelt“ (öffentliche Törns, auf denen die Person Crew ist) |
+| `SessionController` | alle Aufrufe; Komponenten melden nur Absichten (Events) |
+
+### 10.8 Offene Fragen an den Betreiber
+
+1. Sollen Crew-Mitglieder nicht öffentliche Törns sehen dürfen, auf denen sie
+   eingetragen sind? (Umgesetzt: nein – Mitgliedschaft öffnet nichts.)
+2. Admins auf der öffentlichen Bootsseite nennen? (Umgesetzt: nein.)
+3. Eigner-Übertragung an einen Admin? (Modell erlaubt es, API fehlt.)
+4. Sollen Crew-Törns in die Kennzahlen (Seemeilen) des Profils zählen?
+   (Umgesetzt: nein, nur eigener Abschnitt „Mitgesegelt“.)
+5. Passen die Grenzen (20/Tag, 10 Admins, 30 Crew, 50 Mails/Tag)?
+6. Crew-Einladungen auch per Link für Boots-Admins? (Umgesetzt: nein, Admins
+   nur per gebundener Mail – mehr Rechte, strengere Bindung.)

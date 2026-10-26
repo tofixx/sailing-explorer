@@ -77,6 +77,16 @@ export function isSameOrigin(request: Request): boolean {
 
 export const BOAT_ID_RE = SHARE_ID_RE;
 
+// ---------------------------------------------------------------- Einladungen
+
+/** Arten von Einladungen (Konzept 10): Boots-Admin oder Crew auf einem Törn. */
+export const INVITE_KINDS = ['boat_admin', 'crew'] as const;
+export type InviteKind = (typeof INVITE_KINDS)[number];
+
+export function parseInviteKind(input: unknown): InviteKind | null {
+  return typeof input === 'string' && (INVITE_KINDS as readonly string[]).includes(input) ? (input as InviteKind) : null;
+}
+
 // ---------------------------------------------------------------- Unterstützen
 
 /** Kostenlose Freigaben pro Konto aus der Konfiguration (Standard 3, nie über dem Gesamtlimit). */

@@ -95,6 +95,8 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   await env.DB.batch([
     env.DB.prepare('DELETE FROM login_tokens WHERE expires_at < ?').bind(now),
     env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now),
+    // abgelaufene und aufgebrauchte Einladungen (Konzept 10.5)
+    env.DB.prepare('DELETE FROM invites WHERE expires_at < ? OR uses >= max_uses').bind(now),
   ]);
   return { deleted, warned, purged };
 }

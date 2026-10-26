@@ -5,6 +5,7 @@ import { canViewShare, createShare, deleteShare, getShareData, getShareImage, ge
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
 import { getDiscover } from './discover';
+import { acceptInvite, getCrew, inviteBoatAdmin, inviteCrew, listBoatAdmins, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
 import { withPageHeaders } from './security';
 import { createCheckout, freeShares, getSupport, stripeWebhook, supportConfig } from './supporter';
 import { runRetention } from './retention';
@@ -44,6 +45,12 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/boats\/([A-Za-z0-9]+)$/, (r, env, [id]) => getBoat(r, env, id)],
   ['PATCH', /^\/api\/boats\/([A-Za-z0-9]+)$/, (r, env, [id]) => updateBoat(r, env, id)],
   ['DELETE', /^\/api\/boats\/([A-Za-z0-9]+)$/, (r, env, [id]) => deleteBoat(r, env, id)],
+  ['GET', /^\/api\/boats\/([A-Za-z0-9]+)\/admins$/, (r, env, [id]) => listBoatAdmins(r, env, id)],
+  ['POST', /^\/api\/boats\/([A-Za-z0-9]+)\/invites$/, (r, env, [id]) => inviteBoatAdmin(r, env, id)],
+  ['DELETE', /^\/api\/boats\/([A-Za-z0-9]+)\/admins\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => removeBoatAdmin(r, env, id, who)],
+  ['POST', /^\/api\/invites\/peek$/, (r, env) => peekInvite(r, env)],
+  ['POST', /^\/api\/invites\/accept$/, (r, env) => acceptInvite(r, env)],
+  ['DELETE', /^\/api\/invites\/([A-Za-z0-9]+)$/, (r, env, [id]) => revokeInvite(r, env, id)],
   ['GET', /^\/api\/discover$/, (r, env) => getDiscover(r, env)],
   ['GET', /^\/api\/shares$/, (r, env) => listShares(r, env)],
   ['POST', /^\/api\/shares$/, (r, env) => createShare(r, env)],
@@ -53,6 +60,9 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['PUT', /^\/api\/shares\/([A-Za-z0-9]+)\/image$/, (r, env, [id]) => putShareImage(r, env, id)],
   ['PATCH', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => updateShare(r, env, id)],
   ['DELETE', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => deleteShare(r, env, id)],
+  ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/crew$/, (r, env, [id]) => getCrew(r, env, id)],
+  ['POST', /^\/api\/shares\/([A-Za-z0-9]+)\/invites$/, (r, env, [id]) => inviteCrew(r, env, id)],
+  ['DELETE', /^\/api\/shares\/([A-Za-z0-9]+)\/crew\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => removeCrew(r, env, id, who)],
 ];
 
 async function handleApi(request: Request, env: Env, path: string): Promise<Response> {
