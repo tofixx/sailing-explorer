@@ -5,6 +5,7 @@ import type { Placement } from '../domain/photo-place';
 import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
+import type { GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
 
 export type { Visibility };
 
@@ -416,6 +417,8 @@ export interface CommentList {
 
 export interface AccountSettings {
   notifyComments: NotifyMode;
+  /** wöchentliche Sammelmail aus Vereinen und Teams (fehlt bei älteren Servern) */
+  notifyGroups?: GroupNotifyMode;
   suspended: boolean;
   hasProfile: boolean;
   isAdmin: boolean;
@@ -466,7 +469,7 @@ export const communityApi = {
   setCommentsMode: (shareId: string, commentsMode: CommentsMode) =>
     call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(shareId)}`, jsonInit('PATCH', { commentsMode })),
   settings: () => call<AccountSettings>('/api/me/settings'),
-  saveSettings: (s: { notifyComments: NotifyMode }) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
+  saveSettings: (s: { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode }) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
   report: (r: ReportInput, key?: string | null) =>
     call<{ ok: true; already: boolean }>('/api/reports', {
       ...jsonInit('POST', r),

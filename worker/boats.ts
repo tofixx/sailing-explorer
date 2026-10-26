@@ -5,6 +5,8 @@ import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
 import { isAdmin } from './moderation';
 import { publicShares } from './shares';
+import { boatCleanup } from './activity';
+import { followStats } from './follows';
 import { checkBoatQuota, checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
@@ -177,7 +179,12 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }
-  return json({ boat: boatShape(b, role), stats: await stats(env, id), voyages: await publicShares(env, 'boat', id) });
+  return json({
+    boat: boatShape(b, role),
+    stats: await stats(env, id),
+    voyages: await publicShares(env, 'boat', id),
+    social: await followStats(env, 'boat', id, user?.id ?? null),
+  });
 }
 
 /** PATCH /api/boats/:id – Eigner und Admins. */
@@ -204,6 +211,7 @@ export async function deleteBoat(request: Request, env: Env, id: string): Promis
   const user = await requireUser(request, env);
   if (!BOAT_ID_RE.test(id) || (await roleFor(env, user.id, id)) !== 'owner') throw NOT_FOUND();
   await env.DB.batch([
+    ...boatCleanup(env, id),
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM boat_admins WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM invites WHERE boat_id = ?').bind(id),

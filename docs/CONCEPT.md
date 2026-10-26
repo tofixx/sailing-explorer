@@ -1038,9 +1038,10 @@ Anzahl der Gründe. Angezeigt wird ein Grund („Im selben Verein“, „Mit dir
 
 Opt-in (`users.notify_groups` = `off` | `weekly`, Konto → Einstellungen): „Was war los in deinem Verein“ – je Gruppe
 die Anzahl neuer Törns, Fotos, Beiträge und Mitglieder der letzten 7 Tage (nur, was beim Lesen sichtbar wäre), mit
-Link zur Gruppe; keine Beitragstexte, keine Namen. Der nächtliche Cron verschickt sie nur **sonntags**, höchstens
-**20** pro Lauf (Resend Free: 100/Tag, geteilt mit Anmeldung, Einladungen, Erinnerungen und Kommentar-Digest), Rest
-in der nächsten Nacht; `groups_mailed_at` verhindert Doppelversand (≥ 6 Tage Abstand). Einschalten zählt erst ab dann.
+Link zur Gruppe; keine Beitragstexte, keine Namen. Der nächtliche Cron verschickt sie **ab Sonntag** an jedes Konto,
+das in dieser Woche (seit Sonntag 0 Uhr UTC) noch keine bekam, höchstens **20** pro Lauf (Resend Free: 100/Tag, geteilt
+mit Anmeldung, Einladungen, Erinnerungen und Kommentar-Digest), der Rest in den folgenden Nächten; `groups_mailed_at`
+verhindert Doppelversand. Ohne Neues keine Mail. Einschalten zählt erst ab dann (erste Mail am nächsten Sonntag).
 
 ### 11.8 Grenzen (`src/domain/limits.ts`, `GROUP_LIMITS`)
 

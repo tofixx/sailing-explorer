@@ -16,6 +16,11 @@ import { isShareKey, type Visibility } from '../src/domain/visibility';
 import { communityRoutes } from './community';
 // ---- Fotos (Phase C) ----
 import { deletePhoto, getPhotoImage, listPhotos, updatePhoto, uploadPhoto } from './photos';
+// ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11) ----
+import { groupRoutes } from './group-routes';
+import { canViewGroup, loadGroupBySlug } from './groups';
+import { groupFeed } from './feed';
+import { GROUP_KIND_LABEL } from '../src/domain/groups';
 
 const WEBHOOK_PATH = '/api/webhooks/stripe';
 
@@ -75,6 +80,8 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/photos\/([A-Za-z0-9]+)$/, (r, env, [id]) => getPhotoImage(r, env, id)],
   ['PATCH', /^\/api\/photos\/([A-Za-z0-9]+)$/, (r, env, [id]) => updatePhoto(r, env, id)],
   ['DELETE', /^\/api\/photos\/([A-Za-z0-9]+)$/, (r, env, [id]) => deletePhoto(r, env, id)],
+  // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11): worker/group-routes.ts ----
+  ...groupRoutes,
 ];
 
 async function handleApi(request: Request, env: Env, path: string): Promise<Response> {
@@ -129,6 +136,13 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
       image: row.has_image ? `${origin}/api/shares/${row.id}/image${k}` : undefined,
     };
   }
+  if (kind === 'g') {
+    // Gruppen: Vorschau wie Profile und Boote; geschlossene Gruppen sieht ohne Anmeldung niemand (neutral).
+    const g = await loadGroupBySlug(env, id);
+    if (!g || !canViewGroup(g, null, viewer.key)) return fallback;
+    const desc = g.description || [GROUP_KIND_LABEL[g.kind] ?? 'Gruppe', g.home_port && `Heimathafen ${g.home_port}`].filter(Boolean).join(' · ');
+    return { title: `${g.name} · ${env.APP_NAME}`, description: desc, index: index(g.visibility) };
+  }
   if (kind === 'u') {
     const p = await env.DB.prepare('SELECT display_name, bio, visibility, share_key, hidden_at FROM profiles WHERE handle = ?')
       .bind(id)
@@ -144,7 +158,7 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
   return { title: `${b.name} · ${env.APP_NAME}`, description: desc || 'Boot mit seinen Törns', index: index(b.visibility) };
 }
 
-/** /s/:id(/:key), /u/:handle(/:key), /b/:id(/:key), /entdecken – liefert die App mit passenden Vorschau-Metadaten. */
+/** /s/:id(/:key), /u/:handle(/:key), /b/:id(/:key), /g/:slug(/:key), /entdecken – liefert die App mit passenden Vorschau-Metadaten. */
 async function metaPage(request: Request, env: Env, kind: string, id: string, key: string | null | undefined): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL('/', request.url), { headers: request.headers }));
   const meta: PageMeta = await pageMeta(env, kind, id, new URL(request.url).origin, key).catch(() => ({ title: env.APP_NAME, description: DEFAULT_DESCRIPTION, index: false }));
@@ -190,13 +204,16 @@ export default {
     try {
       if (url.pathname.startsWith('/api/')) return noindex(await handleApi(request, env, url.pathname));
       // Optionales letztes Segment = Teilen-Schlüssel („Nur mit Link“, Konzept 2.1).
+      // Atom-Feed öffentlicher Gruppen (F-162)
+      const feed = /^\/g\/([a-z0-9-]{3,30})\/feed\.xml$/i.exec(url.pathname);
+      if (feed && (request.method === 'GET' || request.method === 'HEAD')) return await groupFeed(request, env, feed[1].toLowerCase());
       const page =
         /^\/(s|b)\/([A-Za-z0-9]{12,32})(?:\/([^/]+))?\/?$/.exec(url.pathname) ??
-        /^\/(u)\/([a-z0-9-]{3,30})(?:\/([^/]+))?\/?$/i.exec(url.pathname) ??
+        /^\/(u|g)\/([a-z0-9-]{3,30})(?:\/([^/]+))?\/?$/i.exec(url.pathname) ??
         /^\/(entdecken)()\/?$/.exec(url.pathname);
       if (page && (request.method === 'GET' || request.method === 'HEAD')) {
         const key = page[3] === undefined ? undefined : isShareKey(page[3]) ? page[3] : null;
-        return await metaPage(request, env, page[1], page[1] === 'u' ? page[2].toLowerCase() : page[2], key);
+        return await metaPage(request, env, page[1], page[1] === 'u' || page[1] === 'g' ? page[2].toLowerCase() : page[2], key);
       }
       return env.ASSETS.fetch(request);
     } catch (err) {

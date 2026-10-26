@@ -52,7 +52,8 @@ export const purgeUserReports = (env: Env, userId: string): D1PreparedStatement[
        OR (target_kind = 'comment' AND target_id IN (SELECT id FROM comments WHERE user_id = ?1 OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)))
        OR (target_kind = 'photo' AND target_id IN (SELECT id FROM photos WHERE user_id = ?1 OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)))
        OR (target_kind = 'profile' AND target_id = ?1)
-       OR (target_kind = 'boat' AND target_id IN (SELECT id FROM boats WHERE owner_id = ?1))`,
+       OR (target_kind = 'boat' AND target_id IN (SELECT id FROM boats WHERE owner_id = ?1))
+       OR (target_kind = 'post' AND target_id IN (SELECT id FROM posts WHERE author_id = ?1))`,
   ).bind(userId),
   env.DB.prepare(`UPDATE reports SET reporter_id = NULL, note = '' WHERE reporter_id = ?`).bind(userId),
 ];
@@ -65,5 +66,7 @@ export const deleteOrphanReports = (env: Env): D1PreparedStatement =>
        OR (target_kind = 'comment' AND NOT EXISTS (SELECT 1 FROM comments WHERE id = reports.target_id))
        OR (target_kind = 'photo' AND NOT EXISTS (SELECT 1 FROM photos WHERE id = reports.target_id))
        OR (target_kind = 'profile' AND NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = reports.target_id))
-       OR (target_kind = 'boat' AND NOT EXISTS (SELECT 1 FROM boats WHERE id = reports.target_id))`,
+       OR (target_kind = 'boat' AND NOT EXISTS (SELECT 1 FROM boats WHERE id = reports.target_id))
+       OR (target_kind = 'group' AND NOT EXISTS (SELECT 1 FROM groups WHERE id = reports.target_id))
+       OR (target_kind = 'post' AND NOT EXISTS (SELECT 1 FROM posts WHERE id = reports.target_id))`,
   );

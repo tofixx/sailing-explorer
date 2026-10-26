@@ -8,6 +8,8 @@ import { recomputeStorage, storageTotal, subtractShareStmt } from './storage';
 import { sendCommentDigests } from './comments';
 import { deleteOrphanReports, deleteShareReports } from './moderation';
 import { deleteKeys, photoKeysForShares } from './photo-keys';
+import { deleteShareActivity, nightlyActivityCleanup } from './activity';
+import { sendGroupDigests } from './group-digest';
 import { INACTIVE_ACCOUNT_MS, WARN_MS } from '../src/domain/support';
 
 /** Obergrenzen pro Lauf – hält den Cron im Free-Tier-CPU-Budget; der Rest folgt in der nächsten Nacht. */
@@ -31,6 +33,8 @@ export interface RetentionResult {
   storageDrift: number | null;
   /** verschickte Sammelmails über neue Kommentare */
   digests: number;
+  /** verschickte wöchentliche Sammelmails aus Vereinen und Teams (Konzept 11.7) */
+  groupDigests: number;
 }
 
 function chunks<T>(list: T[], size = CHUNK): T[][] {
@@ -48,7 +52,9 @@ async function deleteExpired(env: Env, now: number): Promise<number> {
     const photoKeys = await photoKeysForShares(env, part.map((r) => r.id));
     await deleteKeys(env, [...part.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]), ...photoKeys]);
     // Speicher vom globalen Zähler abziehen und Meldungen zum Törn entfernen – im selben Batch wie das Löschen.
-    await env.DB.batch(part.flatMap((r) => [subtractShareStmt(env, r.id), deleteShareReports(env, r.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)]));
+    await env.DB.batch(
+      part.flatMap((r) => [subtractShareStmt(env, r.id), deleteShareReports(env, r.id), deleteShareActivity(env, r.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)]),
+    );
   }
   return results.length;
 }
@@ -122,10 +128,16 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     env.DB.prepare('DELETE FROM comment_log WHERE created_at < ?').bind(now - COMMENT_LOG_MS),
     env.DB.prepare('DELETE FROM reports WHERE resolved_at IS NOT NULL AND resolved_at < ?').bind(now - RESOLVED_REPORTS_MS),
     deleteOrphanReports(env),
+    // Neuigkeiten (Konzept 11.9): alte Aktivitäten, verwaiste Ziele und Folgen, alte Anfragen
+    ...nightlyActivityCleanup(env, now),
   ]);
+  const groupDigests = await sendGroupDigests(env, origin, now).catch((err) => {
+    console.error('group digests failed', err);
+    return 0;
+  });
   // Notbremse: Zähler aus D1 neu berechnen – korrigiert Abweichungen der inkrementellen Pflege und legt eine
   // fehlende Zeile wieder an (bis dahin gelten Uploads als pausiert).
   const counted = await storageTotal(env);
   const storageBytes = await recomputeStorage(env);
-  return { deleted, warned, purged, digests, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
+  return { deleted, warned, purged, digests, groupDigests, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
 }

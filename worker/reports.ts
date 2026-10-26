@@ -11,6 +11,10 @@ import { visibleComment } from './comments';
 import { assertActive, isAdmin } from './moderation';
 import { removeShare, visibleShare } from './shares';
 import { removePhotoById, visiblePhoto } from './photos';
+import { canViewGroup, loadGroup, removeGroup, roleIn } from './groups';
+import { removePost } from './posts';
+import { boatCleanup } from './activity';
+import { canManageGroup } from '../src/domain/groups';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, normalizeHandle, parseReportKind, parseReportReason } from './validate';
 import { REPORT_NOTE_MAX, REPORT_REASONS, type ReportKind } from '../src/domain/comment-text';
 import { sharePath, type Visibility } from '../src/domain/visibility';
@@ -34,6 +38,8 @@ const TABLE: Record<ReportKind, { table: string; idCol: string }> = {
   photo: { table: 'photos', idCol: 'id' },
   profile: { table: 'profiles', idCol: 'user_id' },
   boat: { table: 'boats', idCol: 'id' },
+  group: { table: 'groups', idCol: 'id' },
+  post: { table: 'posts', idCol: 'id' },
 };
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Das gibt es nicht (mehr) oder du kannst es nicht sehen.');
@@ -66,6 +72,21 @@ async function resolveTarget(request: Request, env: Env, kind: ReportKind, rawId
   const key = requestKey(request);
   const user = await currentUser(request, env);
   const admin = isAdmin(env, user?.id);
+  if (kind === 'group' || kind === 'post') {
+    // Gruppe bzw. Beitrag: sichtbar wie die Gruppe (Konzept 11.1); Verwalter melden ihre eigene Gruppe nicht.
+    const post =
+      kind === 'post' && SHARE_ID_RE.test(rawId)
+        ? await env.DB.prepare('SELECT id, author_id, group_id, hidden_at FROM posts WHERE id = ?').bind(rawId).first<{ id: string; author_id: string; group_id: string | null; hidden_at: number | null }>()
+        : null;
+    const g = kind === 'group' ? await loadGroup(env, rawId) : post?.group_id ? await loadGroup(env, post.group_id) : null;
+    const role = g ? await roleIn(env, user?.id, g.id) : null;
+    if (!g || !canViewGroup(g, role, key, admin) || (post?.hidden_at && post.author_id !== user?.id && !canManageGroup(role) && !admin) || (kind === 'post' && !post)) {
+      await countKeyFailure(env, request, key);
+      throw NOT_FOUND();
+    }
+    if (post) return { kind, id: post.id, ownerId: post.author_id };
+    return { kind, id: g.id, ownerId: canManageGroup(role) ? (user?.id ?? g.owner_id) : g.owner_id };
+  }
   if (kind === 'profile') {
     const handle = normalizeHandle(rawId);
     const p = handle
@@ -208,6 +229,20 @@ async function preview(env: Env, kind: ReportKind, id: string) {
       .first<{ user_id: string; handle: string; display_name: string; bio: string; visibility: Visibility; share_key: string | null; hidden_at: number | null }>();
     return p && { title: `Profil ${p.display_name} (/u/${p.handle})`, text: p.bio, path: sharePath('u', p.handle, p.visibility, p.share_key), visibility: p.visibility, hiddenAt: p.hidden_at, owner: await owner(p.user_id) };
   }
+  if (kind === 'group') {
+    const g = await env.DB.prepare('SELECT id, owner_id, slug, name, description, visibility, share_key, hidden_at FROM groups WHERE id = ?')
+      .bind(id)
+      .first<{ id: string; owner_id: string; slug: string; name: string; description: string; visibility: Visibility; share_key: string | null; hidden_at: number | null }>();
+    return g && { title: `Gruppe ${g.name} (/g/${g.slug})`, text: g.description, path: sharePath('g', g.slug, g.visibility, g.share_key), visibility: g.visibility, hiddenAt: g.hidden_at, owner: await owner(g.owner_id) };
+  }
+  if (kind === 'post') {
+    const p = await env.DB.prepare(
+      'SELECT p.id, p.author_id, p.body, p.hidden_at, g.slug, g.name, g.visibility, g.share_key FROM posts p JOIN groups g ON g.id = p.group_id WHERE p.id = ?',
+    )
+      .bind(id)
+      .first<{ id: string; author_id: string; body: string; hidden_at: number | null; slug: string; name: string; visibility: Visibility; share_key: string | null }>();
+    return p && { title: `Beitrag in „${p.name}“`, text: p.body, path: sharePath('g', p.slug, p.visibility, p.share_key), visibility: p.visibility, hiddenAt: p.hidden_at, owner: await owner(p.author_id) };
+  }
   const b = await env.DB.prepare('SELECT id, owner_id, name, description, visibility, share_key, hidden_at FROM boats WHERE id = ?')
     .bind(id)
     .first<{ id: string; owner_id: string; name: string; description: string; visibility: Visibility; share_key: string | null; hidden_at: number | null }>();
@@ -262,12 +297,15 @@ async function deleteTarget(env: Env, kind: ReportKind, id: string): Promise<voi
     return;
   }
   if (kind === 'photo') return removePhotoById(env, id);
+  if (kind === 'group') return removeGroup(env, id);
+  if (kind === 'post') return removePost(env, id);
   if (kind === 'profile') {
     // Nur das Profil: Konto, Törns und Boote bleiben (der Autor erscheint dann ohne Namen).
     await env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(id).run();
     return;
   }
   await env.DB.batch([
+    ...boatCleanup(env, id),
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM boat_admins WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM invites WHERE boat_id = ?').bind(id),

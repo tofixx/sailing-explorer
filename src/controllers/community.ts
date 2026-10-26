@@ -189,10 +189,18 @@ export class CommunityController {
     }
   }
 
-  saveSettings(s: { notifyComments: NotifyMode }) {
+  saveSettings(s: { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode }) {
+    const done =
+      s.notifyGroups !== undefined
+        ? s.notifyGroups === 'weekly'
+          ? 'Du bekommst ab Sonntag eine wöchentliche Sammelmail aus deinen Vereinen und Teams.'
+          : 'Keine Sammelmail mehr aus Vereinen und Teams.'
+        : s.notifyComments === 'daily'
+          ? 'Du bekommst ab jetzt eine tägliche Sammelmail bei neuen Kommentaren.'
+          : 'Keine Mails mehr über neue Kommentare.';
     return this.accountAct(async () => {
       this.ui.account.settings = await communityApi.saveSettings(s);
-    }, s.notifyComments === 'daily' ? 'Du bekommst ab jetzt eine tägliche Sammelmail bei neuen Kommentaren.' : 'Keine Mails mehr über neue Kommentare.');
+    }, done);
   }
 
   async loadReports(): Promise<void> {

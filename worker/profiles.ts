@@ -9,6 +9,7 @@ import { checkVisibilityChoice } from './supporter';
 import { LIMITS, cleanText, normalizeHandle, parseVisibility } from './validate';
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 import { funnyName } from '../src/domain/names';
+import { followStats } from './follows';
 
 interface ProfileRow {
   user_id: string;
@@ -134,5 +135,6 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
     voyages,
     // öffentliche Törns anderer, auf denen die Person Crew ist – zählen nicht in die Kennzahlen
     crewVoyages: await crewShares(env, p.user_id),
+    social: await followStats(env, 'user', p.user_id, user?.id ?? null),
   });
 }

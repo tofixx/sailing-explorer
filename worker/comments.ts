@@ -10,6 +10,7 @@ import { visibleShare } from './shares';
 import { COMMENT_ID_RE, parseNotifyMode } from './validate';
 import { COMMENT_MAX, COMMENT_MAX_LINKS, cleanComment, commentProblem, type CommentsMode } from '../src/domain/comment-text';
 import { sharePath, type Visibility } from '../src/domain/visibility';
+import { isGroupNotifyMode } from '../src/domain/groups';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -181,12 +182,14 @@ export async function deleteComment(request: Request, env: Env, id: string): Pro
 
 async function settingsOf(env: Env, userId: string) {
   const u = await env.DB.prepare(
-    'SELECT notify_comments, suspended_at, (SELECT COUNT(*) FROM profiles WHERE user_id = users.id) AS has_profile FROM users WHERE id = ?',
+    'SELECT notify_comments, notify_groups, suspended_at, (SELECT COUNT(*) FROM profiles WHERE user_id = users.id) AS has_profile FROM users WHERE id = ?',
   )
     .bind(userId)
-    .first<{ notify_comments: string; suspended_at: number | null; has_profile: number }>();
+    .first<{ notify_comments: string; notify_groups: string; suspended_at: number | null; has_profile: number }>();
   return {
     notifyComments: parseNotifyMode(u?.notify_comments) ?? 'off',
+    /** wöchentliche Sammelmail aus Vereinen und Teams (Konzept 11.7) */
+    notifyGroups: isGroupNotifyMode(u?.notify_groups) ? u.notify_groups : 'off',
     suspended: !u || u.suspended_at !== null,
     hasProfile: !!u?.has_profile,
     isAdmin: isAdmin(env, userId),
@@ -205,7 +208,17 @@ export async function getSettings(request: Request, env: Env): Promise<Response>
  */
 export async function patchSettings(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const body = await readJson<{ notifyComments?: unknown }>(request);
+  const body = await readJson<{ notifyComments?: unknown; notifyGroups?: unknown }>(request);
+  if (body.notifyGroups !== undefined) {
+    if (!isGroupNotifyMode(body.notifyGroups)) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
+    // Einschalten zählt erst ab jetzt – die erste Sammelmail kommt am nächsten Sonntag.
+    await env.DB.prepare(
+      `UPDATE users SET groups_mailed_at = CASE WHEN ?1 = 'weekly' AND notify_groups <> 'weekly' THEN ?2 ELSE groups_mailed_at END,
+         notify_groups = ?1 WHERE id = ?3`,
+    )
+      .bind(body.notifyGroups, Date.now(), user.id)
+      .run();
+  }
   if (body.notifyComments !== undefined) {
     const mode = parseNotifyMode(body.notifyComments);
     if (!mode) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
