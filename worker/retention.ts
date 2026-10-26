@@ -7,6 +7,7 @@ import { EXPIRES_SQL } from './shares';
 import { recomputeStorage, storageTotal, subtractShareStmt } from './storage';
 import { sendCommentDigests } from './comments';
 import { deleteOrphanReports, deleteShareReports } from './moderation';
+import { deleteKeys, photoKeysForShares } from './photo-keys';
 import { INACTIVE_ACCOUNT_MS, WARN_MS } from '../src/domain/support';
 
 /** Obergrenzen pro Lauf – hält den Cron im Free-Tier-CPU-Budget; der Rest folgt in der nächsten Nacht. */
@@ -38,13 +39,14 @@ function chunks<T>(list: T[], size = CHUNK): T[][] {
   return out;
 }
 
-/** Löscht Törns, deren Aufbewahrung abgelaufen ist (Datei, Vorschaubild, Datensatz). */
+/** Löscht Törns, deren Aufbewahrung abgelaufen ist (Datei, Vorschaubild, Fotos, Datensatz; Foto-Zeilen per CASCADE). */
 async function deleteExpired(env: Env, now: number): Promise<number> {
   const { results } = await env.DB.prepare(`SELECT s.id FROM shares s WHERE ${EXPIRES_SQL} <= ? LIMIT ?`)
     .bind(now, MAX_DELETE)
     .all<{ id: string }>();
   for (const part of chunks(results)) {
-    await env.TRACKS.delete(part.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]));
+    const photoKeys = await photoKeysForShares(env, part.map((r) => r.id));
+    await deleteKeys(env, [...part.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]), ...photoKeys]);
     // Speicher vom globalen Zähler abziehen und Meldungen zum Törn entfernen – im selben Batch wie das Löschen.
     await env.DB.batch(part.flatMap((r) => [subtractShareStmt(env, r.id), deleteShareReports(env, r.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)]));
   }

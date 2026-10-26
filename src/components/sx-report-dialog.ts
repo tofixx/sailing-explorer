@@ -1,5 +1,5 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import { REPORT_NOTE_MAX, REPORT_REASONS, REPORT_REASON_LABEL, type ReportKind, type ReportReason } from '../domain/comment-text';
+import { REPORT_KIND_LABEL, REPORT_NOTE_MAX, REPORT_REASONS, REPORT_REASON_LABEL, type ReportKind, type ReportReason } from '../domain/comment-text';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 
@@ -11,7 +11,7 @@ export interface ReportTarget {
   label: string;
 }
 
-const KIND_LABEL: Record<ReportKind, string> = { share: 'Törn', comment: 'Kommentar', profile: 'Profil', boat: 'Boot' };
+const KIND_LABEL: Record<ReportKind, string> = REPORT_KIND_LABEL;
 
 /**
  * Melden (DSA, Konzept 4.4): Grund wählen, optional Anmerkung, absenden. Ohne Anmeldung Hinweis auf Anmelden und

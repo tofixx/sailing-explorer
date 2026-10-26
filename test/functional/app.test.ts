@@ -23,6 +23,7 @@ vi.mock('../../src/map/map-view', async () => {
       fit = v.fn();
       setLayers = v.fn();
       showHover = v.fn();
+      photos = { set: v.fn(), highlight: v.fn(), focus: v.fn(), startPlacing: v.fn(), stopPlacing: v.fn(), callbacks: {} };
       constructor() {
         h.maps.push(this);
       }
@@ -785,9 +786,10 @@ describe('Phase A: Sichtbarkeit und Schlüssel-Links', () => {
     await settled();
     expect(state().mode).toMatchObject({ kind: 'share', key: KEY, share: { id: 'AbCdEfGhJkLmNpQr23' } });
     const calls = reads('/api/shares/AbCdEfGhJkLmNpQr23');
-    // Crew (F-134) und Kommentare (F-110) werden mit demselben Schlüssel geladen wie Metadaten und Daten.
+    // Crew (F-134), Kommentare (F-110) und Fotos (F-104) werden mit demselben Schlüssel geladen wie Metadaten und Daten.
     expect(calls.map((c) => c.url).sort()).toEqual([
       '/api/shares/AbCdEfGhJkLmNpQr23', '/api/shares/AbCdEfGhJkLmNpQr23/comments', '/api/shares/AbCdEfGhJkLmNpQr23/crew', '/api/shares/AbCdEfGhJkLmNpQr23/data',
+      '/api/shares/AbCdEfGhJkLmNpQr23/photos',
     ]);
     expect(calls.every((c) => c.headers['x-share-key'] === KEY)).toBe(true);
   });

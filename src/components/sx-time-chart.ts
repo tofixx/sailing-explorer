@@ -23,6 +23,12 @@ export interface ChartAxis {
   step: number;
 }
 
+/** Markierung auf der Zeitachse, z. B. ein Foto (Konzept 3.3: Foto-Ticks). */
+export interface ChartMark {
+  id: string;
+  time: number;
+}
+
 export interface RefLine {
   value: number;
   label: string;
@@ -45,6 +51,8 @@ export class SxTimeChart extends LitElement {
     right: { attribute: false },
     refLine: { attribute: false },
     hoverTime: { attribute: false },
+    marks: { attribute: false },
+    activeMark: { attribute: false },
     label: { type: String },
   };
   declare points: TimedPoint[];
@@ -53,6 +61,9 @@ export class SxTimeChart extends LitElement {
   declare right: ChartAxis | null;
   declare refLine: RefLine | null;
   declare hoverTime: number | null;
+  /** Foto-Ticks in --c-photo am unteren Rand; Klick darauf meldet `sx-photo-open` */
+  declare marks: ChartMark[];
+  declare activeMark: string | null;
   declare label: string;
 
   private width = 320;
@@ -70,6 +81,8 @@ export class SxTimeChart extends LitElement {
     this.right = null;
     this.refLine = null;
     this.hoverTime = null;
+    this.marks = [];
+    this.activeMark = null;
     this.label = '';
   }
 
@@ -149,7 +162,7 @@ export class SxTimeChart extends LitElement {
   }
 
   updated(changed: PropertyValues<this>) {
-    if (changed.has('points') || changed.has('series') || changed.has('refLine') || changed.has('left') || changed.has('right')) this.drawBase();
+    if (changed.has('points') || changed.has('series') || changed.has('refLine') || changed.has('left') || changed.has('right') || changed.has('marks')) this.drawBase();
     this.drawOverlay();
   }
 
@@ -308,6 +321,18 @@ export class SxTimeChart extends LitElement {
       }
     }
 
+    // Foto-Ticks am unteren Rand
+    ctx.strokeStyle = c('--c-photo');
+    ctx.lineWidth = 2;
+    for (const m of this.marks) {
+      const mx = this.markX(m.time);
+      if (mx === null) continue;
+      ctx.beginPath();
+      ctx.moveTo(mx, H - PAD.b - 7);
+      ctx.lineTo(mx, H - PAD.b);
+      ctx.stroke();
+    }
+
     // Referenzlinie (z. B. Median)
     if (this.refLine) {
       const y = this.y(this.refLine.value, this.refLine.axis);
@@ -326,6 +351,30 @@ export class SxTimeChart extends LitElement {
     }
   }
 
+  /** x-Position einer Zeit; null außerhalb der Reihe (mehr als 30 min vom nächsten Punkt). */
+  private markX(t: number): number | null {
+    if (!this.layout || !this.points.length) return null;
+    const i = nearestByTime(this.points, t);
+    if (Math.abs(this.points[i].time - t) > 30 * 60_000) return null;
+    return this.layout.x(i);
+  }
+
+  /** Tick nahe der Pixelposition (Klick öffnet das Foto). */
+  private markAt(px: number): ChartMark | null {
+    let best: ChartMark | null = null;
+    let bd = 8;
+    for (const m of this.marks) {
+      const mx = this.markX(m.time);
+      if (mx === null) continue;
+      const d = Math.abs(mx - px);
+      if (d <= bd) {
+        bd = d;
+        best = m;
+      }
+    }
+    return best;
+  }
+
   private hoverIndex(): number {
     if (this.hoverTime == null || !this.points.length) return -1;
     const i = nearestByTime(this.points, this.hoverTime);
@@ -336,6 +385,16 @@ export class SxTimeChart extends LitElement {
   private drawOverlay() {
     const ctx = this.canvas('canvas.overlay');
     if (!ctx || !this.layout) return;
+    const active = this.activeMark ? this.marks.find((m) => m.id === this.activeMark) : undefined;
+    const ax = active ? this.markX(active.time) : null;
+    if (ax !== null) {
+      ctx.strokeStyle = cssVar(this, '--c-photo');
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(ax, H - PAD.b - 12);
+      ctx.lineTo(ax, H - PAD.b + 2);
+      ctx.stroke();
+    }
     const i = this.hoverIndex();
     if (i < 0) return;
     const px = this.layout.x(i);
@@ -368,7 +427,8 @@ export class SxTimeChart extends LitElement {
       }
       return isFinite(max) ? `${s.label} max. ${fmtNum(max, s.decimals)} ${s.unit}` : '';
     });
-    return [this.label, ...parts, this.refLine?.label ?? ''].filter(Boolean).join(', ');
+    const photos = this.marks.length ? `${this.marks.length} ${this.marks.length === 1 ? 'Foto' : 'Fotos'} markiert` : '';
+    return [this.label, ...parts, this.refLine?.label ?? '', photos].filter(Boolean).join(', ');
   }
 
   private onPointer(e: PointerEvent) {
@@ -376,6 +436,14 @@ export class SxTimeChart extends LitElement {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const t = this.layout.timeAt(e.clientX - rect.left);
     emit(this, 'sx-hover-time', t);
+  }
+
+  private onClick(e: MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    // nur nahe am unteren Rand, wo die Ticks liegen
+    if (e.clientY - rect.top < H - PAD.b - 24) return;
+    const m = this.markAt(e.clientX - rect.left);
+    if (m) emit(this, 'sx-photo-open', { id: m.id });
   }
 
   render() {
@@ -388,6 +456,7 @@ export class SxTimeChart extends LitElement {
           class="overlay"
           @pointermove=${this.onPointer}
           @pointerdown=${this.onPointer}
+          @click=${this.onClick}
           @pointerleave=${(e: PointerEvent) => e.pointerType === 'mouse' && emit(this, 'sx-hover-time', null)}
         ></canvas>
       </div>

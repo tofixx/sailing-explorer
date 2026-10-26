@@ -10,6 +10,7 @@ import { roleFor } from './boats';
 import { visibleComment } from './comments';
 import { assertActive, isAdmin } from './moderation';
 import { removeShare, visibleShare } from './shares';
+import { removePhotoById, visiblePhoto } from './photos';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, normalizeHandle, parseReportKind, parseReportReason } from './validate';
 import { REPORT_NOTE_MAX, REPORT_REASONS, type ReportKind } from '../src/domain/comment-text';
 import { sharePath, type Visibility } from '../src/domain/visibility';
@@ -30,6 +31,7 @@ export const REPORT_LIMITS = {
 const TABLE: Record<ReportKind, { table: string; idCol: string }> = {
   share: { table: 'shares', idCol: 'id' },
   comment: { table: 'comments', idCol: 'id' },
+  photo: { table: 'photos', idCol: 'id' },
   profile: { table: 'profiles', idCol: 'user_id' },
   boat: { table: 'boats', idCol: 'id' },
 };
@@ -38,7 +40,7 @@ const NOT_FOUND = () => new HttpError(404, 'not_found', 'Das gibt es nicht (mehr
 
 interface Target {
   kind: ReportKind;
-  /** gespeicherte Ziel-ID: shares.id, comments.id, profiles.user_id, boats.id */
+  /** gespeicherte Ziel-ID: shares.id, comments.id, photos.id, profiles.user_id, boats.id */
   id: string;
   /** Konto, dem der Inhalt gehört */
   ownerId: string;
@@ -55,6 +57,11 @@ async function resolveTarget(request: Request, env: Env, kind: ReportKind, rawId
   if (kind === 'comment') {
     const { comment } = await visibleComment(request, env, rawId);
     return { kind, id: comment.id, ownerId: comment.user_id };
+  }
+  if (kind === 'photo') {
+    // Gleiche Prüfung wie beim Ansehen: Törn sichtbar (+Schlüssel), Foto „wie der Törn“, nicht ausgeblendet.
+    const { row } = await visiblePhoto(request, env, rawId);
+    return { kind, id: row.id, ownerId: row.owner_id };
   }
   const key = requestKey(request);
   const user = await currentUser(request, env);
@@ -176,6 +183,25 @@ async function preview(env: Env, kind: ReportKind, id: string) {
       .first<{ id: string; user_id: string; body: string; hidden_at: number | null; share_id: string; title: string; visibility: Visibility; share_key: string | null }>();
     return c && { title: `Kommentar zu „${c.title}“`, text: c.body, path: sharePath('s', c.share_id, c.visibility, c.share_key), visibility: c.visibility, hiddenAt: c.hidden_at, owner: await owner(c.user_id) };
   }
+  if (kind === 'photo') {
+    const f = await env.DB.prepare(
+      'SELECT p.id, p.user_id, p.caption, p.hidden_at, s.id AS share_id, s.title, s.visibility, s.share_key FROM photos p JOIN shares s ON s.id = p.share_id WHERE p.id = ?',
+    )
+      .bind(id)
+      .first<{ id: string; user_id: string; caption: string; hidden_at: number | null; share_id: string; title: string; visibility: Visibility; share_key: string | null }>();
+    // imagePath: Vorschaubild für Admins (sie sehen auch ausgeblendete Fotos)
+    return (
+      f && {
+        title: `Foto zu „${f.title}“`,
+        text: f.caption,
+        path: sharePath('s', f.share_id, f.visibility, f.share_key),
+        imagePath: `/api/photos/${f.id}?s=t`,
+        visibility: f.visibility,
+        hiddenAt: f.hidden_at,
+        owner: await owner(f.user_id),
+      }
+    );
+  }
   if (kind === 'profile') {
     const p = await env.DB.prepare('SELECT user_id, handle, display_name, bio, visibility, share_key, hidden_at FROM profiles WHERE user_id = ?')
       .bind(id)
@@ -235,6 +261,7 @@ async function deleteTarget(env: Env, kind: ReportKind, id: string): Promise<voi
     await env.DB.prepare('DELETE FROM comments WHERE id = ?').bind(id).run();
     return;
   }
+  if (kind === 'photo') return removePhotoById(env, id);
   if (kind === 'profile') {
     // Nur das Profil: Konto, Törns und Boote bleiben (der Autor erscheint dann ohne Namen).
     await env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(id).run();

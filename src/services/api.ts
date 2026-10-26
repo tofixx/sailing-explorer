@@ -1,6 +1,7 @@
 import type { SupportTier } from '../domain/support';
 import { parseWeatherData, type WeatherData } from '../domain/weather';
-import type { Visibility } from '../domain/visibility';
+import type { PhotoVisibility, Visibility } from '../domain/visibility';
+import type { Placement } from '../domain/photo-place';
 import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
@@ -72,6 +73,11 @@ export interface SupportStatus {
   limits?: Record<Tier, TierLimits>;
   /** Notbremse: neue Törns gerade pausiert */
   storagePaused?: boolean;
+  // ---- Fotos (Phase C)
+  /** Fotos im Konto */
+  photosUsed?: number;
+  /** Fotos pro Törn in der aktuellen Stufe (kostenlos 0) */
+  photosMax?: number;
 }
 
 export interface Profile extends Linkable {
@@ -439,6 +445,8 @@ export interface AdminReport {
     title: string;
     text: string;
     path: string;
+    /** Vorschaubild (nur bei Fotos) */
+    imagePath?: string;
     visibility: Visibility;
     hiddenAt: number | null;
     owner: { id: string; displayName: string; suspended: boolean };
@@ -469,4 +477,94 @@ export const communityApi = {
   decideReport: (id: string, action: AdminAction) => call<{ ok: true }>(`/api/admin/reports/${encodeURIComponent(id)}`, jsonInit('POST', { action })),
   suspendUser: (userId: string, suspended: boolean) =>
     call<{ suspended: boolean }>(`/api/admin/users/${encodeURIComponent(userId)}/suspend`, jsonInit('POST', { suspended })),
+};
+
+// ---------------------------------------------------------------- Fotos (Phase C, Konzept 3 und 6.3)
+
+/** Foto wie vom Server geliefert (worker/photos.ts, photoShape). */
+export interface Photo {
+  id: string;
+  caption: string;
+  /** Aufnahmezeit UTC (ms) nach Zeitversatz; null = unbekannt */
+  takenAt: number | null;
+  lat: number | null;
+  lon: number | null;
+  placement: Placement;
+  width: number;
+  height: number;
+  createdAt: number;
+  /** min(Foto, Törn) */
+  effectiveVisibility: Visibility;
+  /** eigene Stufe – nur für den Eigentümer, sonst null */
+  visibility: PhotoVisibility | null;
+  bytes: number | null;
+  /** per Meldung ausgeblendet (nur der Eigentümer erfährt es) */
+  hidden: boolean;
+}
+
+/** Darf der Eigentümer gerade Fotos hinzufügen? (nur für Eigentümer, sonst null) */
+export interface PhotoUploadState {
+  allowed: boolean;
+  /** supporter_required (E3) · quota (100 pro Törn) · storage_full · storage_paused */
+  reason: 'supporter_required' | 'quota' | 'storage_full' | 'storage_paused' | null;
+  supporter: boolean;
+  used: number;
+  max: number;
+  bytesLeft: number;
+  supportOffered?: boolean;
+}
+
+export interface PhotoList {
+  photos: Photo[];
+  upload: PhotoUploadState | null;
+}
+
+export interface PhotoMeta {
+  caption: string;
+  takenAt: number | null;
+  lat: number | null;
+  lon: number | null;
+  placement: Placement;
+  visibility: PhotoVisibility;
+}
+
+export type PhotoPatch = Partial<Pick<PhotoMeta, 'caption' | 'visibility' | 'lat' | 'lon' | 'placement' | 'takenAt'>>;
+
+/** Bilddaten eines Fotos (t = Vorschau, f = Vollbild). Bilder können keine Header setzen – der Schlüssel geht als ?k= mit. */
+export const photoImageUrl = (id: string, size: 't' | 'f', key?: string | null): string =>
+  `/api/photos/${encodeURIComponent(id)}?s=${size}${key ? `&k=${encodeURIComponent(key)}` : ''}`;
+
+/**
+ * Foto hochladen: Body = Vorschaubild ‖ Vollbild, Länge der Vorschau und Angaben als Header. Per XHR, weil nur so der
+ * Upload-Fortschritt messbar ist (fetch kennt keinen Upload-Fortschritt).
+ */
+function uploadPhotoXhr(shareId: string, thumb: Blob, full: Blob, meta: PhotoMeta, onProgress?: (fraction: number) => void): Promise<{ photo: Photo }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/shares/${encodeURIComponent(shareId)}/photos`);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-Photo-Thumb-Length', String(thumb.size));
+    xhr.setRequestHeader('X-Photo-Meta', encodeURIComponent(JSON.stringify(meta)));
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+    xhr.onerror = () => reject(new ApiError(0, 'offline', 'Server nicht erreichbar.'));
+    xhr.onload = () => {
+      let body: { photo?: Photo; error?: string; message?: string } = {};
+      try {
+        body = JSON.parse(xhr.responseText) as typeof body;
+      } catch {
+        return reject(new ApiError(xhr.status, 'no_backend', 'Fotos sind auf dieser Installation nicht verfügbar.'));
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && body.photo) resolve({ photo: body.photo });
+      else reject(new ApiError(xhr.status, body.error || 'error', body.message || `Fehler ${xhr.status}`));
+    };
+    xhr.send(new Blob([thumb, full]));
+  });
+}
+
+export const photoApi = {
+  list: (shareId: string, key?: string | null) => call<PhotoList>(`/api/shares/${encodeURIComponent(shareId)}/photos`, keyInit(key)),
+  upload: uploadPhotoXhr,
+  update: (id: string, patch: PhotoPatch) => call<{ photo: Photo }>(`/api/photos/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
+  remove: (id: string) => call<void>(`/api/photos/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

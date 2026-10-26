@@ -34,6 +34,8 @@
   --c-median: #d07a22;
   --c-start: #1f8a4c;
   --c-end: #c2372b;
+  /* Fotos (Marker, Ticks im Diagramm, Galerie) */
+  --c-photo: #b8327f;
 
   /* Identitätsfarben der Tracks (Liste, Start/Ziel-Pins) */
   --c-track-1: #0e6bd8;
@@ -121,6 +123,7 @@
     --c-median: #f0a356;
     --c-start: #4cc37d;
     --c-end: #f07a6e;
+    --c-photo: #f07fc0;
     --c-track-1: #4b9cf5;
     --c-track-2: #f0a356;
     --c-track-3: #a98bf0;

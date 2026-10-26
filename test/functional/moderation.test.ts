@@ -107,7 +107,7 @@ describe('F-114 Melden', () => {
     const share = await newShare(owner);
     expect((await report(undefined, 'share', share.id)).status).toBe(401);
     const r = await person();
-    expect(await errorOf(await report(r, 'photo', share.id))).toBe('invalid_report');
+    expect(await errorOf(await report(r, 'track', share.id))).toBe('invalid_report');
     expect(await errorOf(await report(r, 'share', share.id, 'langweilig'))).toBe('invalid_reason');
     expect(await errorOf(await report(owner, 'share', share.id))).toBe('own_object');
     expect((await report(r, 'share', share.id, 'other', 'x'.repeat(800))).status).toBe(201);

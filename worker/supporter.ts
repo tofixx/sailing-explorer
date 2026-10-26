@@ -41,12 +41,16 @@ export interface SupportStatus {
   sharesFree: number;
   /** Grenzen der aktuellen Stufe (kostenlos bzw. Unterstützer), siehe limits */
   sharesMax: number;
-  /** Speicher in Bytes: Track-Payloads + Übersichtsbilder (+ Fotos ab Phase C) */
+  /** Speicher in Bytes: Track-Payloads + Übersichtsbilder + Fotos */
   bytesUsed: number;
   bytesMax: number;
   /** Boote als Eigner */
   boatsUsed: number;
   boatsMax: number;
+  /** Fotos im Konto (alle Törns) */
+  photosUsed: number;
+  /** Fotos pro Törn in der aktuellen Stufe (kostenlos 0, E3) */
+  photosMax: number;
   /** Grenzen beider Stufen – für „Als Unterstützer bis zu …“ */
   limits: Record<Tier, TierLimits>;
   /** Notbremse: neue Törns für dieses Konto gerade pausiert (Konzept 5.2) */
@@ -58,11 +62,12 @@ export async function supportStatus(env: Env, userId: string, now = Date.now()):
     `SELECT (SELECT COUNT(*) FROM shares WHERE user_id = ?1) AS n,
        ${USER_BYTES_SQL} AS bytes,
        (SELECT COUNT(*) FROM boats WHERE owner_id = ?1) AS boats,
+       (SELECT COUNT(*) FROM photos WHERE user_id = ?1) AS photos,
        (SELECT MAX(valid_until) FROM supports WHERE user_id = ?1) AS until,
        (SELECT value FROM counters WHERE name = ?2) AS total`,
   )
     .bind(userId, STORAGE_COUNTER)
-    .first<{ n: number; bytes: number; boats: number; until: number | null; total: number | null }>();
+    .first<{ n: number; bytes: number; boats: number; photos: number; until: number | null; total: number | null }>();
   const until = row?.until ?? null;
   const supporter = until !== null && until > now;
   const free = freeShares(env);
@@ -79,6 +84,8 @@ export async function supportStatus(env: Env, userId: string, now = Date.now()):
     bytesMax: current.bytes,
     boatsUsed: row?.boats ?? 0,
     boatsMax: current.boats,
+    photosUsed: row?.photos ?? 0,
+    photosMax: current.photosPerShare,
     limits,
     storagePaused: brakeBlocks(brakeLevel(row?.total ?? null, soft, hard), supporter),
   };

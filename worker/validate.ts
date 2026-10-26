@@ -1,7 +1,9 @@
 // Reine Validierungsfunktionen – ohne Worker-APIs, damit sie unit-testbar sind.
 import { SUPPORT_TIERS } from '../src/domain/support';
 import { isVisibility, type Visibility } from '../src/domain/visibility';
-import { DEFAULT_FREE_SHARES, SHARE_IMAGE_BYTES, SHARE_UPLOAD_BYTES, STORAGE_HARD_BYTES, STORAGE_SOFT_BYTES, limitsFor } from '../src/domain/limits';
+import { DEFAULT_FREE_SHARES, PHOTO_CAPTION_LENGTH, SHARE_IMAGE_BYTES, SHARE_UPLOAD_BYTES, STORAGE_HARD_BYTES, STORAGE_SOFT_BYTES, limitsFor } from '../src/domain/limits';
+import { isPhotoVisibility, type PhotoVisibility } from '../src/domain/visibility';
+import { isPlacement, roundCoord, type Placement } from '../src/domain/photo-place';
 import {
   isCommentsMode, isNotifyMode, isReportKind, isReportReason,
   type CommentsMode, type NotifyMode, type ReportKind, type ReportReason,
@@ -151,13 +153,64 @@ export function normalizeHandle(input: unknown): string | null {
   return h;
 }
 
+// ---------------------------------------------------------------- Fotos (Phase C)
+
+/** Angaben zu einem Foto (Header X-Photo-Meta beim Hochladen, Body beim Ändern) – nur plausibilisiert übernommen. */
+export interface PhotoMetaInput {
+  caption: string;
+  takenAt: number | null;
+  lat: number | null;
+  lon: number | null;
+  placement: Placement;
+  visibility: PhotoVisibility;
+}
+
+/** Früheste plausible Aufnahmezeit (Digitalkameras mit EXIF) */
+const PHOTO_EPOCH = Date.UTC(1990, 0, 1);
+
+/** Aufnahmezeit: ganze ms zwischen 1990 und morgen, sonst null. */
+export function parseTakenAt(v: unknown, now = Date.now()): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v >= PHOTO_EPOCH && v <= now + 2 * 86_400_000 ? Math.round(v) : null;
+}
+
+/**
+ * Position und Platzierung: beide Koordinaten gültig → gerundet (5 Nachkommastellen) mit gps|time|manual;
+ * ohne Koordinaten (oder „none“) → keine Position. Ungültiges → null (400).
+ */
+export function parsePosition(lat: unknown, lon: unknown, placement: unknown): Pick<PhotoMetaInput, 'lat' | 'lon' | 'placement'> | null {
+  const p = placement === undefined ? undefined : isPlacement(placement) ? placement : null;
+  if (p === null) return null;
+  if (p === 'none' || ((lat === null || lat === undefined) && (lon === null || lon === undefined))) {
+    return p === undefined || p === 'none' ? { lat: null, lon: null, placement: 'none' } : null;
+  }
+  if (typeof lat !== 'number' || typeof lon !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat: roundCoord(lat), lon: roundCoord(lon), placement: p ?? 'manual' };
+}
+
+/** X-Photo-Meta (URI-kodiertes JSON, max. 2 KB). null = ungültig. */
+export function parsePhotoMeta(header: string | null, now = Date.now()): PhotoMetaInput | null {
+  if (!header) return { caption: '', takenAt: null, lat: null, lon: null, placement: 'none', visibility: 'public' };
+  if (header.length > 2048) return null;
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(decodeURIComponent(header)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const pos = parsePosition(raw.lat, raw.lon, raw.placement);
+  const visibility = raw.visibility === undefined ? 'public' : isPhotoVisibility(raw.visibility) ? raw.visibility : null;
+  if (!pos || !visibility) return null;
+  return { caption: cleanText(raw.caption, PHOTO_CAPTION_LENGTH), takenAt: parseTakenAt(raw.takenAt, now), ...pos, visibility };
+}
+
 // ---------------------------------------------------------------- Kommentare & Melden (Phase D)
 
 /** Kommentare am Törn: on | off | hidden (Konzept 4.1). */
 export const parseCommentsMode = (input: unknown): CommentsMode | null => (isCommentsMode(input) ? input : null);
 /** Mail-Benachrichtigung über neue Kommentare: off | daily. */
 export const parseNotifyMode = (input: unknown): NotifyMode | null => (isNotifyMode(input) ? input : null);
-/** Meldbare Objekte (Fotos folgen mit Phase C). */
+/** Meldbare Objekte: Törn, Kommentar, Foto, Profil, Boot. */
 export const parseReportKind = (input: unknown): ReportKind | null => (isReportKind(input) ? input : null);
 export const parseReportReason = (input: unknown): ReportReason | null => (isReportReason(input) ? input : null);
 export const COMMENT_ID_RE = SHARE_ID_RE;

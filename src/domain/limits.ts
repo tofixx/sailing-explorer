@@ -17,7 +17,7 @@ export const DEFAULT_FREE_SHARES = 3;
 export interface TierLimits {
   /** gespeicherte Törns pro Konto */
   shares: number;
-  /** Speicher gesamt in Bytes: Track-Payloads + Übersichtsbilder (+ Fotos ab Phase C) */
+  /** Speicher gesamt in Bytes: Track-Payloads + Übersichtsbilder + Fotos */
   bytes: number;
   /** Boote als Eigner */
   boats: number;
@@ -52,6 +52,26 @@ export function quotaVerdict(supporter: boolean, used: number, adding: number, p
   return 'quota';
 }
 
+// ---------------------------------------------------------------- Fotos (Phase C, Konzept 3 und 5.1)
+
+/** Vollbild: lange Kante und Dateigröße (nach dem Neukodieren im Browser). */
+export const PHOTO_FULL_PX = 2048;
+export const PHOTO_FULL_BYTES = 1 * MB;
+/** Vorschaubild: lange Kante und Dateigröße. */
+export const PHOTO_THUMB_PX = 400;
+export const PHOTO_THUMB_BYTES = 80 * 1024;
+/** Bildunterschrift (Zeichen) */
+export const PHOTO_CAPTION_LENGTH = 200;
+
+/** Darf zu einem Törn mit `inShare` Fotos ein weiteres dazukommen? Kostenlos nie (E3), Unterstützer bis 100. */
+export const photoVerdict = (supporter: boolean, inShare: number): QuotaVerdict => quotaVerdict(supporter, inShare, 1, (l) => l.photosPerShare);
+
+/** Meldung, wenn kein weiteres Foto hochgeladen werden kann – gleicher Wortlaut wie der Server. */
+export function photoLimitMessage(v: Exclude<QuotaVerdict, 'ok'>, supportOffered: boolean): string {
+  if (v === 'quota') return `Maximal ${limitsFor('supporter').photosPerShare} Fotos pro Törn.`;
+  return 'Fotos gibt es nur für Unterstützer.' + (supportOffered ? ' Unterstütze Sail Explorer mit einem Kaffee oder Bier, um Fotos zu deinen Törns hochzuladen.' : '');
+}
+
 // ---------------------------------------------------------------- Globale Notbremse (Konzept 5.2)
 
 const GB = 1000 ** 3;
@@ -84,6 +104,8 @@ export interface UsageStatus {
   /** fehlen bei älteren Servern – dann ohne Boote */
   boatsUsed?: number;
   boatsMax?: number;
+  /** Fotos im Konto (Phase C) – fehlt bei älteren Servern */
+  photosUsed?: number;
 }
 
 const n = (v: number) => v.toLocaleString('de-DE');
@@ -92,6 +114,7 @@ const n = (v: number) => v.toLocaleString('de-DE');
 export function usageText(s: UsageStatus): string {
   const parts = [`${n(s.sharesUsed)} von ${n(s.sharesMax)} Törns`, `${fmtMB(s.bytesUsed)} von ${fmtMB(s.bytesMax)}`];
   if (s.boatsUsed !== undefined && s.boatsMax !== undefined) parts.push(`${n(s.boatsUsed)} von ${n(s.boatsMax)} ${s.boatsMax === 1 ? 'Boot' : 'Booten'}`);
+  if (s.photosUsed) parts.push(`${n(s.photosUsed)} ${s.photosUsed === 1 ? 'Foto' : 'Fotos'}`);
   return parts.join(' · ');
 }
 

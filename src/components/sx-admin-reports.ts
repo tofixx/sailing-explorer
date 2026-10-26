@@ -1,11 +1,11 @@
 import { LitElement, html, css } from 'lit';
 import type { AdminAction, AdminReport } from '../services/api';
-import { REPORT_REASON_LABEL, type ReportKind, type ReportReason } from '../domain/comment-text';
+import { REPORT_KIND_LABEL, REPORT_REASON_LABEL, type ReportKind, type ReportReason } from '../domain/comment-text';
 import { fmtDate, plural } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
 
-const KIND: Record<ReportKind, string> = { share: 'Törn', comment: 'Kommentar', profile: 'Profil', boat: 'Boot' };
+const KIND: Record<ReportKind, string> = REPORT_KIND_LABEL;
 
 /**
  * Offene Meldungen für Admins (Konzept 4.4), je Ziel zusammengefasst. Reine Darstellung – Events:
@@ -50,6 +50,12 @@ export class SxAdminReports extends LitElement {
         padding: var(--s-3);
         display: grid;
         gap: var(--s-2);
+      }
+      .thumb {
+        max-width: 200px;
+        max-height: 150px;
+        border-radius: var(--radius-s);
+        object-fit: cover;
       }
       .top {
         display: flex;
@@ -131,6 +137,7 @@ export class SxAdminReports extends LitElement {
         <span class="title">${t ? t.title : 'Gibt es nicht mehr'}</span>
         ${t?.path ? html`<a href=${t.path} target="_blank" rel="noopener noreferrer">${icon('open')} Ansehen</a>` : ''}
       </div>
+      ${t?.imagePath ? html`<img class="thumb" src=${t.imagePath} alt="Gemeldetes Foto" loading="lazy" />` : ''}
       ${t?.text ? html`<p class="text">${t.text}</p>` : ''}
       <div class="chips">
         <span class="chip">${plural(r.count, 'Meldung', 'Meldungen')} von ${plural(r.reporters, 'Konto', 'Konten')}</span>

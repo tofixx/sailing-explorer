@@ -14,6 +14,8 @@ import { canView } from './access';
 import { isShareKey, type Visibility } from '../src/domain/visibility';
 // ---- Kommentare & Melden (Phase D) ----
 import { communityRoutes } from './community';
+// ---- Fotos (Phase C) ----
+import { deletePhoto, getPhotoImage, listPhotos, updatePhoto, uploadPhoto } from './photos';
 
 const WEBHOOK_PATH = '/api/webhooks/stripe';
 
@@ -67,6 +69,12 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/shares\/([A-Za-z0-9]+)\/crew\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => removeCrew(r, env, id, who)],
   // ---- Kommentare & Melden (Phase D): worker/community.ts ----
   ...communityRoutes,
+  // ---- Fotos (Phase C, Konzept 6.3): worker/photos.ts ----
+  ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/photos$/, (r, env, [id]) => listPhotos(r, env, id)],
+  ['POST', /^\/api\/shares\/([A-Za-z0-9]+)\/photos$/, (r, env, [id]) => uploadPhoto(r, env, id)],
+  ['GET', /^\/api\/photos\/([A-Za-z0-9]+)$/, (r, env, [id]) => getPhotoImage(r, env, id)],
+  ['PATCH', /^\/api\/photos\/([A-Za-z0-9]+)$/, (r, env, [id]) => updatePhoto(r, env, id)],
+  ['DELETE', /^\/api\/photos\/([A-Za-z0-9]+)$/, (r, env, [id]) => deletePhoto(r, env, id)],
 ];
 
 async function handleApi(request: Request, env: Env, path: string): Promise<Response> {

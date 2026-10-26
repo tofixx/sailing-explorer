@@ -31,13 +31,14 @@ export async function requireActiveUser(request: Request, env: Env): Promise<Use
 // ---------------------------------------------------------------- Aufräumen von Meldungen
 
 /**
- * Meldungen zu einem Törn und seinen Kommentaren – vor dem Löschen des Törns ausführen
- * (die Kommentare fallen danach per ON DELETE CASCADE weg).
+ * Meldungen zu einem Törn, seinen Kommentaren und Fotos – vor dem Löschen des Törns ausführen
+ * (Kommentare und Fotos fallen danach per ON DELETE CASCADE weg).
  */
 export const deleteShareReports = (env: Env, shareId: string): D1PreparedStatement =>
   env.DB.prepare(
     `DELETE FROM reports WHERE (target_kind = 'share' AND target_id = ?1)
-       OR (target_kind = 'comment' AND target_id IN (SELECT id FROM comments WHERE share_id = ?1))`,
+       OR (target_kind = 'comment' AND target_id IN (SELECT id FROM comments WHERE share_id = ?1))
+       OR (target_kind = 'photo' AND target_id IN (SELECT id FROM photos WHERE share_id = ?1))`,
   ).bind(shareId);
 
 /**
@@ -49,6 +50,7 @@ export const purgeUserReports = (env: Env, userId: string): D1PreparedStatement[
     `DELETE FROM reports WHERE
        (target_kind = 'share' AND target_id IN (SELECT id FROM shares WHERE user_id = ?1))
        OR (target_kind = 'comment' AND target_id IN (SELECT id FROM comments WHERE user_id = ?1 OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)))
+       OR (target_kind = 'photo' AND target_id IN (SELECT id FROM photos WHERE user_id = ?1 OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)))
        OR (target_kind = 'profile' AND target_id = ?1)
        OR (target_kind = 'boat' AND target_id IN (SELECT id FROM boats WHERE owner_id = ?1))`,
   ).bind(userId),
@@ -61,6 +63,7 @@ export const deleteOrphanReports = (env: Env): D1PreparedStatement =>
     `DELETE FROM reports WHERE
        (target_kind = 'share' AND NOT EXISTS (SELECT 1 FROM shares WHERE id = reports.target_id))
        OR (target_kind = 'comment' AND NOT EXISTS (SELECT 1 FROM comments WHERE id = reports.target_id))
+       OR (target_kind = 'photo' AND NOT EXISTS (SELECT 1 FROM photos WHERE id = reports.target_id))
        OR (target_kind = 'profile' AND NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = reports.target_id))
        OR (target_kind = 'boat' AND NOT EXISTS (SELECT 1 FROM boats WHERE id = reports.target_id))`,
   );
