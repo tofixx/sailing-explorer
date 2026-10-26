@@ -45,7 +45,8 @@ describe('linkify', () => {
 describe('Melden und Moderation – reine Regeln', () => {
   it('[F-114] Arten und Modi', () => {
     expect(isReportKind('share')).toBe(true);
-    expect(isReportKind('photo')).toBe(false); // folgt mit Fotos
+    expect(isReportKind('photo')).toBe(true);
+    expect(isReportKind('track')).toBe(false);
     expect(isCommentsMode('hidden')).toBe(true);
     expect(isCommentsMode('HIDDEN')).toBe(false);
   });

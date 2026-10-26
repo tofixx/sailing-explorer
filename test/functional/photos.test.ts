@@ -74,7 +74,9 @@ interface Photo {
   hidden: boolean;
 }
 
-function upload(id: string, cookie: string | undefined, o: { full?: Uint8Array; thumb?: Uint8Array; meta?: Meta | string; headers?: Record<string, string> } = {}) {
+/** stream: als chunked Stream ohne Content-Length senden – sonst bricht der Worker bei Übergröße sofort ab und die
+ * Verbindung setzt beim Senden zurück (siehe api.test.ts, F-33). */
+function upload(id: string, cookie: string | undefined, o: { full?: Uint8Array; thumb?: Uint8Array; meta?: Meta | string; headers?: Record<string, string>; stream?: boolean } = {}) {
   const full = o.full ?? jpeg(1600, 1200);
   const thumb = o.thumb ?? jpeg(400, 300);
   return h.fetch(`/api/shares/${id}/photos`, {
@@ -86,7 +88,18 @@ function upload(id: string, cookie: string | undefined, o: { full?: Uint8Array; 
       'X-Photo-Meta': typeof o.meta === 'string' ? o.meta : encodeURIComponent(JSON.stringify(o.meta ?? { caption: 'Ankerbucht', takenAt: Date.parse('2026-06-13T10:05:00Z'), lat: 54.005, lon: 13, placement: 'gps' })),
       ...(o.headers ?? {}),
     },
-    body: concat(thumb, full),
+    ...(o.stream ? { body: asStream(concat(thumb, full)), duplex: 'half' } : { body: concat(thumb, full) }),
+  } as unknown as RequestInit & { cookie?: string });
+}
+
+function asStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  let at = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(c) {
+      if (at >= bytes.length) return c.close();
+      c.enqueue(bytes.slice(at, at + 64 * 1024));
+      at += 64 * 1024;
+    },
   });
 }
 
@@ -236,7 +249,7 @@ describe('F-101 Server lehnt Metadaten, falsche Formate und Übergrößen ab', (
     expect(await errorOf(await upload(shareId, cookie, { full: jpeg(2049, 1000) }))).toBe('too_large');
     expect(await errorOf(await upload(shareId, cookie, { thumb: jpeg(401, 300) }))).toBe('too_large');
     expect(await errorOf(await upload(shareId, cookie, { thumb: jpeg(400, 300, { pad: PHOTO_THUMB_BYTES }) }))).toBe('invalid_thumb');
-    const res = await upload(shareId, cookie, { full: jpeg(1600, 1200, { pad: PHOTO_FULL_BYTES + 10 }) });
+    const res = await upload(shareId, cookie, { full: jpeg(1600, 1200, { pad: PHOTO_FULL_BYTES + 10 }), stream: true });
     expect(res.status).toBe(413);
   });
 
