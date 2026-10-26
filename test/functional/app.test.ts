@@ -12,7 +12,7 @@ import { T0, genPoints, gpxDoc, meteoResponse, type MeteoValues } from './helper
 
 const h = vi.hoisted(() => ({
   maps: [] as Array<{ render: ReturnType<typeof vi.fn>; fit: ReturnType<typeof vi.fn>; setLayers: ReturnType<typeof vi.fn>; showHover: ReturnType<typeof vi.fn> }>,
-  ws: { data: null as null | { tracks: Array<{ id: string; name: string; gpx: string; hidden: boolean }>; savedAt: number } },
+  ws: { data: null as null | { tracks: Array<{ id: string; name: string; gpx: string; hidden: boolean }>; weather?: unknown; savedAt: number } },
 }));
 
 vi.mock('../../src/map/map-view', async () => {
@@ -33,8 +33,8 @@ vi.mock('../../src/map/map-view', async () => {
 vi.mock('../../src/services/workspace', () => ({
   workspace: {
     load: async () => h.ws.data,
-    save: async (tracks: Array<{ id: string; name: string; gpx: string; hidden: boolean }>) => {
-      h.ws.data = tracks.length ? { tracks: structuredClone(tracks), savedAt: Date.now() } : null;
+    save: async (tracks: Array<{ id: string; name: string; gpx: string; hidden: boolean }>, weather: unknown = null) => {
+      h.ws.data = tracks.length ? { tracks: structuredClone(tracks), weather: structuredClone(weather), savedAt: Date.now() } : null;
     },
   },
 }));
@@ -458,6 +458,46 @@ describe('F-11/F-12/F-13/F-14/F-15 Darstellung', () => {
   });
 });
 
+const meteoCalls = () => server.calls.filter((c) => c.url.includes('open-meteo')).length;
+
+describe('F-22 Wetter einmalig beim Einstellen', () => {
+  it('[F-22] Gast-Sitzung: Wetter wird mitgespeichert und beim nächsten Besuch nicht erneut abgerufen', async () => {
+    await startApp();
+    await load(file('a.gpx', leg('A')));
+    await settled();
+    expect(meteoCalls()).toBeGreaterThan(0);
+    await vi.waitFor(() => expect(h.ws.data?.weather).toBeTruthy());
+    // „nächster Besuch“
+    for (const [t, fn] of listeners) document.removeEventListener(t, fn);
+    document.body.innerHTML = BODY;
+    (document.querySelector('sx-toast') as unknown as { show: unknown }).show = toast;
+    server.calls = [];
+    await startApp();
+    await settled();
+    expect(state().tracks[0].points.every((pt) => pt.wx?.wind === 12)).toBe(true);
+    expect(meteoCalls()).toBe(0);
+    expect(state().status.text).toMatch(/beim Einstellen gespeichert/);
+  });
+
+  it('[F-22] neue Tracks lösen genau einen neuen Abruf aus', async () => {
+    await startApp();
+    await load(file('a.gpx', leg('A')));
+    await settled();
+    server.calls = [];
+    await load(file('b.gpx', leg('B', T0 + 86_400_000)));
+    await settled();
+    expect(meteoCalls()).toBeGreaterThan(0);
+  });
+
+  it('[F-22] ungültiges gespeichertes Wetter wird verworfen und neu geladen', async () => {
+    h.ws.data = { tracks: [{ id: 'x', name: 'A', gpx: leg('A'), hidden: false }], weather: { samples: 'kaputt', windOk: true, waveOk: true }, savedAt: Date.now() };
+    await startApp();
+    await settled();
+    expect(meteoCalls()).toBeGreaterThan(0);
+    expect(state().tracks[0].points[0].wx?.wind).toBe(12);
+  });
+});
+
 describe('F-20/F-21 Wetter in der App', () => {
   it('[F-20] Wetter wird nach dem Laden zugeordnet und im Status gemeldet', async () => {
     await startApp();
@@ -567,6 +607,7 @@ describe('F-33 Freigabe erstellen', () => {
     await startApp();
     await vi.waitFor(() => expect(state().user).not.toBeNull());
     await load(file('a.gpx', leg('A')));
+    await settled();
     emit('sx-metric', 'gust');
     emit('sx-share');
     emit('sx-share-submit', { title: 'Mein Törn', visibility: 'private', includeView: true, boatId: null });
@@ -576,7 +617,9 @@ describe('F-33 Freigabe erstellen', () => {
     expect(share.result!.url).toBe(`${location.origin}/s/NewShareId23456789`);
     const stored = server.shares.get('NewShareId23456789')!;
     expect(stored.meta).toMatchObject({ title: 'Mein Törn', visibility: 'private', view: 'm=gust&l=s,w,v' });
-    expect(stored.payload).toEqual({ v: 1, tracks: [{ name: 'A', gpx: state().tracks[0].raw }] });
+    // Wetter wird beim Einstellen einmal geladen und mit der Freigabe gespeichert (F-22)
+    expect(stored.payload).toEqual({ v: 1, tracks: [{ name: 'A', gpx: state().tracks[0].raw }], weather: state().weather });
+    expect(state().weather).not.toBeNull();
   });
 
   it('[F-33] ohne „Ansicht mitgeben“ bleibt die Ansicht leer', async () => {
@@ -610,6 +653,28 @@ describe('F-34/F-35 Geteilte Links öffnen', () => {
     expect(el<HTMLElement>('#charts-panel').hidden).toBe(false);
     expect(document.title).toBe('Geteilter Törn · Sail Explorer');
     expect(h.ws.data).toBeNull(); // geteilte Ansicht überschreibt nicht die Gast-Sitzung
+  });
+
+  it('[F-22] Freigabe mit gespeichertem Wetter: Betrachter rufen Open-Meteo nicht ab', async () => {
+    const times = Array.from({ length: 48 }, (_, i) => T0 - 6 * 3_600_000 + i * 3_600_000);
+    const series = (v: number) => times.map(() => v);
+    seedShare();
+    (server.shares.get('AbCdEfGhJkLmNpQr23')!.payload as { weather?: unknown }).weather = {
+      samples: [{ lat: 54.4, lon: 12.9, times, wind: series(7), dir: series(200), gust: series(9), wave: series(0.4), wdir: series(210), wper: series(3) }],
+      windOk: true,
+      waveOk: true,
+    };
+    await startApp('/s/AbCdEfGhJkLmNpQr23');
+    await settled();
+    expect(state().tracks[0].points[0].wx?.wind).toBe(7);
+    expect(meteoCalls()).toBe(0);
+  });
+
+  it('[F-22] ältere Freigabe ohne Wetter lädt es wie bisher nach', async () => {
+    seedShare();
+    await startApp('/s/AbCdEfGhJkLmNpQr23');
+    await settled();
+    expect(meteoCalls()).toBeGreaterThan(0);
   });
 
   it('[F-34] Ansichtszustand aus der URL (?m=…&l=…) hat Vorrang und wird bei Änderungen nachgeführt', async () => {

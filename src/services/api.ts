@@ -1,4 +1,5 @@
 import type { SupportTier } from '../domain/support';
+import { parseWeatherData, type WeatherData } from '../domain/weather';
 import type { Visibility } from '../domain/visibility';
 import { readCapped } from './compress';
 
@@ -144,6 +145,8 @@ export type SharePatch = Partial<Pick<ShareMeta, 'title' | 'visibility' | 'view'
 export interface SharePayload {
   v: 1;
   tracks: Array<{ name: string; gpx: string }>;
+  /** beim Teilen mitgespeicherte Wetterdaten (ältere Freigaben: fehlt) */
+  weather?: WeatherData;
 }
 
 export class ApiError extends Error {
@@ -258,5 +261,7 @@ export function validatePayload(input: unknown): SharePayload {
   for (const t of p.tracks) {
     if (!t || typeof t.name !== 'string' || typeof t.gpx !== 'string') throw new Error('Ungültiges Freigabe-Format');
   }
-  return p as SharePayload;
+  // Ungültiges Wetter verwirft nur das Wetter, nicht die Freigabe – die App lädt dann selbst nach.
+  const weather = p.weather === undefined ? null : parseWeatherData(p.weather);
+  return { v: 1, tracks: p.tracks as SharePayload['tracks'], ...(weather ? { weather } : {}) };
 }

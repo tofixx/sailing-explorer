@@ -3,7 +3,7 @@ import { GpxError, parseGpx } from './domain/gpx';
 import { METRICS, METRIC_KEYS, metricRange, type MetricDef } from './domain/metrics';
 import { averageConditions, kpis } from './domain/summary';
 import { nearestByTime, timeline, type TimedPoint } from './domain/timeline';
-import { attachConditions } from './domain/weather';
+import { attachConditions, parseWeatherData, type WeatherData } from './domain/weather';
 import { median } from './domain/geo';
 import type { MetricKey, Track, TrackPoint } from './domain/types';
 import { MapView } from './map/map-view';
@@ -12,7 +12,7 @@ import { inflateFromBase64Url } from './services/compress';
 import { fetchTrackFile } from './services/samples';
 import { Store, initialState, visibleTracks, type HoverSource, type Layers, type State } from './services/store';
 import { parseRoute, parseView, routePath, serializeView } from './services/url-state';
-import { loadWeather } from './services/weather-api';
+import { loadWeather, storedWeatherStatus } from './services/weather-api';
 import { workspace } from './services/workspace';
 import { SessionController, errorText } from './controllers/session';
 import type { ImageContent, ImageFormat } from './services/share-image';
@@ -332,7 +332,7 @@ export class App {
     const tracks = this.build(ws.tracks.map((t) => ({ name: t.name, text: t.gpx })));
     ws.tracks.forEach((w, i) => tracks[i] && (tracks[i].hidden = w.hidden));
     if (!tracks.length) return;
-    await this.setTracks(tracks, { mode: { kind: 'local' }, fit: true });
+    await this.setTracks(tracks, { mode: { kind: 'local' }, fit: true, weather: parseWeatherData(ws.weather) });
     this.toast(`Gast-Sitzung wiederhergestellt: ${tracks.length} Track${tracks.length > 1 ? 's' : ''}`);
   }
 
@@ -386,18 +386,26 @@ export class App {
     }
   }
 
-  /** Setzt Tracks, speichert den Arbeitsbereich und lädt Wetter nach. */
-  private async setTracks(tracks: Track[], opts: { mode: State['mode']; fit: boolean }) {
+  /**
+   * Setzt Tracks, speichert den Arbeitsbereich und lädt Wetter – aber nur, wenn keine gespeicherten Daten
+   * mitkommen (Freigabe, Gast-Sitzung). Abgerufen wird also einmal beim Einstellen, nicht bei jedem Aufruf.
+   */
+  private async setTracks(tracks: Track[], opts: { mode: State['mode']; fit: boolean; weather?: WeatherData | null }) {
     this.store.set({ tracks, mode: opts.mode, home: false, hover: null, weather: null, status: { level: 'loading', text: 'Lade Wind- und Wellendaten …' }, loading: null });
     if (opts.fit) this.map.fit(tracks);
     this.persist();
     if (!tracks.length) return this.store.set({ status: initialState.status });
+    if (opts.weather) {
+      attachConditions(tracks, opts.weather);
+      return this.store.set({ weather: opts.weather, status: storedWeatherStatus(tracks, opts.weather), tracks: [...tracks] });
+    }
     this.setLoading('Lade Wetterdaten …');
     const { data, status } = await loadWeather(tracks);
     // Inzwischen geänderte Trackliste? Dann gilt das Ergebnis nicht mehr.
     if (this.store.get().tracks !== tracks) return;
     attachConditions(tracks, data);
     this.store.set({ weather: data, status, loading: null, tracks: [...tracks] });
+    this.persist(); // jetzt mit Wetter
   }
 
   private updateTracks(tracks: Track[]) {
@@ -419,7 +427,10 @@ export class App {
   private persist() {
     const s = this.store.get();
     if (s.mode.kind !== 'local') return;
-    workspace.save(s.tracks.map((t) => ({ id: t.id, name: t.name, gpx: t.raw, hidden: t.hidden })));
+    workspace.save(
+      s.tracks.map((t) => ({ id: t.id, name: t.name, gpx: t.raw, hidden: t.hidden })),
+      s.weather,
+    );
   }
 
   // ---------------------------------------------------------------- Links & Seiten
@@ -432,7 +443,7 @@ export class App {
       const view = { ...parseView(share.view), ...parseView(location.search.slice(1)) };
       this.store.set({ metric: view.metric ?? this.store.get().metric, layers: view.layers ?? this.store.get().layers });
       document.title = `${share.title} · Sail Explorer`;
-      await this.setTracks(tracks, { mode: key ? { kind: 'share', share, key } : { kind: 'share', share }, fit: true });
+      await this.setTracks(tracks, { mode: key ? { kind: 'share', share, key } : { kind: 'share', share }, fit: true, weather: payload.weather });
     } catch (e) {
       this.setLoading(null);
       this.toast(e instanceof ApiError && e.status === 404 ? 'Diese Freigabe gibt es nicht (mehr) – oder sie ist privat.' : errorText(e), 6000);

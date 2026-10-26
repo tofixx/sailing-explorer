@@ -416,7 +416,8 @@ export class SessionController {
     this.ui.share.busy = true;
     this.ui.share.error = '';
     try {
-      const payload = validatePayload({ v: 1, tracks: s.tracks.map((t) => ({ name: t.name, gpx: t.raw })) });
+      // Wetter wird beim Einstellen einmal geladen und mitgespeichert – Betrachter rufen Open-Meteo nicht erneut ab.
+      const payload = validatePayload({ v: 1, tracks: s.tracks.map((t) => ({ name: t.name, gpx: t.raw })), ...(s.weather ? { weather: s.weather } : {}) });
       const gz = await gzipString(JSON.stringify(payload));
       const starts = s.tracks.map((t) => t.stats.start).filter((x): x is number => x != null);
       const { share } = await api.createShare(gz, {

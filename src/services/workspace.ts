@@ -14,6 +14,8 @@ export interface WorkspaceTrack {
 
 export interface Workspace {
   tracks: WorkspaceTrack[];
+  /** beim Laden der Tracks einmal abgerufen – beim nächsten Besuch kein neuer Abruf */
+  weather?: unknown;
   savedAt: number;
 }
 
@@ -47,10 +49,10 @@ export const workspace = {
       return null; // privater Modus o. ä. – App funktioniert ohne Persistenz
     }
   },
-  async save(tracks: WorkspaceTrack[]): Promise<void> {
+  async save(tracks: WorkspaceTrack[], weather: unknown = null): Promise<void> {
     try {
       if (!tracks.length) await tx('readwrite', (s) => s.delete(KEY));
-      else await tx('readwrite', (s) => s.put({ tracks, savedAt: Date.now() } satisfies Workspace, KEY));
+      else await tx('readwrite', (s) => s.put({ tracks, weather, savedAt: Date.now() } satisfies Workspace, KEY));
     } catch {
       // Speicher voll / gesperrt: still ignorieren, die Sitzung bleibt im Speicher
     }

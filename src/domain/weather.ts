@@ -93,6 +93,36 @@ export function conditionsAt(w: WeatherData | null, lat: number, lon: number, ti
   return { wind: g(s.wind), dir: g(s.dir), gust: g(s.gust), wave: g(s.wave), wdir: g(s.wdir), wper: g(s.wper) };
 }
 
+/** Obergrenzen für gespeicherte Wetterdaten: wenige Messpunkte, höchstens ~60 Tage stündlich. */
+const MAX_SAMPLES = 20;
+const MAX_HOURS = 24 * 62;
+const SERIES = ['wind', 'dir', 'gust', 'wave', 'wdir', 'wper'] as const;
+
+const finiteOrNull = (v: unknown) => v === null || (typeof v === 'number' && Number.isFinite(v));
+
+/**
+ * Prüft mitgespeicherte Wetterdaten (aus einer Freigabe oder dem lokalen Arbeitsbereich) – alles ist untrusted.
+ * Ungültig → null; dann lädt die App wie früher selbst nach.
+ */
+export function parseWeatherData(input: unknown): WeatherData | null {
+  const w = input as Partial<WeatherData> | null;
+  if (!w || typeof w !== 'object' || typeof w.windOk !== 'boolean' || typeof w.waveOk !== 'boolean') return null;
+  if (!Array.isArray(w.samples) || !w.samples.length || w.samples.length > MAX_SAMPLES) return null;
+  const samples: WeatherSample[] = [];
+  for (const raw of w.samples as unknown[]) {
+    const s = raw as Partial<WeatherSample> | null;
+    if (!s || typeof s.lat !== 'number' || typeof s.lon !== 'number' || Math.abs(s.lat) > 90 || Math.abs(s.lon) > 180) return null;
+    if (!Array.isArray(s.times) || !s.times.length || s.times.length > MAX_HOURS || !s.times.every((t) => typeof t === 'number' && Number.isFinite(t))) return null;
+    for (const k of SERIES) {
+      const a = s[k];
+      // leere Reihe = keine Daten dieser Art (z. B. Wellen an Land)
+      if (!Array.isArray(a) || (a.length && a.length !== s.times.length) || !a.every(finiteOrNull)) return null;
+    }
+    samples.push({ lat: s.lat, lon: s.lon, times: s.times, wind: s.wind!, dir: s.dir!, gust: s.gust!, wave: s.wave!, wdir: s.wdir!, wper: s.wper! });
+  }
+  return { samples, windOk: w.windOk, waveOk: w.waveOk };
+}
+
 /** Hängt Wetter an jeden Punkt (mutiert). */
 export function attachConditions(tracks: Track[], w: WeatherData | null): void {
   for (const t of tracks) for (const p of t.points) p.wx = conditionsAt(w, p.lat, p.lon, p.time);

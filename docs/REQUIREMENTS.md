@@ -25,6 +25,7 @@ Jede Anforderung hat eine ID; Tests referenzieren sie im Testnamen (z. B. `[F-03
 
 - **F-20** Wind (Forecast, sonst Archiv) und Seegang (Marine) von Open-Meteo für Zeitraum und Gebiet des Tracks, stündlich, jedem Punkt zugeordnet.
 - **F-21** Ohne Netz/Daten bleibt die App benutzbar; der Status erklärt, warum Daten fehlen.
+- **F-22** Wetterdaten werden einmal beim Einstellen geladen (Upload bzw. neue Tracks) und mitgespeichert – in der Gast-Sitzung (IndexedDB) und in der Freigabe. Wiederherstellen und Öffnen eines geteilten Links rufen Open-Meteo nicht erneut ab; ältere Freigaben ohne gespeichertes Wetter und ungültige gespeicherte Daten laden wie bisher nach. Gespeichertes Wetter wird vor der Nutzung geprüft (Form, Grenzen).
 
 ## Sitzung, Konto, Teilen
 

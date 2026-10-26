@@ -30,6 +30,16 @@ async function fetchHourly(urls: string[], probe: string): Promise<Hourly | null
 const day = (t: number) => new Date(t).toISOString().slice(0, 10);
 const nums = (h: Hourly | null, k: string) => (h?.[k] as Array<number | null> | undefined) ?? [];
 
+/** Statuszeile für Wetterdaten, die beim Einstellen gespeichert wurden (kein Abruf). */
+export function storedWeatherStatus(tracks: Track[], data: WeatherData): Status {
+  const b = bounds(tracks);
+  const fmt = (t: number) => new Date(t).toLocaleDateString('de-DE');
+  const range = b?.tMin != null && b.tMax != null ? ` für ${fmt(b.tMin)} – ${fmt(b.tMax)}` : '';
+  const parts = [data.windOk ? 'Wind' : null, data.waveOk ? 'Wellen' : null].filter(Boolean).join(' und ') || 'Wetter';
+  const missing = !data.waveOk ? ' Keine Wellendaten (nur auf offener See verfügbar).' : '';
+  return { level: 'ok', text: `${parts}${range} – beim Einstellen gespeichert.${missing}` };
+}
+
 /** Lädt stündlichen Wind (Forecast, sonst Archiv) und Seegang (Marine) von Open-Meteo. */
 export async function loadWeather(tracks: Track[]): Promise<{ data: WeatherData | null; status: Status }> {
   const b = bounds(tracks);
