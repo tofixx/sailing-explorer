@@ -20,6 +20,8 @@ import { fmtNum, fmtShort } from './util/html';
 import type { AccountTab, SxAccountDialog } from './components/sx-account-dialog';
 import type { ChartSeries, SxTimeChart } from './components/sx-time-chart';
 import type { SxConditions } from './components/sx-conditions';
+import type { SxCrew } from './components/sx-crew';
+import type { SxInviteDialog } from './components/sx-invite-dialog';
 import type { SxDiscover } from './components/sx-discover';
 import type { SxEmptyState } from './components/sx-empty-state';
 import type { SxKpis } from './components/sx-kpis';
@@ -79,6 +81,9 @@ export class App {
     login: $<SxLoginDialog>('sx-login-dialog'),
     share: $<SxShareDialog>('sx-share-dialog'),
     account: $<SxAccountDialog>('sx-account-dialog'),
+    invite: $<SxInviteDialog>('sx-invite-dialog'),
+    crew: $<SxCrew>('sx-crew'),
+    crewPanel: $<HTMLElement>('#crew-panel'),
   };
   private session: SessionController;
   private timelinePts: TimedPoint[] = [];
@@ -89,6 +94,9 @@ export class App {
       login: this.ui.login,
       share: this.ui.share,
       account: this.ui.account,
+      invite: this.ui.invite,
+      crew: this.ui.crew,
+      crewPanel: this.ui.crewPanel,
       toast: (msg, ms) => this.toast(msg, ms),
     });
     this.ui.empty.samples = SAMPLES;
@@ -103,7 +111,7 @@ export class App {
     this.handleSupportParam();
     const route = parseRoute(location);
     // Community-Leiste nur auf der Startseite; lädt nebenbei und blockiert nichts.
-    if (route.kind === 'home' || route.kind === 'login') void this.loadDiscoverStrip();
+    if (route.kind === 'home' || route.kind === 'login' || route.kind === 'invite') void this.loadDiscoverStrip();
     try {
       switch (route.kind) {
         case 'share':
@@ -116,6 +124,12 @@ export class App {
           history.replaceState(null, '', '/');
           await this.restoreWorkspace();
           if (route.token) await this.session.beginLogin(route.token);
+          return;
+        case 'invite':
+          // Token aus der Adresse entfernen (Verlauf, Teilen der Adresse), dann Einladung zeigen.
+          history.replaceState(null, '', '/');
+          await this.restoreWorkspace();
+          if (route.token) await this.session.openInvite(route.token);
           return;
         case 'files':
           return await this.openFiles(route.names);
@@ -179,6 +193,11 @@ export class App {
       this.renderCharts(s);
     }
     if (dataChanged || changed('hover') || changed('status')) this.renderHover(s);
+    // Crew des geteilten Törns – neu laden bei anderem Törn oder anderer Anmeldung (Eigentümer verwaltet).
+    if (changed('mode') || changed('user')) {
+      if (s.mode.kind === 'share') void this.session.loadCrew(s.mode.share, s.mode.key);
+      else this.session.hideCrew();
+    }
     if (prev && (changed('metric') || changed('layers')) && s.mode.kind === 'share') {
       // Schlüssel („Nur mit Link“) bleibt in der Adresse, sonst wäre der Link nach dem Kopieren tot.
       history.replaceState(null, '', `${routePath('s', s.mode.share.id, s.mode.key)}?${serializeView(s.metric, s.layers)}`);
@@ -272,7 +291,7 @@ export class App {
     on('sx-share', () => s.share());
     on('sx-login', () => s.openLogin());
     on<AccountTab | undefined>('sx-account', (tab) => s.openAccount(tab));
-    on<'login' | 'share' | 'account'>('sx-close', (which) => (this.ui[which].open = false));
+    on<'login' | 'share' | 'account' | 'invite'>('sx-close', (which) => (which === 'invite' ? s.closeInvite() : (this.ui[which].open = false)));
     on<{ email: string; turnstile: string | null }>('sx-login-submit', (d) => s.requestLink(d.email, d.turnstile));
     on('sx-login-reset', () => s.resetLogin());
     on('sx-login-confirm', () => s.confirmLogin());
@@ -293,6 +312,18 @@ export class App {
     on<Parameters<SessionController['saveProfile']>[0]>('sx-profile-save', (p) => s.saveProfile(p));
     on<{ id: string | null; input: Parameters<SessionController['saveBoat']>[1] }>('sx-boat-save', (d) => s.saveBoat(d.id, d.input));
     on<string>('sx-boat-delete', (id) => s.deleteBoat(id));
+    // Einladungen, Crew, Boots-Admins
+    on('sx-invite-login', () => s.inviteLogin());
+    on('sx-invite-accept', () => s.acceptInvite());
+    on<{ id: string; scope: 'crew' | 'boat'; boatId?: string }>('sx-invite-revoke', (d) => s.revokeInvite(d));
+    on<string>('sx-invite-copy', (url) => s.copyInvite(url));
+    on<{ email: string | null }>('sx-crew-invite', (d) => s.inviteCrew(d.email));
+    on<{ userId: string }>('sx-crew-remove', (d) => s.removeCrew(d.userId));
+    on('sx-crew-leave', () => s.leaveCrew());
+    on<string>('sx-boat-admins', (id) => s.loadAdmins(id));
+    on<{ boatId: string; email: string }>('sx-boat-admin-invite', (d) => s.inviteAdmin(d.boatId, d.email));
+    on<{ boatId: string; userId: string }>('sx-boat-admin-remove', (d) => s.removeAdmin(d.boatId, d.userId));
+    on<string>('sx-boat-leave', (id) => s.leaveBoat(id));
     on('sx-logout', () => s.logout());
     on('sx-account-delete', () => s.deleteAccount());
   }

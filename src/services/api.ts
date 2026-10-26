@@ -89,6 +89,82 @@ export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'lengthM' | 'sa
   rotateKey?: boolean;
 };
 
+/** Offene Einladung (nur für den Eigentümer des Ziels); das Token selbst gibt es nur beim Erzeugen. */
+export interface PendingInvite {
+  id: string;
+  /** null = Einladungslink ohne Adresse */
+  email: string | null;
+  usesLeft: number;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface BoatAdmin {
+  id: string;
+  displayName: string | null;
+  /** nur bei öffentlichem Profil */
+  handle: string | null;
+  /** nur für den Eigner */
+  email: string | null;
+  isSelf: boolean;
+  createdAt: number;
+}
+
+export interface BoatAdmins {
+  role: 'owner' | 'admin';
+  admins: BoatAdmin[];
+  invites: PendingInvite[];
+}
+
+export interface CrewMember {
+  /** nur für den Eigentümer (zum Entfernen) */
+  id: string | null;
+  handle: string | null;
+  displayName: string;
+}
+
+/** Crew eines Törns – für Besucher nur bei öffentlichen Törns, namentlich nur mit öffentlichem Profil (Konzept 10.6). */
+export interface Crew {
+  members: CrewMember[];
+  /** Mitglieder ohne öffentliches Profil (nur gezählt) */
+  others: number;
+  /** angemeldetes Konto ist Eigentümer des Törns (sieht alle, verwaltet) */
+  isOwner: boolean;
+  /** angemeldetes Konto ist selbst in der Crew */
+  isCrew: boolean;
+  invites: PendingInvite[];
+}
+
+export type InviteKind = 'boat_admin' | 'crew';
+
+export interface InvitePeek {
+  kind: InviteKind;
+  target: string | null;
+  inviter: string | null;
+  /** maskierte Adresse bei gebundenen Einladungen */
+  email: string | null;
+  expiresAt: number;
+  /** null: nicht angemeldet bzw. nicht an eine Adresse gebunden */
+  emailMatches: boolean | null;
+  isOwner: boolean;
+  alreadyMember: boolean;
+}
+
+export interface InviteAccepted {
+  kind: InviteKind;
+  /** Boot: Bootsseite; Crew: Törn nur, wenn er öffentlich ist */
+  path: string | null;
+  target: string | null;
+  already: boolean;
+}
+
+export interface InviteCreated {
+  invite: PendingInvite;
+  /** Einladungslink – nur bei Crew-Links ohne Adresse und nur in dieser Antwort */
+  link?: string;
+  devLink?: string;
+}
+
 export type ProfileInput = Pick<Profile, 'handle' | 'displayName' | 'bio' | 'visibility'> & { rotateKey?: boolean };
 
 export interface PageStats {
@@ -232,7 +308,7 @@ export const api = {
   myProfile: () => call<{ profile: Profile; exists: boolean }>('/api/me/profile'),
   saveProfile: (p: ProfileInput) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),
   profile: (handle: string, key?: string | null) =>
-    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[] }>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
+    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[] }>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
 
   myBoats: () => call<{ boats: Boat[] }>('/api/boats'),
   createBoat: (b: BoatInput) => call<{ boat: Boat }>('/api/boats', jsonInit('POST', b)),
@@ -240,6 +316,22 @@ export const api = {
   deleteBoat: (id: string) => call<void>(`/api/boats/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   boat: (id: string, key?: string | null) =>
     call<{ boat: Boat; stats: PageStats; voyages: ShareMeta[] }>(`/api/boats/${encodeURIComponent(id)}`, keyInit(key)),
+
+  boatAdmins: (id: string) => call<BoatAdmins>(`/api/boats/${encodeURIComponent(id)}/admins`),
+  inviteBoatAdmin: (id: string, email: string) => call<InviteCreated>(`/api/boats/${encodeURIComponent(id)}/invites`, jsonInit('POST', { email })),
+  /** userId 'me' = selbst verlassen */
+  removeBoatAdmin: (id: string, userId: string) =>
+    call<void>(`/api/boats/${encodeURIComponent(id)}/admins/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+  crew: (shareId: string, key?: string | null) => call<Crew>(`/api/shares/${encodeURIComponent(shareId)}/crew`, keyInit(key)),
+  /** email null = Einladungslink */
+  inviteCrew: (shareId: string, email: string | null) =>
+    call<InviteCreated>(`/api/shares/${encodeURIComponent(shareId)}/invites`, jsonInit('POST', email ? { email } : {})),
+  /** userId 'me' = sich selbst entfernen */
+  removeCrew: (shareId: string, userId: string) =>
+    call<void>(`/api/shares/${encodeURIComponent(shareId)}/crew/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+  revokeInvite: (id: string) => call<void>(`/api/invites/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  peekInvite: (token: string) => call<InvitePeek>('/api/invites/peek', jsonInit('POST', { token })),
+  acceptInvite: (token: string) => call<InviteAccepted>('/api/invites/accept', jsonInit('POST', { token })),
 
   discover: (limit: number) => call<DiscoverData>(`/api/discover?limit=${limit}`),
 

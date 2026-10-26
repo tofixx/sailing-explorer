@@ -1,5 +1,5 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { Boat, BoatInput, Linkable, Profile, ShareMeta, SupportStatus, User } from '../services/api';
+import type { Boat, BoatAdmins, BoatInput, Linkable, Profile, ShareMeta, SupportStatus, User } from '../services/api';
 import { WARN_MS, quotaText, type SupportTier } from '../domain/support';
 import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtMB, fmtNum, plural } from '../util/html';
@@ -26,6 +26,7 @@ export class SxAccountDialog extends LitElement {
     profileExists: { type: Boolean },
     boats: { attribute: false },
     shares: { attribute: false },
+    admins: { attribute: false },
     supportTiers: { attribute: false },
     checkoutBusy: { type: Boolean },
     supportStatus: { attribute: false },
@@ -48,6 +49,8 @@ export class SxAccountDialog extends LitElement {
   declare profileExists: boolean;
   declare boats: Boat[];
   declare shares: ShareMeta[];
+  /** Admins des aufgeklappten Boots (data null = lädt) */
+  declare admins: { boatId: string; data: BoatAdmins | null } | null;
   /** Stufen des Unterstützen-Sliders; null = Unterstützen nicht eingerichtet */
   declare supportTiers: SupportTier[] | null;
   /** Checkout wird angelegt */
@@ -62,7 +65,7 @@ export class SxAccountDialog extends LitElement {
   declare editing: string | null;
   /** Boot im Formular: ID, "new" oder null */
   declare editBoat: string | null;
-  /** aufgeklappter Bereich „Sichtbarkeit & Link“: Freigabe-ID oder "boat:<id>" */
+  /** aufgeklappter Bereich „Sichtbarkeit & Link“: Freigabe-ID, "boat:<id>" oder Admins "admins:<id>" */
   declare expanded: string | null;
   /** „Link erneuern“ wartet auf Bestätigung: "share:<id>", "boat:<id>" oder "profile" */
   declare rotate: string | null;
@@ -82,6 +85,7 @@ export class SxAccountDialog extends LitElement {
     this.profileExists = false;
     this.boats = [];
     this.shares = [];
+    this.admins = null;
     this.supportTiers = null;
     this.checkoutBusy = false;
     this.supportStatus = null;
@@ -571,6 +575,72 @@ export class SxAccountDialog extends LitElement {
     </form>`;
   }
 
+  private openAdmins(b: Boat) {
+    this.expanded = `admins:${b.id}`;
+    this.confirm = null;
+    emit(this, 'sx-boat-admins', b.id);
+  }
+
+  private inviteAdmin(e: Event, boatId: string) {
+    e.preventDefault();
+    const input = (e.target as HTMLFormElement).querySelector('input') as HTMLInputElement;
+    emit(this, 'sx-boat-admin-invite', { boatId, email: input.value.trim() });
+    input.value = '';
+  }
+
+  /** Admins eines Boots (Konzept 10.7): Eigner lädt ein, entfernt und zieht zurück; Admins können das Boot verlassen. */
+  private adminsPanel(b: Boat) {
+    const d = this.admins?.boatId === b.id ? this.admins.data : null;
+    if (!d) return html`<div class="panel"><p class="hint">Lade Admins …</p></div>`;
+    const owner = d.role === 'owner';
+    return html`<div class="panel" id="admins-${b.id}">
+      <p class="hint">${owner
+        ? 'Admins bearbeiten die Bootsseite und ordnen ihre Törns dem Boot zu. Löschen und weitere Admins einladen kannst nur du.'
+        : 'Du verwaltest dieses Boot als Admin. Löschen und Admins einladen kann nur der Eigner.'}</p>
+      ${d.admins.length
+        ? html`<ul>
+            ${d.admins.map(
+              (a) => html`<li>
+                <div class="meta">
+                  <div class="title">${a.displayName || a.email || 'Admin ohne Profil'}${a.isSelf ? ' (du)' : ''}</div>
+                  ${a.email && a.displayName ? html`<div class="sub">${a.email}</div>` : ''}
+                </div>
+                ${owner
+                  ? this.confirm === `admin:${a.id}`
+                    ? html`<button class="btn small danger" @click=${() => emit(this, 'sx-boat-admin-remove', { boatId: b.id, userId: a.id })}>${icon('trash')} Entfernen</button>
+                        <button class="btn small" @click=${() => (this.confirm = null)}>Abbrechen</button>`
+                    : html`<button class="btn ghost small icon danger" title="Entfernen" aria-label="Admin entfernen: ${a.displayName || a.email}" ?disabled=${this.busy} @click=${() => (this.confirm = `admin:${a.id}`)}>${icon('x')}</button>`
+                  : ''}
+              </li>`,
+            )}
+          </ul>`
+        : html`<p class="hint">Noch keine Admins.</p>`}
+      ${owner && d.invites.length
+        ? html`<div class="label">Offene Einladungen</div>
+            <ul>
+              ${d.invites.map(
+                (i) => html`<li>
+                  <div class="meta"><div class="title">${i.email}</div><div class="sub">gültig bis ${fmtDate(i.expiresAt)}</div></div>
+                  <button class="btn small ghost" ?disabled=${this.busy} aria-label="Einladung zurückziehen: ${i.email}" @click=${() => emit(this, 'sx-invite-revoke', { id: i.id, scope: 'boat', boatId: b.id })}>Zurückziehen</button>
+                </li>`,
+              )}
+            </ul>`
+        : ''}
+      ${owner
+        ? html`<form class="inline" @submit=${(e: Event) => this.inviteAdmin(e, b.id)}>
+            <input type="email" required maxlength="254" placeholder="admin@example.org" aria-label="E-Mail-Adresse des neuen Admins" />
+            <button class="btn small primary" type="submit" ?disabled=${this.busy}>${icon('mail')} Einladen</button>
+          </form>`
+        : this.confirm === `leave:${b.id}`
+          ? html`<div class="confirm" role="alert">
+              <span>„${b.name}“ verlassen? Du kannst das Boot danach nicht mehr bearbeiten.</span>
+              <button class="btn small danger" @click=${() => emit(this, 'sx-boat-leave', b.id)}>${icon('logout')} Ja, verlassen</button>
+              <button class="btn small" @click=${() => (this.confirm = null)}>Abbrechen</button>
+            </div>`
+          : html`<div><button class="btn small ghost danger" ?disabled=${this.busy} @click=${() => (this.confirm = `leave:${b.id}`)}>${icon('logout')} Boot verlassen</button></div>`}
+    </div>`;
+  }
+
   private boatsTab() {
     if (this.editBoat) return this.boatForm(this.boats.find((b) => b.id === this.editBoat) ?? null);
     return html`
@@ -589,6 +659,9 @@ export class SxAccountDialog extends LitElement {
                 ${this.confirm === b.id
                   ? html`<button class="btn small danger" @click=${() => emit(this, 'sx-boat-delete', b.id)}>${icon('trash')} Boot löschen</button>
                       <button class="btn small" @click=${() => (this.confirm = null)}>Abbrechen</button>`
+                  : this.expanded === `admins:${b.id}`
+                  ? html`<button class="btn ghost small icon" title="Admins schließen" aria-label="Admins schließen: ${b.name}" aria-expanded="true" @click=${() => (this.expanded = null)}>${icon('x')}</button>
+                      ${this.adminsPanel(b)}`
                   : this.expanded === `boat:${b.id}`
                   ? html`<button class="btn ghost small icon" title="Link schließen" aria-label="Link schließen: ${b.name}" aria-expanded="true" @click=${() => (this.expanded = null)}>${icon('x')}</button>
                       <div class="panel">
@@ -610,6 +683,7 @@ export class SxAccountDialog extends LitElement {
                             this.rotate = null;
                           }}>${icon('link')}</button>`
                         : ''}
+                      <button class="btn ghost small icon" title="Admins" aria-label="Admins: ${b.name}" aria-expanded="false" @click=${() => this.openAdmins(b)}>${icon('user')}</button>
                       <button class="btn ghost small icon" title="Bearbeiten" aria-label="Bearbeiten: ${b.name}" @click=${() => this.openBoatForm(b.id)}>${icon('pencil')}</button>
                       ${b.role === 'owner'
                         ? html`<button class="btn ghost small icon danger" title="Löschen" aria-label="Löschen: ${b.name}" @click=${() => (this.confirm = b.id)}>${icon('trash')}</button>`

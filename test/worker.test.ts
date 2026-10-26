@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { randomId, randomToken, sha256Hex } from '../worker/crypto';
 import { CONTENT_SECURITY_POLICY, PAGE_HEADERS } from '../worker/security';
-import { SHARE_ID_RE, TOKEN_RE, cleanText, cleanView, isGzip, isSameOrigin, normalizeEmail, normalizeHandle, parseVisibility } from '../worker/validate';
+import { SHARE_ID_RE, TOKEN_RE, cleanText, cleanView, isGzip, isSameOrigin, maskEmail, normalizeEmail, normalizeHandle, parseInviteKind, parseVisibility } from '../worker/validate';
 
 describe('Validierung', () => {
   it('cleanText entfernt Steuer- und Bidi-Zeichen und kürzt', () => {
@@ -84,5 +84,19 @@ describe('Profile & Boote – Validierung', () => {
   it('[F-80] Sichtbarkeit von Profil/Boot: dieselben drei Stufen wie Törns', () => {
     for (const v of ['public', 'unlisted', 'private']) expect(parseVisibility(v)).toBe(v);
     expect(parseVisibility('listed')).toBeNull();
+  });
+});
+
+describe('Einladungen: reine Hilfen', () => {
+  it('[F-131] maskEmail zeigt nur ersten Buchstaben und Domain', () => {
+    expect(maskEmail('anna@example.org')).toBe('a…@example.org');
+    expect(maskEmail('x@y.de')).toBe('x…@y.de');
+    expect(maskEmail('kaputt')).toBe('…');
+  });
+
+  it('[F-130] parseInviteKind kennt nur boat_admin und crew', () => {
+    expect(parseInviteKind('boat_admin')).toBe('boat_admin');
+    expect(parseInviteKind('crew')).toBe('crew');
+    for (const v of ['owner', '', null, 1, 'CREW']) expect(parseInviteKind(v)).toBeNull();
   });
 });

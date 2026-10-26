@@ -12,6 +12,7 @@ export type Route =
   | { kind: 'boat'; id: string; key?: string }
   | { kind: 'discover' }
   | { kind: 'login'; token: string | null }
+  | { kind: 'invite'; token: string | null }
   | { kind: 'files'; names: string[] }
   | { kind: 'inline'; data: string };
 
@@ -44,6 +45,11 @@ export function parseRoute(loc: Pick<Location, 'pathname' | 'search' | 'hash'>):
   if (loc.pathname === '/login') {
     const token = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(loc.hash)?.[1] ?? null;
     return { kind: 'login', token };
+  }
+  // Einladung (Konzept 10.2): Token im Fragment, eingelöst wird erst nach ausdrücklicher Bestätigung.
+  if (/^\/einladung\/?$/.test(loc.pathname)) {
+    const token = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(loc.hash)?.[1] ?? null;
+    return { kind: 'invite', token };
   }
   // ?track=Datei.gpx (mehrfach oder kommagetrennt) – Beispiel-Tracks aus /tracks/
   const params = new URLSearchParams(loc.search);

@@ -14,7 +14,7 @@ const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
 };
 
 export type PageData =
-  | { kind: 'profile'; profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[] }
+  | { kind: 'profile'; profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[] }
   | { kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[] };
 
 /** Öffentliche Profil- bzw. Bootsseite mit Kennzahlen und gelisteten Törns. */
@@ -278,6 +278,7 @@ export class SxProfilePage extends LitElement {
           </section>`
         : ''}
       <section><h2 class="eyebrow">Törns</h2>${this.voyages(d.voyages)}</section>
+      ${d.crewVoyages?.length ? html`<section><h2 class="eyebrow">Mitgesegelt</h2>${this.voyages(d.crewVoyages)}</section>` : ''}
     `;
   }
 

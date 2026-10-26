@@ -89,7 +89,7 @@ export const canViewShare = (row: ShareRow, manager: boolean, key: string | null
  * Schlüssel (X-Share-Key, bei Bildern ?k=), privat nur für den Besitzer. Alles andere ist dieselbe 404 wie eine
  * unbekannte ID – mit denselben Abfragen.
  */
-async function visibleShare(request: Request, env: Env, id: string, allowQueryKey = false) {
+export async function visibleShare(request: Request, env: Env, id: string, allowQueryKey = false) {
   const row = await getShareRow(env, id);
   const user = await currentUser(request, env);
   const k = requestKey(request, allowQueryKey);
@@ -98,10 +98,10 @@ async function visibleShare(request: Request, env: Env, id: string, allowQueryKe
     await countKeyFailure(env, request, k);
     throw NOT_FOUND();
   }
-  return { row, isOwner };
+  return { row, isOwner, user };
 }
 
-async function ownedShare(request: Request, env: Env, id: string) {
+export async function ownedShare(request: Request, env: Env, id: string) {
   const user = await requireUser(request, env);
   const row = await getShareRow(env, id);
   // Fremde Freigaben verhalten sich wie nicht existent (kein Hinweis auf Existenz).
@@ -293,6 +293,17 @@ export async function publicShares(env: Env, where: 'user' | 'boat', id: string)
     `${SHARE_SELECT} WHERE ${col} = ? AND s.visibility = 'public' ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
   )
     .bind(id)
+    .all<ShareRow>();
+  return results.map((r) => shareShape(r, false));
+}
+
+/** Öffentliche Törns, auf denen das Konto als Crew eingetragen ist (Profil „Mitgesegelt“, Konzept 10.6). */
+export async function crewShares(env: Env, userId: string): Promise<ReturnType<typeof shareShape>[]> {
+  const { results } = await env.DB.prepare(
+    `${SHARE_SELECT} JOIN share_crew c ON c.share_id = s.id
+     WHERE c.user_id = ? AND s.visibility = 'public' ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
+  )
+    .bind(userId)
     .all<ShareRow>();
   return results.map((r) => shareShape(r, false));
 }

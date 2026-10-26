@@ -91,3 +91,11 @@ describe('Ansichtszustand', () => {
     expect(serializeView(initialState.metric, initialState.layers)).toBe('m=speed&l=s,w,v');
   });
 });
+
+describe('Einladungen', () => {
+  it('[F-138] /einladung#token=… ist die Einladungs-Route; ohne Token bleibt token null', () => {
+    expect(parseRoute(loc('/einladung', '', '#token=abc_-123'))).toEqual({ kind: 'invite', token: 'abc_-123' });
+    expect(parseRoute(loc('/einladung/'))).toEqual({ kind: 'invite', token: null });
+    expect(parseRoute(loc('/einladung/xyz'))).toEqual({ kind: 'home' });
+  });
+});

@@ -42,6 +42,38 @@ export function expiryWarningMail(env: Env, to: string, origin: string, shares: 
   return { to, subject, text, html };
 }
 
+export interface InviteMailInput {
+  kind: 'boat_admin' | 'crew';
+  /** Anzeigename aus dem Profil des Einladenden; null = ohne Profil */
+  inviter: string | null;
+  /** Boots- bzw. Törnname (Nutzertext) */
+  target: string;
+  link: string;
+  days: number;
+}
+
+/** Einladung als Boots-Admin bzw. in die Crew eines Törns (Konzept 10.4). Namen sind Nutzertext → gekürzt und escaped. */
+export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
+  const app = env.APP_NAME;
+  const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+  const who = short(m.inviter?.trim() || 'Ein Segler oder eine Seglerin', 60);
+  const target = short(m.target.trim() || (m.kind === 'crew' ? 'Törn' : 'Boot'), 80);
+  const what = m.kind === 'boat_admin' ? `das Boot „${target}“ bei ${app} mitzuverwalten` : `in die Crew des Törns „${target}“ bei ${app}`;
+  const whatHtml = m.kind === 'boat_admin' ? `das Boot <b>„${escapeHtml(target)}“</b> bei <b>${app}</b> mitzuverwalten` : `in die Crew des Törns <b>„${escapeHtml(target)}“</b> bei <b>${app}</b>`;
+  const verb = m.kind === 'boat_admin' ? 'lädt dich ein,' : 'lädt dich ein';
+  const after = m.kind === 'boat_admin' ? 'Als Admin kannst du die Bootsseite bearbeiten und deine Törns dem Boot zuordnen.' : 'Mit deinem Profil erscheinst du dann auf dem Törn, sobald er öffentlich ist.';
+  const foot = `Die Einladung ist ${m.days} Tage gültig. Zum Annehmen meldest du dich mit dieser E-Mail-Adresse an. Wenn du niemanden kennst, ignoriere diese Mail einfach.`;
+  const text = `Hallo,\n\n${who} ${verb} ${what}.\n${after}\n\nEinladung ansehen:\n${m.link}\n\n${foot}\n`;
+  // Link stammt aus unserer eigenen Origin + base64url-Token, enthält also keine HTML-Sonderzeichen.
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
+<p>Hallo,</p><p><b>${escapeHtml(who)}</b> ${verb} ${whatHtml}.<br>${after}</p>
+<p><a href="${m.link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Einladung ansehen</a></p>
+<p style="color:#5b6b7b;font-size:13px">${foot}</p>
+</body></html>`;
+  const subject = m.kind === 'boat_admin' ? `${app}: Einladung als Admin für „${target}“` : `${app}: Einladung in die Crew von „${target}“`;
+  return { to, subject, text, html };
+}
+
 export async function sendMail(env: Env, mail: Mail): Promise<void> {
   switch (env.MAIL_PROVIDER) {
     case 'resend': {

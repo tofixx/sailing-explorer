@@ -28,7 +28,7 @@ interface BoatRow {
   owner_public?: number | null;
 }
 
-type Role = 'owner' | 'admin' | null;
+export type Role = 'owner' | 'admin' | null;
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Dieses Boot gibt es nicht (mehr).');
 
@@ -37,7 +37,8 @@ export async function canManageBoat(env: Env, userId: string, boatId: string): P
   return (await roleFor(env, userId, boatId)) !== null;
 }
 
-async function roleFor(env: Env, userId: string, boatId: string): Promise<Role> {
+/** Rolle des Kontos am Boot: Eigner, Admin oder keine (auch bei unbekanntem Boot). */
+export async function roleFor(env: Env, userId: string, boatId: string): Promise<Role> {
   const row = await env.DB.prepare(
     `SELECT CASE WHEN b.owner_id = ?1 THEN 'owner' WHEN a.user_id IS NOT NULL THEN 'admin' END AS role
      FROM boats b LEFT JOIN boat_admins a ON a.boat_id = b.id AND a.user_id = ?1 WHERE b.id = ?2`,
@@ -200,6 +201,7 @@ export async function deleteBoat(request: Request, env: Env, id: string): Promis
   await env.DB.batch([
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM boat_admins WHERE boat_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM invites WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM boats WHERE id = ?').bind(id),
   ]);
   return new Response(null, { status: 204 });

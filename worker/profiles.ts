@@ -3,7 +3,7 @@ import { currentUser, requireUser } from './auth';
 import { boatShape } from './boats';
 import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
-import { publicShares } from './shares';
+import { crewShares, publicShares } from './shares';
 import { checkVisibilityChoice } from './supporter';
 import { LIMITS, cleanText, normalizeHandle, parseVisibility } from './validate';
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
@@ -125,5 +125,7 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
     boats: boats.map((b: any) => boatShape(b, isSelf ? 'owner' : null)),
     stats: { voyages: voyages.length, distNm },
     voyages,
+    // öffentliche Törns anderer, auf denen die Person Crew ist – zählen nicht in die Kennzahlen
+    crewVoyages: await crewShares(env, p.user_id),
   });
 }

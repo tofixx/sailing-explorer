@@ -11,6 +11,8 @@ import './components/sx-toast';
 import './components/sx-login-dialog';
 import './components/sx-share-dialog';
 import './components/sx-account-dialog';
+import './components/sx-invite-dialog';
+import './components/sx-crew';
 import './components/sx-profile-page';
 import './components/sx-discover';
 import { App } from './app';
