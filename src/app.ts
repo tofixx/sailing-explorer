@@ -287,6 +287,7 @@ export class App {
     on<string>('sx-share-open', (id) => location.assign(`/s/${id}`));
     on<string>('sx-share-copy', (id) => s.copyShare(id));
     on<string>('sx-link-copy', (path) => s.copyPath(path));
+    on<{ path: string; title: string }>('sx-page-share', (d) => s.sharePage(d.path, d.title));
     on<{ id: string; patch: Parameters<SessionController['updateShare']>[1] }>('sx-share-update', (d) => s.updateShare(d.id, d.patch));
     on<string>('sx-share-delete', (id) => s.deleteShare(id));
     on<Parameters<SessionController['saveProfile']>[0]>('sx-profile-save', (p) => s.saveProfile(p));

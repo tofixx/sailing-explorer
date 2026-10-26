@@ -319,19 +319,27 @@ describe('sx-account-dialog: Sichtbarkeit und Links', () => {
 // ---------------------------------------------------------------- Seiten
 
 describe('sx-profile-page: Stufe für Eigentümer', () => {
-  it('eigene „Nur mit Link“-Bootsseite zeigt die Stufe und kopiert den Schlüssel-Link', async () => {
-    const copies = listen('sx-link-copy');
+  it('eigene „Nur mit Link“-Bootsseite zeigt die Stufe und teilt den Schlüssel-Link', async () => {
+    const shares = listen('sx-page-share');
     const b = { id: 'BoatId1234567890', name: 'Möwe', boatType: '', lengthM: null, sailNumber: '', homePort: '', description: '', visibility: 'unlisted', shareKey: KEY, link: `/b/BoatId1234567890/${KEY}`, owner: null, role: 'owner' };
     const el = await mount('sx-profile-page', { data: { kind: 'boat', boat: b, stats: { voyages: 0, distNm: 0 }, voyages: [] } });
     expect(deepText(el.shadowRoot)).toContain('Nur mit Link – nur wer den Link hat');
-    button(el.shadowRoot, /Link kopieren/)!.click();
-    expect(copies).toEqual([`/b/BoatId1234567890/${KEY}`]);
+    button(el.shadowRoot, /Boot teilen/)!.click();
+    expect(shares).toEqual([{ path: `/b/BoatId1234567890/${KEY}`, title: 'Möwe' }]);
   });
 
-  it('fremde Seiten zeigen keine Stufe und keinen Kopieren-Knopf', async () => {
+  it('fremde Seiten zeigen keine Stufe, teilen aber die aufgerufene Adresse', async () => {
     const p = { handle: 'anna', displayName: 'Anna', bio: '', visibility: 'unlisted', shareKey: null, link: null, isSelf: false };
     const el = await mount('sx-profile-page', { data: { kind: 'profile', profile: p, boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [] } });
     expect(deepText(el.shadowRoot)).not.toContain('Nur mit Link');
     expect(button(el.shadowRoot, /Link kopieren/)).toBeUndefined();
+    expect(button(el.shadowRoot, /Profil teilen/)).toBeDefined();
+    expect(deepText(el.shadowRoot)).not.toContain('/u/anna');
+  });
+
+  it('eigene private Seite hat keinen Teilen-Knopf', async () => {
+    const p = { handle: 'anna', displayName: 'Anna', bio: '', visibility: 'private', shareKey: null, link: null, isSelf: true };
+    const el = await mount('sx-profile-page', { data: { kind: 'profile', profile: p, boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [] } });
+    expect(button(el.shadowRoot, /teilen/)).toBeUndefined();
   });
 });

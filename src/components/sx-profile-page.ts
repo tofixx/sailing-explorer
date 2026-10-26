@@ -120,7 +120,10 @@ export class SxProfilePage extends LitElement {
         width: 14px;
         height: 14px;
       }
-      .edit {
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--s-2);
         margin-left: auto;
         align-self: flex-start;
       }
@@ -196,7 +199,7 @@ export class SxProfilePage extends LitElement {
         .hero {
           flex-wrap: wrap;
         }
-        .edit {
+        .actions {
           margin-left: 0;
         }
       }
@@ -220,12 +223,20 @@ export class SxProfilePage extends LitElement {
    * Eigentümer (bzw. Boots-Admins): Stufe der Seite; bei „Nur mit Link“ den Link kopieren.
    * Ändern und Erneuern geht über „Bearbeiten“ (Konto).
    */
-  private ownerFacts(kind: 'b' | 'u', id: string, o: Linkable) {
+  private ownerFacts(o: Linkable) {
     const v = o.visibility;
     return html`<span class="vis">${icon(VISIBILITY_ICON[v] ?? 'lock')} ${VISIBILITY_LABEL[v] ?? v} – ${PAGE_VISIBILITY[v] ?? ''}</span>
-      ${v === 'unlisted'
-        ? html`<button class="btn small" @click=${() => emit(this, 'sx-link-copy', o.link || sharePath(kind, id, v, o.shareKey ?? null))}>${icon('copy')} Link kopieren</button>`
-        : ''}`;
+`;
+  }
+
+  /**
+   * „Profil/Boot teilen“: Eigentümer teilen ihren Link (bei „Nur mit Link“ mit Schlüssel), Besucher die Adresse,
+   * über die sie gekommen sind. Private Seiten sieht nur der Eigentümer – dort gibt es nichts zu teilen.
+   */
+  private shareButton(kind: 'b' | 'u', id: string, title: string, label: string, o: Partial<Linkable> & { visibility?: Linkable['visibility'] }, owner: boolean) {
+    if (owner && o.visibility === 'private') return '';
+    const path = owner && o.visibility ? o.link || sharePath(kind, id, o.visibility, o.shareKey ?? null) : location.pathname;
+    return html`<button class="btn primary" @click=${() => emit(this, 'sx-page-share', { path, title })}>${icon('share')} ${label}</button>`;
   }
 
   private stats(s: PageStats) {
@@ -245,9 +256,12 @@ export class SxProfilePage extends LitElement {
         <div>
           <h1>${p.displayName}</h1>
           ${p.bio ? html`<div class="lead">${p.bio}</div>` : ''}
-          <div class="facts"><span>/u/${p.handle}</span>${p.isSelf ? this.ownerFacts('u', p.handle, p) : ''}</div>
+          ${p.isSelf ? html`<div class="facts">${this.ownerFacts(p)}</div>` : ''}
         </div>
-        ${p.isSelf ? html`<button class="btn edit" @click=${() => emit(this, 'sx-account', 'profile')}>${icon('pencil')} Bearbeiten</button>` : ''}
+        <div class="actions">
+          ${this.shareButton('u', p.handle, p.displayName, 'Profil teilen', p, !!p.isSelf)}
+          ${p.isSelf ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'profile')}>${icon('pencil')} Bearbeiten</button>` : ''}
+        </div>
       </header>
       ${this.stats(d.stats)}
       ${d.boats.length
@@ -279,10 +293,13 @@ export class SxProfilePage extends LitElement {
           <div class="facts">
             ${facts.map((f) => html`<span>${f}</span>`)}
             ${b.owner ? html`<span>Eigner: <a href="/u/${b.owner.handle}">${b.owner.displayName}</a></span>` : ''}
-            ${b.role ? this.ownerFacts('b', b.id, b) : ''}
+            ${b.role ? this.ownerFacts(b) : ''}
           </div>
         </div>
-        ${b.role ? html`<button class="btn edit" @click=${() => emit(this, 'sx-account', 'boats')}>${icon('pencil')} Bearbeiten</button>` : ''}
+        <div class="actions">
+          ${this.shareButton('b', b.id, b.name, 'Boot teilen', b, !!b.role)}
+          ${b.role ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'boats')}>${icon('pencil')} Bearbeiten</button>` : ''}
+        </div>
       </header>
       ${this.stats(d.stats)}
       <section><h2 class="eyebrow">Törns</h2>${this.voyages(d.voyages)}</section>

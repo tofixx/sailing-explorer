@@ -473,6 +473,21 @@ export class SessionController {
     return this.copy(location.origin + path);
   }
 
+/** Profil-/Bootsseite teilen: Teilen-Menü des Geräts, sonst Link kopieren. */
+  async sharePage(path: string, title: string): Promise<void> {
+    if (!/^\/[sbu]\/[A-Za-z0-9/-]+$/.test(path)) return;
+    const url = location.origin + path;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `${title} · Sail Explorer`, url });
+        return;
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') return; // abgebrochen – nichts tun
+      }
+    }
+    await this.copy(url);
+  }
+
   async copy(text: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
