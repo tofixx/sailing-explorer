@@ -1,0 +1,119 @@
+// Prüfung einer Aktivität beim Lesen (Konzept 11.3, F-160) – rein, ohne Worker-APIs, damit unit-testbar.
+import { canManageGroup, isActivityKind, type GroupKind, type GroupRole, type StreamItem } from '../src/domain/groups';
+
+/** Eine Aktivität samt allem, was die Prüfung braucht (ein Batch, LEFT JOINs). */
+export interface ActivityRow {
+  id: string;
+  kind: string;
+  actor_id: string | null;
+  subject_kind: string;
+  subject_id: string;
+  group_id: string | null;
+  data: string;
+  created_at: number;
+  actor_handle: string | null;
+  actor_name: string | null;
+  actor_public: number | null;
+  actor_suspended: number | null;
+  actor_exists: number | null;
+  s_id: string | null;
+  s_title: string | null;
+  s_dist: number | null;
+  s_started: number | null;
+  s_image: number | null;
+  s_vis: string | null;
+  s_hidden: number | null;
+  b_id: string | null;
+  b_name: string | null;
+  b_vis: string | null;
+  b_hidden: number | null;
+  g_id: string | null;
+  g_slug: string | null;
+  g_name: string | null;
+  g_kind: string | null;
+  g_vis: string | null;
+  g_hidden: number | null;
+  g_role: string | null;
+  p_id: string | null;
+  p_body: string | null;
+  p_link: string | null;
+  p_hidden: number | null;
+  p_author: string | null;
+}
+
+export interface Viewer {
+  id: string | null;
+}
+
+const publicBoat = (r: ActivityRow) => (r.b_id && r.b_vis === 'public' && !r.b_hidden ? { id: r.b_id, name: r.b_name ?? '' } : null);
+
+/** Gruppe für den Betrachter sichtbar? Öffentlich oder Mitglied; ausgeblendet nur für Eigner/Admins. */
+function groupVisible(r: ActivityRow): boolean {
+  if (!r.g_id) return false;
+  const role = (r.g_role as GroupRole | null) ?? null;
+  if (r.g_hidden && !canManageGroup(role)) return false;
+  return r.g_vis === 'public' || role !== null;
+}
+
+/**
+ * Prüft eine Aktivität gegen den aktuellen Stand und formt den Eintrag – oder null (Konzept 11.3, Tabelle „Erscheint nur,
+ * wenn …“). Rein, damit unit-testbar. `thumbs`: öffentliche Fotos des Törns (für `photos`).
+ */
+export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = []): StreamItem | null {
+  if (!isActivityKind(r.kind)) return null;
+  // Inhalte gesperrter oder gelöschter Konten verschwinden (Konzept 4.4).
+  if (r.actor_id && (!r.actor_exists || r.actor_suspended)) return null;
+  const actor = r.actor_id && r.actor_public && r.actor_handle ? { handle: r.actor_handle, displayName: r.actor_name ?? '' } : null;
+  const group = r.g_id && groupVisible(r) ? { slug: r.g_slug ?? '', name: r.g_name ?? '', kind: (r.g_kind as GroupKind) ?? 'club' } : null;
+  const base = { id: r.id, kind: r.kind, createdAt: r.created_at, actor, group: null as StreamItem['group'] };
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(r.data) as Record<string, unknown>;
+  } catch {
+    data = {};
+  }
+
+  switch (r.kind) {
+    case 'voyage':
+    case 'photos': {
+      // Nur jetzt öffentliche, nicht ausgeblendete Törns – privat geschaltet, ausgeblendet oder gelöscht: weg.
+      if (!r.s_id || r.s_vis !== 'public' || r.s_hidden) return null;
+      if (r.kind === 'photos' && !thumbs.length) return null;
+      const voyage = { id: r.s_id, title: r.s_title ?? '', distNm: r.s_dist ?? 0, startedAt: r.s_started, hasImage: !!r.s_image, boat: publicBoat(r) };
+      if (r.kind === 'voyage') return { ...base, voyage };
+      const count = Math.max(1, Math.floor(Number(data.count) || 1));
+      return { ...base, voyage, photos: { count, thumbs: thumbs.slice(0, 4) } };
+    }
+    case 'member':
+      if (!group) return null;
+      return { ...base, group };
+    case 'boat': {
+      const boat = publicBoat(r);
+      if (!group || !boat) return null;
+      return { ...base, group, boat };
+    }
+    case 'post': {
+      if (!group || !r.p_id || r.p_hidden) return null;
+      const role = (r.g_role as GroupRole | null) ?? null;
+      const canDelete = !!viewer.id && (viewer.id === r.p_author || canManageGroup(role));
+      return { ...base, group, post: { id: r.p_id, body: r.p_body ?? '', link: r.p_link, canDelete } };
+    }
+    case 'milestone': {
+      const nm = Number(data.nm) || 0;
+      const year = Number(data.year) || 0;
+      if (r.subject_kind === 'user') {
+        if (!actor) return null; // nur mit öffentlichem Profil
+        return { ...base, milestone: { nm, year, subject: 'user', name: actor.displayName, path: `/u/${actor.handle}` } };
+      }
+      if (r.subject_kind === 'boat') {
+        const boat = publicBoat(r);
+        if (!boat) return null;
+        return { ...base, actor: null, boat, milestone: { nm, year, subject: 'boat', name: boat.name, path: `/b/${boat.id}` } };
+      }
+      if (!group) return null;
+      return { ...base, actor: null, group, milestone: { nm, year, subject: 'group', name: group.name, path: `/g/${group.slug}` } };
+    }
+  }
+  return null;
+}
+

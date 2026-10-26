@@ -142,3 +142,40 @@ export function boatLimitMessage(v: Exclude<QuotaVerdict, 'ok'>, supportOffered:
   if (v === 'quota') return `Maximal ${max} Boote pro Konto – lösche ein Boot, um ein neues anzulegen.`;
   return `Kostenlos kannst du ${free} Boote anlegen.` + (supportOffered ? ` Als Unterstützer sind es bis zu ${max}.` : ' Lösche ein Boot, um ein neues anzulegen.');
 }
+
+// ---------------------------------------------------------------- Vereine, Teams, Folgen (Konzept 11.8)
+
+/** Grenzen für Gruppen, Beiträge und Folgen – Beitreten ist unbegrenzt. */
+export const GROUP_LIMITS = {
+  /** Gruppen als Eigner (Vereine und Teams zusammen): kostenlos 1 (nur öffentlich), Unterstützer 10 */
+  owned: { free: 1, supporter: 10 },
+  /** Mitglieder je Gruppe */
+  members: 500,
+  /** Boote je Gruppe */
+  boats: 200,
+  /** Beiträge je Gruppe und Tag (zählt auch gelöschte) */
+  postsPerDay: 5,
+  /** Folgen je Konto */
+  follows: 1000,
+  /** Beitrittsanfragen je Konto und Tag bzw. offen je Gruppe */
+  requestsPerDay: 20,
+  openRequests: 100,
+  /** Einladungslink: so oft nutzbar, so viele Tage gültig */
+  linkUses: 100,
+  inviteDays: 14,
+  /** Wöchentliche Sammelmails pro Cron-Lauf (Resend Free: 100/Tag für alles) */
+  digestsPerRun: 20,
+} as const;
+
+/** Darf das Konto noch eine Gruppe anlegen? Kostenlos 1, Unterstützer 10 (402 bzw. 409 wie bei Booten). */
+export function groupVerdict(supporter: boolean, owned: number): QuotaVerdict {
+  if (owned + 1 <= GROUP_LIMITS.owned[supporter ? 'supporter' : 'free']) return 'ok';
+  if (!supporter && owned + 1 <= GROUP_LIMITS.owned.supporter) return 'supporter_required';
+  return 'quota';
+}
+
+export function groupLimitMessage(v: Exclude<QuotaVerdict, 'ok'>, supportOffered: boolean): string {
+  const { free, supporter } = GROUP_LIMITS.owned;
+  if (v === 'quota') return `Du kannst höchstens ${supporter} Vereine und Teams anlegen – lösche eine Gruppe, um eine neue zu gründen.`;
+  return `Kostenlos kannst du ${free === 1 ? 'eine Gruppe' : `${free} Gruppen`} anlegen.` + (supportOffered ? ` Als Unterstützer sind es bis zu ${supporter}, auch geschlossene.` : '');
+}

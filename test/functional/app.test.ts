@@ -82,6 +82,8 @@ interface Server {
   invite?: { peek: Record<string, unknown>; accept: Record<string, unknown> };
   /** Antwort von /api/shares/:id/crew (fehlt = 404) */
   crew?: Record<string, unknown>;
+  /** Vereine, Teams, Neuigkeiten (Konzept 11): Gruppenseite, Gruppen-Stream, eigene Gruppen, persönlicher Stream, Vorschläge */
+  groups?: { page?: Record<string, unknown>; stream?: unknown; mine?: unknown; myStream?: unknown; suggestions?: unknown };
 }
 
 let server: Server;
@@ -122,6 +124,18 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
   if (url.startsWith('/api/') && server.backend === 'html') return new Response('<!doctype html><html></html>', { headers: { 'Content-Type': 'text/html' } });
   if (url.startsWith('/api/discover')) return server.discover ? json(server.discover) : json({ error: 'internal', message: 'Interner Fehler' }, 500);
   if (url === '/api/config') return json({ turnstileSiteKey: '', sharing: true, support: server.support ? { tiers: SUPPORT_TIERS } : null, freeShares: 3 });
+  // ---- Vereine, Teams, Neuigkeiten (Konzept 11)
+  const gr = server.groups;
+  if (gr) {
+    if (url.startsWith('/api/groups/slug/')) return gr.page ? json(gr.page) : json({ error: 'not_found', message: 'Diese Gruppe gibt es nicht oder sie ist geschlossen.' }, 404);
+    if (/^\/api\/groups\/[A-Za-z0-9]+\/stream/.test(url)) return json(gr.stream ?? { items: [], cursor: null });
+    if (/^\/api\/groups\/[A-Za-z0-9]+\/posts$/.test(url) && method === 'POST') return json({ post: { id: 'P1' } }, 201);
+    if (url === '/api/groups' && method === 'GET') return server.user ? json(gr.mine ?? { groups: [], requests: [] }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
+    if (url.startsWith('/api/stream')) return server.user ? json(gr.myStream ?? { items: [], cursor: null, hasGroups: false }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
+    if (url === '/api/me/suggestions') return json(gr.suggestions ?? { people: [] });
+    if (url.startsWith('/api/follows/')) return json({ followers: 1, following: 0, isFollowing: method === 'PUT' });
+    if (url === '/api/boats' && method === 'GET') return json({ boats: [] });
+  }
   if (url === '/api/me/support') return server.user && server.support ? json(server.support) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
   if (url === '/api/support/checkout' && method === 'POST') {
     return server.checkout === 'ok'
@@ -1143,5 +1157,81 @@ describe('F-139 Crew in der Törn-Ansicht', () => {
     await vi.waitFor(() => expect(panel().hidden).toBe(false));
     await load(file('eigen.gpx', leg('Eigen')));
     expect(panel().hidden).toBe(true);
+  });
+});
+
+describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
+  const T = Date.UTC(2026, 9, 20);
+  const groupPage = () => el<{ hidden: boolean; mode: string; loading: boolean; error: string; data: { group: { id: string } } | null; stream: { items: unknown[] } | null }>('sx-group-page');
+  const home = () => el<{ hidden: boolean; stream: { items: unknown[]; hasGroups?: boolean } | null; groups: unknown[]; suggestions: Array<{ handle: string }>; publicGroups: unknown[] }>('sx-home-feed');
+  const page = (over: Record<string, unknown> = {}) => ({
+    group: { id: 'G1', kind: 'club', slug: 'sc-kiel', name: 'SC Kiel', description: '', homePort: '', visibility: 'public', joinMode: 'request', role: null, shareKey: null, link: null, createdAt: T },
+    parent: null, teams: [], stats: { members: 1, boats: 0, voyages: 0, distNm: 0, seasonNm: 0 }, members: [], others: 0, boats: [],
+    social: { followers: 0, isFollowing: false }, membership: { role: null, requested: false, canRequest: true }, ...over,
+  });
+  const post = { id: 'a1', kind: 'post', createdAt: T, actor: null, group: { slug: 'sc-kiel', name: 'SC Kiel', kind: 'club' }, post: { id: 'P1', body: 'Hallo', link: null, canDelete: false } };
+
+  it('[F-163] /g/<slug> öffnet die Gruppenseite statt der Karte und lädt die Neuigkeiten der Gruppe', async () => {
+    server.groups = { page: page(), stream: { items: [post], cursor: null } };
+    await startApp('/g/sc-kiel');
+    expect(document.querySelector('.app')?.hasAttribute('data-page')).toBe(true);
+    expect(groupPage().hidden).toBe(false);
+    expect(groupPage().loading).toBe(false);
+    expect(groupPage().data?.group.id).toBe('G1');
+    expect(groupPage().stream?.items).toHaveLength(1);
+    expect(document.title).toBe('SC Kiel · Sail Explorer');
+    expect(server.calls.map((c) => c.url)).toEqual(expect.arrayContaining(['/api/groups/slug/sc-kiel', '/api/groups/G1/stream']));
+    // keine Startseiten-Daten auf einer Gruppenseite
+    expect(server.calls.some((c) => c.url.startsWith('/api/stream'))).toBe(false);
+  });
+
+  it('[F-163] unbekannte oder geschlossene Gruppe: verständlicher Hinweis', async () => {
+    server.groups = {};
+    await startApp('/g/geheim');
+    expect(groupPage().error).toContain('geschlossen');
+  });
+
+  it('[F-163] /g/neu zeigt das Formular zum Gründen', async () => {
+    server.groups = {};
+    await startApp('/g/neu');
+    expect(groupPage().hidden).toBe(false);
+    expect(groupPage().mode).toBe('create');
+  });
+
+  it('[F-163] Startseite angemeldet: Neuigkeiten, eigene Gruppen und Vorschläge; „Folgen“ entfernt den Vorschlag', async () => {
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = {
+      myStream: { items: [post], cursor: null, hasGroups: true },
+      mine: { groups: [{ id: 'G1', slug: 'sc-kiel', name: 'SC Kiel', kind: 'club', role: 'member', members: 2 }], requests: [] },
+      suggestions: { people: [{ handle: 'mats', displayName: 'Mats', reason: 'group', reasonText: 'Im selben Verein' }] },
+    };
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    expect(home().stream?.items).toHaveLength(1);
+    expect(home().groups).toHaveLength(1);
+    expect(home().suggestions.map((s) => s.handle)).toEqual(['mats']);
+    emit('sx-follow', { kind: 'user', id: 'mats', follow: true });
+    await vi.waitFor(() => expect(home().suggestions).toEqual([]));
+    expect(server.calls.find((c) => c.url === '/api/follows/user/mats')?.method).toBe('PUT');
+  });
+
+  it('[F-163] Startseite ohne Anmeldung: keine Neuigkeiten-Abfrage, Leiste bleibt verborgen', async () => {
+    server.groups = {};
+    await startApp();
+    await vi.waitFor(() => expect(server.calls.some((c) => c.url.startsWith('/api/discover'))).toBe(true));
+    expect(home().hidden).toBe(true);
+    expect(server.calls.some((c) => c.url.startsWith('/api/stream'))).toBe(false);
+  });
+
+  it('[F-161] Beitrag veröffentlichen lädt die Gruppe neu', async () => {
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { page: page({ group: { ...page().group, role: 'admin' } }) };
+    await startApp('/g/sc-kiel');
+    const before = server.calls.filter((c) => c.url === '/api/groups/slug/sc-kiel').length;
+    emit('sx-post-create', { groupId: 'G1', body: 'Absegeln', link: '' });
+    await vi.waitFor(() => expect(server.calls.filter((c) => c.url === '/api/groups/slug/sc-kiel').length).toBeGreaterThan(before));
+    const sent = server.calls.find((c) => c.url === '/api/groups/G1/posts');
+    expect(JSON.parse(String(sent?.body))).toEqual({ body: 'Absegeln', link: '' });
+    expect(toasts()).toContain('Veröffentlicht');
   });
 });

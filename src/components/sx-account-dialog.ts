@@ -837,6 +837,12 @@ export class SxAccountDialog extends LitElement {
           <span>Tägliche Sammelmail bei neuen Kommentaren auf meinen Törns</span>
         </label>
         <p class="hint" id="notify-hint">Höchstens eine Mail pro Tag, nur wenn es Neues gibt – mit Törn und Anzahl, ohne Kommentartexte.</p>
+        <label class="check">
+          <input type="checkbox" aria-describedby="notify-groups-hint" .checked=${st.notifyGroups === 'weekly'} ?disabled=${this.busy}
+            @change=${(e: Event) => emit(this, 'sx-settings-save', { notifyGroups: (e.target as HTMLInputElement).checked ? 'weekly' : 'off' })} />
+          <span>Wöchentliche Sammelmail „Was war los in deinem Verein“</span>
+        </label>
+        <p class="hint" id="notify-groups-hint">Sonntags, nur wenn es in deinen Vereinen und Teams Neues gibt – mit Anzahl neuer Törns, Fotos, Beiträge und Mitglieder, ohne Texte und Namen.</p>
       </div>
       ${!st.hasProfile ? html`<div class="note">${icon('info')}<span>Zum Kommentieren brauchst du ein Profil mit Anzeigenamen (Reiter „Profil“).</span></div>` : ''}
     `;

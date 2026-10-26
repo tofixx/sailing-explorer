@@ -5,6 +5,7 @@ import type { Placement } from '../domain/photo-place';
 import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
+import type { GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
 
 export type { Visibility };
 
@@ -151,10 +152,12 @@ export interface Crew {
   invites: PendingInvite[];
 }
 
-export type InviteKind = 'boat_admin' | 'crew';
+export type InviteKind = 'boat_admin' | 'crew' | 'group';
 
 export interface InvitePeek {
   kind: InviteKind;
+  /** nur bei Gruppen: Verein oder Team */
+  groupKind?: GroupKind;
   target: string | null;
   inviter: string | null;
   /** an eine E-Mail-Adresse gebunden (welche, verrät der Server nicht) */
@@ -324,14 +327,14 @@ export const api = {
   myProfile: () => call<{ profile: Profile; exists: boolean }>('/api/me/profile'),
   saveProfile: (p: ProfileInput) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),
   profile: (handle: string, key?: string | null) =>
-    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[] }>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
+    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[]; social?: FollowStats }>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
 
   myBoats: () => call<{ boats: Boat[] }>('/api/boats'),
   createBoat: (b: BoatInput) => call<{ boat: Boat }>('/api/boats', jsonInit('POST', b)),
   updateBoat: (id: string, b: BoatInput) => call<{ boat: Boat }>(`/api/boats/${encodeURIComponent(id)}`, jsonInit('PATCH', b)),
   deleteBoat: (id: string) => call<void>(`/api/boats/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   boat: (id: string, key?: string | null) =>
-    call<{ boat: Boat; stats: PageStats; voyages: ShareMeta[] }>(`/api/boats/${encodeURIComponent(id)}`, keyInit(key)),
+    call<{ boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats }>(`/api/boats/${encodeURIComponent(id)}`, keyInit(key)),
 
   boatAdmins: (id: string) => call<BoatAdmins>(`/api/boats/${encodeURIComponent(id)}/admins`),
   inviteBoatAdmin: (id: string, email: string) => call<InviteCreated>(`/api/boats/${encodeURIComponent(id)}/invites`, jsonInit('POST', { email })),
@@ -416,6 +419,8 @@ export interface CommentList {
 
 export interface AccountSettings {
   notifyComments: NotifyMode;
+  /** wöchentliche Sammelmail aus Vereinen und Teams (fehlt bei älteren Servern) */
+  notifyGroups?: GroupNotifyMode;
   suspended: boolean;
   hasProfile: boolean;
   isAdmin: boolean;
@@ -466,7 +471,7 @@ export const communityApi = {
   setCommentsMode: (shareId: string, commentsMode: CommentsMode) =>
     call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(shareId)}`, jsonInit('PATCH', { commentsMode })),
   settings: () => call<AccountSettings>('/api/me/settings'),
-  saveSettings: (s: { notifyComments: NotifyMode }) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
+  saveSettings: (s: { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode }) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
   report: (r: ReportInput, key?: string | null) =>
     call<{ ok: true; already: boolean }>('/api/reports', {
       ...jsonInit('POST', r),
@@ -567,4 +572,149 @@ export const photoApi = {
   upload: uploadPhotoXhr,
   update: (id: string, patch: PhotoPatch) => call<{ photo: Photo }>(`/api/photos/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
   remove: (id: string) => call<void>(`/api/photos/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+// ================================================================ Vereine, Teams, Folgen, Neuigkeiten (Konzept 11)
+
+export type { StreamItem };
+
+export interface GroupInfo extends Linkable {
+  id: string;
+  kind: GroupKind;
+  slug: string;
+  name: string;
+  description: string;
+  homePort: string;
+  joinMode: JoinMode;
+  role: GroupRole | null;
+  /** nur für Eigner und Admins: bis zur Prüfung ausgeblendet */
+  hiddenAt?: number | null;
+  createdAt: number;
+}
+
+export interface GroupRef {
+  slug: string;
+  name: string;
+  kind: GroupKind;
+}
+
+export interface GroupMember {
+  /** nur für Eigner und Admins (zum Verwalten) */
+  id: string | null;
+  handle: string | null;
+  displayName: string;
+  role: GroupRole;
+  isSelf: boolean;
+}
+
+export interface GroupBoat {
+  id: string;
+  name: string;
+  boatType: string;
+  lengthM: number | null;
+  homePort: string;
+  mine: boolean;
+  canRemove: boolean;
+  public: boolean;
+}
+
+export interface FollowStats {
+  followers: number;
+  /** nur bei Profilen */
+  following?: number;
+  isFollowing: boolean;
+}
+
+export interface GroupRequest {
+  userId: string;
+  displayName: string;
+  handle: string | null;
+  message: string;
+  createdAt: number;
+}
+
+export interface GroupPageData {
+  group: GroupInfo;
+  parent: GroupRef | null;
+  teams: GroupRef[];
+  stats: { members: number; boats: number; voyages: number; distNm: number; seasonNm: number };
+  members: GroupMember[];
+  others: number;
+  boats: GroupBoat[];
+  social: FollowStats;
+  membership: { role: GroupRole | null; requested: boolean; canRequest: boolean };
+  requests?: GroupRequest[];
+  invites?: PendingInvite[];
+}
+
+export interface MyGroup extends GroupInfo {
+  members: number;
+}
+
+export interface StreamPage {
+  items: StreamItem[];
+  cursor: string | null;
+  /** nur im persönlichen Stream */
+  hasGroups?: boolean;
+}
+
+export interface Suggestion {
+  handle: string;
+  displayName: string;
+  reason: SuggestionReason;
+  reasonText: string;
+}
+
+export interface DiscoverGroup {
+  slug: string;
+  name: string;
+  kind: GroupKind;
+  homePort: string;
+  description: string;
+  createdAt: number;
+  members: number;
+}
+
+export interface DiscoverData {
+  /** Vereine und Teams – fehlt bei älteren Servern */
+  groups?: DiscoverGroup[];
+}
+
+export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode'>> & {
+  kind?: GroupKind;
+  parentId?: string | null;
+  rotateKey?: boolean;
+};
+
+export type FollowKind = 'user' | 'boat' | 'group';
+
+const gid = (id: string) => encodeURIComponent(id);
+
+export const groupApi = {
+  mine: () => call<{ groups: MyGroup[]; requests: Array<GroupRef & { createdAt: number }> }>('/api/groups'),
+  create: (g: GroupInput) => call<{ group: GroupInfo }>('/api/groups', jsonInit('POST', g)),
+  bySlug: (slug: string, key?: string | null) => call<GroupPageData>(`/api/groups/slug/${encodeURIComponent(slug)}`, keyInit(key)),
+  get: (id: string, key?: string | null) => call<GroupPageData>(`/api/groups/${gid(id)}`, keyInit(key)),
+  update: (id: string, g: GroupInput) => call<{ group: GroupInfo }>(`/api/groups/${gid(id)}`, jsonInit('PATCH', g)),
+  remove: (id: string) => call<void>(`/api/groups/${gid(id)}`, { method: 'DELETE' }),
+  setRole: (id: string, userId: string, role: 'admin' | 'member') => call<{ role: string }>(`/api/groups/${gid(id)}/members/${gid(userId)}`, jsonInit('PATCH', { role })),
+  /** userId 'me' = austreten */
+  removeMember: (id: string, userId: string) => call<void>(`/api/groups/${gid(id)}/members/${gid(userId)}`, { method: 'DELETE' }),
+  invite: (id: string, email: string | null) => call<InviteCreated>(`/api/groups/${gid(id)}/invites`, jsonInit('POST', email ? { email } : {})),
+  request: (id: string, message: string, key?: string | null) =>
+    call<{ requested: boolean; already: boolean }>(`/api/groups/${gid(id)}/requests`, {
+      ...jsonInit('POST', { message }),
+      headers: { 'Content-Type': 'application/json', ...(key ? { 'X-Share-Key': key } : {}) },
+    }),
+  withdraw: (id: string) => call<void>(`/api/groups/${gid(id)}/requests/me`, { method: 'DELETE' }),
+  decide: (id: string, userId: string, approve: boolean) => call<{ approved: boolean }>(`/api/groups/${gid(id)}/requests/${gid(userId)}`, jsonInit('POST', { approve })),
+  addBoat: (id: string, boatId: string) => call<{ added: boolean }>(`/api/groups/${gid(id)}/boats`, jsonInit('POST', { boatId })),
+  removeBoat: (id: string, boatId: string) => call<void>(`/api/groups/${gid(id)}/boats/${gid(boatId)}`, { method: 'DELETE' }),
+  post: (id: string, body: string, link: string) => call<{ post: { id: string } }>(`/api/groups/${gid(id)}/posts`, jsonInit('POST', { body, link })),
+  deletePost: (id: string) => call<void>(`/api/posts/${gid(id)}`, { method: 'DELETE' }),
+  stream: (id: string, cursor?: string | null, key?: string | null) =>
+    call<StreamPage>(`/api/groups/${gid(id)}/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, keyInit(key)),
+  myStream: (cursor?: string | null) => call<StreamPage>(`/api/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
+  suggestions: () => call<{ people: Suggestion[] }>('/api/me/suggestions'),
+  follow: (kind: FollowKind, id: string, on: boolean) => call<FollowStats>(`/api/follows/${kind}/${encodeURIComponent(id)}`, { method: on ? 'PUT' : 'DELETE' }),
 };

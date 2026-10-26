@@ -8,6 +8,9 @@ import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { inviteMail, sendMail } from './mail';
 import { assertActive } from './moderation';
 import { getShareRow, ownedShare, visibleShare } from './shares';
+import { GROUP_FULL, addMember, loadGroup, roleIn } from './groups';
+import { GROUP_LIMITS } from '../src/domain/limits';
+import { canManageGroup } from '../src/domain/groups';
 import { BOAT_ID_RE, TOKEN_RE, normalizeEmail, parseInviteKind, type InviteKind } from './validate';
 import { funnyName } from '../src/domain/names';
 
@@ -35,6 +38,7 @@ interface InviteRow {
   kind: string;
   boat_id: string | null;
   share_id: string | null;
+  group_id?: string | null;
   inviter_id: string;
   email: string | null;
   max_uses: number;
@@ -58,7 +62,7 @@ const inviteLink = (request: Request, token: string) => `${new URL(request.url).
 /** Lokal im Log-Modus: Link direkt zurückgeben (wie beim Login), damit man ohne Mailserver testen kann. */
 const devLink = (request: Request, env: Env, link: string) => (env.MAIL_PROVIDER === 'log' && isDevHost(new URL(request.url)) ? link : undefined);
 
-const pendingSql = (col: 'boat_id' | 'share_id') =>
+const pendingSql = (col: 'boat_id' | 'share_id' | 'group_id') =>
   `SELECT id, email, max_uses, uses, created_at, expires_at FROM invites WHERE ${col} = ? AND expires_at > ? AND uses < max_uses ORDER BY created_at`;
 
 async function count(env: Env, sql: string, ...args: unknown[]): Promise<number> {
@@ -75,6 +79,9 @@ interface NewInvite {
   kind: InviteKind;
   boatId?: string;
   shareId?: string;
+  groupId?: string;
+  /** nur bei Gruppen: Verein oder Team (Mailtext) */
+  groupKind?: 'club' | 'team';
   email: string | null;
   maxUses: number;
   days: number;
@@ -90,8 +97,8 @@ async function createInvite(request: Request, env: Env, user: User, o: NewInvite
     throw new HttpError(429, 'invite_quota', `Du hast heute schon ${INVITE_LIMITS.perUserPerDay} Einladungen verschickt – morgen geht es weiter.`);
   }
   if (o.email) {
-    const col = o.boatId ? 'boat_id' : 'share_id';
-    const dup = await count(env, `SELECT COUNT(*) AS n FROM invites WHERE ${col} = ? AND email = ? AND expires_at > ? AND uses < max_uses`, o.boatId ?? o.shareId, o.email, now);
+    const col = o.boatId ? 'boat_id' : o.groupId ? 'group_id' : 'share_id';
+    const dup = await count(env, `SELECT COUNT(*) AS n FROM invites WHERE ${col} = ? AND email = ? AND expires_at > ? AND uses < max_uses`, o.boatId ?? o.groupId ?? o.shareId, o.email, now);
     if (dup) throw new HttpError(409, 'already_invited', 'An diese Adresse ist schon eine Einladung unterwegs. Zieh sie zurück, um neu einzuladen.');
     if ((await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE email IS NOT NULL AND created_at > ?', now - DAY)) >= INVITE_LIMITS.mailsPerDay) {
       throw new HttpError(429, 'mail_budget', 'Heute wurden schon sehr viele Einladungen verschickt. Bitte morgen erneut versuchen.');
@@ -99,19 +106,19 @@ async function createInvite(request: Request, env: Env, user: User, o: NewInvite
   }
   const token = randomToken();
   const row: InviteRow = {
-    id: randomId(), kind: o.kind, boat_id: o.boatId ?? null, share_id: o.shareId ?? null, inviter_id: user.id, email: o.email,
+    id: randomId(), kind: o.kind, boat_id: o.boatId ?? null, share_id: o.shareId ?? null, group_id: o.groupId ?? null, inviter_id: user.id, email: o.email,
     max_uses: o.maxUses, uses: 0, created_at: now, expires_at: now + o.days * DAY,
   };
   await env.DB.prepare(
-    `INSERT INTO invites (id, token_hash, kind, boat_id, share_id, inviter_id, email, max_uses, uses, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+    `INSERT INTO invites (id, token_hash, kind, boat_id, share_id, group_id, inviter_id, email, max_uses, uses, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
   )
-    .bind(row.id, await sha256Hex(token), row.kind, row.boat_id, row.share_id, row.inviter_id, row.email, row.max_uses, row.created_at, row.expires_at)
+    .bind(row.id, await sha256Hex(token), row.kind, row.boat_id, row.share_id, row.group_id, row.inviter_id, row.email, row.max_uses, row.created_at, row.expires_at)
     .run();
   const link = inviteLink(request, token);
   if (o.email) {
     try {
-      await sendMail(env, inviteMail(env, o.email, { kind: o.kind, inviter: await displayName(env, user.id), target: o.targetName, link, days: o.days }));
+      await sendMail(env, inviteMail(env, o.email, { kind: o.kind, groupKind: o.groupKind, inviter: await displayName(env, user.id), target: o.targetName, link, days: o.days }));
     } catch (err) {
       // Ohne Mail keine offene Einladung – sonst sperrt sie die Adresse (already_invited).
       await env.DB.prepare('DELETE FROM invites WHERE id = ?').bind(row.id).run();
@@ -281,9 +288,36 @@ export async function removeCrew(request: Request, env: Env, id: string, who: st
   return new Response(null, { status: 204 });
 }
 
+// ---------------------------------------------------------------- Gruppen (Konzept 11.1)
+
+/**
+ * POST /api/groups/:id/invites – Eigner und Admins. `{ email }`: Einladung per Mail (gebunden, einmalig);
+ * ohne Adresse: Einladungslink (bis 100 Nutzungen). Der Link steht nur in dieser Antwort.
+ */
+export async function inviteGroup(request: Request, env: Env, id: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  const g = await loadGroup(env, id);
+  const role = g ? await roleIn(env, user.id, g.id) : null;
+  if (!g || !role || (g.hidden_at && !canManageGroup(role))) throw new HttpError(404, 'not_found', 'Diese Gruppe gibt es nicht oder sie ist geschlossen.');
+  if (!canManageGroup(role)) throw new HttpError(403, 'forbidden', 'Einladen dürfen Eigner und Admins der Gruppe.');
+  const email = readEmail((await readJson<{ email?: unknown }>(request)).email, false);
+  if (email === user.email) throw new HttpError(409, 'own_object', 'Du bist schon Mitglied dieser Gruppe.');
+  const members = await count(env, 'SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?', g.id);
+  if (members >= GROUP_LIMITS.members) throw GROUP_FULL();
+  const { invite, link } = await createInvite(request, env, user, {
+    kind: 'group', groupId: g.id, groupKind: g.kind, email, maxUses: email ? 1 : Math.min(GROUP_LIMITS.linkUses, GROUP_LIMITS.members - members),
+    days: GROUP_LIMITS.inviteDays, targetName: g.name,
+  });
+  return json({ invite, link: email ? undefined : link, devLink: email ? devLink(request, env, link) : undefined }, { status: 201 });
+}
+
 // ---------------------------------------------------------------- Einlösen, Zurückziehen
 
 interface LoadedInvite extends InviteRow {
+  group_name: string | null;
+  group_owner: string | null;
+  group_slug: string | null;
+  group_kind: string | null;
   boat_name: string | null;
   boat_owner: string | null;
   share_title: string | null;
@@ -296,14 +330,15 @@ async function loadInvite(request: Request, env: Env, token: unknown): Promise<L
   const row =
     typeof token === 'string' && TOKEN_RE.test(token)
       ? await env.DB.prepare(
-          `SELECT i.*, b.name AS boat_name, b.owner_id AS boat_owner, s.title AS share_title, s.user_id AS share_owner, s.visibility AS share_visibility
-           FROM invites i LEFT JOIN boats b ON b.id = i.boat_id LEFT JOIN shares s ON s.id = i.share_id
+          `SELECT i.*, b.name AS boat_name, b.owner_id AS boat_owner, s.title AS share_title, s.user_id AS share_owner, s.visibility AS share_visibility,
+             g.name AS group_name, g.owner_id AS group_owner, g.slug AS group_slug, g.kind AS group_kind
+           FROM invites i LEFT JOIN boats b ON b.id = i.boat_id LEFT JOIN shares s ON s.id = i.share_id LEFT JOIN groups g ON g.id = i.group_id
            WHERE i.token_hash = ? AND i.expires_at > ? AND i.uses < i.max_uses`,
         )
           .bind(await sha256Hex(token), Date.now())
           .first<LoadedInvite>()
       : null;
-  if (!row || !parseInviteKind(row.kind) || !(row.boat_owner || row.share_owner)) {
+  if (!row || !parseInviteKind(row.kind) || !(row.boat_owner || row.share_owner || row.group_owner)) {
     await rateLimit(env.LINK_LIMITER, `invite:${clientIp(request)}`);
     throw INVALID();
   }
@@ -311,6 +346,7 @@ async function loadInvite(request: Request, env: Env, token: unknown): Promise<L
 }
 
 async function isMember(env: Env, inv: LoadedInvite, userId: string): Promise<boolean> {
+  if (inv.kind === 'group') return !!(await count(env, 'SELECT COUNT(*) AS n FROM group_members WHERE group_id = ? AND user_id = ?', inv.group_id, userId));
   return inv.kind === 'boat_admin'
     ? !!(await count(env, 'SELECT COUNT(*) AS n FROM boat_admins WHERE boat_id = ? AND user_id = ?', inv.boat_id, userId))
     : !!(await count(env, 'SELECT COUNT(*) AS n FROM share_crew WHERE share_id = ? AND user_id = ?', inv.share_id, userId));
@@ -323,10 +359,12 @@ async function isMember(env: Env, inv: LoadedInvite, userId: string): Promise<bo
 export async function peekInvite(request: Request, env: Env): Promise<Response> {
   const inv = await loadInvite(request, env, (await readJson<{ token?: unknown }>(request)).token);
   const user = await currentUser(request, env);
-  const owner = inv.boat_owner ?? inv.share_owner;
+  const owner = inv.boat_owner ?? inv.share_owner ?? inv.group_owner;
   return json({
     kind: inv.kind,
-    target: inv.kind === 'boat_admin' ? inv.boat_name : inv.share_title,
+    target: inv.kind === 'boat_admin' ? inv.boat_name : inv.kind === 'group' ? inv.group_name : inv.share_title,
+    /** nur bei Gruppen: Verein oder Team */
+    groupKind: inv.kind === 'group' ? inv.group_kind : undefined,
     inviter: await displayName(env, inv.inviter_id),
     /** an eine Adresse gebunden (welche, verrät die Antwort nicht) */
     bound: !!inv.email,
@@ -346,6 +384,7 @@ export async function acceptInvite(request: Request, env: Env): Promise<Response
   if (inv.email && inv.email !== user.email) {
     throw new HttpError(403, 'invite_wrong_account', 'Diese Einladung gilt für eine andere E-Mail-Adresse. Bitte mit der eingeladenen Adresse anmelden.');
   }
+  if (inv.kind === 'group') return acceptGroupInvite(env, inv, user);
   const boat = inv.kind === 'boat_admin';
   const targetId = (boat ? inv.boat_id : inv.share_id)!;
   const result = {
@@ -381,16 +420,31 @@ export async function acceptInvite(request: Request, env: Env): Promise<Response
   return json({ ...result, already: false });
 }
 
-/** DELETE /api/invites/:id – nur der Eigentümer des Ziels (Eigner des Boots bzw. des Törns) zieht zurück. */
+/** Gruppeneinladung einlösen: Mitglied werden (höchstens 500), offene Anfrage erledigen, Beitritt protokollieren. */
+async function acceptGroupInvite(env: Env, inv: LoadedInvite, user: User): Promise<Response> {
+  const result = { kind: inv.kind, path: `/g/${inv.group_slug}`, target: inv.group_name, groupKind: inv.group_kind };
+  if (user.id === inv.group_owner) throw new HttpError(409, 'own_object', 'Das ist deine eigene Gruppe.');
+  if (await isMember(env, inv, user.id)) return json({ ...result, already: true });
+  if ((await count(env, 'SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?', inv.group_id)) >= GROUP_LIMITS.members) throw GROUP_FULL();
+  const claimed = await env.DB.prepare('UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND expires_at > ? RETURNING id')
+    .bind(inv.id, Date.now())
+    .first();
+  if (!claimed) throw INVALID();
+  await addMember(env, inv.group_id!, user.id);
+  return json({ ...result, already: false });
+}
+
+/** DELETE /api/invites/:id – nur der Eigentümer des Ziels (Eigner des Boots bzw. des Törns, bei Gruppen Eigner und Admins) zieht zurück. */
 export async function revokeInvite(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   const row = await env.DB.prepare(
-    `SELECT i.id, COALESCE(b.owner_id, s.user_id) AS owner FROM invites i
+    `SELECT i.id, i.group_id, COALESCE(b.owner_id, s.user_id) AS owner FROM invites i
      LEFT JOIN boats b ON b.id = i.boat_id LEFT JOIN shares s ON s.id = i.share_id WHERE i.id = ?`,
   )
     .bind(id)
-    .first<{ id: string; owner: string | null }>();
-  if (!row || row.owner !== user.id) throw new HttpError(404, 'not_found', 'Diese Einladung gibt es nicht (mehr).');
+    .first<{ id: string; group_id: string | null; owner: string | null }>();
+  const allowed = !!row && (row.group_id ? canManageGroup(await roleIn(env, user.id, row.group_id)) : row.owner === user.id);
+  if (!row || !allowed) throw new HttpError(404, 'not_found', 'Diese Einladung gibt es nicht (mehr).');
   await env.DB.prepare('DELETE FROM invites WHERE id = ?').bind(id).run();
   return new Response(null, { status: 204 });
 }

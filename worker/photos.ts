@@ -12,6 +12,7 @@ import { storageQuotaError, supportConfigured, supportStatus } from './supporter
 import { addPhotoStmt, checkBrake, currentBrake, subtractPhotoStmt } from './storage';
 import { inspectImage, type PhotoFormat } from './image';
 import { deleteKeys, photoKey, photoKeys } from './photo-keys';
+import { recordPhotos } from './activity';
 import { SHARE_ID_RE, cleanText, parsePhotoMeta, parsePosition, parseTakenAt } from './validate';
 import {
   PHOTO_CAPTION_LENGTH,
@@ -229,6 +230,8 @@ export async function uploadPhoto(request: Request, env: Env, shareId: string): 
     throw new HttpError(409, 'quota', photoLimitMessage('quota', false));
   }
   const saved = await env.DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first<PhotoRow>();
+  // Neuigkeiten: Fotos „wie der Törn“ an öffentlichen Törns, gebündelt je Törn und Tag (Konzept 11.3).
+  if (share.visibility === 'public' && meta.visibility === 'public') await recordPhotos(env, share, 1, now);
   return json({ photo: photoShape(saved!, share.visibility, true) }, { status: 201 });
 }
 

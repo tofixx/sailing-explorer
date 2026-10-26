@@ -931,3 +931,160 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
 5. Passen die Grenzen (20/Tag, 10 Admins, 30 Crew, 50 Mails/Tag)?
 6. Crew-Einladungen auch per Link für Boots-Admins? (Umgesetzt: nein, Admins
    nur per gebundener Mail – mehr Rechte, strengere Bindung.)
+
+## 11. Vereine, Teams und Neuigkeiten
+
+Stand: Oktober 2026. Ziel des Betreibers: Sail Explorer soll Segler zusammenbringen – wie ein soziales Netz, aber
+mit den Regeln aus Abschnitt 1 (Sichtbarkeit), 4.4 (Moderation), 5 (Grenzen) und 10 (Einladungen) und im
+Cloudflare-Free-Tier. Anforderungen: **F-150 ff.** (`REQUIREMENTS.md`). Umsetzung: `migrations/0011_groups.sql`,
+`worker/groups.ts`, `worker/activity.ts`, `worker/stream.ts`, `worker/follows.ts`, `worker/posts.ts`,
+`worker/feed.ts`, `src/domain/groups.ts`, `sx-group-page`, `sx-stream`.
+
+### 11.1 Gruppen: Vereine und Teams
+
+Ein Modell `groups` mit `kind` ∈ `club` (Verein) | `team` (Team, Regattacrew, Jugendgruppe). Ein Team kann zu einem
+Verein gehören (`parent_id`); anlegen darf es nur, wer im Verein Eigner oder Admin ist. Wird der Verein gelöscht,
+bleiben seine Teams als eigenständige Gruppen bestehen.
+
+| Punkt | Entscheidung |
+|---|---|
+| Adresse | `/g/<slug>`, „Nur mit Link“ `/g/<slug>/<schlüssel>`. Slug wie Profilnamen (`normalizeHandle`: 3–30 Zeichen a–z, 0–9, Bindestrich, reservierte Wörter) plus `neu`, `feed`, `verein(e)`, `team(s)`; eigener Namensraum. Ändern möglich, ohne Weiterleitung (offene Frage 1) |
+| Rollen | `owner` (genau einer, `groups.owner_id` und Zeile in `group_members`), `admin`, `member`. Eigner: alles inkl. Löschen, Sichtbarkeit, Admins ernennen. Admins: bearbeiten (ohne Sichtbarkeit), einladen, Anfragen annehmen, Mitglieder (keine Admins) entfernen, Beiträge schreiben und löschen, Boote entfernen. Mitglieder: Boote zuordnen, austreten |
+| Beitreten | **nur auf Einladung** (Mechanismus aus Abschnitt 10: Link oder an eine Adresse gebundene Mail, `invites.kind = 'group'`, `group_id`) oder per **Beitrittsanfrage**, die ein Admin annimmt (`join_mode = 'request'`, Standard; `invite` = nur Einladungen). Anfragen gehen nur bei Gruppen, die man sehen darf |
+| Sichtbarkeit | wie überall (Abschnitt 1): `public` gelistet und indexierbar; `unlisted` nur mit Schlüssel; `private` („geschlossen“) nur für Mitglieder. E1: kostenlos nur öffentlich, „Nur mit Link“ und „geschlossen“ verlangen laufenden Unterstützer-Status des **Eigners** (402), E4: bestehende Stufe bleibt nach Ende der Unterstützung |
+| Mitgliedschaft öffnet nichts | Mitglieder sehen weiterhin nur öffentliche Törns anderer (Abschnitt 1.2, 10.6). Die Gruppe selbst sehen Mitglieder unabhängig von ihrer Stufe |
+| Boote | Eigner und Admins eines Boots ordnen es Gruppen zu, in denen sie Mitglied sind (`group_boats`, ein Boot in mehreren Gruppen). Entfernen: Boot-Verwalter oder Gruppen-Admins. Die Gruppenseite nennt nur öffentliche, nicht ausgeblendete Boote |
+| Gruppenseite | Kopf (Name, Art, Heimathafen, Beschreibung, Verein bzw. Teams), Kennzahlen (Mitglieder, Boote, sm und Törns – nur öffentliche, nicht ausgeblendete Törns der Mitglieder und der Gruppen-Boote; „Saison“ = Kalenderjahr), Mitglieder (namentlich nur mit öffentlichem Profil, sonst „+ n weitere“; Admins sehen alle Anzeigenamen), Boote, Neuigkeiten. Link-Vorschau wie `/u` und `/b` |
+| Moderation | `hidden_at` an `groups` und `posts`; Meldearten `group` und `post`. Ausgeblendete Gruppen verhalten sich wie nicht existent außer für Eigner/Admins der Gruppe und die Moderation. Gesperrte Konten legen keine Gruppen an, laden nicht ein, fragen nicht an, schreiben keine Beiträge und folgen niemandem; Gruppen gesperrter Eigner verschwinden aus /entdecken, Aktivitäten gesperrter Konten aus den Neuigkeiten |
+
+### 11.2 Folgen
+
+`follows (user_id, target_kind, target_id)` mit `target_kind` ∈ `user` | `boat` | `group`. Folgen braucht keine
+Zustimmung, geht aber nur bei **öffentlichen**, nicht ausgeblendeten Zielen (Profil, Boot, Gruppe) – sonst 404 wie
+„gibt es nicht“. Wird ein Ziel später nicht öffentlich, bleibt die Zeile, die Neuigkeiten prüfen aber beim Lesen
+(11.3) – Folgen öffnet nie etwas. Kostenlos für alle, höchstens **1000** pro Konto. Seiten zeigen
+„n Follower“ (Profil zusätzlich „folgt n“), nie Listen von Personen.
+
+### 11.3 Aktivitäts-Log statt Suche
+
+Wenn etwas passiert, schreibt der Worker **eine** Zeile `activity` (`kind`, `actor_id`, `subject_kind`,
+`subject_id`, `group_id` als Kontext, kleines JSON `data`, `bucket` zum Bündeln) und je Publikum eine Zeile
+`activity_target (target_kind, target_id)` – **kein** Fan-out pro Mitglied oder Follower:
+
+| Ereignis | `kind` | Ziele (`activity_target`) |
+|---|---|---|
+| Törn wird öffentlich (Anlegen oder Wechsel, einmal je Törn) | `voyage` | Segler (`user`), Boot, alle Gruppen des Boots und des Seglers |
+| Fotos zu einem öffentlichen Törn (gebündelt „n neue Fotos“ pro Törn und Tag, `bucket = photos:<törn>:<tag>`) | `photos` | wie `voyage` |
+| Neues Mitglied (Einladung oder Anfrage angenommen) | `member` | Gruppe |
+| Boot einer Gruppe zugeordnet | `boat` | Gruppe, Boot |
+| Beitrag in einer Gruppe | `post` | Gruppe; bei Vereinen zusätzlich alle seine Teams |
+| Meilenstein: Saison-Seemeilen 100 / 500 / 1000 überschritten (einmal je Jahr und Schwelle) | `milestone` | Segler bzw. Boot bzw. Gruppe (jeweils als Ziel) |
+
+Lesen ist **eine** indizierte Abfrage: „Aktivitäten, deren Ziel in meinen Gruppen, meinen Booten, bei Gefolgten oder
+bei mir selbst liegt, neueste zuerst, 20, Cursor“ (`activity_target(target_kind, target_id, created_at)`). Die
+Gruppenseite liest nur das Ziel `group`.
+
+**Beim Lesen wird die Sichtbarkeit neu geprüft** – die Zeilen sind nur ein Index, nie die Quelle:
+
+| Art | Erscheint nur, wenn … |
+|---|---|
+| `voyage`, `photos` | der Törn **jetzt** öffentlich und nicht ausgeblendet ist und das Konto nicht gesperrt; bei Fotos zusätzlich mindestens ein Foto „wie der Törn“, nicht ausgeblendet. Segler nur mit öffentlichem Profil genannt, Boot nur öffentlich (F-82) |
+| `member`, `boat`, `post` | die Gruppe für den Lesenden sichtbar ist (öffentlich oder Mitglied) und nicht ausgeblendet; Beitrag nicht ausgeblendet, Autor nicht gesperrt; Boot öffentlich; Namen nur mit öffentlichem Profil (sonst „Ein neues Mitglied“) |
+| `milestone` | Profil bzw. Boot öffentlich bzw. Gruppe sichtbar |
+
+Ein Törn, der privat, ausgeblendet oder gelöscht wurde, verschwindet also sofort; private Törns stehen gar nicht erst
+im Log (geschrieben wird nur bei „öffentlich“). Die Abfrage liest bis zu 3 × 20 Kandidaten, damit trotz Aussortieren
+eine Seite voll wird; der Cursor zeigt auf den letzten **geprüften** Eintrag.
+
+**Cache:** Öffentliche Streams (Gruppenseite öffentlicher Gruppen, RSS) sind für alle gleich und werden 60 s per
+Cache API und `Cache-Control: public, max-age=60` gecacht; die Sichtbarkeit der **Gruppe** wird vor dem Cache geprüft
+(nicht öffentlich → nie aus dem Cache). Einzelne Einträge können so höchstens 60 s nachlaufen (wie /entdecken, F-71).
+Der persönliche Stream ist `private, no-store`.
+
+**Kosten:** ein Törn mit Boot in 2 Gruppen = 1 + 4 Zeilen. Lesen: 1 Abfrage + 1 Prüf-Batch. Kein Backfill – der
+Stream beginnt leer.
+
+### 11.4 Beiträge (News)
+
+`posts (id, author_id, group_id, body, link, hidden_at, created_at)` – `group_id` ist für die nächste Phase
+(persönliche Beiträge) bereits optional. Schreiben dürfen Eigner und Admins der Gruppe: reiner Text ≤ **2000**
+Zeichen, bereinigt wie Kommentare (`cleanComment`), Links klickbar (`linkify`, höchstens 5), optional ein Link
+(http(s), ≤ 500 Zeichen). Höchstens **5 Beiträge pro Tag und Gruppe** (gezählt auch nach dem Löschen). Vereinsbeiträge
+erscheinen auch in den Teams. Keine Kommentare im Stream. Löschen: Autor:in oder Gruppen-Admins. Beiträge lassen sich
+melden (`post`).
+
+**RSS/Atom:** `/g/<slug>/feed.xml` nur für öffentliche, nicht ausgeblendete Gruppen (sonst 404), Atom 1.0 mit den
+letzten 20 sichtbaren Einträgen, alles Fremde XML-escaped, `Cache-Control: public, max-age=600`.
+
+### 11.5 Wo es erscheint
+
+| Stelle | Inhalt |
+|---|---|
+| Startseite, angemeldet | „Neuigkeiten“ aus Gruppen, Booten, Gefolgten und eigenen Aktivitäten („Mehr laden“ per Cursor), dazu „Leute, die du kennen könntest“ und die eigenen Gruppen. Ohne Gruppen: wie bisher die Community-Leiste plus „Tritt deinem Verein bei“ (öffentliche Vereine, „Verein gründen“) |
+| Gruppenseite | Neuigkeiten der Gruppe, Beitrag schreiben (Admins), Mitglieder, Boote, Anfragen und Einladungen (Admins), RSS-Link |
+| Profil, Boot, Gruppe | „Folgen“ / „Entfolgen“, Anzahl Follower |
+| `/entdecken` | zusätzlicher Abschnitt „Vereine und Teams“ (öffentlich, nicht ausgeblendet, Eigner nicht gesperrt) |
+
+### 11.6 Leute, die du kennen könntest
+
+Günstige SQL-Abfrage, höchstens **6** Vorschläge, 5 min pro Konto gecacht (Cache API, Schlüssel = Konto-ID, nur
+serverseitig): Mitglieder meiner Gruppen, Crew, mit der ich gesegelt bin (`share_crew` in beide Richtungen),
+Eigner und Admins der Boote meiner Gruppen, Leute mit Booten im selben Heimathafen wie meine Boote. Nur öffentliche,
+nicht ausgeblendete Profile nicht gesperrter Konten, ohne mich selbst und ohne bereits Gefolgte; sortiert nach
+Anzahl der Gründe. Angezeigt wird ein Grund („Im selben Verein“, „Mit dir gesegelt“, „Boot in deinem Verein“,
+„Heimathafen …“).
+
+### 11.7 Wöchentliche Sammelmail
+
+Opt-in (`users.notify_groups` = `off` | `weekly`, Konto → Einstellungen): „Was war los in deinem Verein“ – je Gruppe
+die Anzahl neuer Törns, Fotos, Beiträge und Mitglieder der letzten 7 Tage (nur, was beim Lesen sichtbar wäre), mit
+Link zur Gruppe; keine Beitragstexte, keine Namen. Der nächtliche Cron verschickt sie **ab Sonntag** an jedes Konto,
+das in dieser Woche (seit Sonntag 0 Uhr UTC) noch keine bekam, höchstens **20** pro Lauf (Resend Free: 100/Tag, geteilt
+mit Anmeldung, Einladungen, Erinnerungen und Kommentar-Digest), der Rest in den folgenden Nächten; `groups_mailed_at`
+verhindert Doppelversand. Ohne Neues keine Mail. Einschalten zählt erst ab dann (erste Mail am nächsten Sonntag).
+
+### 11.8 Grenzen (`src/domain/limits.ts`, `GROUP_LIMITS`)
+
+| Grenze | Kostenlos | Unterstützer |
+|---|---|---|
+| Gruppen beitreten | unbegrenzt | unbegrenzt |
+| Gruppen anlegen (als Eigner, Vereine und Teams zusammen) | **1**, nur öffentlich | **10**, auch „Nur mit Link“ und geschlossen |
+| Mitglieder je Gruppe | 500 | 500 |
+| Beiträge je Gruppe und Tag | 5 | 5 |
+| Boote je Gruppe | 200 | 200 |
+| Folgen je Konto | 1000 | 1000 |
+| Beitrittsanfragen je Konto und Tag / offen je Gruppe | 20 / 100 | gleich |
+| Einladungen | wie Abschnitt 10.5 (20/Tag, Mail-Budget 50/Tag); Einladungslink bis 100 Nutzungen, 14 Tage | gleich |
+
+### 11.9 Aufräumen
+
+| Anlass | Was |
+|---|---|
+| Konto löschen (`purgeUser`) | Mitgliedschaften, Anfragen, Folgen (eigene und auf das Konto), Beiträge, Aktivitäten des Kontos und seiner Törns. Eigene Gruppen gehen an den dienstältesten Admin über; ohne Admin werden sie gelöscht |
+| Törn löschen/ablaufen | Aktivitäten mit dem Törn als Gegenstand |
+| Boot löschen | Gruppen-Zuordnungen, Folgen, Aktivitäten des Boots, Ziele `boat` |
+| Gruppe löschen | Mitglieder, Anfragen, Boots-Zuordnungen, Beiträge, Einladungen, Folgen, Aktivitäten der Gruppe, Ziele `group`, Meldungen |
+| Nächtlich | Aktivitäten älter als **12 Monate** (in Portionen), Ziele ohne Objekt, Aktivitäten ohne Ziel, Foto-Bündel ohne Fotos, Anfragen älter als 90 Tage, Folgen auf nicht mehr existierende Ziele, Beitrags-Zähler älter als 24 h |
+
+### 11.10 Nächste Phase (nur vorbereitet, nicht gebaut)
+
+Das Datenmodell trägt die nächsten Schritte ohne Tabellenneubau:
+
+- **Reaktionen** („Gefällt mir“, „Mast- und Schotbruch“): `reactions (user_id, subject_kind, subject_id, kind,
+  created_at)` mit `subject_kind` ∈ `activity` | `share` | `post` – dieselben Paare wie `activity.subject_*`. Zählen
+  per Index, Sichtbarkeit wie das Ziel.
+- **Persönliche Beiträge:** `posts.group_id = NULL`, Ziel `user` (Follower lesen über `activity_target`). Die
+  Prüfung beim Lesen wird um „Autor-Profil öffentlich“ ergänzt.
+- **Benachrichtigungs-Glocke:** `notifications (user_id, kind, actor_id, subject_kind, subject_id, created_at,
+  read_at)` – hier *ist* Fan-out richtig, weil genau eine Person adressiert ist (neuer Follower, Reaktion, Kommentar,
+  Einladung). Quelle sind dieselben Stellen, die heute `activity` schreiben (`worker/activity.ts`).
+- `activity.kind`, `subject_kind` und `activity_target.target_kind` sind Text ohne `CHECK` (Prinzip Architektur 7).
+
+### 11.11 Offene Fragen an den Betreiber
+
+1. Slug-Wechsel bei Gruppen mit Weiterleitung (wie Abschnitt 2.3)? Umgesetzt: ohne.
+2. Sollen Gruppen-Admins die Anzeigenamen aller Mitglieder sehen (umgesetzt: ja, wie Eigner bei Crew) oder nur
+   öffentliche Profile?
+3. Offener Beitritt ohne Bestätigung für öffentliche Vereine?
+4. Meilensteine auch für Törn-Anzahl (z. B. 10 Törns) oder längste Etappe?
+5. Eigner-Übertragung ausdrücklich in der Oberfläche (heute nur automatisch bei Kontolöschung)?

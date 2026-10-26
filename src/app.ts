@@ -45,6 +45,11 @@ import type { SxPhotoLightbox } from './components/sx-photo-lightbox';
 import type { SxPhotoUpload } from './components/sx-photo-upload';
 import type { Photo } from './services/api';
 import type { PhotoVisibility } from './domain/visibility';
+// ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11) ----
+import { GroupsController } from './controllers/groups';
+import type { SxGroupPage } from './components/sx-group-page';
+import type { SxHomeFeed } from './components/sx-home-feed';
+import type { FollowKind, GroupInput } from './services/api';
 
 /** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
 const TRACK_COLORS = ['--c-track-1', '--c-track-2', '--c-track-3', '--c-track-4', '--c-track-5', '--c-track-6'];
@@ -104,10 +109,15 @@ export class App {
     photosPanel: $<HTMLElement>('#photos-panel'),
     lightbox: $<SxPhotoLightbox>('sx-photo-lightbox'),
     photoUpload: $<SxPhotoUpload>('sx-photo-upload'),
+    groupPage: $<SxGroupPage>('sx-group-page'),
+    homeFeed: $<SxHomeFeed>('sx-home-feed'),
   };
   private session: SessionController;
   private community: CommunityController;
   private photos: PhotosController;
+  private groups: GroupsController;
+  /** Startseite als Einstieg (nicht Profil-, Boots-, Gruppen- oder Entdecken-Seite) – nur dort lädt die Startseite Neuigkeiten */
+  private homeRoute = false;
   private timelinePts: TimedPoint[] = [];
 
   constructor() {
@@ -141,6 +151,13 @@ export class App {
       onPhotos: (photos) => this.setPhotoMarks(photos),
     });
     this.map.photos.callbacks = { onOpen: (id) => this.photos.open(id), onHover: (id) => this.photoHover(id) };
+    this.groups = new GroupsController(this.store, {
+      page: this.ui.groupPage,
+      home: this.ui.homeFeed,
+      profile: this.ui.page,
+      toast: (msg, ms) => this.toast(msg, ms),
+      openLogin: (reason) => this.session.openLogin(reason),
+    });
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
     this.store.subscribe((s, prev) => this.render(s, prev));
@@ -153,7 +170,9 @@ export class App {
     this.handleSupportParam();
     const route = parseRoute(location);
     // Community-Leiste nur auf der Startseite; lädt nebenbei und blockiert nichts.
-    if (route.kind === 'home' || route.kind === 'login' || route.kind === 'invite') void this.loadDiscoverStrip();
+    this.homeRoute = route.kind === 'home' || route.kind === 'login' || route.kind === 'invite';
+    if (this.homeRoute) void this.loadDiscoverStrip();
+    if (this.homeRoute) void this.groups.loadHome();
     try {
       switch (route.kind) {
         case 'share':
@@ -161,6 +180,8 @@ export class App {
         case 'profile':
         case 'boat':
         case 'discover':
+        case 'group':
+        case 'group-new':
           return await this.openPage(route);
         case 'login':
           history.replaceState(null, '', '/');
@@ -214,6 +235,14 @@ export class App {
     this.ui.empty.hidden = !home;
     this.ui.empty.trackCount = s.tracks.length;
     Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home, saved: s.saved });
+    // Neuigkeiten auf der Startseite und Rollen auf der Gruppenseite hängen an der Anmeldung (Konzept 11.5).
+    if (changed('user') || changed('backend')) {
+      this.ui.page.signedIn = !!s.user;
+      if (prev) {
+        if (this.homeRoute) void this.groups.loadHome(true);
+        void this.groups.userChanged();
+      }
+    }
     this.ui.toast.loading = s.loading;
 
     if (dataChanged || changed('metric')) {
@@ -356,6 +385,8 @@ export class App {
 
     // Startseite ↔ Törn-Ansicht
     on('sx-home', () => {
+      this.homeRoute = true;
+      void this.groups.loadHome();
       this.store.set({ home: true, hover: null });
       // z. B. aus einer geteilten Ansicht: Community-Leiste nachladen
       if (!this.ui.discoverStrip.data) void this.loadDiscoverStrip();
@@ -442,6 +473,26 @@ export class App {
     on<{ visibility: PhotoVisibility }>('sx-photo-upload-visibility', (d) => ph.setVisibility(d.visibility));
     on('sx-photo-upload-submit', () => ph.submitUpload());
     on('sx-photo-upload-close', () => ph.closeUpload());
+
+    // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11) ----
+    const g = this.groups;
+    on<GroupInput>('sx-group-create', (d) => g.create(d));
+    on<{ id: string; patch: GroupInput }>('sx-group-save', (d) => g.save(d.id, d.patch));
+    on<{ id: string }>('sx-group-delete', (d) => g.remove(d.id));
+    on<{ id: string }>('sx-group-join', (d) => g.join(d.id));
+    on<{ id: string }>('sx-group-withdraw', (d) => g.withdraw(d.id));
+    on<{ id: string }>('sx-group-leave', (d) => g.leave(d.id));
+    on<{ id: string; userId: string; approve: boolean }>('sx-group-request', (d) => g.decide(d));
+    on<{ id: string; userId: string; role: 'admin' | 'member' }>('sx-group-role', (d) => g.setRole(d));
+    on<{ id: string; userId: string }>('sx-group-remove', (d) => g.removeMember(d));
+    on<{ id: string; email: string | null }>('sx-group-invite', (d) => g.invite(d));
+    on<{ id: string }>('sx-group-invite-revoke', (d) => g.revokeInvite(d.id));
+    on<{ id: string; boatId: string }>('sx-group-boat-add', (d) => g.addBoat(d));
+    on<{ id: string; boatId: string }>('sx-group-boat-remove', (d) => g.removeBoat(d));
+    on<{ groupId: string; body: string; link: string }>('sx-post-create', (d) => g.createPost(d));
+    on<{ id: string }>('sx-post-delete', (d) => g.deletePost(d.id));
+    on<{ scope: 'home' | 'group' }>('sx-stream-more', (d) => g.more(d.scope));
+    on<{ kind: FollowKind; id: string; follow: boolean }>('sx-follow', (d) => g.follow(d));
   }
 
   private wireDragDrop() {
@@ -601,9 +652,25 @@ export class App {
   }
 
   /** Profil-, Boots- oder Entdecken-Seite statt Karte. */
-  private async openPage(route: { kind: 'profile'; handle: string; key?: string } | { kind: 'boat'; id: string; key?: string } | { kind: 'discover' }) {
+  private async openPage(
+    route:
+      | { kind: 'profile'; handle: string; key?: string }
+      | { kind: 'boat'; id: string; key?: string }
+      | { kind: 'discover' }
+      | { kind: 'group'; slug: string; key?: string }
+      | { kind: 'group-new' },
+  ) {
     this.ui.app.setAttribute('data-page', '');
     if (route.kind === 'discover') return this.openDiscover();
+    if (route.kind === 'group') {
+      this.community.setPageKey(route.key);
+      return this.groups.openGroup(route.slug, route.key);
+    }
+    if (route.kind === 'group-new') {
+      // Anmeldung abwarten (Rolle, Unterstützer-Status für geschlossene Gruppen)
+      await this.session.backendReady;
+      return this.groups.openCreate();
+    }
     this.community.setPageKey(route.key);
     const page = this.ui.page;
     page.hidden = false;
@@ -633,6 +700,8 @@ export class App {
     document.title = 'Entdecken · Sail Explorer';
     try {
       page.data = await api.discover(24);
+      // Anker /entdecken#vereine („Alle Vereine“)
+      if (location.hash === '#vereine') requestAnimationFrame(() => page.shadowRoot?.getElementById('vereine')?.scrollIntoView());
     } catch (e) {
       page.error = e instanceof ApiError && e.code === 'no_backend' ? 'Entdecken ist auf dieser Installation nicht verfügbar.' : errorText(e);
     } finally {
@@ -646,6 +715,7 @@ export class App {
     try {
       const data = await api.discover(6);
       strip.data = data;
+      this.groups.setPublicGroups(data.groups);
       strip.hidden = false;
     } catch {
       strip.hidden = true;
@@ -658,6 +728,7 @@ export class App {
     this.ui.app.removeAttribute('data-page');
     this.ui.page.hidden = true;
     this.ui.discoverPage.hidden = true;
+    this.ui.groupPage.hidden = true;
     document.title = 'Sail Explorer';
   }
 

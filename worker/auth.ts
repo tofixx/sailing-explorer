@@ -5,6 +5,8 @@ import { magicLinkMail, sendMail } from './mail';
 import { subtractUserStmt } from './storage';
 import { purgeUserReports } from './moderation';
 import { deleteKeys, photoKeysForUser } from './photo-keys';
+import { boatCleanup, userActivityCleanup } from './activity';
+import { purgeUserGroups } from './groups';
 import { TOKEN_RE, normalizeEmail } from './validate';
 
 const SECURE_COOKIE = '__Host-sx_session';
@@ -187,7 +189,15 @@ export async function deleteAccount(request: Request, env: Env): Promise<Respons
 export async function purgeUser(env: Env, user: User): Promise<void> {
   const { results } = await env.DB.prepare('SELECT id FROM shares WHERE user_id = ?').bind(user.id).all<{ id: string }>();
   await deleteKeys(env, [...results.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]), ...(await photoKeysForUser(env, user.id))]);
+  // Vereine und Teams (Konzept 11.9): eigene Gruppen an den dienstältesten Admin übergeben bzw. löschen.
+  const groupStmts = await purgeUserGroups(env, user.id);
+  const { results: boats } = await env.DB.prepare('SELECT id FROM boats WHERE owner_id = ?').bind(user.id).all<{ id: string }>();
   await env.DB.batch([
+    // Neuigkeiten: Aktivitäten des Kontos und seiner Törns, Folgen in beide Richtungen, Beiträge, Mitgliedschaften,
+    // Anfragen, Boote in Gruppen – vor dem Löschen der Törns, Boote und des Kontos.
+    ...userActivityCleanup(env, user.id),
+    ...boats.flatMap((b) => boatCleanup(env, b.id)),
+    ...groupStmts,
     // Speicher der Törns vom globalen Zähler abziehen, bevor sie gelöscht werden (Konzept 5.2).
     subtractUserStmt(env, user.id),
     // Kommentare & Meldungen (Phase D): Meldungen zu eigenen Inhalten zuerst (sie verweisen auf Kommentare),

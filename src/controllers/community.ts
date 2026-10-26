@@ -1,6 +1,7 @@
 import { ApiError, communityApi, type AdminAction, type ShareMeta } from '../services/api';
 import type { Store } from '../services/store';
 import type { CommentsMode, NotifyMode, ReportReason } from '../domain/comment-text';
+import type { GroupNotifyMode } from '../domain/groups';
 import type { SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxComments } from '../components/sx-comments';
 import type { ReportTarget, SxReportDialog } from '../components/sx-report-dialog';
@@ -189,10 +190,18 @@ export class CommunityController {
     }
   }
 
-  saveSettings(s: { notifyComments: NotifyMode }) {
+  saveSettings(s: { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode }) {
+    const done =
+      s.notifyGroups !== undefined
+        ? s.notifyGroups === 'weekly'
+          ? 'Du bekommst ab Sonntag eine wöchentliche Sammelmail aus deinen Vereinen und Teams.'
+          : 'Keine Sammelmail mehr aus Vereinen und Teams.'
+        : s.notifyComments === 'daily'
+          ? 'Du bekommst ab jetzt eine tägliche Sammelmail bei neuen Kommentaren.'
+          : 'Keine Mails mehr über neue Kommentare.';
     return this.accountAct(async () => {
       this.ui.account.settings = await communityApi.saveSettings(s);
-    }, s.notifyComments === 'daily' ? 'Du bekommst ab jetzt eine tägliche Sammelmail bei neuen Kommentaren.' : 'Keine Mails mehr über neue Kommentare.');
+    }, done);
   }
 
   async loadReports(): Promise<void> {

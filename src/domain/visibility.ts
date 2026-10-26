@@ -37,7 +37,7 @@ export function canChooseVisibility(next: Visibility, supporter: boolean, curren
 }
 
 /** Pfad zum Teilen: öffentlich ohne Schlüssel, „Nur mit Link“ mit Schlüssel (Altbestand ohne Schlüssel: ohne). */
-export function sharePath(kind: 's' | 'b' | 'u', idOrHandle: string, visibility: Visibility, key: string | null): string {
+export function sharePath(kind: 's' | 'b' | 'u' | 'g', idOrHandle: string, visibility: Visibility, key: string | null): string {
   return visibility === 'unlisted' && key ? `/${kind}/${idOrHandle}/${key}` : `/${kind}/${idOrHandle}`;
 }
 

@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { json } from './http';
+import { publicGroups } from './groups';
 
 /**
  * Entdecken (F-70 … F-74): zuletzt gesegelte Törns, neue Boote und Segler.
@@ -144,6 +145,8 @@ export async function getDiscover(request: Request, env: Env): Promise<Response>
       voyages: (voyages.results as unknown as VoyageRow[]).map(voyageShape),
       boats: (boats.results as unknown as BoatRow[]).map(boatShape),
       people: (people.results as unknown as PersonRow[]).map(personShape),
+      // Vereine und Teams (Konzept 11.5): öffentlich, nicht ausgeblendet, Eigner nicht gesperrt
+      groups: await publicGroups(env, limit),
     },
     // Nur öffentliche Daten, für alle gleich – darf kurz geteilt gecacht werden.
     { headers: { 'Cache-Control': 'public, max-age=60' } },

@@ -8,6 +8,7 @@ import { assertActive, deleteShareReports, isAdmin } from './moderation';
 import { deleteKeys, photoKeysForShares } from './photo-keys';
 import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
 import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, subtractShareStmt } from './storage';
+import { deleteShareActivity, recordVoyage } from './activity';
 import { quotaVerdict } from '../src/domain/limits';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseCommentsMode, parseVisibility } from './validate';
 import { FREE_RETENTION_MS } from '../src/domain/support';
@@ -238,6 +239,8 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     addStorageStmt(env, row.size_bytes),
   ]);
   const saved = await getShareRow(env, row.id);
+  // Neuigkeiten (Konzept 11.3): nur öffentliche Törns kommen ins Log.
+  if (row.visibility === 'public') await recordVoyage(env, row, now);
   return json({ share: shareShape(saved ?? row, true) }, { status: 201 });
 }
 
@@ -301,6 +304,8 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
     .bind(row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.comments_mode ?? 'on', row.updated_at, row.id)
     .run();
   const saved = await getShareRow(env, row.id);
+  // Erst öffentlich geschaltet: jetzt (einmal je Törn) in die Neuigkeiten.
+  if (previous !== 'public' && row.visibility === 'public') await recordVoyage(env, row, row.updated_at);
   return json({ share: shareShape(saved ?? row, true) });
 }
 
@@ -316,7 +321,7 @@ export async function removeShare(env: Env, id: string): Promise<void> {
   // Datei zurück statt einer Datei, die niemand mehr findet. Die Foto-Zeilen fallen per ON DELETE CASCADE.
   await deleteKeys(env, [key(id), imageKey(id), ...(await photoKeysForShares(env, [id]))]);
   // Speicher vom globalen Zähler abziehen (vor dem Löschen der Zeile), Meldungen entfernen, Törn löschen – ein Batch.
-  await env.DB.batch([subtractShareStmt(env, id), deleteShareReports(env, id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id)]);
+  await env.DB.batch([subtractShareStmt(env, id), deleteShareReports(env, id), deleteShareActivity(env, id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id)]);
 }
 
 /**
