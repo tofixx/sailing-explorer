@@ -210,7 +210,7 @@ export function parsePhotoMeta(header: string | null, now = Date.now()): PhotoMe
 export const parseCommentsMode = (input: unknown): CommentsMode | null => (isCommentsMode(input) ? input : null);
 /** Mail-Benachrichtigung über neue Kommentare: off | daily. */
 export const parseNotifyMode = (input: unknown): NotifyMode | null => (isNotifyMode(input) ? input : null);
-/** Meldbare Objekte (Fotos folgen mit Phase C). */
+/** Meldbare Objekte: Törn, Kommentar, Foto, Profil, Boot. */
 export const parseReportKind = (input: unknown): ReportKind | null => (isReportKind(input) ? input : null);
 export const parseReportReason = (input: unknown): ReportReason | null => (isReportReason(input) ? input : null);
 export const COMMENT_ID_RE = SHARE_ID_RE;
