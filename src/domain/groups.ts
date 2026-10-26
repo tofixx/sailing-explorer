@@ -207,6 +207,19 @@ export function suggestionReasonText(reason: SuggestionReason, port?: string | n
 
 // ---------------------------------------------------------------- Mail-Einstellung
 
+const DAY_MS = 86_400_000;
+/** Sonntag (UTC): ab dann ist die wöchentliche Sammelmail fällig (Konzept 11.7). */
+export const DIGEST_WEEKDAY = 0;
+
+/** Beginn der laufenden Mail-Woche: der letzte Sonntag 00:00 UTC (bzw. heute, wenn Sonntag ist). */
+export function digestWeekStart(now: number): number {
+  const d = new Date(now);
+  const day = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return day - ((d.getUTCDay() - DIGEST_WEEKDAY + 7) % 7) * DAY_MS;
+}
+
+
+
 export const GROUP_NOTIFY_MODES = ['off', 'weekly'] as const;
 export type GroupNotifyMode = (typeof GROUP_NOTIFY_MODES)[number];
 export const isGroupNotifyMode = oneOf(GROUP_NOTIFY_MODES);

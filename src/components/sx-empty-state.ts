@@ -46,6 +46,13 @@ export class SxEmptyState extends LitElement {
         gap: var(--s-3);
         justify-items: center;
       }
+      /* Neuigkeiten (angemeldet) und Entdecken-Leiste untereinander in einer Spalte */
+      .side {
+        width: 100%;
+        min-width: 0;
+        display: grid;
+        gap: var(--s-3);
+      }
       ::slotted(*) {
         pointer-events: auto;
         width: 100%;
@@ -172,7 +179,7 @@ export class SxEmptyState extends LitElement {
           : ''}
         <div class="privacy">${icon('lock')} Dateien werden lokal im Browser ausgewertet.</div>
       </section>
-      <slot name="discover"></slot>
+      <div class="side"><slot name="discover"></slot></div>
     </div>`;
   }
 }

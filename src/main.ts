@@ -15,6 +15,8 @@ import './components/sx-invite-dialog';
 import './components/sx-crew';
 import './components/sx-profile-page';
 import './components/sx-discover';
+import './components/sx-group-page';
+import './components/sx-home-feed';
 import './components/sx-comments';
 import './components/sx-report-dialog';
 import './components/sx-photo-strip';

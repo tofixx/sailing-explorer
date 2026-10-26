@@ -1,6 +1,7 @@
 import { ApiError, communityApi, type AdminAction, type ShareMeta } from '../services/api';
 import type { Store } from '../services/store';
 import type { CommentsMode, NotifyMode, ReportReason } from '../domain/comment-text';
+import type { GroupNotifyMode } from '../domain/groups';
 import type { SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxComments } from '../components/sx-comments';
 import type { ReportTarget, SxReportDialog } from '../components/sx-report-dialog';

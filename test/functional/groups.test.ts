@@ -274,7 +274,7 @@ describe('F-153 Einladungen in Gruppen', () => {
     const now = Date.now();
     for (let i = 0; i < GROUP_LIMITS.members - 1; i += 50) {
       const values = Array.from({ length: Math.min(50, GROUP_LIMITS.members - 1 - i) }, (_, k) => `('U${g.id.slice(0, 8)}${String(i + k).padStart(5, '0')}', 'f${g.id}${i + k}@x.org', ${now})`).join(',');
-      await db.prepare(`INSERT INTO users (id, email, created_at) VALUES ${values}`).run();
+      await db.prepare(`INSERT INTO users (id, email, created_at) VALUES ${values}`).all();
       await db.prepare(`INSERT OR IGNORE INTO group_members (group_id, user_id, role, created_at) SELECT ?, id, 'member', ? FROM users WHERE id LIKE ?`).bind(g.id, now, `U${g.id.slice(0, 8)}%`).run();
     }
     expect((await pageJson(g, owner)).stats.members).toBe(GROUP_LIMITS.members);

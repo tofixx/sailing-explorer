@@ -3,11 +3,9 @@
 import type { Env } from './env';
 import { groupDigestMail, sendMail, type GroupDigestItem } from './mail';
 import { GROUP_LIMITS } from '../src/domain/limits';
+import { digestWeekStart } from '../src/domain/groups';
 
 const DAY = 86_400_000;
-/** Sonntag (UTC) */
-export const DIGEST_WEEKDAY = 0;
-
 interface CountRow {
   group_id: string;
   slug: string;
@@ -35,13 +33,6 @@ const COUNTS_SQL = `SELECT g.id AS group_id, g.slug, g.name, a.kind,
     AND (a.kind <> 'post' OR (p.id IS NOT NULL AND p.hidden_at IS NULL))
   GROUP BY g.id, a.kind
   ORDER BY g.name`;
-
-/** Beginn der laufenden Mail-Woche: der letzte Sonntag 00:00 UTC (bzw. heute, wenn Sonntag ist). */
-export function digestWeekStart(now: number): number {
-  const d = new Date(now);
-  const day = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  return day - ((d.getUTCDay() - DIGEST_WEEKDAY + 7) % 7) * DAY;
-}
 
 /**
  * Nächtlich (Cron): ab Sonntag ist jedes Konto mit `weekly` einmal dran, das in dieser Woche noch keine Mail bekam –

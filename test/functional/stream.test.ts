@@ -84,7 +84,7 @@ describe('F-158 Folgen', () => {
     const now = Date.now();
     for (let i = 0; i < GROUP_LIMITS.follows; i += 100) {
       const values = Array.from({ length: 100 }, (_, k) => `('${a.user.id}', 'group', 'G${String(i + k).padStart(17, '0')}', ${now})`).join(',');
-      await db.prepare(`INSERT INTO follows (user_id, target_kind, target_id, created_at) VALUES ${values}`).run();
+      await db.prepare(`INSERT INTO follows (user_id, target_kind, target_id, created_at) VALUES ${values}`).all();
     }
     const b = await s.person({ profile: 'public' });
     const res = await follow(a, 'user', b.handle!);

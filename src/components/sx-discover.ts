@@ -1,5 +1,7 @@
 import { LitElement, css, html } from 'lit';
-import { shareImageUrl, type DiscoverBoat, type DiscoverData, type DiscoverPerson, type DiscoverVoyage } from '../services/api';
+import { ifDefined } from 'lit/directives/if-defined.js';
+import { shareImageUrl, type DiscoverBoat, type DiscoverData, type DiscoverGroup, type DiscoverPerson, type DiscoverVoyage } from '../services/api';
+import { GROUP_KIND_LABEL } from '../domain/groups';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
 import { base } from './shared';
@@ -385,6 +387,18 @@ export class SxDiscover extends LitElement {
     </a>`;
   }
 
+  private group(g: DiscoverGroup) {
+    return html`<a class="card" href="/g/${g.slug}">
+      <span class="ic" aria-hidden="true">${icon(g.kind === 'club' ? 'anchor' : 'sail')}</span>
+      <span class="txt">
+        <span class="t">${g.name}</span>
+        <span class="meta">${[GROUP_KIND_LABEL[g.kind], g.homePort].filter(Boolean).join(' · ')}</span>
+        ${g.description ? html`<span class="bio">${g.description}</span>` : ''}
+        <span class="meta">${plural(g.members, 'Mitglied', 'Mitglieder')}</span>
+      </span>
+    </a>`;
+  }
+
   private strip() {
     // Ohne Daten (kein Backend, Fehler) bleibt die Leiste leer; die App blendet sie dann aus.
     if (!this.data) return '';
@@ -408,8 +422,8 @@ export class SxDiscover extends LitElement {
     </section>`;
   }
 
-  private section<T>(title: string, items: T[], render: (item: T) => unknown, empty: string, cls: string) {
-    return html`<section>
+  private section<T>(title: string, items: T[], render: (item: T) => unknown, empty: string, cls: string, id = '') {
+    return html`<section id=${ifDefined(id || undefined)}>
       <h2 class="eyebrow">${title}</h2>
       ${items.length ? html`<div class=${cls}>${items.map(render)}</div>` : html`<div class="empty">${empty}</div>`}
     </section>`;
@@ -425,6 +439,10 @@ export class SxDiscover extends LitElement {
         ${this.section('Zuletzt gesegelt', d.voyages, (v) => this.voyage(v), 'Noch keine öffentlichen Törns.', 'grid')}
         ${this.section('Boote', d.boats, (b) => this.boat(b), 'Noch keine öffentlichen Boote.', 'grid')}
         ${this.section('Segler', d.people, (p) => this.person(p), 'Noch keine öffentlichen Profile.', 'grid')}
+        ${d.groups
+          ? html`${this.section('Vereine und Teams', d.groups, (g) => this.group(g), 'Noch keine öffentlichen Vereine.', 'grid', 'vereine')}
+              <p class="faint"><a href="/g/neu">Verein oder Team gründen</a></p>`
+          : ''}
       `;
     }
     return html`<div class="page">

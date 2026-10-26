@@ -11,6 +11,8 @@ export type Route =
   | { kind: 'profile'; handle: string; key?: string }
   | { kind: 'boat'; id: string; key?: string }
   | { kind: 'discover' }
+  | { kind: 'group'; slug: string; key?: string }
+  | { kind: 'group-new' }
   | { kind: 'login'; token: string | null }
   | { kind: 'invite'; token: string | null }
   | { kind: 'files'; names: string[] }
@@ -25,12 +27,12 @@ function withKey<T extends object>(route: T, key: string | undefined): T & { key
 }
 
 /** Pfad einer Seite mit optionalem Schlüssel – z. B. zum Nachführen der Adresse bei Ansichtswechseln. */
-export function routePath(kind: 's' | 'b' | 'u', idOrHandle: string, key?: string | null): string {
+export function routePath(kind: 's' | 'b' | 'u' | 'g', idOrHandle: string, key?: string | null): string {
   return `/${kind}/${idOrHandle}${key ? `/${key}` : ''}`;
 }
 
 /** Absoluter Teilen-Link eines eigenen Objekts: `link` vom Server, sonst aus Stufe und Schlüssel abgeleitet. */
-export function absoluteLink(kind: 's' | 'b' | 'u', idOrHandle: string, obj: Linkable, origin = location.origin): string {
+export function absoluteLink(kind: 's' | 'b' | 'u' | 'g', idOrHandle: string, obj: Linkable, origin = location.origin): string {
   return origin + (obj.link || sharePath(kind, idOrHandle, obj.visibility, obj.shareKey ?? null));
 }
 
@@ -42,6 +44,10 @@ export function parseRoute(loc: Pick<Location, 'pathname' | 'search' | 'hash'>):
   const boat = new RegExp(`^/b/([A-Za-z0-9]{12,32})${KEY}/?$`).exec(loc.pathname);
   if (boat) return withKey({ kind: 'boat', id: boat[1] }, boat[2]);
   if (/^\/entdecken\/?$/.test(loc.pathname)) return { kind: 'discover' };
+  // Vereine und Teams (Konzept 11): /g/neu legt an, /g/<slug>(/<schlüssel>) zeigt die Gruppe.
+  if (/^\/g\/neu\/?$/.test(loc.pathname)) return { kind: 'group-new' };
+  const group = new RegExp(`^/g/([a-z0-9-]{3,30})${KEY}/?$`, 'i').exec(loc.pathname);
+  if (group) return withKey({ kind: 'group', slug: group[1].toLowerCase() }, group[2]);
   if (loc.pathname === '/login') {
     const token = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(loc.hash)?.[1] ?? null;
     return { kind: 'login', token };

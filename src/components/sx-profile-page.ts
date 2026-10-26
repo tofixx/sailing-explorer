@@ -1,10 +1,11 @@
 import { LitElement, css, html } from 'lit';
-import type { Boat, Linkable, PageStats, Profile, ShareMeta } from '../services/api';
+import type { Boat, FollowStats, Linkable, PageStats, Profile, ShareMeta } from '../services/api';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
+import './sx-follow';
 
 /** Kurzer Hinweis für Eigentümer, wer die Seite sieht. */
 const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
@@ -14,8 +15,8 @@ const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
 };
 
 export type PageData =
-  | { kind: 'profile'; profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[] }
-  | { kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[] };
+  | { kind: 'profile'; profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[]; social?: FollowStats }
+  | { kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats };
 
 /** Öffentliche Profil- bzw. Bootsseite mit Kennzahlen und gelisteten Törns. */
 export class SxProfilePage extends LitElement {
@@ -23,16 +24,20 @@ export class SxProfilePage extends LitElement {
     data: { attribute: false },
     loading: { type: Boolean },
     error: { type: String },
+    signedIn: { type: Boolean },
   };
   declare data: PageData | null;
   declare loading: boolean;
   declare error: string;
+  /** angemeldet – „Folgen“ ohne Anmeldung öffnet den Anmeldedialog */
+  declare signedIn: boolean;
 
   constructor() {
     super();
     this.data = null;
     this.loading = false;
     this.error = '';
+    this.signedIn = false;
   }
 
   static styles = [
@@ -269,6 +274,9 @@ export class SxProfilePage extends LitElement {
           ${p.isSelf ? html`<div class="facts">${this.ownerFacts(p)}</div>` : ''}
         </div>
         <div class="actions">
+          ${!p.isSelf && p.visibility === 'public' && d.social
+            ? html`<sx-follow kind="user" target-id=${p.handle} label=${p.displayName} .stats=${d.social} ?signed-in=${this.signedIn}></sx-follow>`
+            : ''}
           ${this.shareButton('u', p.handle, p.displayName, 'Profil teilen', p, !!p.isSelf)}
           ${p.isSelf
             ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'profile')}>${icon('pencil')} Bearbeiten</button>`
@@ -311,6 +319,9 @@ export class SxProfilePage extends LitElement {
           </div>
         </div>
         <div class="actions">
+          ${b.visibility === 'public' && d.social
+            ? html`<sx-follow kind="boat" target-id=${b.id} label=${b.name} .stats=${d.social} ?signed-in=${this.signedIn}></sx-follow>`
+            : ''}
           ${this.shareButton('b', b.id, b.name, 'Boot teilen', b, !!b.role)}
           ${b.role
             ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'boats')}>${icon('pencil')} Bearbeiten</button>`

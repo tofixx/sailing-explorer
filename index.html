@@ -20,6 +20,7 @@
         <main class="map-area" aria-label="Karte">
           <div id="map"></div>
           <sx-empty-state>
+            <sx-home-feed slot="discover" hidden></sx-home-feed>
             <sx-discover slot="discover" variant="strip" hidden></sx-discover>
           </sx-empty-state>
         </main>
@@ -61,6 +62,7 @@
       </div>
       <sx-profile-page hidden></sx-profile-page>
       <sx-discover id="discover-page" variant="page" hidden></sx-discover>
+      <sx-group-page hidden></sx-group-page>
     </div>
     <sx-toast></sx-toast>
     <sx-login-dialog></sx-login-dialog>

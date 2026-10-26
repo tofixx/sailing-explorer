@@ -58,7 +58,7 @@ export class SessionController {
   private supportTiers: SupportTier[] | null = null;
   private supportStatus: SupportStatus | null = null;
   /** erfüllt, sobald Konfiguration und Anmeldung geladen sind */
-  private backendReady: Promise<void> = Promise.resolve();
+  backendReady: Promise<void> = Promise.resolve();
   /** geöffnete Einladung (Token), bis sie angenommen oder geschlossen ist */
   private pendingInvite: string | null = null;
   /** Törn, dessen Crew gerade gezeigt wird */
@@ -643,13 +643,13 @@ export class SessionController {
 
   /** Pfad einer eigenen Seite (/b/…, /u/…, /s/…) als absoluten Link kopieren. */
   copyPath(path: string): Promise<void> {
-    if (!/^\/[sbu]\/[A-Za-z0-9/-]+$/.test(path)) return Promise.resolve();
+    if (!/^\/[sbug]\/[A-Za-z0-9/-]+$/.test(path)) return Promise.resolve();
     return this.copy(location.origin + path);
   }
 
 /** Profil-/Bootsseite teilen: Teilen-Menü des Geräts, sonst Link kopieren. */
   async sharePage(path: string, title: string): Promise<void> {
-    if (!/^\/[sbu]\/[A-Za-z0-9/-]+$/.test(path)) return;
+    if (!/^\/[sbug]\/[A-Za-z0-9/-]+$/.test(path)) return;
     const url = location.origin + path;
     if (navigator.share) {
       try {
