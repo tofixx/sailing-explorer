@@ -51,3 +51,24 @@ export function endpointPin(kind: 'start' | 'end', colorToken: string): string {
 ${glyph}
 </svg>`;
 }
+
+/**
+ * Foto-Marker: Kamera in --c-photo mit Halo; mit `count` > 1 als Cluster (Zahl im Kreis).
+ * `active` hebt den Marker hervor (Hover in Galerie, Diagramm oder Lightbox).
+ */
+export function photoPin(count = 1, active = false): string {
+  const r = active ? 15 : 13;
+  if (count > 1) {
+    const label = count > 99 ? '99+' : String(count);
+    return `<svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
+<circle cx="18" cy="18" r="${r + 2}" fill="var(--map-halo)"/>
+<circle cx="18" cy="18" r="${r}" fill="var(--c-photo)"/>
+<text x="18" y="22" text-anchor="middle" font-family="var(--font)" font-size="11.5" font-weight="750" fill="#fff">${label}</text>
+</svg>`;
+  }
+  return `<svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
+<circle cx="18" cy="18" r="${r + 2}" fill="var(--map-halo)"/>
+<circle cx="18" cy="18" r="${r}" fill="var(--c-photo)"/>
+<g fill="none" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"><path d="M11 14.5h3l1.3-2h5.4l1.3 2h3v8.5H11z"/><circle cx="18" cy="18.5" r="2.6"/></g>
+</svg>`;
+}

@@ -145,8 +145,8 @@ export class CommunityController {
   async submitReport(d: { reason: ReportReason; note: string }): Promise<void> {
     const t = this.ui.report.target;
     if (!t) return;
-    // Schlüssel: Törn und Kommentare aus der Törn-Ansicht, Profil/Boot von der geöffneten Seite.
-    const key = t.kind === 'share' || t.kind === 'comment' ? this.current?.key : this.pageKey;
+    // Schlüssel: Törn, Kommentare und Fotos aus der Törn-Ansicht, Profil/Boot von der geöffneten Seite.
+    const key = t.kind === 'share' || t.kind === 'comment' || t.kind === 'photo' ? this.current?.key : this.pageKey;
     Object.assign(this.ui.report, { busy: true, error: '' });
     try {
       await communityApi.report({ kind: t.kind, id: t.id, reason: d.reason, note: d.note }, key);

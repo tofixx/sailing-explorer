@@ -134,6 +134,8 @@ async function uploadState(env: Env, userId: string, inShare: number) {
       used: inShare,
       max: limitsFor('supporter').photosPerShare,
       bytesLeft: Math.max(0, usage.bytesMax - usage.bytesUsed),
+      /** Unterstützen ist eingerichtet – die Oberfläche bietet es bei supporter_required an */
+      supportOffered: supportConfigured(env),
     },
   };
 }

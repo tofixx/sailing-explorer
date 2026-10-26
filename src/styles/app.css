@@ -176,6 +176,33 @@ body {
   border: 0;
 }
 
+/* Fotos auf der Karte (src/map/photo-layer.ts) */
+.sx-photo-marker {
+  border-radius: 50%;
+}
+.sx-photo-marker:focus-visible {
+  box-shadow: var(--focus);
+}
+.sx-photo-marker.pending {
+  opacity: 0.75;
+}
+.sx-photo-tip {
+  display: flex;
+  gap: 4px;
+}
+.sx-photo-tip img {
+  display: block;
+  width: 96px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+}
+#map.sx-placing,
+#map.sx-placing .leaflet-interactive {
+  cursor: crosshair;
+}
+
 :focus-visible {
   outline: none;
   box-shadow: var(--focus);

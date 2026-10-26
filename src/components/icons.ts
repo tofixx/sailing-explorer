@@ -55,6 +55,11 @@ const paths = {
   pennant: svg`<path class="f" d="M6 4.5 19.5 9 6 13.5z"/><path d="M6 21V3M6 4.5 19.5 9 6 13.5"/>`,
   // Kommentare: Sprechblase
   comment: svg`<path class="f" d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-9l-4.5 3.5v-3.5H4A1.5 1.5 0 0 1 2.5 16V7A1.5 1.5 0 0 1 4 5.5z"/><path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-9l-4.5 3.5v-3.5H4A1.5 1.5 0 0 1 2.5 16V7A1.5 1.5 0 0 1 4 5.5zM7 10h10M7 13.5h6"/>`,
+  // Fotos: Kamera
+  camera: svg`<path class="f" d="M3.5 8h4l1.8-2.5h5.4L16.5 8h4v11h-17z"/><path d="M3.5 8h4l1.8-2.5h5.4L16.5 8h4v11h-17z"/><circle cx="12" cy="13.2" r="3.3"/>`,
+  // Pfeile für Galerie und Lightbox
+  left: svg`<path d="M14.5 5.5 8 12l6.5 6.5"/>`,
+  right: svg`<path d="M9.5 5.5 16 12l-6.5 6.5"/>`,
   // Melden: Signalflagge
   flag: svg`<path class="f" d="M5.5 4.5h12l-2.5 4 2.5 4h-12z"/><path d="M5.5 21V3.5M5.5 4.5h12l-2.5 4 2.5 4h-12"/>`,
 };

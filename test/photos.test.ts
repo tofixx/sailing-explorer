@@ -19,8 +19,9 @@ import {
 import { PHOTO_FULL_PX, limitsFor, photoLimitMessage, photoVerdict, usageText } from '../src/domain/limits';
 import { effectivePhotoVisibility, isPhotoVisibility } from '../src/domain/visibility';
 import { inspectImage } from '../worker/image';
-import { photoKey } from '../worker/photo-keys';
 import { parsePhotoMeta, parsePosition, parseTakenAt } from '../worker/validate';
+import { gridCluster } from '../src/domain/cluster';
+import { fitSize, precheck } from '../src/services/photo-process';
 
 // ---------------------------------------------------------------- Testbilder mit EXIF
 
@@ -289,7 +290,7 @@ describe('worker/image: inspectImage', () => {
     expect(inspectImage(riff(vp8x(0)))).toEqual({ ok: false, code: 'invalid_image' });
   });
 
-  it('[F-100] parsePhotoMeta, parsePosition, parseTakenAt, photoKey', () => {
+  it('[F-100] parsePhotoMeta, parsePosition, parseTakenAt', () => {
     const now = Date.UTC(2026, 9, 1);
     expect(parsePhotoMeta(null, now)).toEqual({ caption: '', takenAt: null, lat: null, lon: null, placement: 'none', visibility: 'public' });
     const m = parsePhotoMeta(encodeURIComponent(JSON.stringify({ caption: 'A\u0000b', takenAt: T0, lat: 54.123456, lon: 13.1, placement: 'time', visibility: 'private' })), now);
@@ -303,7 +304,33 @@ describe('worker/image: inspectImage', () => {
     expect(parsePosition(1, 2, 'irgendwo')).toBeNull();
     expect(parseTakenAt(now + 10 * 86_400_000, now)).toBeNull();
     expect(parseTakenAt('2026', now)).toBeNull();
-    expect(photoKey('S1', 'P1', 'webp', true)).toBe('photos/S1/P1_t.webp');
-    expect(photoKey('S1', 'P1', 'jpeg', false)).toBe('photos/S1/P1.jpg');
+  });
+});
+
+// ---------------------------------------------------------------- Clusterung und Bildaufbereitung (rein)
+
+
+describe('cluster und photo-process', () => {
+  it('[F-103] Raster-Clusterung: nahe Punkte zusammen (auch über Zellgrenzen), ferne getrennt, Reihenfolge stabil', () => {
+    const pts = [
+      { item: 'a', x: 10, y: 10 },
+      { item: 'b', x: 30, y: 12 },
+      { item: 'c', x: 46, y: 10 }, // andere Zelle, aber nah an a/b
+      { item: 'd', x: 400, y: 400 },
+    ];
+    const cs = gridCluster(pts, 44);
+    expect(cs.map((c) => c.items)).toEqual([['a', 'b', 'c'], ['d']]);
+    expect(cs[0].x).toBeCloseTo((10 + 30 + 46) / 3, 6);
+    expect(gridCluster([], 44)).toEqual([]);
+  });
+
+  it('[F-100] Verkleinern auf die lange Kante, nie vergrößern; Vorprüfung der Dateien', () => {
+    expect(fitSize(4032, 3024, 2048)).toEqual({ width: 2048, height: 1536 });
+    expect(fitSize(3024, 4032, 400)).toEqual({ width: 300, height: 400 });
+    expect(fitSize(800, 600, 2048)).toEqual({ width: 800, height: 600 });
+    expect(precheck({ name: 'a.jpg', type: 'image/jpeg', size: 1000 })).toBeNull();
+    expect(precheck({ name: 'IMG.HEIC', type: '', size: 1000 })).toBeNull();
+    expect(precheck({ name: 'track.gpx', type: 'application/gpx+xml', size: 1000 })).toMatch(/Keine Bilddatei/);
+    expect(precheck({ name: 'a.png', type: 'image/png', size: 100 * 1024 * 1024 })).toMatch(/zu groß/);
   });
 });

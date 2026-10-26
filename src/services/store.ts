@@ -10,7 +10,7 @@ export interface Layers {
   waveArrows: boolean;
 }
 
-export type HoverSource = 'map' | 'chart' | 'kpi';
+export type HoverSource = 'map' | 'chart' | 'kpi' | 'photo';
 
 /**
  * local: eigener Arbeitsbereich (wird im Browser gespeichert)

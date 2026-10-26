@@ -17,6 +17,9 @@ import './components/sx-profile-page';
 import './components/sx-discover';
 import './components/sx-comments';
 import './components/sx-report-dialog';
+import './components/sx-photo-strip';
+import './components/sx-photo-lightbox';
+import './components/sx-photo-upload';
 import { App } from './app';
 
 new App().start();

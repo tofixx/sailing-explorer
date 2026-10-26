@@ -38,6 +38,13 @@ import type { SxComments } from './components/sx-comments';
 import type { ReportTarget, SxReportDialog } from './components/sx-report-dialog';
 import type { AdminAction } from './services/api';
 import type { CommentsMode, NotifyMode, ReportReason } from './domain/comment-text';
+// ---- Fotos (Phase C) ----
+import { PhotosController } from './controllers/photos';
+import type { SxPhotoStrip } from './components/sx-photo-strip';
+import type { SxPhotoLightbox } from './components/sx-photo-lightbox';
+import type { SxPhotoUpload } from './components/sx-photo-upload';
+import type { Photo } from './services/api';
+import type { PhotoVisibility } from './domain/visibility';
 
 /** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
 const TRACK_COLORS = ['--c-track-1', '--c-track-2', '--c-track-3', '--c-track-4', '--c-track-5', '--c-track-6'];
@@ -93,9 +100,14 @@ export class App {
     comments: $<SxComments>('sx-comments'),
     commentsPanel: $<HTMLElement>('#comments-panel'),
     report: $<SxReportDialog>('sx-report-dialog'),
+    photoStrip: $<SxPhotoStrip>('sx-photo-strip'),
+    photosPanel: $<HTMLElement>('#photos-panel'),
+    lightbox: $<SxPhotoLightbox>('sx-photo-lightbox'),
+    photoUpload: $<SxPhotoUpload>('sx-photo-upload'),
   };
   private session: SessionController;
   private community: CommunityController;
+  private photos: PhotosController;
   private timelinePts: TimedPoint[] = [];
 
   constructor() {
@@ -117,6 +129,18 @@ export class App {
       toast: (msg, ms) => this.toast(msg, ms),
       openLogin: (reason) => this.session.openLogin(reason),
     });
+    this.photos = new PhotosController(this.store, {
+      strip: this.ui.photoStrip,
+      panel: this.ui.photosPanel,
+      lightbox: this.ui.lightbox,
+      upload: this.ui.photoUpload,
+      layer: this.map.photos,
+      toast: (msg, ms) => this.toast(msg, ms),
+      openLogin: (reason) => this.session.openLogin(reason),
+      openSupport: () => this.session.openAccount('shares'),
+      onPhotos: (photos) => this.setPhotoMarks(photos),
+    });
+    this.map.photos.callbacks = { onOpen: (id) => this.photos.open(id), onHover: (id) => this.photoHover(id) };
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
     this.store.subscribe((s, prev) => this.render(s, prev));
@@ -218,11 +242,44 @@ export class App {
       // Kommentare des geteilten Törns (Phase D)
       if (s.mode.kind === 'share' && s.backend) void this.community.loadComments(s.mode.share, s.mode.key);
       else this.community.hideComments();
+      // Fotos des geteilten Törns (Phase C)
+      if (s.mode.kind === 'share' && s.backend) void this.photos.load(s.mode.share, s.mode.key);
+      else this.photos.hide();
+    }
+    // Hover auf Track, Diagramm oder Kennzahl hebt das zeitlich nächste Foto hervor (Konzept 3.3).
+    if (changed('hover') && s.hover?.source !== 'photo') {
+      const near = this.photos.nearestTo(s.hover?.point.time ?? null);
+      this.photos.highlight(near?.id ?? null);
+      this.setActiveMark(near?.id ?? null);
     }
     if (prev && (changed('metric') || changed('layers')) && s.mode.kind === 'share') {
       // Schlüssel („Nur mit Link“) bleibt in der Adresse, sonst wäre der Link nach dem Kopieren tot.
       history.replaceState(null, '', `${routePath('s', s.mode.share.id, s.mode.key)}?${serializeView(s.metric, s.layers)}`);
     }
+  }
+
+  // ---------------------------------------------------------------- Fotos: Diagramm-Ticks und Hover-Verknüpfung
+
+  private setPhotoMarks(photos: Photo[]) {
+    const marks = photos.filter((p) => p.takenAt !== null).map((p) => ({ id: p.id, time: p.takenAt! }));
+    this.ui.weatherChart.marks = marks;
+    this.ui.speedChart.marks = marks;
+  }
+
+  private setActiveMark(id: string | null) {
+    this.ui.weatherChart.activeMark = id;
+    this.ui.speedChart.activeMark = id;
+  }
+
+  /** Hover auf ein Foto (Galerie, Karte, Lightbox) zeigt seinen Zeitpunkt überall (Prinzip Design 5). */
+  private photoHover(id: string | null) {
+    this.photos.highlight(id);
+    this.setActiveMark(id);
+    const t = id ? (this.photos.find(id)?.takenAt ?? null) : null;
+    const i = t === null ? -1 : nearestByTime(this.timelinePts, t);
+    const p = i >= 0 && Math.abs(this.timelinePts[i].time - t!) <= 30 * 60_000 ? this.timelinePts[i] : null;
+    if (p) this.hover(p, 'photo');
+    else if (this.store.get().hover?.source === 'photo') this.hover(null, 'photo');
   }
 
   private renderCharts(s: State) {
@@ -362,6 +419,29 @@ export class App {
     on('sx-admin-refresh', () => c.loadReports());
     on<{ id: string; action: AdminAction }>('sx-admin-decide', (d) => c.decide(d.id, d.action));
     on<{ userId: string; suspended: boolean }>('sx-admin-suspend', (d) => c.suspend(d.userId, d.suspended));
+
+    // ---- Fotos (Phase C) ----
+    const ph = this.photos;
+    on<{ id: string }>('sx-photo-open', (d) => ph.open(d.id));
+    on<{ id: string | null }>('sx-photo-hover', (d) => this.photoHover(d.id));
+    on('sx-photo-add', () => ph.openUpload());
+    on('sx-photo-support', () => ph.support());
+    on<{ index: number }>('sx-photo-nav', (d) => ph.nav(d.index));
+    on('sx-photo-close', () => {
+      ph.close();
+      this.photoHover(null);
+    });
+    on<{ id: string }>('sx-photo-show', (d) => ph.showOnMap(d.id));
+    on<{ id: string; caption: string; visibility: PhotoVisibility }>('sx-photo-save', (d) => ph.save(d));
+    on<{ id: string }>('sx-photo-place', (d) => ph.place(d.id));
+    on<{ id: string }>('sx-photo-delete', (d) => ph.remove(d.id));
+    on<{ files: File[] }>('sx-photo-files', (d) => ph.addFiles(d.files));
+    on<{ min: number }>('sx-photo-offset', (d) => ph.setOffset(d.min));
+    on<{ key: string; caption: string }>('sx-photo-item-caption', (d) => ph.setCaption(d.key, d.caption));
+    on<{ key: string }>('sx-photo-item-remove', (d) => ph.removeItem(d.key));
+    on<{ visibility: PhotoVisibility }>('sx-photo-upload-visibility', (d) => ph.setVisibility(d.visibility));
+    on('sx-photo-upload-submit', () => ph.submitUpload());
+    on('sx-photo-upload-close', () => ph.closeUpload());
   }
 
   private wireDragDrop() {

@@ -6,6 +6,7 @@ import type { MetricKey, Track, TrackPoint } from '../domain/types';
 import type { Layers } from '../services/store';
 import { cssVar, escapeHtml, fmtDateTime, fmtNum } from '../util/html';
 import { endpointPin, waveChevron, windBadge } from './glyphs';
+import { PhotoLayer } from './photo-layer';
 
 export interface MapCallbacks {
   onHover: (p: TrackPoint | null) => void;
@@ -30,6 +31,8 @@ export class MapView {
   private projected: Array<{ p: TrackPoint; x: number; y: number }> = [];
   private tracks: Track[] = [];
   private raf = 0;
+  /** Ebene „Fotos“ (Phase C) – Callbacks setzt die Verdrahtung */
+  readonly photos: PhotoLayer;
 
   constructor(
     private el: HTMLElement,
@@ -75,6 +78,7 @@ export class MapView {
     this.trackLayer.addTo(this.map);
     this.waveLayer.addTo(this.map);
     this.windLayer.addTo(this.map);
+    this.photos = new PhotoLayer(this.map, el);
 
     this.map.on('zoomend viewreset', () => {
       this.project();
