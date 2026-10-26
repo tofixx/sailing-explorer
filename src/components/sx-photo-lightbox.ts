@@ -203,7 +203,8 @@ export class SxPhotoLightbox extends LitElement {
   }
 
   render() {
-    const p = this.photo;
+    // Vollbild erst laden, wenn die Lightbox offen ist (Konzept 3.3).
+    const p = this.open ? this.photo : null;
     const n = this.photos.length;
     return html`<dialog aria-labelledby="pl-h" @close=${this.close} @keydown=${this.onKey}>
       <header>

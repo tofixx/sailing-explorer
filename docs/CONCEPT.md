@@ -207,6 +207,13 @@ Der Worker prüft: Magic Bytes (`RIFF….WEBP` bzw. `FF D8 FF`), Größe, und
 APP1-Segment werden mit 400 abgelehnt (Chunk-/Segment-Header lesen, < 1 ms).
 Breite/Höhe kommen aus dem VP8/VP8L/VP8X- bzw. SOF-Header.
 
+*Umgesetzt (Phase C, `0010_photos.sql`):* ohne eigenen Web Worker – `createImageBitmap` dekodiert und dreht außerhalb des
+Haupt-Threads, `OffscreenCanvas.convertToBlob` kodiert asynchron (`src/services/photo-process.ts`); die Qualität sinkt
+stufenweise, bis 1 MB bzw. 80 KB passen. Fotos werden nacheinander verarbeitet (Speicher mobiler Browser), höchstens 30
+pro Auswahl. Abgelehnt werden zusätzlich APP13 (IPTC) und JPEG-Kommentare sowie animierte WebP. Das Hochladen prüft:
+gesperrt → Unterstützer → 100 pro Törn (im `INSERT … SELECT … WHERE COUNT < 100`, also auch bei parallelen Uploads) →
+Speicher → Notbremse. Kein eigenes Rate-Limit: Unterstützer-Pflicht und Grenzen reichen.
+
 ### 3.2 Platzierung auf der Karte
 
 Reihenfolge, Ergebnis in `placement`:
@@ -235,6 +242,11 @@ fällt auf den Zeitabgleich zurück. So landet keine Wohnadresse auf der Karte.
 - Ein Regler „Zeitversatz der Kamera“ (±15 min fein, ganze Stunden grob)
   verschiebt alle Fotos des Stapels gemeinsam, mit Live-Vorschau auf der Karte.
 
+*Umgesetzt:* Ohne passende Zeit und ohne GPS-Kalibrierung gilt die Zeitzone des Geräts am Trackdatum. Zwischen
+Trackpunkten mit mehr als 30 min Abstand wird nicht interpoliert (der nähere Punkt). Manuell gesetzte Fotos ohne
+Aufnahmezeit übernehmen die Zeit des Trackpunkts (sie erscheinen dann auch im Diagramm). Der Regler erscheint nur, wenn
+ein Foto des Stapels keine eigene Zeitzone hat.
+
 ### 3.3 Darstellung
 
 - **Karte:** eigene Ebene „Fotos“ in `src/map/photo-layer.ts` (von
@@ -249,6 +261,12 @@ fällt auf den Zeitabgleich zurück. So landet keine Wohnadresse auf der Karte.
   am Ende), **Lightbox** `sx-photo-lightbox` mit Tastatur (←/→/Esc), Fokusfalle,
   Bildunterschrift, Zeit, „Auf Karte zeigen“, Kommentaranzahl.
 - Vorschaubilder `loading="lazy"`; Vollbild erst in der Lightbox.
+
+*Umgesetzt:* Clusterung `src/domain/cluster.ts` (44-px-Raster, nahe Zellen verschmolzen), Ebene in `src/map/photo-layer.ts`,
+Ticks per `marks` in `sx-time-chart` (Klick öffnet das Foto), Verdrahtung in `src/controllers/photos.ts` und `app.ts`.
+Die Lightbox nutzt den modalen `<dialog>` als Fokusfalle. Die Kommentaranzahl je Foto fehlt noch – Kommentare zu
+einzelnen Fotos (`comments.photo_id`) sind nicht freigeschaltet; das Löschen eines Fotos löst bestehende Bezüge.
+Nicht-Unterstützer sehen im Panel „Fotos“ einen gesperrten Hinweis, der das Unterstützen-Angebot (Konto) öffnet.
 
 ### 3.4 Datenschutz
 
@@ -276,6 +294,11 @@ Prüfung wie der Törn. Cache: effektiv öffentlich `public, max-age=300` +
 ETag (Statuswechsel greift binnen 5 min, wie heute beim Vorschaubild),
 sonst `private, no-cache`; `Cross-Origin-Resource-Policy: same-origin` (außer
 gewähltem Titelbild), `X-Robots-Tag: noindex`.
+
+*Umgesetzt:* `worker/photos.ts`, `worker/photo-keys.ts` (Keys, Löschen in Portionen zu 1000). Ein Titelbild gibt es noch
+nicht, daher immer `same-origin`. Gelöscht wird zentral in `removeShare` (Eigentümer und Admin), im Cron (`deleteExpired`)
+und in `purgeUser`; Meldungen zu Fotos fallen mit (`deleteShareReports`, `purgeUserReports`, `deleteOrphanReports`).
+Melden von Fotos: Art `photo`, Admins sehen ein Vorschaubild und löschen über `removePhotoById`.
 
 ## 4. Kommentare
 
@@ -372,8 +395,8 @@ und Bootsseiten. Die tägliche Sammelmail schaltet man im Konto unter „Einstel
 | Fotos, Kommentare | folgen ihrem Törn | folgen ihrem Törn | – |
 
 **Umgesetzt (Phase B, `0008_limits.sql`):** Werte wie oben in `src/domain/limits.ts`;
-Boote, Törns und Speicher inkl. Übersichtsbild (`shares.image_bytes`) werden geprüft, Fotos folgen in Phase C
-(Haken `PHOTO_BYTES_*` in `worker/storage.ts`). Altbestand mit Bild wird auf 150 kB geschätzt.
+Boote, Törns und Speicher inkl. Übersichtsbild (`shares.image_bytes`) werden geprüft; seit Phase C zählen Fotos
+(`photos.bytes`) mit. Altbestand mit Bild wird auf 150 kB geschätzt.
 
 Regeln wie F-60: **Bestehendes bleibt**, nur Neues wird blockiert (402
 `supporter_required`, wenn die Unterstützer-Stufe reichen würde, sonst 409 `quota`). Wer nach Ende der Unterstützung über
@@ -385,7 +408,7 @@ Die Werte wandern aus `LIMITS` in `src/domain/limits.ts`:
 `limitsFor(tier: 'free' | 'supporter')`, genutzt von Worker und UI (Anzeige
 „12 von 20 Fotos“). `GET /api/me/support` liefert zusätzlich `bytesUsed`,
 `bytesMax`, `boatsUsed`, `boatsMax` (aktuelle Stufe), `limits` (beide Stufen) und
-`storagePaused`; `photosUsed`/`photosMax` kommen mit Phase C.
+`storagePaused`, seit Phase C auch `photosUsed` (im Konto) und `photosMax` (pro Törn, aktuelle Stufe).
 
 ### 5.2 Globale Notbremse
 
@@ -398,8 +421,7 @@ nachgerechnet, bei Upload/Bild/Löschen/Ablauf/Kontolöschung inkrementell im se
 | 8–9,5 GB | **neue Uploads kostenloser Konten pausiert** („Speicher gerade knapp“, 503 `storage_paused`), Unterstützer weiter |
 | ≥ 9,5 GB | alle neuen Uploads pausiert |
 
-*Umgesetzt (Phase B):* Heute bremst sie neue Törns (es gibt noch keine Fotos); Fotos
-nutzen in Phase C dieselbe Prüfung. Übersichtsbilder, Löschen und Bearbeiten laufen
+*Umgesetzt (Phase B/C):* Sie bremst neue Törns und neue Fotos. Übersichtsbilder, Löschen und Bearbeiten laufen
 immer. GB hier dezimal (8·10⁹ Byte), also mit Reserve unter dem 10-GB-Free-Tier.
 
 Fail closed: Fehlt der Wert, gilt „pausiert“ (der Cron legt die Zeile wieder an). Die Schwellen sind
