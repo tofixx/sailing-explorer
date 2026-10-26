@@ -858,6 +858,8 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
 
 ### 10.8 Offene Fragen an den Betreiber
 
+*Stand 26.10.2026: Die umgesetzten Standards gelten als entschieden; Änderungen nur auf ausdrücklichen Wunsch.*
+
 1. Sollen Crew-Mitglieder nicht öffentliche Törns sehen dürfen, auf denen sie
    eingetragen sind? (Umgesetzt: nein – Mitgliedschaft öffnet nichts.)
 2. Admins auf der öffentlichen Bootsseite nennen? (Umgesetzt: nein.)

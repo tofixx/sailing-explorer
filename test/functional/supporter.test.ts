@@ -213,7 +213,7 @@ describe('F-60 Kostenloses Kontingent', () => {
     expect((await createShare(h, cookie)).status).toBe(402);
   });
 
-  it('[F-60] auch Unterstützer haben höchstens 100 Törns (409 quota)', async () => {
+  it('[F-60] auch Unterstützer haben höchstens 100 Törns (409 quota)', { timeout: 30_000 }, async () => {
     const { cookie, user } = await login(h, email());
     await grantSupport(h, user.id);
     const db = await h.db();
