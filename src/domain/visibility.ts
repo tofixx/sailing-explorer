@@ -48,3 +48,18 @@ export const SHARE_KEY_LENGTH = 22;
 export const SHARE_KEY_RE = /^[A-Za-z0-9]{16,64}$/;
 
 export const isShareKey = (v: unknown): v is string => typeof v === 'string' && SHARE_KEY_RE.test(v);
+
+// ---------------------------------------------------------------- Fotos (Konzept 1.2, F-81)
+
+/** Eigene Stufe eines Fotos: „Wie der Törn“ (public) oder „Nur ich“ (private). */
+export type PhotoVisibility = 'public' | 'private';
+
+export const PHOTO_VISIBILITY_LABEL: Record<PhotoVisibility, string> = {
+  public: 'Wie der Törn',
+  private: 'Nur ich',
+};
+
+export const isPhotoVisibility = (v: unknown): v is PhotoVisibility => v === 'public' || v === 'private';
+
+/** Effektive Sichtbarkeit eines Fotos: nie sichtbarer als sein Törn. */
+export const effectivePhotoVisibility = (photo: PhotoVisibility, share: Visibility): Visibility => minVisibility(photo, share);

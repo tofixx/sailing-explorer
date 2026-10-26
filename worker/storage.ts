@@ -11,13 +11,11 @@ export const STORAGE_COUNTER = 'storage_bytes';
 export const SHARE_BYTES_SQL = 's.size_bytes + s.image_bytes';
 
 /**
- * Hook für Phase C (Fotos): zusätzlicher Speicher pro Konto bzw. gesamt, der nicht in `shares` steht.
- * Heute 0; mit der photos-Tabelle z. B. `(SELECT COALESCE(SUM(bytes), 0) FROM photos WHERE user_id = ?1)` bzw.
- * `(SELECT COALESCE(SUM(bytes), 0) FROM photos)`. Fotos, die mit ihrem Törn gelöscht werden, müssen dann auch in
- * subtractShareStmt/subtractUserStmt mitgezählt werden.
+ * Fotos (Phase C): Speicher pro Konto (Bind-Parameter ?1 = user_id) bzw. gesamt. Fotos, die mit ihrem Törn bzw.
+ * Konto gelöscht werden, zählen subtractShareStmt/subtractUserStmt mit.
  */
-export const PHOTO_BYTES_USER_SQL = '0';
-export const PHOTO_BYTES_TOTAL_SQL = '0';
+export const PHOTO_BYTES_USER_SQL = '(SELECT COALESCE(SUM(bytes), 0) FROM photos WHERE user_id = ?1)';
+export const PHOTO_BYTES_TOTAL_SQL = '(SELECT COALESCE(SUM(bytes), 0) FROM photos)';
 
 /** Belegter Speicher eines Kontos (Bind-Parameter ?1 = user_id). */
 export const USER_BYTES_SQL = `(SELECT COALESCE(SUM(${SHARE_BYTES_SQL}), 0) FROM shares s WHERE s.user_id = ?1) + ${PHOTO_BYTES_USER_SQL}`;
@@ -26,11 +24,24 @@ export const USER_BYTES_SQL = `(SELECT COALESCE(SUM(${SHARE_BYTES_SQL}), 0) FROM
 export const addStorageStmt = (env: Env, delta: number) =>
   env.DB.prepare('UPDATE counters SET value = MAX(0, value + ?) WHERE name = ?').bind(Math.round(delta), STORAGE_COUNTER);
 
-/** Vor dem Löschen eines Törns im selben Batch: seinen Speicher vom Zähler abziehen. */
+/** Vor dem Löschen eines Törns im selben Batch: seinen Speicher (inkl. Fotos) vom Zähler abziehen. */
 export const subtractShareStmt = (env: Env, shareId: string) =>
   env.DB.prepare(
-    `UPDATE counters SET value = MAX(0, value - (SELECT COALESCE(SUM(${SHARE_BYTES_SQL}), 0) FROM shares s WHERE s.id = ?)) WHERE name = ?`,
+    `UPDATE counters SET value = MAX(0, value - (SELECT COALESCE(SUM(${SHARE_BYTES_SQL}), 0) FROM shares s WHERE s.id = ?1)
+       - (SELECT COALESCE(SUM(bytes), 0) FROM photos WHERE share_id = ?1)) WHERE name = ?2`,
   ).bind(shareId, STORAGE_COUNTER);
+
+/** Nach dem Einfügen eines Fotos im selben Batch: seine Bytes zum Zähler addieren (0, wenn die Zeile nicht entstand). */
+export const addPhotoStmt = (env: Env, photoId: string) =>
+  env.DB.prepare('UPDATE counters SET value = MAX(0, value + COALESCE((SELECT bytes FROM photos WHERE id = ?1), 0)) WHERE name = ?2').bind(
+    photoId, STORAGE_COUNTER,
+  );
+
+/** Vor dem Löschen eines Fotos im selben Batch: seine Bytes vom Zähler abziehen. */
+export const subtractPhotoStmt = (env: Env, photoId: string) =>
+  env.DB.prepare('UPDATE counters SET value = MAX(0, value - COALESCE((SELECT bytes FROM photos WHERE id = ?1), 0)) WHERE name = ?2').bind(
+    photoId, STORAGE_COUNTER,
+  );
 
 /**
  * Vor dem Setzen von image_bytes im selben Batch: Zähler um die Differenz zum bisherigen Übersichtsbild verschieben –
@@ -41,10 +52,10 @@ export const replaceImageStmt = (env: Env, shareId: string, newBytes: number) =>
     newBytes, shareId, STORAGE_COUNTER,
   );
 
-/** Vor dem Löschen aller Törns eines Kontos im selben Batch. */
+/** Vor dem Löschen aller Törns (und Fotos) eines Kontos im selben Batch. */
 export const subtractUserStmt = (env: Env, userId: string) =>
   env.DB.prepare(
-    `UPDATE counters SET value = MAX(0, value - (SELECT COALESCE(SUM(${SHARE_BYTES_SQL}), 0) FROM shares s WHERE s.user_id = ?)) WHERE name = ?`,
+    `UPDATE counters SET value = MAX(0, value - (SELECT COALESCE(SUM(${SHARE_BYTES_SQL}), 0) FROM shares s WHERE s.user_id = ?1) - ${PHOTO_BYTES_USER_SQL}) WHERE name = ?2`,
   ).bind(userId, STORAGE_COUNTER);
 
 /** Nächtlich: Zähler aus D1 neu berechnen (legt die Zeile auch wieder an). Liefert den neuen Wert. */
@@ -71,14 +82,14 @@ export async function currentBrake(env: Env): Promise<BrakeLevel> {
   return brakeLevel(await storageTotal(env), soft, hard);
 }
 
-/** 503, wenn neue Uploads für diese Stufe gerade pausiert sind (Konzept 5.2). */
-export function checkBrake(level: BrakeLevel, supporter: boolean): void {
+/** 503, wenn neue Uploads für diese Stufe gerade pausiert sind (Konzept 5.2). `what`: „Törns“ bzw. „Fotos“. */
+export function checkBrake(level: BrakeLevel, supporter: boolean, what = 'Törns'): void {
   if (!brakeBlocks(level, supporter)) return;
   throw new HttpError(
     503,
     'storage_paused',
     level === 'hard'
-      ? 'Der Speicher von Sail Explorer ist gerade voll – neue Törns sind vorübergehend pausiert. Bitte später erneut versuchen.'
-      : 'Der Speicher von Sail Explorer ist gerade knapp – neue Törns sind für kostenlose Konten vorübergehend pausiert. Unterstützer können weiter speichern.',
+      ? `Der Speicher von Sail Explorer ist gerade voll – neue ${what} sind vorübergehend pausiert. Bitte später erneut versuchen.`
+      : `Der Speicher von Sail Explorer ist gerade knapp – neue ${what} sind für kostenlose Konten vorübergehend pausiert. Unterstützer können weiter speichern.`,
   );
 }
