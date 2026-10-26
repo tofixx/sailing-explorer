@@ -13,15 +13,19 @@ import { json } from './http';
 
 export const DISCOVER_LIMIT = { default: 12, max: 24 };
 
-/** Öffentlicher Törn – dieselbe Bedingung wie auf Profil- und Bootsseiten. */
-const LISTED = `s.visibility = 'public'`;
+/**
+ * Öffentlicher Törn – wie auf Profil- und Bootsseiten, nicht ausgeblendet (Meldung); zusätzlich verschwinden
+ * Inhalte gesperrter Konten aus den Listen (Konzept 4.4).
+ */
+const LISTED = `s.visibility = 'public' AND s.hidden_at IS NULL AND NOT EXISTS (SELECT 1 FROM users su WHERE su.id = s.user_id AND su.suspended_at IS NOT NULL)`;
+const ACTIVE = (col: string) => `NOT EXISTS (SELECT 1 FROM users su WHERE su.id = ${col} AND su.suspended_at IS NOT NULL)`;
 
 const VOYAGES = `SELECT s.id, s.title, s.summary, s.dist_nm, s.started_at, s.created_at, s.has_image, s.track_count,
     b.id AS boat_id, b.name AS boat_name, b.visibility AS boat_visibility,
     p.handle, p.display_name
   FROM shares s
-  LEFT JOIN profiles p ON p.user_id = s.user_id AND p.visibility = 'public'
-  LEFT JOIN boats b ON b.id = s.boat_id
+  LEFT JOIN profiles p ON p.user_id = s.user_id AND p.visibility = 'public' AND p.hidden_at IS NULL
+  LEFT JOIN boats b ON b.id = s.boat_id AND b.hidden_at IS NULL
   WHERE ${LISTED}
   ORDER BY COALESCE(s.started_at, s.created_at) DESC, s.id
   LIMIT ?1`;
@@ -30,8 +34,8 @@ const BOATS = `SELECT b.id, b.name, b.boat_type, b.length_m, b.home_port, b.crea
     (SELECT COUNT(*) FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS voyages,
     (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS dist_nm
   FROM boats b
-  JOIN profiles p ON p.user_id = b.owner_id AND p.visibility = 'public'
-  WHERE b.visibility = 'public'
+  JOIN profiles p ON p.user_id = b.owner_id AND p.visibility = 'public' AND p.hidden_at IS NULL
+  WHERE b.visibility = 'public' AND b.hidden_at IS NULL AND ${ACTIVE('b.owner_id')}
   ORDER BY b.created_at DESC, b.id
   LIMIT ?1`;
 
@@ -39,9 +43,9 @@ const PEOPLE = `SELECT * FROM (
     SELECT p.handle, p.display_name, p.bio, p.created_at,
       (SELECT COUNT(*) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED}) AS voyages,
       (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED}) AS dist_nm,
-      (SELECT COUNT(*) FROM boats b WHERE b.owner_id = p.user_id AND b.visibility = 'public') AS boats
+      (SELECT COUNT(*) FROM boats b WHERE b.owner_id = p.user_id AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats
     FROM profiles p
-    WHERE p.visibility = 'public'
+    WHERE p.visibility = 'public' AND p.hidden_at IS NULL AND ${ACTIVE('p.user_id')}
   )
   WHERE voyages > 0 OR boats > 0
   ORDER BY created_at DESC, handle

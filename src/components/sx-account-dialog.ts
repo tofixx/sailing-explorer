@@ -1,5 +1,5 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { Boat, BoatAdmins, BoatInput, Linkable, Profile, ShareMeta, SupportStatus, User } from '../services/api';
+import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, Linkable, Profile, ShareMeta, SupportStatus, User } from '../services/api';
 import { WARN_MS, type SupportTier } from '../domain/support';
 import { boatLimitText, usageText } from '../domain/limits';
 import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from '../domain/visibility';
@@ -8,13 +8,17 @@ import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
+import './sx-admin-reports';
 
-export type AccountTab = 'profile' | 'boats' | 'shares';
+export type AccountTab = 'profile' | 'boats' | 'shares' | 'settings' | 'reports';
 
 const TABS: Array<[AccountTab, string]> = [
   ['profile', 'Profil'],
   ['boats', 'Boote'],
   ['shares', 'Freigaben'],
+  ['settings', 'Einstellungen'],
+  // nur für Admins (ADMIN_USER_IDS) sichtbar
+  ['reports', 'Meldungen'],
 ];
 
 /** Konto: Profil, Boote und Freigaben verwalten. Reine Darstellung – Aktionen gehen als Events raus. */
@@ -42,6 +46,8 @@ export class SxAccountDialog extends LitElement {
     offer: { state: true },
     boatVis: { state: true },
     profileVis: { state: true },
+    settings: { attribute: false },
+    reports: { attribute: false },
   };
   declare open: boolean;
   declare tab: AccountTab;
@@ -76,6 +82,10 @@ export class SxAccountDialog extends LitElement {
   declare boatVis: Visibility;
   /** gewählte Stufe im Profil-Formular; null = gespeicherte (bzw. Standard für neue Profile) */
   declare profileVis: Visibility | null;
+  /** Mail-Einstellung, Sperre, Admin (Kommentare & Melden); null = lädt */
+  declare settings: AccountSettings | null;
+  /** offene Meldungen (nur Admins); null = lädt */
+  declare reports: AdminReport[] | null;
 
   constructor() {
     super();
@@ -101,6 +111,8 @@ export class SxAccountDialog extends LitElement {
     this.offer = null;
     this.boatVis = DEFAULT_VISIBILITY;
     this.profileVis = null;
+    this.settings = null;
+    this.reports = null;
   }
 
   static styles = [
@@ -131,6 +143,12 @@ export class SxAccountDialog extends LitElement {
         display: flex;
         gap: var(--s-1);
         border-bottom: 1px solid var(--border-soft);
+        /* fünf Reiter: auf schmalen Bildschirmen seitlich scrollen statt umbrechen */
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .tabs button {
+        white-space: nowrap;
       }
       .tabs button {
         border: 0;
@@ -394,6 +412,8 @@ export class SxAccountDialog extends LitElement {
         this.offer = null;
         this.profileVis = null;
         dlg.showModal();
+        // Einstellungen und (für Admins) Meldungen nachladen – Kommentare & Melden (Phase D)
+        emit(this, 'sx-account-opened');
       } else if (!this.open && dlg.open) dlg.close();
     }
   }
@@ -738,6 +758,7 @@ export class SxAccountDialog extends LitElement {
         <div class="sub">
           ${s.summary || plural(s.trackCount, 'Track', 'Tracks')} · ${fmtDate(s.createdAt)}
           ${this.expiry(s)}
+          ${s.hiddenAt ? html`<span class="expiry soon">${icon('eyeOff')}gemeldet – ausgeblendet bis zur Prüfung</span>` : ''}
         </div>
       </div>
       ${this.confirm === s.id
@@ -801,9 +822,34 @@ export class SxAccountDialog extends LitElement {
     `;
   }
 
+  // ------------------------------------------------------------ Einstellungen und Meldungen (Phase D)
+
+  private settingsTab() {
+    const st = this.settings;
+    if (!st) return html`<div class="empty">Lade …</div>`;
+    return html`
+      ${st.suspended ? html`<div class="note warn" role="status">${icon('lock')}<span>Dein Konto ist gesperrt: Hochladen, Kommentieren, Melden und Einladen sind nicht möglich. Ansehen, Löschen und Abmelden gehen weiter.</span></div>` : ''}
+      <div>
+        <div class="label" id="notify-h">Benachrichtigungen</div>
+        <label class="check">
+          <input type="checkbox" aria-describedby="notify-hint" .checked=${st.notifyComments === 'daily'} ?disabled=${this.busy}
+            @change=${(e: Event) => emit(this, 'sx-settings-save', { notifyComments: (e.target as HTMLInputElement).checked ? 'daily' : 'off' })} />
+          <span>Tägliche Sammelmail bei neuen Kommentaren auf meinen Törns</span>
+        </label>
+        <p class="hint" id="notify-hint">Höchstens eine Mail pro Tag, nur wenn es Neues gibt – mit Törn und Anzahl, ohne Kommentartexte.</p>
+      </div>
+      ${!st.hasProfile ? html`<div class="note">${icon('info')}<span>Zum Kommentieren brauchst du ein Profil mit Anzeigenamen (Reiter „Profil“).</span></div>` : ''}
+    `;
+  }
+
+  private tabs() {
+    return TABS.filter(([key]) => key !== 'reports' || this.settings?.isAdmin);
+  }
+
   // ------------------------------------------------------------ Rahmen
 
   private count(key: AccountTab) {
+    if (key === 'reports') return this.reports?.length ? ` (${this.reports.length})` : '';
     const n = key === 'boats' ? this.boats.length : key === 'shares' ? this.shares.length : 0;
     return n ? ` (${n})` : '';
   }
@@ -827,7 +873,7 @@ export class SxAccountDialog extends LitElement {
             </div>`
           : ''}
         <div class="tabs" role="tablist">
-          ${TABS.map(
+          ${this.tabs().map(
             ([key, label]) => html`<button
               role="tab"
               aria-selected=${this.tab === key}
@@ -835,6 +881,7 @@ export class SxAccountDialog extends LitElement {
                 this.tab = key;
                 this.confirm = null;
                 this.editBoat = null;
+                if (key === 'reports') emit(this, 'sx-admin-refresh');
               }}
             >
               ${label}${this.count(key)}
@@ -843,7 +890,17 @@ export class SxAccountDialog extends LitElement {
         </div>
         ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
         <div role="tabpanel">
-          ${this.loading ? html`<div class="empty">Lade …</div>` : this.tab === 'profile' ? this.profileTab() : this.tab === 'boats' ? this.boatsTab() : this.sharesTab()}
+          ${this.loading
+            ? html`<div class="empty">Lade …</div>`
+            : this.tab === 'profile'
+              ? this.profileTab()
+              : this.tab === 'boats'
+                ? this.boatsTab()
+                : this.tab === 'settings'
+                  ? this.settingsTab()
+                  : this.tab === 'reports' && this.settings?.isAdmin
+                    ? html`<sx-admin-reports .reports=${this.reports} ?busy=${this.busy}></sx-admin-reports>`
+                    : this.sharesTab()}
         </div>
         <div class="foot">
           ${this.confirm === 'account'

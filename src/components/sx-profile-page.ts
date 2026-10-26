@@ -61,6 +61,16 @@ export class SxProfilePage extends LitElement {
         border: 1px solid var(--border-soft);
         overflow: hidden;
       }
+      .note-hidden {
+        margin: 0;
+        display: flex;
+        gap: var(--s-2);
+        align-items: center;
+        padding: var(--s-2) var(--s-3);
+        border-radius: var(--radius);
+        background: var(--warn-bg);
+        font-size: var(--fs-s);
+      }
       .hero::after {
         /* angedeutete Wellenlinie */
         content: '';
@@ -260,9 +270,12 @@ export class SxProfilePage extends LitElement {
         </div>
         <div class="actions">
           ${this.shareButton('u', p.handle, p.displayName, 'Profil teilen', p, !!p.isSelf)}
-          ${p.isSelf ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'profile')}>${icon('pencil')} Bearbeiten</button>` : ''}
+          ${p.isSelf
+            ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'profile')}>${icon('pencil')} Bearbeiten</button>`
+            : html`<button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'profile', id: p.handle, label: `das Profil von ${p.displayName}` })}>${icon('flag')} Melden</button>`}
         </div>
       </header>
+      ${p.isSelf && p.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.stats(d.stats)}
       ${d.boats.length
         ? html`<section>
@@ -299,9 +312,12 @@ export class SxProfilePage extends LitElement {
         </div>
         <div class="actions">
           ${this.shareButton('b', b.id, b.name, 'Boot teilen', b, !!b.role)}
-          ${b.role ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'boats')}>${icon('pencil')} Bearbeiten</button>` : ''}
+          ${b.role
+            ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'boats')}>${icon('pencil')} Bearbeiten</button>`
+            : html`<button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'boat', id: b.id, label: `das Boot ${b.name}` })}>${icon('flag')} Melden</button>`}
         </div>
       </header>
+      ${b.role && b.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.stats(d.stats)}
       <section><h2 class="eyebrow">Törns</h2>${this.voyages(d.voyages)}</section>
     `;
