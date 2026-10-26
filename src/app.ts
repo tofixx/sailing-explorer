@@ -152,9 +152,12 @@ export class App {
     const vis = visibleTracks(s);
     const has = s.tracks.length > 0;
 
-    this.ui.app.toggleAttribute('data-empty', !has);
-    this.ui.empty.hidden = has;
-    Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend });
+    // Startseite: ohne Tracks immer, mit Tracks auf Wunsch (Logo / „Start“) – die Tracks bleiben dabei geladen.
+    const home = !has || s.home;
+    this.ui.app.toggleAttribute('data-empty', home);
+    this.ui.empty.hidden = !home;
+    this.ui.empty.trackCount = s.tracks.length;
+    Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home });
     this.ui.toast.loading = s.loading;
 
     if (dataChanged || changed('metric')) {
@@ -253,6 +256,17 @@ export class App {
     on<string>('sx-track-remove', (id) => this.updateTracks(this.store.get().tracks.filter((t) => t.id !== id)));
     this.ui.tracksAside.addEventListener('click', () => this.clearAll());
     this.wireDragDrop();
+
+    // Startseite ↔ Törn-Ansicht
+    on('sx-home', () => {
+      this.store.set({ home: true, hover: null });
+      // z. B. aus einer geteilten Ansicht: Community-Leiste nachladen
+      if (!this.ui.discoverStrip.data) void this.loadDiscoverStrip();
+    });
+    on('sx-track-view', () => {
+      this.store.set({ home: false });
+      this.map.fit(visibleTracks(this.store.get()));
+    });
 
     // Konto & Teilen
     on('sx-share', () => s.share());
@@ -373,7 +387,7 @@ export class App {
 
   /** Setzt Tracks, speichert den Arbeitsbereich und lädt Wetter nach. */
   private async setTracks(tracks: Track[], opts: { mode: State['mode']; fit: boolean }) {
-    this.store.set({ tracks, mode: opts.mode, hover: null, weather: null, status: { level: 'loading', text: 'Lade Wind- und Wellendaten …' }, loading: null });
+    this.store.set({ tracks, mode: opts.mode, home: false, hover: null, weather: null, status: { level: 'loading', text: 'Lade Wind- und Wellendaten …' }, loading: null });
     if (opts.fit) this.map.fit(tracks);
     this.persist();
     if (!tracks.length) return this.store.set({ status: initialState.status });
@@ -465,13 +479,13 @@ export class App {
     }
   }
 
-  /** Leiste „Zuletzt gesegelt“ im Einstieg – ohne Backend, bei Fehlern oder ohne Törns bleibt sie unsichtbar. */
+  /** Community-Leiste im Einstieg – immer sichtbar, wenn der Server antwortet (auch leer mit Einladung); ohne Backend oder bei Fehlern unsichtbar. */
   private async loadDiscoverStrip() {
     const strip = this.ui.discoverStrip;
     try {
       const data = await api.discover(6);
       strip.data = data;
-      strip.hidden = !data.voyages.length;
+      strip.hidden = false;
     } catch {
       strip.hidden = true;
     }

@@ -11,11 +11,14 @@ export class SxTopbar extends LitElement {
     mode: { attribute: false },
     hasTracks: { type: Boolean },
     backend: { type: Boolean },
+    home: { type: Boolean },
   };
   declare user: User | null;
   declare mode: Mode;
   declare hasTracks: boolean;
   declare backend: boolean;
+  /** Startseite wird gerade angezeigt */
+  declare home: boolean;
 
   constructor() {
     super();
@@ -23,6 +26,7 @@ export class SxTopbar extends LitElement {
     this.mode = { kind: 'local' };
     this.hasTracks = false;
     this.backend = false;
+    this.home = false;
   }
 
   static styles = [
@@ -149,6 +153,13 @@ export class SxTopbar extends LitElement {
     `,
   ];
 
+  /** Mit geladenen Tracks öffnet das Logo die Startseite, ohne die Tracks zu verwerfen. */
+  private onBrand = (e: MouseEvent) => {
+    if (!this.hasTracks || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    emit(this, this.home ? 'sx-track-view' : 'sx-home');
+  };
+
   private chip() {
     if (this.mode.kind === 'share') {
       const s = this.mode.share;
@@ -169,7 +180,7 @@ export class SxTopbar extends LitElement {
 
   render() {
     return html`
-      <a class="brand" href="/" aria-label="Sail Explorer – Startseite">
+      <a class="brand" href="/" aria-label="Sail Explorer – Startseite" @click=${this.onBrand}>
         <span class="mark">${logo()}</span><span class="name">Sail Explorer</span>
       </a>
       ${this.chip()}
@@ -178,6 +189,11 @@ export class SxTopbar extends LitElement {
         <button class="btn collapse" @click=${() => pickGpx(this)} title="GPX-Dateien laden">
           ${icon('upload')}<span class="label-text">GPX laden</span>
         </button>
+        ${this.hasTracks && this.home
+          ? html`<button class="btn collapse" @click=${() => emit(this, 'sx-track-view')} title="Zurück zur Törn-Ansicht">
+              ${icon('map')}<span class="label-text">Mein Törn</span>
+            </button>`
+          : nothing}
         ${this.hasTracks
           ? html`<button class="btn primary share keep" @click=${() => emit(this, 'sx-share')} title="Als Link oder Bild teilen">
               ${icon('share')}<span class="label-text">Teilen</span>

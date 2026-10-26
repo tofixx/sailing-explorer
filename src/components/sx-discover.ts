@@ -196,6 +196,28 @@ export class SxDiscover extends LitElement {
       .strip a.main {
         font-size: var(--fs-s);
       }
+      .strip h2 {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .strip h2 svg {
+        width: 15px;
+        height: 15px;
+      }
+      .invite {
+        display: grid;
+        gap: 4px;
+        padding: var(--s-4);
+      }
+      .crew {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--s-1) var(--s-2);
+        margin-top: var(--s-3);
+        font-size: var(--fs-s);
+      }
 
       /* ---------- Seite /entdecken */
       .page {
@@ -364,15 +386,25 @@ export class SxDiscover extends LitElement {
   }
 
   private strip() {
-    const list = this.data?.voyages.slice(0, 6) ?? [];
-    // Ohne Daten (kein Backend, Fehler, noch nichts Öffentliches) bleibt die Leiste unsichtbar.
-    if (!list.length) return '';
+    // Ohne Daten (kein Backend, Fehler) bleibt die Leiste leer; die App blendet sie dann aus.
+    if (!this.data) return '';
+    const list = this.data.voyages.slice(0, 6);
+    const crew = [
+      ...this.data.boats.slice(0, 4).map((b) => html`<a class="chip" href="/b/${b.id}" title="Boot ${b.name}">${icon('sail')}${b.name}</a>`),
+      ...this.data.people.slice(0, 4).map((p) => html`<a class="chip" href="/u/${p.handle}" title="Profil von ${p.displayName}">${icon('user')}${p.displayName}</a>`),
+    ];
     return html`<section class="strip" aria-labelledby="strip-t">
       <header>
-        <h2 class="eyebrow" id="strip-t">Zuletzt gesegelt</h2>
+        <h2 class="eyebrow" id="strip-t">${icon('globe')} Community · Zuletzt gesegelt</h2>
         <a href="/entdecken">Alle entdecken</a>
       </header>
-      <div class="row">${list.map((v) => this.voyage(v))}</div>
+      ${list.length
+        ? html`<div class="row">${list.map((v) => this.voyage(v))}</div>`
+        : html`<div class="empty invite">
+            <strong>Noch keine öffentlichen Törns</strong>
+            <span>Teile deinen ersten Törn öffentlich – er erscheint dann hier für alle.</span>
+          </div>`}
+      ${crew.length ? html`<div class="crew"><span class="faint">Neu dabei:</span>${crew}</div>` : ''}
     </section>`;
   }
 

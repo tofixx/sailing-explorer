@@ -231,8 +231,15 @@ describe('sx-discover', () => {
     expect(links(el)).toContain('/entdecken');
   });
 
-  it('[F-70] Leiste ohne Törns rendert nichts', async () => {
+  it('[F-70] Leiste ohne Törns lädt zum ersten öffentlichen Törn ein', async () => {
     const el = await mount('sx-discover', { variant: 'strip', data: data() });
+    expect(el.shadowRoot.querySelector('section')).not.toBeNull();
+    expect(text(el)).toMatch(/Noch keine öffentlichen Törns/);
+    expect(el.shadowRoot.querySelector('a[href="/entdecken"]')).not.toBeNull();
+  });
+
+  it('[F-70] Leiste ohne Daten (kein Backend) rendert nichts', async () => {
+    const el = await mount('sx-discover', { variant: 'strip', data: null });
     expect(el.shadowRoot.querySelector('section')).toBeNull();
   });
 

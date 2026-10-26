@@ -12,14 +12,18 @@ export class SxEmptyState extends LitElement {
   static properties = {
     samples: { attribute: false },
     dragging: { type: Boolean, reflect: true },
+    trackCount: { type: Number },
   };
   declare samples: Sample[];
   declare dragging: boolean;
+  /** > 0: Startseite über geladenen Tracks – mit Weg zurück zur Törn-Ansicht */
+  declare trackCount: number;
 
   constructor() {
     super();
     this.samples = [];
     this.dragging = false;
+    this.trackCount = 0;
   }
 
   static styles = [
@@ -46,6 +50,14 @@ export class SxEmptyState extends LitElement {
         pointer-events: auto;
         width: 100%;
         min-width: 0;
+      }
+      /* Breite Bildschirme: Community neben der Einstiegskarte, damit sie ohne Scrollen sichtbar ist */
+      @media (min-width: 1100px) {
+        .stack {
+          width: min(1180px, 100%);
+          grid-template-columns: 460px minmax(0, 1fr);
+          align-items: center;
+        }
       }
       .card {
         pointer-events: auto;
@@ -98,6 +110,15 @@ export class SxEmptyState extends LitElement {
         font-size: var(--fs-s);
         color: var(--text-3);
       }
+      .hint .link {
+        border: 0;
+        padding: 0;
+        background: none;
+        color: var(--accent);
+        font: inherit;
+        cursor: pointer;
+        text-decoration: underline;
+      }
       .samples {
         margin-top: var(--s-5);
         padding-top: var(--s-4);
@@ -136,8 +157,11 @@ export class SxEmptyState extends LitElement {
         <div class="badge">${icon('map')}</div>
         <h1 id="t">Deinen Törn auf die Seekarte bringen</h1>
         <p>Lade eine oder mehrere GPX-Dateien. Der Track erscheint auf der OpenSeaMap – mit Speed, Wind und Wellen für genau diese Zeit.</p>
-        <button class="btn primary" @click=${() => pickGpx(this)}>${icon('upload')} GPX-Dateien wählen</button>
-        <div class="hint drag-hint">oder einfach auf die Karte ziehen</div>
+        ${this.trackCount
+          ? html`<button class="btn primary" @click=${() => emit(this, 'sx-track-view')}>${icon('map')} Zurück zu deinem Törn</button>
+              <div class="hint">${this.trackCount === 1 ? '1 Track geladen' : `${this.trackCount} Tracks geladen`} · <button class="link" @click=${() => pickGpx(this)}>weitere GPX hinzufügen</button></div>`
+          : html`<button class="btn primary" @click=${() => pickGpx(this)}>${icon('upload')} GPX-Dateien wählen</button>`}
+        ${this.trackCount ? '' : html`<div class="hint drag-hint">oder einfach auf die Karte ziehen</div>`}
         ${this.samples.length
           ? html`<div class="samples">
               <span class="faint">Beispiel ansehen:</span>

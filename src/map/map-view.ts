@@ -185,7 +185,16 @@ export class MapView {
   fit(tracks: Track[]): void {
     const latlngs = tracks.flatMap((t) => [t.points[0], t.points[t.points.length - 1], ...t.points.filter((_, i) => i % 50 === 0)]);
     if (!latlngs.length) return;
-    this.map.fitBounds(L.latLngBounds(latlngs.map((p) => [p.lat, p.lon])), { padding: [40, 40] });
+    // Die Karte kann sich gerade erst verkleinert haben (Seitenleiste nach dem ersten Upload, Wechsel von der
+    // Startseite). Der ResizeObserver meldet das erst später – also jetzt messen, sonst passt der Ausschnitt
+    // zur alten Breite und der Track liegt teils unter der Seitenleiste.
+    this.map.invalidateSize({ animate: false });
+    this.map.fitBounds(L.latLngBounds(latlngs.map((p) => [p.lat, p.lon])), {
+      // unten etwas mehr Luft für Maßstab und Quellenangabe
+      paddingTopLeft: [48, 48],
+      paddingBottomRight: [48, 64],
+      animate: false,
+    });
   }
 
   /** Projiziert Punkte einmal pro Zoomstufe – Hover sucht dann nur noch in Pixeln. */

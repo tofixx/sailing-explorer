@@ -31,6 +31,8 @@ export interface State {
   user: User | null;
   /** Backend fürs Teilen erreichbar */
   backend: boolean;
+  /** Startseite (Einstieg + Community) über geladenen Tracks anzeigen */
+  home: boolean;
 }
 
 export const initialState: State = {
@@ -44,6 +46,7 @@ export const initialState: State = {
   mode: { kind: 'local' },
   user: null,
   backend: false,
+  home: false,
 };
 
 type Listener = (state: State, prev: State) => void;

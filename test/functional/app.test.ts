@@ -249,6 +249,39 @@ describe('F-01/F-02 Dateien laden', () => {
     expect(el<HTMLElement>('.app').hasAttribute('data-empty')).toBe(false);
   });
 
+  it('[F-75] Startseite und Törn-Ansicht: mit geladenen Tracks hin und zurück, Tracks bleiben erhalten', async () => {
+    await startApp();
+    await load(file('a.gpx', leg('A')));
+    const app = el<HTMLElement>('.app');
+    const empty = el<{ hidden: boolean; trackCount: number }>('sx-empty-state');
+    const topbar = el<{ home: boolean }>('sx-topbar');
+    expect(app.hasAttribute('data-empty')).toBe(false);
+
+    emit('sx-home');
+    expect(app.hasAttribute('data-empty')).toBe(true);
+    expect(empty.hidden).toBe(false);
+    expect(empty.trackCount).toBe(1);
+    expect(topbar.home).toBe(true);
+    expect(state().tracks).toHaveLength(1);
+
+    h.maps[0].fit.mockClear();
+    emit('sx-track-view');
+    expect(app.hasAttribute('data-empty')).toBe(false);
+    expect(empty.hidden).toBe(true);
+    expect(topbar.home).toBe(false);
+    // Kartenausschnitt wird für die wieder sichtbare Karte neu gesetzt
+    expect(h.maps[0].fit).toHaveBeenCalledTimes(1);
+  });
+
+  it('[F-75] neuer Upload aus der Startseite wechselt in die Törn-Ansicht', async () => {
+    await startApp();
+    await load(file('a.gpx', leg('A')));
+    emit('sx-home');
+    await load(file('b.gpx', leg('B', T0 + 86_400_000)));
+    expect(el<HTMLElement>('.app').hasAttribute('data-empty')).toBe(false);
+    expect(state().tracks).toHaveLength(2);
+  });
+
   it('[F-01] Drag & Drop auf die Seite lädt die Dateien', async () => {
     await startApp();
     const ev = new Event('drop', { bubbles: true, cancelable: true });
@@ -878,10 +911,11 @@ describe('F-70 Entdecken', () => {
     expect(document.querySelector('sx-empty-state')?.contains(strip() as unknown as Node)).toBe(true);
   });
 
-  it('[F-70] ohne öffentliche Törns bleibt die Leiste ausgeblendet', async () => {
+  it('[F-70] ohne öffentliche Törns bleibt die Leiste sichtbar und lädt ein', async () => {
     await startApp();
     await vi.waitFor(() => expect(discoverCalls()).toHaveLength(1));
-    expect(strip().hidden).toBe(true);
+    await vi.waitFor(() => expect(strip().hidden).toBe(false));
+    expect(strip().data?.voyages).toEqual([]);
   });
 
   it('[F-70] bei Serverfehlern bleibt die Leiste still ausgeblendet (kein Hinweis)', async () => {
