@@ -157,7 +157,7 @@ export class App {
     this.ui.app.toggleAttribute('data-empty', home);
     this.ui.empty.hidden = !home;
     this.ui.empty.trackCount = s.tracks.length;
-    Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home });
+    Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home, saved: s.saved });
     this.ui.toast.loading = s.loading;
 
     if (dataChanged || changed('metric')) {
@@ -391,7 +391,7 @@ export class App {
    * mitkommen (Freigabe, Gast-Sitzung). Abgerufen wird also einmal beim Einstellen, nicht bei jedem Aufruf.
    */
   private async setTracks(tracks: Track[], opts: { mode: State['mode']; fit: boolean; weather?: WeatherData | null }) {
-    this.store.set({ tracks, mode: opts.mode, home: false, hover: null, weather: null, status: { level: 'loading', text: 'Lade Wind- und Wellendaten …' }, loading: null });
+    this.store.set({ tracks, mode: opts.mode, home: false, saved: opts.mode.kind === 'share' && !!opts.mode.share.isOwner, hover: null, weather: null, status: { level: 'loading', text: 'Lade Wind- und Wellendaten …' }, loading: null });
     if (opts.fit) this.map.fit(tracks);
     this.persist();
     if (!tracks.length) return this.store.set({ status: initialState.status });
@@ -411,14 +411,15 @@ export class App {
   private updateTracks(tracks: Track[]) {
     if (!tracks.length) return this.clearAll();
     const removed = tracks.length < this.store.get().tracks.length;
-    this.store.set({ tracks, hover: null });
+    // Entfernen ändert die Trackliste – die Freigabe passt dann nicht mehr dazu.
+    this.store.set({ tracks, hover: null, saved: this.store.get().saved && !removed });
     if (removed) this.map.fit(visibleTracks(this.store.get()));
     this.persist();
   }
 
   private clearAll() {
     const wasLocal = this.store.get().mode.kind === 'local';
-    this.store.set({ tracks: [], weather: null, hover: null, status: initialState.status, mode: { kind: 'local' } });
+    this.store.set({ tracks: [], weather: null, hover: null, saved: false, status: initialState.status, mode: { kind: 'local' } });
     if (wasLocal) return this.persist();
     history.pushState(null, '', '/');
     this.restoreWorkspace();

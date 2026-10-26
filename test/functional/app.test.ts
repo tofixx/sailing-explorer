@@ -620,6 +620,11 @@ describe('F-33 Freigabe erstellen', () => {
     // Wetter wird beim Einstellen einmal geladen und mit der Freigabe gespeichert (F-22)
     expect(stored.payload).toEqual({ v: 1, tracks: [{ name: 'A', gpx: state().tracks[0].raw }], weather: state().weather });
     expect(state().weather).not.toBeNull();
+    // F-76: Kopfzeile zeigt jetzt „Gespeichert“
+    expect(state().saved).toBe(true);
+    expect(el<{ saved: boolean }>('sx-topbar').saved).toBe(true);
+    emit('sx-track-remove', state().tracks[0].id);
+    expect(state().saved).toBe(false);
   });
 
   it('[F-33] ohne „Ansicht mitgeben“ bleibt die Ansicht leer', async () => {

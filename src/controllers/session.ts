@@ -431,6 +431,7 @@ export class SessionController {
         startedAt: starts.length ? Math.min(...starts) : null,
       });
       this.lastShare = { key: this.tracksKey(), share };
+      this.store.set({ saved: true });
       if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: this.supportStatus.sharesUsed + 1 });
       this.showResult(share);
       // Übersichtsbild für die Link-Vorschau – immer im Querformat; Fehler sind nicht kritisch.

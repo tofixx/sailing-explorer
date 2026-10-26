@@ -12,6 +12,7 @@ export class SxTopbar extends LitElement {
     hasTracks: { type: Boolean },
     backend: { type: Boolean },
     home: { type: Boolean },
+    saved: { type: Boolean },
   };
   declare user: User | null;
   declare mode: Mode;
@@ -19,6 +20,8 @@ export class SxTopbar extends LitElement {
   declare backend: boolean;
   /** Startseite wird gerade angezeigt */
   declare home: boolean;
+  /** geladene Tracks sind als Freigabe gespeichert */
+  declare saved: boolean;
 
   constructor() {
     super();
@@ -27,6 +30,7 @@ export class SxTopbar extends LitElement {
     this.hasTracks = false;
     this.backend = false;
     this.home = false;
+    this.saved = false;
   }
 
   static styles = [
@@ -114,18 +118,40 @@ export class SxTopbar extends LitElement {
       .btn.login:hover {
         background: var(--accent-soft);
       }
-      .chip.guest {
+      button.chip {
         cursor: pointer;
-        background: var(--accent-soft);
-        border-color: transparent;
-        color: var(--accent);
         font: inherit;
         font-size: var(--fs-s);
-        font-weight: 550;
+        font-weight: 600;
       }
-      .chip.guest:focus-visible {
+      button.chip:focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
+      }
+      .chip.warn {
+        background: var(--warn-bg);
+        border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+        color: var(--warn);
+      }
+      .chip.ok {
+        background: color-mix(in srgb, var(--ok) 12%, transparent);
+        border-color: transparent;
+        color: var(--ok);
+      }
+      .chip.status {
+        max-width: none;
+      }
+      /* Text staffelt sich mit der Breite: lang (Desktop) · kurz (schmaler, Handy) */
+      .chip .mid {
+        display: none;
+      }
+      @media (max-width: 1150px) {
+        .chip .long {
+          display: none;
+        }
+        .chip .mid {
+          display: inline;
+        }
       }
       @media (max-width: 760px) {
         .label-text {
@@ -134,8 +160,18 @@ export class SxTopbar extends LitElement {
         .keep .label-text {
           display: inline;
         }
-        .chip.guest {
+        /* Handy: kurz, aber neben dem Logo sichtbar */
+        .chip .long {
           display: none;
+        }
+        /* In der vollen Leiste ist kein Platz: Statuspille mittig unter der Kopfzeile, über der Karte */
+        .chip.status {
+          position: absolute;
+          top: calc(100% + var(--s-2));
+          left: 50%;
+          transform: translateX(-50%);
+          max-width: calc(100vw - 2 * var(--s-4));
+          box-shadow: var(--shadow-1);
         }
         .chip {
           max-width: 18ch;
@@ -169,13 +205,24 @@ export class SxTopbar extends LitElement {
       return html`<span class="chip shared" title="Ansicht aus einem Link – wird nicht gespeichert">${icon('link')}<span>${this.mode.title}</span></span>`;
     }
     if (!this.hasTracks) return nothing;
-    return this.user
-      ? html`<span class="chip" title="Angemeldet als ${this.user.email}">${icon('folder')}<span>Arbeitsbereich</span></span>`
-      : this.backend
-        ? html`<button class="chip guest" @click=${() => emit(this, 'sx-login')} title="Deine Tracks liegen nur in diesem Browser. Mit Anmeldung per E-Mail kannst du sie speichern und teilen.">
-            ${icon('lock')}<span>Gast-Sitzung · nur dieses Gerät – anmelden zum Speichern</span>
-          </button>`
-        : html`<span class="chip" title="Deine Tracks werden nur in diesem Browser gespeichert.">${icon('lock')}<span>Gast-Sitzung · nur dieses Gerät</span></span>`;
+    // Ohne Backend gibt es kein Speichern – nur der Hinweis auf den Browser.
+    if (!this.backend) return html`<span class="chip" title="Deine Tracks werden nur in diesem Browser gespeichert.">${icon('lock')}<span>Gast-Sitzung · nur dieses Gerät</span></span>`;
+    if (this.saved) {
+      return html`<button class="chip status ok" @click=${() => emit(this, 'sx-account')} title="Gespeichert in deinem Konto – unter „Konto & Freigaben“ verwalten.">
+        ${icon('check')}<span>Gespeichert</span>
+      </button>`;
+    }
+    // Nicht gespeichert: Gäste zum Anmelden, Angemeldete zum Teilen anregen – mit Hinweis auf Teilen und Community.
+    const guest = !this.user;
+    const why = 'Gespeichert ist er in deinem Konto, teilbar per Link oder Bild und – wenn öffentlich – in der Community unter Entdecken.';
+    return html`<button
+      class="chip status warn"
+      @click=${() => emit(this, guest ? 'sx-login' : 'sx-share')}
+      title=${guest ? `Dein Törn liegt nur in diesem Browser. Melde dich per E-Mail-Link an: ${why}` : `Noch nicht gespeichert. Teile deinen Törn: ${why}`}
+      aria-label=${guest ? 'Nicht gespeichert – anmelden zum Speichern, Teilen und für die Community' : 'Nicht gespeichert – jetzt teilen und speichern'}
+    >
+      ${icon(guest ? 'lock' : 'info')}<span class="long">Nicht gespeichert – ${guest ? 'anmelden, um zu speichern, zu teilen und in der Community zu zeigen' : 'teilen, um zu speichern und in der Community zu zeigen'}</span><span class="mid">Nicht gespeichert · ${guest ? 'Anmelden' : 'Teilen'}</span>
+    </button>`;
   }
 
   render() {

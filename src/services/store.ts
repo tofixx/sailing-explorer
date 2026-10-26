@@ -33,6 +33,8 @@ export interface State {
   backend: boolean;
   /** Startseite (Einstieg + Community) über geladenen Tracks anzeigen */
   home: boolean;
+  /** Die geladenen Tracks sind als Freigabe im Konto gespeichert */
+  saved: boolean;
 }
 
 export const initialState: State = {
@@ -47,6 +49,7 @@ export const initialState: State = {
   user: null,
   backend: false,
   home: false,
+  saved: false,
 };
 
 type Listener = (state: State, prev: State) => void;

@@ -82,6 +82,7 @@ Jede Anforderung hat eine ID; Tests referenzieren sie im Testnamen (z. B. `[F-03
 - **F-73** Die Entdecken-Daten enthalten nie E-Mail-Adressen, Nutzer-IDs oder Sichtbarkeits-Interna; der Server wählt die Felder ausdrücklich aus. Die Auswahl ist für alle gleich (unabhängig von der Anmeldung) und darf deshalb kurz öffentlich gecacht werden.
 - **F-74** Grenzen: höchstens 24 Einträge je Liste (Standard 12), Sortierung Törns nach Start- bzw. Erstellzeit, Boote und Segler nach Erstellzeit. `/entdecken` hat eine eigene Link-Vorschau und darf indexiert werden.
 - **F-75** Startseite und Törn-Ansicht: Mit geladenen Tracks öffnet das Logo die Startseite (Einstieg + Community), ohne die Tracks zu verwerfen; „Mein Törn“ bzw. „Zurück zu deinem Törn“ führt zurück. Ein neuer Upload wechselt in die Törn-Ansicht. Beim Einblenden der Törn-Ansicht und nach jedem Upload wird der Kartenausschnitt für die dann sichtbare Kartenfläche (ohne Seitenleiste) neu gesetzt, sodass der ganze Track sichtbar ist.
+- **F-76** Speicherstatus neben dem Logo: Mit geladenen Tracks zeigt die Kopfzeile „Nicht gespeichert“ (Gast: Klick öffnet die Anmeldung; angemeldet: Klick öffnet Teilen) mit Hinweis, dass Speichern, Teilen und die Community eine Anmeldung bzw. Freigabe brauchen; nach dem Teilen bzw. in der eigenen Freigabe „Gespeichert“ (Klick öffnet das Konto). Entfernte Tracks heben „Gespeichert“ auf. Ohne Backend nur der Hinweis „nur dieses Gerät“. Auf dem Handy kurz („Nicht gespeichert“), aber sichtbar.
 
 ## Betrieb
 
