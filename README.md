@@ -7,7 +7,7 @@
 <p align="center">
   Segeltörns aus GPX-Dateien auf der Seekarte – mit Fahrt, Wind, Böen und Wellen für genau diese Zeit.<br />
   Teilen per Link, Profile für Segler und Boote.<br />
-  <a href="https://sailing.wollow.ski"><b>sailing.wollow.ski</b></a>
+  <a href="https://segeln-potsdam.de"><b>segeln-potsdam.de</b></a>
 </p>
 
 ---
@@ -125,9 +125,9 @@ npx wrangler secret put TURNSTILE_SECRET
 npx wrangler secret put RESEND_API_KEY
 ```
 
-- **Turnstile:** Widget im Cloudflare-Dashboard anlegen (Domain `sailing.wollow.ski`), Site-Key in `wrangler.jsonc` → `TURNSTILE_SITE_KEY`.
+- **Turnstile:** Widget im Cloudflare-Dashboard anlegen (Domains `segeln-potsdam.de` und `sailing.wollow.ski`), Site-Key in `wrangler.jsonc` → `TURNSTILE_SITE_KEY`.
 - **Mail:** Resend-Konto, Domain `sailing.wollow.ski` verifizieren (DNS bei Cloudflare), Absender in `MAIL_FROM`.
-- **Domain:** `sailing.wollow.ski` ist als Custom Domain in `wrangler.jsonc` hinterlegt; die Zone `wollow.ski` liegt bereits bei Cloudflare.
+- **Domain:** Hauptadresse ist `segeln-potsdam.de` (Zone im selben Cloudflare-Konto). `www.`, alle sonst nicht belegten Subdomains (proxied `*`-Eintrag + Worker-Route) und die frühere Adresse `sailing.wollow.ski` leiten per 301 mit Pfad dorthin weiter (`worker/canonical.ts`, Variablen `CANONICAL_HOST`, `ALIAS_HOSTS`). Ausnahme: der Stripe-Webhook antwortet unter jeder Adresse direkt. Vorschauen laufen weiter unter `sailing-<branch>.wollow.ski`.
 
 Danach deployt die CI bei jedem Push auf den Standardzweig.
 
@@ -142,7 +142,7 @@ npx wrangler secret put STRIPE_SECRET_KEY
 ```
 
 2. **Webhook anlegen** (*Entwickler → Webhooks → Endpunkt hinzufügen*):
-   - URL: `https://sailing.wollow.ski/api/webhooks/stripe`
+   - URL: `https://segeln-potsdam.de/api/webhooks/stripe`
    - Ereignisse: `checkout.session.completed` und `checkout.session.async_payment_succeeded` (für verzögerte Zahlarten wie SEPA)
 3. **Signatur-Secret setzen** (`whsec_…` aus dem Webhook-Endpunkt):
 

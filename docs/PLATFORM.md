@@ -2,7 +2,7 @@
 
 Stand: Oktober 2026. Grundlage: `docs/PRINCIPLES.md`, `docs/REQUIREMENTS.md`,
 `migrations/0001_init.sql`, `worker/*.ts`, `src/app.ts`. Ziel-Domain:
-`sailing.wollow.ski`. Preisangaben zu Cloudflare und Zahlungsanbietern sind
+`segeln-potsdam.de` (früher `sailing.wollow.ski`). Preisangaben zu Cloudflare und Zahlungsanbietern sind
 Richtwerte – vor der Umsetzung gegen die aktuellen Preisseiten prüfen.
 
 ## 1. Kurzbewertung
