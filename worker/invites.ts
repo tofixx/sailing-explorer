@@ -16,6 +16,7 @@ import { BOAT_ID_RE, TOKEN_RE, normalizeEmail, normalizeHandle, parseInviteKind,
 import { funnyName } from '../src/domain/names';
 import { notifyInvite, readInviteNotification } from './notifications';
 import { deleteInviteNotifications } from './notification-cleanup';
+import { prefsOf } from './notification-mail';
 
 const DAY = 86_400_000;
 
@@ -175,8 +176,13 @@ async function createInvite(request: Request, env: Env, user: User, o: NewInvite
     if ((await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE (email IS NOT NULL OR invitee_id IS NOT NULL) AND created_at > ?', now - DAY)) >= INVITE_LIMITS.mailsPerDay) {
       throw new HttpError(429, 'mail_budget', 'Heute wurden schon sehr viele Einladungen verschickt. Bitte morgen erneut versuchen.');
     }
-    // Profilname: die Adresse des Kontos holt nur der Server – sie erscheint nie in einer Antwort.
-    mailTo = 'email' in to ? to.email : ((await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(to.userId).first<{ email: string }>())?.email ?? null);
+    // Profilname: die Adresse des Kontos holt nur der Server – sie erscheint nie in einer Antwort. Ob eine Mail kommt,
+    // entscheidet das eingeladene Konto (Konzept 17.6: Einladungen keine/Mail/Push); in der Glocke steht sie immer.
+    // An eine Adresse geht immer eine Mail – sie ist die Einladung selbst.
+    if ('email' in to) mailTo = to.email;
+    else if ((await prefsOf(env, to.userId)).invite === 'mail') {
+      mailTo = (await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(to.userId).first<{ email: string }>())?.email ?? null;
+    }
   }
   const token = randomToken();
   const row: InviteRow = {

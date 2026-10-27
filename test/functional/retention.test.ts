@@ -182,6 +182,14 @@ describe('F-63 Aufbewahrung (Cron)', () => {
     expect(h.logs.length).toBeGreaterThan(mailsBefore);
   });
 
+  it('[F-256] die Löschwarnung steht zusätzlich in der Glocke – je Törn, ohne handelnde Person, nicht abschaltbar', async () => {
+    const { results } = await (await h.db())
+      .prepare(`SELECT subject_id, actor_id FROM notifications WHERE user_id = ? AND kind = 'expiry' ORDER BY subject_id`)
+      .bind(warn.id)
+      .all<{ subject_id: string; actor_id: string | null }>();
+    expect(results).toEqual([warnA, warnB].sort().map((id) => ({ subject_id: id, actor_id: null })));
+  });
+
   it('[F-63] inaktive leere Konten werden gelöscht (inkl. Sitzungen); mit Törns, Unterstützung oder jüngerer Anmeldung bleiben sie', async () => {
     expect(await userExists(h, inactiveEmpty.id)).toBe(false);
     expect(await (await h.db()).prepare('SELECT 1 FROM sessions WHERE user_id = ?').bind(inactiveEmpty.id).first()).toBeNull();

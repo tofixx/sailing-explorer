@@ -153,28 +153,21 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
 }
 
 /**
- * Tages-Sammelmail über neue Kommentare (Konzept 4.1, opt-in). Nur Törn und Anzahl – keine Kommentartexte,
- * keine Namen. Titel sind Nutzertext → gekürzt und escaped; Pfade stammen vom Server (ID, Schlüssel).
+ * Tägliche Sammelmail über Ungelesenes aus der Glocke (Konzept 17.6, opt-in je Art). Nur Anzahlen und eigene
+ * Gegenstände – keine Namen, keine Texte anderer. Zeilen enthalten Nutzertext (Titel) → escaped; Pfade vom Server.
  */
-export function commentDigestMail(env: Env, to: string, origin: string, items: Array<{ title: string; count: number; path: string }>): Mail {
+export function notificationDigestMail(env: Env, to: string, origin: string, items: Array<{ line: string; path: string }>): Mail {
   const app = env.APP_NAME;
-  const short = (s: string) => {
-    const t = s.trim() || 'Ohne Titel';
-    return t.length > 80 ? `${t.slice(0, 79)}…` : t;
-  };
-  const total = items.reduce((n, i) => n + i.count, 0);
-  const n = (c: number) => (c === 1 ? '1 neuer Kommentar' : `${c} neue Kommentare`);
-  const lines = items.map((i) => `• ${short(i.title)}: ${n(i.count)}\n  ${origin}${i.path}`).join('\n');
-  const foot = `Du bekommst diese Mail, weil du die tägliche Benachrichtigung eingeschaltet hast. Abschalten: ${origin}/ → Konto → Einstellungen.`;
-  const text = `Hallo,\n\nauf deinen Törns bei ${app} gibt es ${n(total)}:\n\n${lines}\n\n${foot}\n`;
-  const list = items
-    .map((i) => `<li><a href="${origin}${i.path}" style="color:#0e6bd8">${escapeHtml(short(i.title))}</a>: ${n(i.count)}</li>`)
-    .join('');
+  const n = items.length === 1 ? 'eine neue Benachrichtigung' : `${items.length} neue Benachrichtigungen`;
+  const foot = `Du bekommst diese Mail, weil du für diese Benachrichtigungen „Mail“ gewählt hast. Was du auf der Seite schon gelesen hast, kommt nicht per Mail. Ändern: ${origin}/?konto=einstellungen`;
+  const lines = items.map((i) => `• ${i.line}\n  ${origin}${i.path}`).join('\n');
+  const text = `Hallo,\n\nbei ${app} gibt es ${n} für dich:\n\n${lines}\n\n${foot}\n`;
+  const list = items.map((i) => `<li><a href="${origin}${i.path}" style="color:#0e6bd8">${escapeHtml(i.line)}</a></li>`).join('');
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>auf deinen Törns bei <b>${app}</b> gibt es ${n(total)}:</p><ul>${list}</ul>
-<p style="color:#5b6b7b;font-size:13px">${foot}</p>
+<p>Hallo,</p><p>bei <b>${app}</b> gibt es ${n} für dich:</p><ul>${list}</ul>
+<p style="color:#5b6b7b;font-size:13px">${escapeHtml(foot)}</p>
 </body></html>`;
-  return { to, subject: `${app}: ${n(total)} auf deinen Törns`, text, html };
+  return { to, subject: `${app}: ${n.charAt(0).toUpperCase()}${n.slice(1)}`, text, html };
 }
 
 export interface GroupDigestItem {

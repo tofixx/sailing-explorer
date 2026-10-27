@@ -4,14 +4,13 @@ import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { sha256Hex, randomId } from './crypto';
 import { HttpError, json, readJson } from './http';
-import { commentDigestMail, sendMail } from './mail';
 import { isAdmin, isSuspended, SUSPENDED } from './moderation';
 import { visibleShare } from './shares';
 import { COMMENT_ID_RE, parseNotifyMode } from './validate';
 import { COMMENT_MAX, COMMENT_MAX_LINKS, cleanComment, commentProblem, type CommentsMode } from '../src/domain/comment-text';
-import { sharePath, type Visibility } from '../src/domain/visibility';
 import { isGroupNotifyMode } from '../src/domain/groups';
 import { notifyComment } from './notifications';
+import { prefsOf, savePrefs } from './notification-mail';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -28,8 +27,6 @@ export const COMMENT_LIMITS = {
   newAccountMax: 3,
   /** Kommentare je Törn */
   perShare: 500,
-  /** Sammelmails pro nächtlichem Lauf (Resend Free: 100 Mails/Tag für alles zusammen) */
-  digestsPerRun: 25,
 } as const;
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diesen Kommentar gibt es nicht (mehr).');
@@ -189,12 +186,16 @@ export async function removeComment(env: Env, id: string): Promise<void> {
 
 async function settingsOf(env: Env, userId: string) {
   const u = await env.DB.prepare(
-    'SELECT notify_comments, notify_groups, suspended_at, (SELECT COUNT(*) FROM profiles WHERE user_id = users.id) AS has_profile FROM users WHERE id = ?',
+    'SELECT notify_groups, suspended_at, (SELECT COUNT(*) FROM profiles WHERE user_id = users.id) AS has_profile FROM users WHERE id = ?',
   )
     .bind(userId)
-    .first<{ notify_comments: string; notify_groups: string; suspended_at: number | null; has_profile: number }>();
+    .first<{ notify_groups: string; suspended_at: number | null; has_profile: number }>();
+  const notify = await prefsOf(env, userId);
   return {
-    notifyComments: parseNotifyMode(u?.notify_comments) ?? 'off',
+    /** Kanäle je Art (Konzept 17.6): keine, Mail (tägliche Sammelmail, Einladungen sofort) oder Push */
+    notify,
+    /** bisherige Kommentar-Einstellung, abgeleitet (F-113): „daily“ = Kommentare per Mail */
+    notifyComments: notify.comment === 'mail' ? 'daily' : 'off',
     /** wöchentliche Sammelmail aus Vereinen und Teams (Konzept 11.7) */
     notifyGroups: isGroupNotifyMode(u?.notify_groups) ? u.notify_groups : 'off',
     suspended: !u || u.suspended_at !== null,
@@ -203,19 +204,20 @@ async function settingsOf(env: Env, userId: string) {
   };
 }
 
-/** GET /api/me/settings – Mail-Einstellung, Sperre, Profil vorhanden, Admin (für die Meldungen-Liste). */
+/** GET /api/me/settings – Benachrichtigungen, Sperre, Profil vorhanden, Admin (für die Meldungen-Liste). */
 export async function getSettings(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   return json(await settingsOf(env, user.id));
 }
 
 /**
- * PATCH /api/me/settings – `{ notifyComments: 'off' | 'daily' }`. Beim Einschalten zählen erst Kommentare ab jetzt
- * (keine Sammelmail über alte Kommentare). Auch gesperrte Konten dürfen abschalten.
+ * PATCH /api/me/settings – `{ notify: { comment: 'mail', … } }` (Kanäle je Art), `{ notifyGroups: 'off' | 'weekly' }`
+ * und weiter `{ notifyComments: 'off' | 'daily' }` (= Kommentare keine/Mail). Neu auf „Mail“ zählt erst ab jetzt.
+ * Auch gesperrte Konten dürfen abschalten.
  */
 export async function patchSettings(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const body = await readJson<{ notifyComments?: unknown; notifyGroups?: unknown }>(request);
+  const body = await readJson<{ notify?: unknown; notifyComments?: unknown; notifyGroups?: unknown }>(request);
   if (body.notifyGroups !== undefined) {
     if (!isGroupNotifyMode(body.notifyGroups)) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
     // Einschalten zählt erst ab jetzt – die erste Sammelmail kommt am nächsten Sonntag.
@@ -229,73 +231,10 @@ export async function patchSettings(request: Request, env: Env): Promise<Respons
   if (body.notifyComments !== undefined) {
     const mode = parseNotifyMode(body.notifyComments);
     if (!mode) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
-    await env.DB.prepare(
-      `UPDATE users SET comments_mailed_at = CASE WHEN ?1 = 'daily' AND notify_comments <> 'daily' THEN ?2 ELSE comments_mailed_at END,
-         notify_comments = ?1 WHERE id = ?3`,
-    )
-      .bind(mode, Date.now(), user.id)
-      .run();
+    await savePrefs(env, user.id, { comment: mode === 'daily' ? 'mail' : 'none' });
   }
+  if (body.notify !== undefined) await savePrefs(env, user.id, body.notify);
   return json(await settingsOf(env, user.id));
-}
-
-// ---------------------------------------------------------------- Tages-Sammelmail
-
-interface DigestRow {
-  user_id: string;
-  email: string;
-  share_id: string;
-  title: string;
-  visibility: Visibility;
-  share_key: string | null;
-  n: number;
-}
-
-/**
- * Nächtlich (Cron): eine Mail pro Konto mit `notify_comments = daily` über neue Kommentare anderer auf eigenen
- * Törns seit der letzten Mail – höchstens `digestsPerRun` Mails pro Lauf, der Rest folgt in der nächsten Nacht.
- * Ohne neue Kommentare keine Mail. Kommentartexte stehen nicht in der Mail (nur Anzahl und Törn).
- */
-export async function sendCommentDigests(env: Env, origin: string, now = Date.now()): Promise<number> {
-  const { results } = await env.DB.prepare(
-    `SELECT u.id AS user_id, u.email, s.id AS share_id, s.title, s.visibility, s.share_key, COUNT(c.id) AS n
-     FROM users u
-     JOIN shares s ON s.user_id = u.id
-     JOIN comments c ON c.share_id = s.id
-     WHERE u.notify_comments = 'daily' AND u.suspended_at IS NULL
-       AND COALESCE(u.comments_mailed_at, 0) < ?1
-       AND c.created_at > COALESCE(u.comments_mailed_at, 0) AND c.created_at <= ?2
-       AND c.user_id <> u.id AND c.hidden_at IS NULL
-       -- schon auf der Seite gelesen (Glocke, Törn geöffnet) → nicht noch einmal per Mail (Konzept 17.4, F-254)
-       AND EXISTS (SELECT 1 FROM notifications n WHERE n.user_id = u.id AND n.kind = 'comment' AND n.subject_kind = 'share'
-                   AND n.subject_id = s.id AND n.read_at IS NULL)
-     GROUP BY u.id, s.id
-     ORDER BY u.id, n DESC
-     LIMIT 1000`,
-  )
-    // Höchstens eine Sammelmail pro Tag, auch wenn der Cron doppelt läuft.
-    .bind(now - 20 * HOUR, now)
-    .all<DigestRow>();
-  const byUser = new Map<string, DigestRow[]>();
-  for (const r of results) {
-    if (!byUser.has(r.user_id) && byUser.size >= COMMENT_LIMITS.digestsPerRun) break;
-    byUser.set(r.user_id, [...(byUser.get(r.user_id) ?? []), r]);
-  }
-  let sent = 0;
-  for (const [userId, rows] of byUser) {
-    try {
-      await sendMail(
-        env,
-        commentDigestMail(env, rows[0].email, origin, rows.map((r) => ({ title: r.title, count: r.n, path: sharePath('s', r.share_id, r.visibility, r.share_key) }))),
-      );
-    } catch (err) {
-      console.error('comment digest failed', err); // nächste Nacht erneut
-      continue;
-    }
-    await env.DB.prepare('UPDATE users SET comments_mailed_at = ? WHERE id = ?').bind(now, userId).run();
-    sent++;
-  }
-  return sent;
 }
 
 /** Ob eine Anfrage einen Kommentar sehen darf, ist an den Törn gebunden – für Meldungen (worker/reports.ts). */

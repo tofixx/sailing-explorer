@@ -37,7 +37,7 @@ afterEach(() => {
 
 const item = (over: Partial<NotificationItem> = {}): NotificationItem => ({
   id: 'n1', kind: 'comment', count: 1, actor: { name: 'Anna', handle: 'anna' }, title: 'Rund Rügen', what: 'deinen Törn',
-  href: '/s/S1', at: Date.parse('2026-10-20T10:00:00Z'), read: false, ...over,
+  href: '/s/S1', at: Date.parse('2026-10-20T10:00:00Z'), read: false, text: '', ...over,
 });
 
 // ---------------------------------------------------------------- Texte und Badge
@@ -87,7 +87,9 @@ describe('sx-notifications', () => {
     expect(links[1].classList.contains('unread')).toBe(false);
     expect(text(el)).toContain('Anna hat „Rund Rügen“ kommentiert');
     links[0].click();
-    expect((opened[0] as NotificationItem).id).toBe('n1');
+    expect(opened[0]).toMatchObject({ item: { id: 'n1' }, newTab: false });
+    links[0].dispatchEvent(new MouseEvent('click', { ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(opened[1]).toMatchObject({ item: { id: 'n1' }, newTab: true });
     (el.shadowRoot.querySelector('button.small') as HTMLButtonElement).click();
     expect(all).toHaveLength(1);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
@@ -132,8 +134,9 @@ describe('NotificationsController', () => {
     document.body.append(panel);
     const badges: string[] = [];
     const went: string[] = [];
-    const c = new NotificationsController(store, { panel, badge: (l) => badges.push(l), navigate: (h) => went.push(h) });
-    return { c, panel, badges, went };
+    const expanded: boolean[] = [];
+    const c = new NotificationsController(store, { panel, badge: (l) => badges.push(l), navigate: (h) => went.push(h), expanded: (o) => expanded.push(o) });
+    return { c, panel, badges, went, expanded };
   }
 
   it('[F-252] Zähler beim Start, danach höchstens alle 2 min; Gäste ohne Anfrage', async () => {
@@ -150,15 +153,35 @@ describe('NotificationsController', () => {
   });
 
   it('[F-252] Glocke öffnet die Liste; Follower und Reaktionen sind damit gelesen, Kommentare nicht', async () => {
-    const { c, panel, badges } = setup();
+    const { c, panel, badges, expanded } = setup();
     await c.toggle();
     expect(panel.open).toBe(true);
+    expect(expanded).toEqual([true]);
     expect(panel.items).toHaveLength(2);
     const read = calls.find((x) => x.url === '/api/notifications/read');
     expect(read?.body).toEqual({ ids: ['n2'] });
     expect(badges.at(-1)).toBe('1');
     await c.toggle();
     expect(panel.open).toBe(false);
+    expect(expanded).toEqual([true, false]);
+  });
+
+  it('[F-252] schließt jemand die Liste, bevor sie geladen ist, wird nichts als gesehen gewertet', async () => {
+    const { c, panel } = setup();
+    const pending = c.toggle();
+    c.close();
+    await pending;
+    expect(panel.items).toHaveLength(0);
+    expect(calls.some((x) => x.url === '/api/notifications/read')).toBe(false);
+  });
+
+  it('[F-253] Strg-Klick: gelesen, aber kein Wechsel der Seite', async () => {
+    const { c, panel, went } = setup();
+    await c.toggle();
+    await c.open(items[0], true);
+    expect(went).toEqual([]);
+    expect(panel.open).toBe(true);
+    expect(panel.items.find((i) => i.id === 'n1')?.read).toBe(true);
   });
 
   it('[F-253] Klick: gelesen, Liste zu, Ziel öffnen; „Alle als gelesen“', async () => {
@@ -182,5 +205,46 @@ describe('NotificationsController', () => {
     calls = [];
     c.seen({ kind: 'invite' }); // Zähler jetzt 0
     expect(calls).toHaveLength(0);
+  });
+
+  it('[F-258] Live: nach dem Zähler öffnet sich der WebSocket; „changed“ lädt Zähler und offene Liste neu; Abbruch → neu verbinden; Hintergrund-Tab → zu', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    const sockets: FakeSocket[] = [];
+    class FakeSocket extends EventTarget {
+      static OPEN = 1;
+      readyState = 1;
+      closed = false;
+      constructor(public url: string) {
+        super();
+        sockets.push(this);
+      }
+      send() {}
+      close() {
+        this.closed = true;
+      }
+    }
+    vi.stubGlobal('WebSocket', FakeSocket);
+    try {
+      const { c, panel } = setup();
+      await c.refresh(true);
+      expect(sockets).toHaveLength(1);
+      expect(sockets[0].url).toMatch(/^ws:\/\/.+\/api\/notifications\/live$/);
+      await c.toggle();
+      calls = [];
+      sockets[0].dispatchEvent(new MessageEvent('message', { data: 'changed' }));
+      await vi.waitFor(() => expect(calls.map((x) => x.url)).toEqual(expect.arrayContaining(['/api/notifications/count', '/api/notifications'])));
+      expect(panel.open).toBe(true);
+      // Abbruch: nach 5 s neu verbinden (über ein Neuladen des Zählers)
+      sockets[0].dispatchEvent(new Event('close'));
+      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.waitFor(() => expect(sockets).toHaveLength(2));
+      // Tab im Hintergrund: Verbindung zu
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(sockets[1].closed).toBe(true);
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      vi.useRealTimers();
+    }
   });
 });

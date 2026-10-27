@@ -7,7 +7,14 @@ const DAY = 86_400_000;
 
 /** Törn gelöscht oder abgelaufen: Kommentare und Reaktionen dazu. */
 export const deleteShareNotifications = (env: Env, shareId: string): D1PreparedStatement =>
-  env.DB.prepare(`DELETE FROM notifications WHERE subject_kind = 'share' AND subject_id = ?`).bind(shareId);
+  env.DB.prepare(
+    `DELETE FROM notifications WHERE (subject_kind = 'share' AND subject_id = ?1)
+       OR (subject_kind = 'invite' AND subject_id IN (SELECT id FROM invites WHERE share_id = ?1))`,
+  ).bind(shareId);
+
+/** Boot gelöscht: Einladungen als Boots-Admin – vor dem Löschen der Einladungen ausführen. */
+export const deleteBoatNotifications = (env: Env, boatId: string): D1PreparedStatement =>
+  env.DB.prepare(`DELETE FROM notifications WHERE subject_kind = 'invite' AND subject_id IN (SELECT id FROM invites WHERE boat_id = ?)`).bind(boatId);
 
 /** Beitrag gelöscht (Autor:in, Gruppen-Admins, Moderation): Reaktionen darauf. */
 export const deletePostNotifications = (env: Env, postId: string): D1PreparedStatement =>
@@ -32,13 +39,16 @@ export const groupNotificationCleanup = (env: Env, groupId: string): D1PreparedS
 export const userNotificationCleanup = (env: Env, userId: string): D1PreparedStatement[] => [
   env.DB.prepare(
     `DELETE FROM notifications WHERE user_id = ?1
-       OR (subject_kind = 'invite' AND subject_id IN (SELECT id FROM invites WHERE inviter_id = ?1))
+       OR (subject_kind = 'invite' AND subject_id IN (SELECT id FROM invites WHERE inviter_id = ?1
+            OR boat_id IN (SELECT id FROM boats WHERE owner_id = ?1) OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)))
        OR (subject_kind = 'post' AND subject_id IN (SELECT id FROM posts WHERE author_id = ?1))`,
   ).bind(userId),
   env.DB.prepare('UPDATE notifications SET actor_id = NULL WHERE actor_id = ?').bind(userId),
+  // Push-Abos (Konzept 17.7) – fielen auch per ON DELETE CASCADE, hier ausdrücklich
+  env.DB.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').bind(userId),
 ];
 
-/** Nächtlich: Gelesenes nach readDays, alles nach maxDays, Einträge ohne Gegenstand – je Schritt gedeckelt. */
+/** Nächtlich: Gelesenes nach readDays, alles nach maxDays, Einträge ohne Gegenstand – je Schritt gedeckelt; Push-Abos ohne Zustellung seit pushStaleDays. */
 export function nightlyNotificationCleanup(env: Env, now: number): D1PreparedStatement[] {
   const L = NOTIFICATION_LIMITS;
   return [
@@ -56,5 +66,6 @@ export function nightlyNotificationCleanup(env: Env, now: number): D1PreparedSta
          OR (n.subject_kind = 'user' AND NOT EXISTS (SELECT 1 FROM users WHERE id = n.subject_id))
          LIMIT ?2)`,
     ).bind(now, L.nightlyBatch),
+    env.DB.prepare('DELETE FROM push_subscriptions WHERE COALESCE(last_ok_at, created_at) < ?').bind(now - L.pushStaleDays * DAY),
   ];
 }

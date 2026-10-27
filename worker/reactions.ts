@@ -87,6 +87,7 @@ export async function putReaction(request: Request, env: Env, rawSubject: string
   await assertVisible(request, env, subject, id);
   const now = Date.now();
   await assertQuota(env, user.id, now);
+  const had = await env.DB.prepare('SELECT 1 AS x FROM reactions WHERE subject_kind = ? AND subject_id = ? AND user_id = ?').bind(subject, id, user.id).first();
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO reactions (subject_kind, subject_id, user_id, kind, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -94,7 +95,8 @@ export async function putReaction(request: Request, env: Env, rawSubject: string
     ).bind(subject, id, user.id, kind, now),
     env.DB.prepare('INSERT INTO reaction_log (user_id, created_at) VALUES (?, ?)').bind(user.id, now),
   ]);
-  await notifyReaction(env, subject, id, user.id);
+  // Nur eine neue Reaktion benachrichtigt – die Art zu wechseln nicht (Konzept 17.2).
+  if (!had) await notifyReaction(env, subject, id, user.id);
   return json(await reactionSummary(env, subject, id, user.id));
 }
 

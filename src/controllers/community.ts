@@ -1,7 +1,7 @@
-import { ApiError, communityApi, type AdminAction, type ShareMeta } from '../services/api';
+import { ApiError, communityApi, type AdminAction, type SettingsPatch, type ShareMeta } from '../services/api';
 import type { Store } from '../services/store';
-import type { CommentsMode, NotifyMode, ReportReason } from '../domain/comment-text';
-import type { GroupNotifyMode } from '../domain/groups';
+import type { CommentsMode, ReportReason } from '../domain/comment-text';
+import { CHANNEL_LABEL, CHOOSABLE_LABEL, type Channel, type ChoosableKind } from '../domain/notifications';
 import type { SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxComments } from '../components/sx-comments';
 import type { ReportTarget, SxReportDialog } from '../components/sx-report-dialog';
@@ -190,9 +190,11 @@ export class CommunityController {
     }
   }
 
-  saveSettings(s: { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode }) {
-    const done =
-      s.notifyGroups !== undefined
+  saveSettings(s: SettingsPatch) {
+    const notify = s.notify && Object.entries(s.notify)[0];
+    const done = notify
+      ? `${CHOOSABLE_LABEL[notify[0] as ChoosableKind]}: ${CHANNEL_LABEL[notify[1] as Channel]}${notify[1] === 'mail' && notify[0] !== 'invite' ? ' (Sammelmail einmal am Tag)' : ''}.`
+      : s.notifyGroups !== undefined
         ? s.notifyGroups === 'weekly'
           ? 'Du bekommst ab Sonntag eine wöchentliche Sammelmail aus deinen Vereinen und Teams.'
           : 'Keine Sammelmail mehr aus Vereinen und Teams.'

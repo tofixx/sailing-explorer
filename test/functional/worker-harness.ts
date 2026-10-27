@@ -63,7 +63,11 @@ export async function applyMigrations(db: D1Like, files: string[]): Promise<void
  * bindings: zusätzliche/abweichende vars und Secrets (z. B. Stripe-Konfiguration für die Unterstützen-Tests).
  * opts.migrateBefore: nur die Migrationen vor diesem Präfix anwenden (Migrationstests mit Altbestand).
  */
-export async function startWorker(bindings: Record<string, string> = {}, opts: { migrateBefore?: string } = {}): Promise<Harness> {
+export async function startWorker(
+  bindings: Record<string, string> = {},
+  /** outbound: fängt fetch() des Workers nach außen ab (z. B. Push-Dienste) */
+  opts: { migrateBefore?: string; outbound?: (request: Request) => Response | Promise<Response> } = {},
+): Promise<Harness> {
   // Worker-Quelltext (TypeScript) wie wrangler zu einem ES-Modul bündeln – nur im Speicher.
   const out = await build({
     entryPoints: [resolve('worker/index.ts')],
@@ -74,6 +78,8 @@ export async function startWorker(bindings: Record<string, string> = {}, opts: {
     mainFields: ['module', 'main'],
     conditions: ['workerd', 'worker', 'browser', 'import'],
     target: 'es2022',
+    // Laufzeit-Module von workerd (Durable Objects) stellt Miniflare bereit
+    external: ['cloudflare:*'],
     write: false,
     logLevel: 'silent',
   });
@@ -98,6 +104,9 @@ export async function startWorker(bindings: Record<string, string> = {}, opts: {
         // ohne Persistenz-Pfad: alles nur im Speicher
         d1Databases: { DB: 'sx-test-db' },
         r2Buckets: ['TRACKS'],
+        // Live-Benachrichtigungen (Konzept 17.8), wie in wrangler.jsonc
+        durableObjects: { NOTIFY_HUB: 'NotificationHub' },
+        ...(opts.outbound ? { outboundService: opts.outbound as never } : {}),
         // wie in wrangler.jsonc
         ratelimits: {
           UPLOAD_LIMITER: { namespace_id: '1001', simple: { limit: 10, period: 60 } },

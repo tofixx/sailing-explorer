@@ -5,7 +5,9 @@ import { fmtShort } from '../util/html';
 import { icon, type IconName } from './icons';
 import { base, emit } from './shared';
 
-const KIND_ICON: Record<NotificationKind, IconName> = { comment: 'comment', reaction: 'heart', follow: 'user', invite: 'mail', request: 'flag' };
+const KIND_ICON: Record<NotificationKind, IconName> = {
+  comment: 'comment', reaction: 'heart', follow: 'user', invite: 'mail', request: 'flag', expiry: 'info', passkey: 'lock',
+};
 
 /**
  * Liste der Benachrichtigungen (Konzept 17, F-252) – klappt unter der Glocke in der Kopfzeile auf. Ein Klick auf einen
@@ -131,8 +133,19 @@ export class SxNotifications extends LitElement {
         font-size: var(--fs-s);
         text-align: center;
       }
+      .sr {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+      h2:focus {
+        outline: none;
+      }
       .small {
-        min-height: 32px;
+        min-height: 40px;
         padding: 0 var(--s-2);
         border: 0;
         border-radius: var(--radius);
@@ -147,7 +160,7 @@ export class SxNotifications extends LitElement {
       .close {
         display: grid;
         place-items: center;
-        width: 32px;
+        width: 40px;
         color: var(--text-2);
       }
       .close svg {
@@ -164,7 +177,7 @@ export class SxNotifications extends LitElement {
   ];
 
   private onKey = (e: KeyboardEvent) => {
-    if (this.open && e.key === 'Escape') emit(this, 'sx-notifications-close');
+    if (this.open && e.key === 'Escape') emit(this, 'sx-notifications-close', { focus: true });
   };
   /** Klick außerhalb schließt – außer auf die Glocke selbst (die schaltet um). */
   private onDown = (e: PointerEvent) => {
@@ -186,10 +199,17 @@ export class SxNotifications extends LitElement {
     document.removeEventListener('pointerdown', this.onDown, true);
   }
 
+  /** Neuer Tab bzw. Fenster (Strg/Cmd/Shift, Mittelklick): der Browser öffnet den Link, hier wird nur gelesen. */
   private onItem(e: MouseEvent, n: NotificationItem) {
-    // Neuer Tab bzw. Fenster: der Browser folgt dem Link, gelesen wird trotzdem.
-    if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) e.preventDefault();
-    emit(this, 'sx-notification-open', n);
+    if (e.button > 1) return;
+    const newTab = e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1;
+    if (!newTab) e.preventDefault();
+    emit(this, 'sx-notification-open', { item: n, newTab });
+  }
+
+  /** Beim Öffnen springt der Fokus in die Liste (Tastatur, Screenreader). */
+  protected updated(changed: Map<string, unknown>) {
+    if (changed.has('open') && this.open) (this.renderRoot.querySelector('h2') as HTMLElement | null)?.focus();
   }
 
   private list() {
@@ -199,10 +219,15 @@ export class SxNotifications extends LitElement {
     return html`<ul>
       ${this.items.map(
         (n) => html`<li>
-          <a class="item ${n.read ? '' : 'unread'}" href=${n.href} @click=${(e: MouseEvent) => this.onItem(e, n)}>
+          <a
+            class="item ${n.read ? '' : 'unread'}"
+            href=${n.href}
+            @click=${(e: MouseEvent) => this.onItem(e, n)}
+            @auxclick=${(e: MouseEvent) => this.onItem(e, n)}
+          >
             <span class="ic">${icon(KIND_ICON[n.kind])}</span>
-            <span class="text">${notificationText(n)}<span class="when">${fmtShort(n.at)}</span></span>
-            ${n.read ? html`<span></span>` : html`<span class="dot" aria-label="ungelesen"></span>`}
+            <span class="text">${n.read ? '' : html`<span class="sr">Ungelesen: </span>`}${notificationText(n)}<span class="when">${fmtShort(n.at)}</span></span>
+            ${n.read ? html`<span></span>` : html`<span class="dot" aria-hidden="true"></span>`}
           </a>
         </li>`,
       )}
@@ -214,11 +239,11 @@ export class SxNotifications extends LitElement {
     const unread = this.items.some((n) => !n.read);
     return html`
       <header>
-        <h2 id="h">Benachrichtigungen</h2>
+        <h2 id="h" tabindex="-1">Benachrichtigungen</h2>
         ${unread ? html`<button class="small" @click=${() => emit(this, 'sx-notifications-read-all')}>Alle als gelesen</button>` : nothing}
-        <button class="small close" aria-label="Schließen" @click=${() => emit(this, 'sx-notifications-close')}>${icon('x')}</button>
+        <button class="small close" aria-label="Schließen" @click=${() => emit(this, 'sx-notifications-close', { focus: true })}>${icon('x')}</button>
       </header>
-      <section role="region" aria-labelledby="h">${this.list()}</section>
+      <section id="list" role="region" aria-labelledby="h">${this.list()}</section>
     `;
   }
 }

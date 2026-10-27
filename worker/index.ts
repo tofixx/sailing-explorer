@@ -28,6 +28,11 @@ import { GROUP_KIND_LABEL } from '../src/domain/groups';
 import { harborVisible, loadHarborBySlug } from './harbors';
 // ---- Benachrichtigungen (Konzept 17) ----
 import { getUnread, listNotifications, markRead } from './notifications';
+import { liveSocket } from './live';
+import { deletePush, getPushKey, putPush } from './push';
+
+/** Durable Object für Live-Benachrichtigungen (wrangler.jsonc: durable_objects). */
+export { NotificationHub } from './live';
 
 const WEBHOOK_PATH = '/api/webhooks/stripe';
 
@@ -67,6 +72,10 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/notifications$/, (r, env) => listNotifications(r, env)],
   ['GET', /^\/api\/notifications\/count$/, (r, env) => getUnread(r, env)],
   ['POST', /^\/api\/notifications\/read$/, (r, env) => markRead(r, env)],
+  ['GET', /^\/api\/notifications\/live$/, (r, env) => liveSocket(r, env)],
+  ['GET', /^\/api\/push\/key$/, (r, env) => getPushKey(r, env)],
+  ['PUT', /^\/api\/me\/push$/, (r, env) => putPush(r, env)],
+  ['DELETE', /^\/api\/me\/push$/, (r, env) => deletePush(r, env)],
   ['POST', /^\/api\/support\/checkout$/, (r, env) => createCheckout(r, env)],
   ['POST', /^\/api\/webhooks\/stripe$/, (r, env) => stripeWebhook(r, env)],
   ['GET', /^\/api\/profiles\/([A-Za-z0-9-]+)$/, (r, env, [h]) => getProfile(r, env, h)],
@@ -219,7 +228,8 @@ async function metaPage(request: Request, env: Env, kind: string, id: string, ke
 
 /** Alle /api/*-Antworten (auch 204 ohne Body) tragen X-Robots-Tag: noindex (F-84). */
 function noindex(res: Response): Response {
-  if (res.headers.get('X-Robots-Tag') === 'noindex') return res;
+  // WebSocket-Antwort (101) nie anfassen – eine Kopie verlöre den Socket (Konzept 17.8)
+  if (res.status === 101 || res.headers.get('X-Robots-Tag') === 'noindex') return res;
   try {
     res.headers.set('X-Robots-Tag', 'noindex');
     return res;

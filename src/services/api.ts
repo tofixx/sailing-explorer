@@ -9,7 +9,7 @@ import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../doma
 import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
 import type { HarborRef } from '../domain/harbors';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
-import type { NotificationItem, NotificationKind } from '../domain/notifications';
+import type { NotificationItem, NotificationKind, NotifyPrefs } from '../domain/notifications';
 
 export type { Visibility };
 
@@ -452,6 +452,8 @@ export interface CommentList {
 }
 
 export interface AccountSettings {
+  /** Kanäle je Art (Konzept 17.6; fehlt bei älteren Servern) */
+  notify?: NotifyPrefs;
   notifyComments: NotifyMode;
   /** wöchentliche Sammelmail aus Vereinen und Teams (fehlt bei älteren Servern) */
   notifyGroups?: GroupNotifyMode;
@@ -459,6 +461,8 @@ export interface AccountSettings {
   hasProfile: boolean;
   isAdmin: boolean;
 }
+
+export type SettingsPatch = { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode; notify?: Partial<NotifyPrefs> };
 
 export interface ReportInput {
   kind: ReportKind;
@@ -505,7 +509,7 @@ export const communityApi = {
   setCommentsMode: (shareId: string, commentsMode: CommentsMode) =>
     call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(shareId)}`, jsonInit('PATCH', { commentsMode })),
   settings: () => call<AccountSettings>('/api/me/settings'),
-  saveSettings: (s: { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode }) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
+  saveSettings: (s: SettingsPatch) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
   report: (r: ReportInput, key?: string | null) =>
     call<{ ok: true; already: boolean }>('/api/reports', {
       ...jsonInit('POST', r),
@@ -929,4 +933,8 @@ export const notificationApi = {
   list: () => call<{ items: NotificationItem[]; unread: number }>('/api/notifications'),
   unread: () => call<{ unread: number }>('/api/notifications/count'),
   read: (what: NotificationRead) => call<{ unread: number }>('/api/notifications/read', jsonInit('POST', what)),
+  /** öffentlicher VAPID-Schlüssel; null = Push hier nicht eingerichtet */
+  pushKey: () => call<{ publicKey: string | null }>('/api/push/key'),
+  subscribePush: (endpoint: string) => call<void>('/api/me/push', jsonInit('PUT', { endpoint })),
+  unsubscribePush: (endpoint: string) => call<void>('/api/me/push', jsonInit('DELETE', { endpoint })),
 };

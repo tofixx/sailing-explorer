@@ -6,7 +6,7 @@ import type { Env } from './env';
 import { randomId } from './crypto';
 import { crossedMilestones, dayKey, seasonOf, type ActivityKind } from '../src/domain/groups';
 import { deleteBoatReactions, deleteGroupReactions, nightlyReactionCleanup, userReactionCleanup } from './reaction-cleanup';
-import { groupNotificationCleanup, nightlyNotificationCleanup, userNotificationCleanup } from './notification-cleanup';
+import { deleteBoatNotifications, groupNotificationCleanup, userNotificationCleanup } from './notification-cleanup';
 
 type TargetKind = 'group' | 'boat' | 'user' | 'harbor';
 
@@ -225,6 +225,7 @@ export const deleteShareActivity = (env: Env, shareId: string) =>
 /** Boot gelöscht: Zuordnungen, Folgen, Aktivitäten mit dem Boot als Gegenstand, Ziele `boat`. */
 export const boatCleanup = (env: Env, boatId: string): D1PreparedStatement[] => [
   deleteBoatReactions(env, boatId),
+  deleteBoatNotifications(env, boatId),
   env.DB.prepare(`DELETE FROM activity WHERE subject_kind = 'boat' AND subject_id = ?`).bind(boatId),
   env.DB.prepare(`DELETE FROM activity_target WHERE target_kind = 'boat' AND target_id = ?`).bind(boatId),
   env.DB.prepare(`DELETE FROM follows WHERE target_kind = 'boat' AND target_id = ?`).bind(boatId),
@@ -301,8 +302,7 @@ export function nightlyActivityCleanup(env: Env, now: number): D1PreparedStateme
     ),
     env.DB.prepare('DELETE FROM group_requests WHERE created_at < ?').bind(now - 90 * DAY),
     env.DB.prepare('DELETE FROM post_log WHERE created_at < ?').bind(now - DAY),
-    // zuletzt: Reaktionen und Benachrichtigungen, deren Gegenstand eben (oder früher) verschwand
+    // zuletzt: Reaktionen, deren Gegenstand eben (oder früher) verschwand
     ...nightlyReactionCleanup(env, now),
-    ...nightlyNotificationCleanup(env, now),
   ];
 }

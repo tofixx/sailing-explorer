@@ -34,6 +34,9 @@
     }
   ],
   "r2_buckets": [{ "binding": "TRACKS", "bucket_name": "sailing-explorer-tracks" }],
+  // Live-Benachrichtigungen (Konzept 17.8): ein Durable Object je Konto, SQLite-basiert (Free Tier), mit Hibernation
+  "durable_objects": { "bindings": [{ "name": "NOTIFY_HUB", "class_name": "NotificationHub" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["NotificationHub"] }],
   "ratelimits": [
     { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
     { "name": "AUTH_LIMITER", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } },

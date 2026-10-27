@@ -19,6 +19,22 @@ CREATE TABLE notifications (
 CREATE UNIQUE INDEX notifications_open ON notifications(user_id, kind, subject_kind, subject_id) WHERE read_at IS NULL;
 -- Liste und Zähler je Person, neueste zuerst
 CREATE INDEX notifications_user ON notifications(user_id, updated_at);
--- Aufräumen nach Gegenstand (Törn, Gruppe, Einladung … gelöscht) und nach handelnder Person
+-- Aufräumen nach Gegenstand (Törn, Gruppe, Einladung … gelöscht). Bewusst kein Index auf actor_id: er kostete bei
+-- jedem Bündeln eine geschriebene Zeile, gebraucht wird er nur beim seltenen Konto-Löschen.
 CREATE INDEX notifications_subject ON notifications(subject_kind, subject_id);
-CREATE INDEX notifications_actor ON notifications(actor_id);
+
+-- Kanäle je Art (Konzept 17.6): JSON wie {"comment":"mail","follow":"push"}, fehlende Arten nehmen den Standard
+-- (src/domain/notifications.ts, DEFAULT_CHANNELS). Die bisherige tägliche Kommentar-Mail wird zu „Kommentare: Mail“.
+-- notify_comments bleibt als Spalte stehen, wird aber nicht mehr gelesen (wie shares.listed).
+ALTER TABLE users ADD COLUMN notify_prefs TEXT NOT NULL DEFAULT '{}';
+UPDATE users SET notify_prefs = json_object('comment', 'mail') WHERE notify_comments = 'daily';
+
+-- Web Push (Konzept 17.7): nur die Adresse des Push-Dienstes je Gerät – keine Schlüssel, denn die Weckrufe sind leer.
+-- last_ok_at = letzte erfolgreiche Zustellung (nächtlich: ein Jahr ohne Zustellung → weg).
+CREATE TABLE push_subscriptions (
+  endpoint   TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  last_ok_at INTEGER
+);
+CREATE INDEX push_subscriptions_user ON push_subscriptions(user_id, created_at);

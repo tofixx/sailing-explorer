@@ -14,6 +14,7 @@ export class SxTopbar extends LitElement {
     home: { type: Boolean, reflect: true },
     saved: { type: Boolean },
     bell: { attribute: false },
+    bellOpen: { attribute: false },
   };
   declare user: User | null;
   declare mode: Mode;
@@ -25,6 +26,8 @@ export class SxTopbar extends LitElement {
   declare saved: boolean;
   /** Badge an der Glocke (Konzept 17, F-252): leer = keins, sonst Zahl bzw. „99+“ */
   declare bell: string;
+  /** Liste der Benachrichtigungen offen (aria-expanded) */
+  declare bellOpen: boolean;
 
   constructor() {
     super();
@@ -35,6 +38,7 @@ export class SxTopbar extends LitElement {
     this.home = false;
     this.saved = false;
     this.bell = '';
+    this.bellOpen = false;
   }
 
   static styles = [
@@ -110,7 +114,7 @@ export class SxTopbar extends LitElement {
         padding: 0 5px;
         border-radius: 9px;
         background: var(--err);
-        color: #fff;
+        color: var(--on-accent);
         font: 700 var(--fs-xs) / 18px var(--font);
         text-align: center;
         font-variant-numeric: tabular-nums;
@@ -279,6 +283,7 @@ export class SxTopbar extends LitElement {
             ? html`<button
                   class="btn ghost icon bell"
                   data-bell
+                  aria-expanded=${this.bellOpen ? 'true' : 'false'}
                   @click=${() => emit(this, 'sx-notifications')}
                   title="Benachrichtigungen"
                   aria-label=${this.bell ? `Benachrichtigungen, ${this.bell} ungelesen` : 'Benachrichtigungen'}

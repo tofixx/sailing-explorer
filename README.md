@@ -174,6 +174,21 @@ npx wrangler secret put REPORT_CONTACT
 
 Ohne `ADMIN_USER_IDS` gibt es keine Admin-Oberfläche (die Admin-Routen antworten 404); Meldungen werden trotzdem gespeichert und blenden bei 3 Meldungen bzw. „Ich bin abgebildet“ automatisch aus. Admins sehen offene Meldungen im Konto unter „Meldungen“.
 
+### Benachrichtigungen: Push und Live
+
+Die Glocke (Konzept Abschnitt 17) läuft ohne Einrichtung. **Live** (WebSocket) nutzt das Durable Object
+`NotificationHub` aus `wrangler.jsonc` – SQLite-basiert, im Free Tier enthalten, wird beim Deploy angelegt.
+**Push** braucht ein VAPID-Schlüsselpaar; ohne ist die Auswahl „Push“ ausgegraut:
+
+```bash
+node scripts/vapid-keys.mjs                 # gibt beide Werte aus
+npx wrangler secret put VAPID_PUBLIC_KEY
+npx wrangler secret put VAPID_PRIVATE_KEY
+```
+
+Die Weckrufe sind leer (keine Inhalte bei Google, Apple, Mozilla, Microsoft); den Text holt `public/sw.js` selbst.
+Auf iPhone und iPad gibt es Push nur in der App vom Home-Bildschirm.
+
 ### Impressum und Datenschutz
 
 `/impressum` und `/datenschutz` kommen aus **einer** Datei: `src/content/legal.ts` (statische SPA-Seiten, laufen auch ohne

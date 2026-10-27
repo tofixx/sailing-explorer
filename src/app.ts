@@ -63,6 +63,8 @@ import type { ReactionSubject } from './domain/reactions';
 import { NotificationsController } from './controllers/notifications';
 import type { SxNotifications } from './components/sx-notifications';
 import type { NotificationItem } from './services/api';
+import type { Channel, ChoosableKind } from './domain/notifications';
+import { disablePush, enablePush, pushKey } from './services/push';
 
 /** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
 const TRACK_COLORS = ['--c-track-1', '--c-track-2', '--c-track-3', '--c-track-4', '--c-track-5', '--c-track-6'];
@@ -194,6 +196,10 @@ export class App {
     this.notifications = new NotificationsController(this.store, {
       panel: this.ui.notifications,
       badge: (label) => (this.ui.topbar.bell = label),
+      expanded: (open, focus) => {
+        this.ui.topbar.bellOpen = open;
+        if (focus) (this.ui.topbar.shadowRoot?.querySelector('[data-bell]') as HTMLElement | null)?.focus();
+      },
       navigate: (href) => location.assign(href),
     });
     this.ui.empty.samples = SAMPLES;
@@ -277,8 +283,28 @@ export class App {
 
   /** Konto öffnen; zeigt es „Einladungen an dich“, sind die Benachrichtigungen dazu gelesen (F-253). */
   private async openAccount(tab?: AccountTab) {
+    void pushKey().then((k) => (this.ui.account.pushAvailable = !!k));
     await this.session.openAccount(tab);
     if (this.ui.account.myInvites.length) this.notifications.seen({ kind: 'invite' });
+  }
+
+  /**
+   * Kanal einer Benachrichtigungsart wählen (Konzept 17.6). „Push“ meldet erst dieses Gerät an (Erlaubnis); steht danach
+   * keine Art mehr auf Push, wird das Gerät wieder abgemeldet.
+   */
+  private async setChannel(kind: ChoosableKind, channel: Channel) {
+    const account = this.ui.account;
+    if (channel === 'push') {
+      const r = await enablePush().catch(() => 'unsupported' as const);
+      if (r !== 'ok') {
+        this.toast(r === 'denied' ? 'Mitteilungen sind für diese Seite blockiert – erlaube sie in den Browser-Einstellungen.' : 'Push ist auf diesem Gerät nicht möglich.', 6000);
+        if (account.settings) account.settings = { ...account.settings }; // Auswahl zurücksetzen
+        return;
+      }
+    }
+    await this.community.saveSettings({ notify: { [kind]: channel } });
+    const notify = account.settings?.notify;
+    if (channel !== 'push' && notify && !Object.values(notify).includes('push')) await disablePush().catch(() => undefined);
   }
 
   // ---------------------------------------------------------------- Rendering
@@ -342,7 +368,8 @@ export class App {
       if (s.mode.kind === 'share' && s.backend) void this.social.loadShare(s.mode.share, s.mode.key);
       else this.social.hideShare();
       // Törn geöffnet (auch über den Link aus der Kommentar-Mail): Kommentare und Reaktionen dazu gelesen (F-253)
-      if (changed('mode')) this.notifications.viewing(s.mode.kind === 'share' ? { subjectKind: 'share', subjectId: s.mode.share.id } : null);
+      if (s.mode.kind === 'share') this.notifications.viewing({ subjectKind: 'share', subjectId: s.mode.share.id });
+      else if (prev?.mode.kind === 'share') this.notifications.viewing(null);
     }
     // Hover auf Track, Diagramm oder Kennzahl hebt das zeitlich nächste Foto hervor (Konzept 3.3).
     if (changed('hover') && s.hover?.source !== 'photo') {
@@ -471,9 +498,10 @@ export class App {
     on<AccountTab | undefined>('sx-account', (tab) => void this.openAccount(tab));
     // ---- Benachrichtigungen (Konzept 17) ----
     on('sx-notifications', () => this.notifications.toggle());
-    on('sx-notifications-close', () => this.notifications.close());
+    on<{ focus?: boolean } | undefined>('sx-notifications-close', (d) => this.notifications.close(!!d?.focus));
     on('sx-notifications-read-all', () => this.notifications.readAll());
-    on<NotificationItem>('sx-notification-open', (n) => this.notifications.open(n));
+    on<{ item: NotificationItem; newTab: boolean }>('sx-notification-open', (d) => this.notifications.open(d.item, d.newTab));
+    on<{ kind: ChoosableKind; channel: Channel }>('sx-notify-channel', (d) => void this.setChannel(d.kind, d.channel));
     on<'login' | 'share' | 'account' | 'invite'>('sx-close', (which) => (which === 'invite' ? s.closeInvite() : (this.ui[which].open = false)));
     on<{ email: string; turnstile: string | null }>('sx-login-submit', (d) => s.requestLink(d.email, d.turnstile));
     on('sx-login-reset', () => s.resetLogin());

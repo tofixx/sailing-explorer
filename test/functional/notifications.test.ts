@@ -94,13 +94,14 @@ describe('F-250 Benachrichtigungen entstehen bei den Ereignissen für genau eine
     await react(owner, 'share', share.id);
     expect(await unread(owner)).toBe(0);
     await react(fan, 'share', share.id);
-    await react(fan, 'share', share.id, 'mast'); // Art ändern zählt hoch, keine zweite Zeile
+    await react(fan, 'share', share.id, 'mast'); // Art wechseln: keine neue Benachrichtigung
     await react(fan, 'post', p.id);
     const out = await list(owner);
     expect(out.items.map((i) => [i.kind, i.what, i.title]).sort()).toEqual([
       ['reaction', 'deinen Beitrag in', 'Möwen'],
       ['reaction', 'deinen Törn', 'Hiddensee'],
     ]);
+    expect(out.items.find((i) => i.title === 'Hiddensee')?.count).toBe(1);
   });
 
   it('[F-250] neue Follower eines Profils gebündelt; Boote und Gruppen folgen benachrichtigt niemanden', async () => {
@@ -110,6 +111,9 @@ describe('F-250 Benachrichtigungen entstehen bei den Ereignissen für genau eine
     const b = await s.person({ profile: 'private' });
     await follow(a, 'user', star.handle!);
     await follow(a, 'user', star.handle!); // schon gefolgt → nichts Neues
+    // Entfolgen und gleich wieder folgen zählt nicht doppelt
+    expect((await s.send('DELETE', `/api/follows/user/${star.handle}`, a.cookie)).status).toBe(200);
+    await follow(a, 'user', star.handle!);
     await follow(b, 'user', star.handle!);
     await follow(a, 'boat', boat.id);
     const out = await list(star);
@@ -148,6 +152,10 @@ describe('F-250 Benachrichtigungen entstehen bei den Ereignissen für genau eine
       expect(item.actor?.handle).toBe(asker.handle);
     }
     expect((await list(member)).items.filter((i) => i.kind === 'request')).toHaveLength(0);
+
+    // entschieden (von irgendwem) → keine offene Anfrage mehr → verschwindet auch bei den anderen
+    expect((await s.send('POST', `/api/groups/${club.id}/requests/${asker.user.id}`, adm.cookie, { approve: false })).status).toBe(200);
+    expect((await list(owner)).items.filter((i) => i.kind === 'request')).toHaveLength(0);
 
     const strict = await s.group(owner, { name: 'Strenger Club', approveBy: 'owner' });
     await s.join(owner, strict, adm);
@@ -254,7 +262,7 @@ describe('F-253 Gelesen: beim Anklicken, beim Öffnen des Gegenstands und über 
 // ---------------------------------------------------------------- F-254 Kommentar-Sammelmail
 
 describe('F-254 Sammelmail nur über Kommentare, die auf der Seite noch nicht gelesen sind', () => {
-  const mails = (to: string) => h.logs.filter((l) => l.includes(`[mail:log] an ${to}:`) && l.includes('auf deinen Törns'));
+  const mails = (to: string) => h.logs.filter((l) => l.includes(`[mail:log] an ${to}:`) && l.includes('Benachrichtigung'));
 
   it('[F-254] auf der Seite gelesen → nicht in der Mail; ungelesen → in der Mail mit Link zum Törn', async () => {
     const owner = await s.person({ profile: 'public' });

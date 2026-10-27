@@ -13,6 +13,7 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import type { Env } from './env';
 import { requireUser, startSession } from './auth';
 import { passkeyAddedMail, sendMail } from './mail';
+import { notifyPasskey } from './notifications';
 import { randomId } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { assertActive } from './moderation';
@@ -134,6 +135,7 @@ export async function registerVerify(request: Request, env: Env): Promise<Respon
   } catch (err) {
     console.error('passkey mail failed', err);
   }
+  await notifyPasskey(env, user.id); // zusätzlich in der Glocke (nicht abschaltbar, Konzept 17.6)
   return json({ passkey: shape(row) }, { status: 201 });
 }
 

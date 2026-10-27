@@ -5,10 +5,11 @@ import { purgeUser } from './auth';
 import { expiryWarningMail, seasonReminderMail, sendMail } from './mail';
 import { EXPIRES_SQL } from './shares';
 import { recomputeStorage, storageTotal, subtractShareStmt } from './storage';
-import { sendCommentDigests } from './comments';
+import { sendNotificationDigests } from './notification-mail';
+import { notifyExpiry } from './notifications';
 import { deleteOrphanReports, deleteShareReports } from './moderation';
 import { deleteKeys, photoKeysForShares, shareFileKeys } from './photo-keys';
-import { deleteShareNotifications } from './notification-cleanup';
+import { deleteShareNotifications, nightlyNotificationCleanup } from './notification-cleanup';
 import { deleteShareActivity, nightlyActivityCleanup } from './activity';
 import { deleteShareReactions } from './reaction-cleanup';
 import { sendGroupDigests } from './group-digest';
@@ -103,6 +104,8 @@ async function warnExpiring(env: Env, origin: string, now: number): Promise<numb
     for (const part of chunks(shares)) {
       await env.DB.batch(part.map((s) => env.DB.prepare('UPDATE shares SET expiry_warned_at = ? WHERE id = ?').bind(now, s.id)));
     }
+    // zusätzlich in der Glocke (Hinweis des Betreibers, nicht abschaltbar – Konzept 17.6)
+    for (const s of shares) await notifyExpiry(env, s.id);
     warned++;
   }
   return warned;
@@ -180,7 +183,7 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   });
   const purged = await step('inactive', purgeInactive(env, now), 0);
   // Sammelmail nach dem Aufräumen: Kommentare auf gerade gelöschten Törns zählen nicht mehr.
-  const digests = await sendCommentDigests(env, origin, now).catch((err) => {
+  const digests = await sendNotificationDigests(env, origin, now).catch((err) => {
     console.error('comment digests failed', err);
     return 0;
   });
@@ -198,6 +201,8 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     // Neuigkeiten (Konzept 11.9): alte Aktivitäten, verwaiste Ziele und Folgen, alte Anfragen
     ...nightlyActivityCleanup(env, now),
   ]), []);
+  // Benachrichtigungen (Konzept 17.5) als eigener Schritt – nach dem Aufräumen oben, damit verwaiste gleich mitgehen
+  await step('notifications', env.DB.batch(nightlyNotificationCleanup(env, now)), []);
   // Datenschutz-Fristen als eigener Batch (scheitert einer, läuft der andere trotzdem)
   await step('privacy', env.DB.batch([
     // Offene Meldungen nach 180 Tagen ohne Entscheidung: ohne Meldende und Anmerkung (Datenschutz, Abschnitt 9)
