@@ -213,6 +213,18 @@ export const dialogStyles = css`
   }
 `;
 
+/** Eingabe „E-Mail oder Profilname“: mit @ in der Mitte eine Adresse, sonst ein Profilname (führendes @ erlaubt). */
+export function inviteTarget(raw: string): { email: string } | { handle: string } {
+  const v = raw.trim();
+  return v.indexOf('@') > 0 ? { email: v } : { handle: v.replace(/^@/, '') };
+}
+
+/** Name einer offenen Einladung: eingeladenes Konto, selbst eingegebene Adresse oder Einladungslink. */
+export function pendingLabel(i: { email: string | null; invitee: { handle: string; displayName: string } | null; usesLeft: number }): string {
+  if (i.invitee) return `${i.invitee.displayName} (@${i.invitee.handle})`;
+  return i.email ?? `Einladungslink · noch ${i.usesLeft}×`;
+}
+
 /** Öffnet die Dateiauswahl für GPX-Dateien und meldet die Auswahl als 'sx-files'. */
 export function pickGpx(host: HTMLElement): void {
   const input = document.createElement('input');

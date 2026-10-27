@@ -1142,7 +1142,7 @@ describe('F-139 Crew in der Törn-Ansicht', () => {
     await startApp('/s/AbCdEfGhJkLmNpQr23');
     await settled();
     await vi.waitFor(() => expect(panel().hidden).toBe(false));
-    emit('sx-crew-invite', { email: null });
+    emit('sx-crew-invite', { to: null });
     await vi.waitFor(() => expect(crew().newLink).toMatch(/\/einladung#token=b{43}$/));
     emit('sx-invite-copy', 'https://evil.example/einladung#token=x');
     emit('sx-invite-copy', crew().newLink);

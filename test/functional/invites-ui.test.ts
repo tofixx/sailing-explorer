@@ -139,15 +139,26 @@ describe('sx-crew', () => {
     const revokes = listen('sx-invite-revoke');
     const el = await mount('sx-crew', {
       isOwner: true, visibility: 'unlisted',
-      crew: crew({ isOwner: true, invites: [{ id: 'I1', email: 'mate@example.org', usesLeft: 1, createdAt: 0, expiresAt: Date.now() + DAY }, { id: 'I2', email: null, usesLeft: 28, createdAt: 0, expiresAt: Date.now() + DAY }] }),
+      crew: crew({ isOwner: true, invites: [
+        { id: 'I1', email: 'mate@example.org', invitee: null, usesLeft: 1, createdAt: 0, expiresAt: Date.now() + DAY },
+        { id: 'I2', email: null, invitee: null, usesLeft: 28, createdAt: 0, expiresAt: Date.now() + DAY },
+        { id: 'I3', email: null, invitee: { handle: 'mats', displayName: 'Mats' }, usesLeft: 1, createdAt: 0, expiresAt: Date.now() + DAY },
+      ] }),
     });
     expect(text(el)).toContain('Die Crew sehen andere erst, wenn der Törn öffentlich ist.');
     expect(text(el)).toContain('Einladungslink · noch 28×');
+    expect(text(el)).toContain('Mats (@mats)'); // per Profilname eingeladen: Name statt Adresse
     button(el, /Einladungslink erzeugen/)!.click();
-    const input = el.shadowRoot.querySelector('input[type="email"]') as HTMLInputElement;
-    input.value = ' mate2@example.org ';
-    el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    expect(invites).toEqual([{ email: null }, { email: 'mate2@example.org' }]);
+    const input = el.shadowRoot.querySelector('form input') as HTMLInputElement;
+    const submit = (v: string) => {
+      input.value = v;
+      el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    };
+    submit(' mate2@example.org ');
+    submit('@mats');
+    submit('anna-k');
+    expect(invites).toEqual([{ to: null }, { to: { email: 'mate2@example.org' } }, { to: { handle: 'mats' } }, { to: { handle: 'anna-k' } }]);
+    expect(text(el)).toContain('Per E-Mail erreichst du neue und bestehende Konten');
     button(el, /Einladung zurückziehen: mate@example.org/)!.click();
     expect(revokes).toEqual([{ id: 'I1', scope: 'crew' }]);
   });
@@ -202,7 +213,7 @@ describe('sx-account-dialog: Admins', () => {
       data: {
         role: 'owner',
         admins: [{ id: 'A1', displayName: 'Mats', handle: 'mats', isSelf: false, createdAt: 0 }, { id: 'A2', displayName: 'Munteres Seepferdchen', handle: null, isSelf: false, createdAt: 0 }],
-        invites: [{ id: 'I1', email: 'neu@example.org', usesLeft: 1, createdAt: 0, expiresAt: Date.now() + DAY }],
+        invites: [{ id: 'I1', email: 'neu@example.org', invitee: null, usesLeft: 1, createdAt: 0, expiresAt: Date.now() + DAY }],
       },
     };
     await el.updateComplete;
@@ -213,7 +224,7 @@ describe('sx-account-dialog: Admins', () => {
     const form = el.shadowRoot.querySelector(`#admins-B1234567890abcdefg form`) as HTMLFormElement;
     (form.querySelector('input') as HTMLInputElement).value = 'crew@example.org';
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    expect(invites).toEqual([{ boatId: 'B1234567890abcdefg', email: 'crew@example.org' }]);
+    expect(invites).toEqual([{ boatId: 'B1234567890abcdefg', to: { email: 'crew@example.org' } }]);
     button(el, /Einladung zurückziehen: neu@example.org/)!.click();
     expect(revokes).toEqual([{ id: 'I1', scope: 'boat', boatId: 'B1234567890abcdefg' }]);
   });
@@ -241,6 +252,33 @@ describe('sx-account-dialog: Admins', () => {
     expect(leaves).toEqual([]);
     button(el, /Ja, verlassen/)!.click();
     expect(leaves).toEqual(['B1234567890abcdefg']);
+  });
+});
+
+describe('sx-account-dialog: Einladungen an dich', () => {
+  it('[F-141] Posteingang zeigt Einladungen mit Namen des Einladenden; Annehmen/Ablehnen melden die ID', async () => {
+    const accepts = listen('sx-my-invite-accept');
+    const declines = listen('sx-my-invite-decline');
+    const el = await mount('sx-account-dialog', {
+      open: true, tab: 'shares', user: { id: 'U1', email: 'me@example.org' }, profile: null,
+      myInvites: [
+        { id: 'M1', kind: 'boat_admin', target: 'Albatros', inviter: 'Anna', expiresAt: Date.now() + DAY },
+        { id: 'M2', kind: 'crew', target: 'Rügen rund', inviter: 'Verwegener Klabautermann', expiresAt: Date.now() + DAY },
+      ],
+    });
+    const t = text(el);
+    expect(t).toContain('Einladungen an dich');
+    expect(t).toContain('Anna lädt dich ein, das Boot „Albatros“ mitzuverwalten');
+    expect(t).toContain('Verwegener Klabautermann lädt dich ein, in die Crew des Törns „Rügen rund“');
+    button(el, /Annehmen: Albatros/)!.click();
+    button(el, /Ablehnen: Rügen rund/)!.click();
+    expect(accepts).toEqual(['M1']);
+    expect(declines).toEqual(['M2']);
+  });
+
+  it('[F-141] ohne offene Einladungen kein Posteingang', async () => {
+    const el = await mount('sx-account-dialog', { open: true, tab: 'shares', user: { id: 'U1', email: 'me@example.org' }, profile: null });
+    expect(text(el)).not.toContain('Einladungen an dich');
   });
 });
 

@@ -214,7 +214,7 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id),
     env.DB.prepare('DELETE FROM boat_admins WHERE user_id = ? OR boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id, user.id),
     // Einladungen und Crew-Einträge (fielen auch per ON DELETE CASCADE, hier ausdrücklich).
-    env.DB.prepare('DELETE FROM invites WHERE inviter_id = ? OR boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id, user.id),
+    env.DB.prepare('DELETE FROM invites WHERE inviter_id = ? OR invitee_id = ? OR boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id, user.id, user.id),
     env.DB.prepare('DELETE FROM share_crew WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM boats WHERE owner_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(user.id),
