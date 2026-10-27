@@ -1,4 +1,5 @@
 import type { SupportTier } from '../domain/support';
+import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { parseWeatherData, type WeatherData } from '../domain/weather';
 import type { PhotoVisibility, Visibility } from '../domain/visibility';
 import type { Placement } from '../domain/photo-place';
@@ -895,4 +896,23 @@ export const coverApi = {
 export const friendApi = {
   /** ohne Adresse: Einladungslink (nur in dieser Antwort) */
   invite: (to: { email?: string; handle?: string }) => call<InviteCreated>('/api/invites', jsonInit('POST', to)),
+};
+
+// ================================================================ Passkeys (Konzept 14.7)
+
+export interface PasskeyInfo {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
+/** Optionen kommen als JSON von @simplewebauthn/server; der Browser-Teil (@simplewebauthn/browser) nimmt sie direkt. */
+export const passkeyApi = {
+  loginOptions: () => call<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }>('/api/auth/passkey/options', jsonInit('POST', {})),
+  login: (challengeId: string, response: unknown) => call<{ user: User }>('/api/auth/passkey', jsonInit('POST', { challengeId, response })),
+  list: () => call<{ passkeys: PasskeyInfo[] }>('/api/passkeys'),
+  registerOptions: () => call<{ options: PublicKeyCredentialCreationOptionsJSON; challengeId: string }>('/api/passkeys/options', jsonInit('POST', {})),
+  register: (challengeId: string, response: unknown, name: string) => call<{ passkey: PasskeyInfo }>('/api/passkeys', jsonInit('POST', { challengeId, response, name })),
+  remove: (id: string) => call<void>(`/api/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

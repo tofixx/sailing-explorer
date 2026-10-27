@@ -192,6 +192,7 @@ Konzept: `docs/CONCEPT.md` Abschnitt 12. Umsetzung: `migrations/0013_social.sql`
 
 - **F-206** Web-App-Manifest (Name, Icons 192/512 maskable, Start `/`, eigenständige Anzeige) und iOS-Icon. Auf Touch-Geräten außerhalb der installierten App erscheint nach einigen Sekunden ein dezenter Hinweis: Android/Chrome mit „Installieren“ (eigenes `beforeinstallprompt`), iOS-Safari mit der Anleitung über „Teilen“ → „Zum Home-Bildschirm“. „Nicht jetzt“ blendet ihn auf dem Gerät dauerhaft aus; auf Geräten mit Maus erscheint er nie.
 - **F-207** Anmeldung per Code: Die Anmeldemail enthält zusätzlich einen 6-stelligen Code; `POST /api/auth/code { email, code }` meldet an. Gleiche Gültigkeit wie der Link, einmalig, Link und Code verbrauchen sich gegenseitig; höchstens 10 falsche Codes pro Adresse und 24 h (429 `code_locked`), gleiche Antwort für unbekannte Adresse und falschen Code. Der Anmeldedialog bietet nach dem Versand ein Codefeld (`autocomplete=one-time-code`).
+- **F-208** Passkeys: angemeldet anlegen (`POST /api/passkeys/options`, `POST /api/passkeys`), auflisten und entfernen (nur eigene, sonst 404); ohne Mail anmelden (`POST /api/auth/passkey/options`, `POST /api/auth/passkey`). Challenges einmalig, 5 min, an Art und (beim Anlegen) Konto gebunden; Herkunft und Domain werden geprüft; falsche Signatur, fremde Origin oder unbekannter Passkey → 400 `passkey_failed`. Der Zähler wird nachgeführt. Konto löschen entfernt die Passkeys.
 
 ## Community (Entdecken)
 

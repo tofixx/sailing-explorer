@@ -70,6 +70,9 @@ export async function startWorker(bindings: Record<string, string> = {}, opts: {
     bundle: true,
     format: 'esm',
     platform: 'neutral',
+    // wie wrangler: Paket-Einstiege und Bedingungen für Workers (z. B. @simplewebauthn/server und seine Abhängigkeiten)
+    mainFields: ['module', 'main'],
+    conditions: ['workerd', 'worker', 'browser', 'import'],
     target: 'es2022',
     write: false,
     logLevel: 'silent',

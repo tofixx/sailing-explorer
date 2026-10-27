@@ -195,6 +195,7 @@ export class App {
   async start(): Promise<void> {
     this.session.checkBackend();
     this.handleSupportParam();
+    void this.handleAccountParam();
     const route = parseRoute(location);
     // Community-Leiste nur auf der Startseite; lädt nebenbei und blockiert nichts.
     this.homeRoute = route.kind === 'home' || route.kind === 'login' || route.kind === 'invite';
@@ -247,6 +248,16 @@ export class App {
     url.searchParams.delete('support');
     history.replaceState(history.state, '', url.pathname + url.search + url.hash);
     if (kind === 'success' || kind === 'cancel' || kind === 'open') void this.session.supportReturn(kind);
+  }
+
+  /** ?konto=einstellungen (Mail „Neuer Passkey“): Konto bei den Einstellungen öffnen, Parameter entfernen. */
+  private async handleAccountParam() {
+    const url = new URL(location.href);
+    if (url.searchParams.get('konto') !== 'einstellungen') return;
+    url.searchParams.delete('konto');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    await this.session.backendReady;
+    void this.session.openAccount('settings');
   }
 
   // ---------------------------------------------------------------- Rendering
@@ -438,6 +449,9 @@ export class App {
     on('sx-login-reset', () => s.resetLogin());
     on('sx-login-confirm', () => s.confirmLogin());
     on<{ code: string }>('sx-login-code', (d) => s.loginWithCode(d.code));
+    on('sx-login-passkey', () => s.loginWithPasskey());
+    on('sx-passkey-add', () => s.addPasskey());
+    on<{ id: string }>('sx-passkey-remove', (d) => s.removePasskey(d.id));
     on('sx-login-for-share', () => s.loginForShare());
     on('sx-share-inline', () => s.shareInlineLink());
     on<{ format: ImageFormat; content: ImageContent }>('sx-image-options', (d) => s.setImageOptions(d.format, d.content));

@@ -80,6 +80,19 @@ Frohe Weihnachten und immer eine Handbreit Wasser unterm Kiel!
   return { to, subject: `${app}: Deine Saison ${m.season} – mitnehmen in die nächste?`, text, html };
 }
 
+/** Neuer Passkey am Konto (Konzept 14.7) – damit ein unbemerkt hinterlegter Zugang auffällt. Name ist Nutzertext. */
+export function passkeyAddedMail(env: Env, to: string, origin: string, name: string): Mail {
+  const app = env.APP_NAME;
+  const link = `${origin}/?konto=einstellungen`;
+  const text = `Hallo,\n\nan deinem Konto bei ${app} wurde ein neuer Passkey angelegt: „${name}“. Damit kann man sich ohne Mail anmelden.\n\nWarst du das nicht? Entferne den Passkey im Konto unter „Einstellungen“ und melde dich auf allen Geräten neu an:\n${link}\n`;
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
+<p>Hallo,</p><p>an deinem Konto bei <b>${app}</b> wurde ein neuer Passkey angelegt: <b>„${escapeHtml(name)}“</b>. Damit kann man sich ohne Mail anmelden.</p>
+<p style="color:#5b6b7b;font-size:13px">Warst du das nicht? Entferne den Passkey im Konto unter „Einstellungen“.</p>
+<p><a href="${link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Zu den Einstellungen</a></p>
+</body></html>`;
+  return { to, subject: `${app}: Neuer Passkey an deinem Konto`, text, html };
+}
+
 export interface InviteMailInput {
   kind: 'boat_admin' | 'crew' | 'group' | 'friend';
   /** nur bei Gruppen: Verein oder Team */
