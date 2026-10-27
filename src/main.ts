@@ -20,6 +20,7 @@ import './components/sx-home-feed';
 import './components/sx-comments';
 import './components/sx-report-dialog';
 import './components/sx-photo-strip';
+import './components/sx-install-hint';
 import './components/sx-photo-lightbox';
 import './components/sx-photo-upload';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----

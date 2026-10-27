@@ -11,6 +11,11 @@
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111d29" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- App auf dem Home-Bildschirm (sx-install-hint): Manifest, iOS-Icon und -Titel -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Sail Explorer" />
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
@@ -76,5 +81,6 @@
     <sx-report-dialog></sx-report-dialog>
     <sx-photo-lightbox></sx-photo-lightbox>
     <sx-photo-upload></sx-photo-upload>
+    <sx-install-hint hidden></sx-install-hint>
   </body>
 </html>
