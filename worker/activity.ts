@@ -5,8 +5,9 @@
 import type { Env } from './env';
 import { randomId } from './crypto';
 import { crossedMilestones, dayKey, seasonOf, type ActivityKind } from '../src/domain/groups';
+import { deleteBoatReactions, deleteGroupReactions, nightlyReactionCleanup, userReactionCleanup } from './reaction-cleanup';
 
-type TargetKind = 'group' | 'boat' | 'user';
+type TargetKind = 'group' | 'boat' | 'user' | 'harbor';
 
 interface NewActivity {
   kind: ActivityKind;
@@ -43,6 +44,16 @@ const userGroupsStmt = (env: Env, id: string, userId: string, now: number) =>
     `INSERT OR IGNORE INTO activity_target (activity_id, target_kind, target_id, created_at)
      SELECT ?1, 'group', group_id, ?3 FROM group_members WHERE user_id = ?2 AND EXISTS (SELECT 1 FROM activity WHERE id = ?1)`,
   ).bind(id, userId, now);
+/**
+ * Ziel „Hafen des Boots“ (Konzept 12.4) – nur für öffentliche, nicht ausgeblendete Boote, sonst verriete der
+ * Hafen-Stream den Hafen eines nicht öffentlichen Boots. Die Hafenseite prüft beim Lesen zusätzlich.
+ */
+const boatHarborStmt = (env: Env, id: string, boatId: string, now: number) =>
+  env.DB.prepare(
+    `INSERT OR IGNORE INTO activity_target (activity_id, target_kind, target_id, created_at)
+     SELECT ?1, 'harbor', harbor_id, ?3 FROM boats WHERE id = ?2 AND harbor_id IS NOT NULL AND visibility = 'public' AND hidden_at IS NULL
+       AND EXISTS (SELECT 1 FROM activity WHERE id = ?1)`,
+  ).bind(id, boatId, now);
 /** Vereinsbeiträge erscheinen auch in den Teams des Vereins. */
 const teamsStmt = (env: Env, id: string, groupId: string, now: number) =>
   env.DB.prepare(
@@ -68,11 +79,11 @@ export interface ShareForActivity {
   created_at: number;
 }
 
-/** Publikum eines Törns: Segler, Boot, Gruppen des Boots und des Seglers. */
+/** Publikum eines Törns: Segler, Boot, Hafen des Boots, Gruppen des Boots und des Seglers. */
 function shareTargets(env: Env, id: string, s: ShareForActivity, now: number): D1PreparedStatement[] {
   return [
     targetStmt(env, id, 'user', s.user_id, now),
-    ...(s.boat_id ? [targetStmt(env, id, 'boat', s.boat_id, now), boatGroupsStmt(env, id, s.boat_id, now)] : []),
+    ...(s.boat_id ? [targetStmt(env, id, 'boat', s.boat_id, now), boatGroupsStmt(env, id, s.boat_id, now), boatHarborStmt(env, id, s.boat_id, now)] : []),
     userGroupsStmt(env, id, s.user_id, now),
   ];
 }
@@ -121,6 +132,21 @@ export async function recordBoat(env: Env, groupId: string, boatId: string, acto
     await env.DB.batch([
       insertStmt(env, id, { kind: 'boat', actorId, subjectKind: 'boat', subjectId: boatId, groupId, bucket: `boat:${groupId}:${boatId}` }, now),
       targetStmt(env, id, 'group', groupId, now),
+      targetStmt(env, id, 'boat', boatId, now),
+    ]);
+  });
+}
+
+/**
+ * Boot bekommt einen Hafen (Konzept 12.4): einmal je Hafen und Boot „Neues Boot im Hafen“, Ziele Hafen und Boot.
+ * Der Hafen steht in `data.harbor`; sichtbar nur bei öffentlichem Boot und nicht ausgeblendetem Hafen (beim Lesen).
+ */
+export async function recordHarborBoat(env: Env, harborId: string, boatId: string, actorId: string, now = Date.now()): Promise<void> {
+  await safely('harbor', async () => {
+    const id = randomId();
+    await env.DB.batch([
+      insertStmt(env, id, { kind: 'harbor', actorId, subjectKind: 'boat', subjectId: boatId, data: { harbor: harborId }, bucket: `harbor:${harborId}:${boatId}` }, now),
+      targetStmt(env, id, 'harbor', harborId, now),
       targetStmt(env, id, 'boat', boatId, now),
     ]);
   });
@@ -197,6 +223,7 @@ export const deleteShareActivity = (env: Env, shareId: string) =>
 
 /** Boot gelöscht: Zuordnungen, Folgen, Aktivitäten mit dem Boot als Gegenstand, Ziele `boat`. */
 export const boatCleanup = (env: Env, boatId: string): D1PreparedStatement[] => [
+  deleteBoatReactions(env, boatId),
   env.DB.prepare(`DELETE FROM activity WHERE subject_kind = 'boat' AND subject_id = ?`).bind(boatId),
   env.DB.prepare(`DELETE FROM activity_target WHERE target_kind = 'boat' AND target_id = ?`).bind(boatId),
   env.DB.prepare(`DELETE FROM follows WHERE target_kind = 'boat' AND target_id = ?`).bind(boatId),
@@ -205,14 +232,27 @@ export const boatCleanup = (env: Env, boatId: string): D1PreparedStatement[] => 
 
 /** Gruppe gelöscht: Aktivitäten der Gruppe, Ziele `group`, Folgen, Beitragszähler. */
 export const groupActivityCleanup = (env: Env, groupId: string): D1PreparedStatement[] => [
+  deleteGroupReactions(env, groupId),
   env.DB.prepare(`DELETE FROM activity WHERE group_id = ?1 OR (subject_kind = 'group' AND subject_id = ?1)`).bind(groupId),
   env.DB.prepare(`DELETE FROM activity_target WHERE target_kind = 'group' AND target_id = ?`).bind(groupId),
   env.DB.prepare(`DELETE FROM follows WHERE target_kind = 'group' AND target_id = ?`).bind(groupId),
   env.DB.prepare('DELETE FROM post_log WHERE group_id = ?').bind(groupId),
 ];
 
+/** Hafen gelöscht (Moderation): Aktivitäten „Neues Boot im Hafen“ samt Reaktionen, Ziele `harbor`, Folgen. */
+export const harborActivityCleanup = (env: Env, harborId: string): D1PreparedStatement[] => [
+  env.DB.prepare(
+    `DELETE FROM reactions WHERE subject_kind = 'activity' AND subject_id IN (SELECT id FROM activity WHERE kind = 'harbor' AND json_extract(data, '$.harbor') = ?1)`,
+  ).bind(harborId),
+  env.DB.prepare(`DELETE FROM activity WHERE kind = 'harbor' AND json_extract(data, '$.harbor') = ?`).bind(harborId),
+  env.DB.prepare(`DELETE FROM activity_target WHERE target_kind = 'harbor' AND target_id = ?`).bind(harborId),
+  env.DB.prepare(`DELETE FROM follows WHERE target_kind = 'harbor' AND target_id = ?`).bind(harborId),
+];
+
 /** Konto gelöscht: Aktivitäten des Kontos und seiner Törns, Folgen in beide Richtungen, Ziele `user`. */
 export const userActivityCleanup = (env: Env, userId: string): D1PreparedStatement[] => [
+  // Reaktionen zuerst – sie verweisen auf Törns, Fotos, Beiträge und Aktivitäten des Kontos (Konzept 12.5).
+  ...userReactionCleanup(env, userId),
   env.DB.prepare(
     `DELETE FROM activity WHERE actor_id = ?1 OR (subject_kind = 'user' AND subject_id = ?1)
        OR (subject_kind = 'share' AND subject_id IN (SELECT id FROM shares WHERE user_id = ?1))
@@ -244,16 +284,20 @@ export function nightlyActivityCleanup(env: Env, now: number): D1PreparedStateme
       `DELETE FROM activity_target WHERE
          (target_kind = 'group' AND NOT EXISTS (SELECT 1 FROM groups WHERE id = activity_target.target_id))
          OR (target_kind = 'boat' AND NOT EXISTS (SELECT 1 FROM boats WHERE id = activity_target.target_id))
-         OR (target_kind = 'user' AND NOT EXISTS (SELECT 1 FROM users WHERE id = activity_target.target_id))`,
+         OR (target_kind = 'user' AND NOT EXISTS (SELECT 1 FROM users WHERE id = activity_target.target_id))
+         OR (target_kind = 'harbor' AND NOT EXISTS (SELECT 1 FROM harbors WHERE id = activity_target.target_id))`,
     ),
     env.DB.prepare('DELETE FROM activity WHERE NOT EXISTS (SELECT 1 FROM activity_target WHERE activity_id = activity.id)'),
     env.DB.prepare(
       `DELETE FROM follows WHERE
          (target_kind = 'group' AND NOT EXISTS (SELECT 1 FROM groups WHERE id = follows.target_id))
          OR (target_kind = 'boat' AND NOT EXISTS (SELECT 1 FROM boats WHERE id = follows.target_id))
-         OR (target_kind = 'user' AND NOT EXISTS (SELECT 1 FROM users WHERE id = follows.target_id))`,
+         OR (target_kind = 'user' AND NOT EXISTS (SELECT 1 FROM users WHERE id = follows.target_id))
+         OR (target_kind = 'harbor' AND NOT EXISTS (SELECT 1 FROM harbors WHERE id = follows.target_id))`,
     ),
     env.DB.prepare('DELETE FROM group_requests WHERE created_at < ?').bind(now - 90 * DAY),
     env.DB.prepare('DELETE FROM post_log WHERE created_at < ?').bind(now - DAY),
+    // zuletzt: Reaktionen, deren Gegenstand eben (oder früher) verschwand
+    ...nightlyReactionCleanup(env, now),
   ];
 }

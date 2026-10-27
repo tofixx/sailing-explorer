@@ -101,15 +101,17 @@ describe('sx-home-feed', () => {
   const clubs = [{ slug: 'sc-kiel', name: 'SC Kiel', kind: 'club', homePort: 'Kiel', description: '', createdAt: T, members: 12 }];
 
   it('[F-163] ohne Gruppen: „Tritt deinem Verein bei“ mit öffentlichen Vereinen und „gründen“', async () => {
-    const el = await mount('sx-home-feed', { stream: { items: [], cursor: null, hasGroups: false }, groups: [], publicGroups: clubs });
+    const el = await mount('sx-home-feed', { signedIn: true, stream: { items: [], cursor: null, hasGroups: false }, groups: [], publicGroups: clubs });
     expect(text(el.shadowRoot)).toContain('Tritt deinem Verein bei');
     expect(el.shadowRoot.querySelector('a[href="/g/sc-kiel"]')!.textContent).toContain('12 Mitglieder');
     expect(el.shadowRoot.querySelector('a[href="/g/neu"]')).not.toBeNull();
-    expect(el.shadowRoot.querySelector('sx-stream')).toBeNull();
+    // Konzept 12.6: der Stream steht immer da (Hafen und Teams liefern auch ohne Verein Neuigkeiten)
+    expect(el.shadowRoot.querySelector('sx-stream')).not.toBeNull();
   });
 
   it('[F-163] mit Gruppen: eigene Gruppen und Neuigkeiten', async () => {
     const el = await mount('sx-home-feed', {
+      signedIn: true,
       stream: { items, cursor: 'c', hasGroups: true },
       groups: [{ id: 'G1', slug: 'sc-kiel', name: 'SC Kiel', kind: 'club', role: 'member', members: 3 }],
     });
@@ -124,6 +126,7 @@ describe('sx-home-feed', () => {
   it('[F-164] Vorschläge mit Grund und „Folgen“', async () => {
     const follows = listen('sx-follow');
     const el = await mount('sx-home-feed', {
+      signedIn: true,
       stream: { items: [], cursor: null, hasGroups: false },
       suggestions: [{ handle: 'mats', displayName: 'Mats', reason: 'crew', reasonText: 'Mit dir gesegelt' }],
     });

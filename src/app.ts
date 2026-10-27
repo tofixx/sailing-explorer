@@ -50,6 +50,13 @@ import { GroupsController } from './controllers/groups';
 import type { SxGroupPage } from './components/sx-group-page';
 import type { SxHomeFeed } from './components/sx-home-feed';
 import type { FollowKind, GroupInput } from './services/api';
+// ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
+import { SocialController } from './controllers/social';
+import type { SxLegalPage } from './components/sx-legal-page';
+import type { ReactDetail, SxReactions } from './components/sx-reactions';
+import type { HarborChoice, SxHarborPicker } from './components/sx-harbor-picker';
+import type { HarborPatch, StreamFilter } from './services/api';
+import type { ReactionSubject } from './domain/reactions';
 
 /** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
 const TRACK_COLORS = ['--c-track-1', '--c-track-2', '--c-track-3', '--c-track-4', '--c-track-5', '--c-track-6'];
@@ -111,11 +118,15 @@ export class App {
     photoUpload: $<SxPhotoUpload>('sx-photo-upload'),
     groupPage: $<SxGroupPage>('sx-group-page'),
     homeFeed: $<SxHomeFeed>('sx-home-feed'),
+    legalPage: $<SxLegalPage>('sx-legal-page'),
+    shareReactions: $<SxReactions>('#share-reactions'),
+    reactionsPanel: $<HTMLElement>('#reactions-panel'),
   };
   private session: SessionController;
   private community: CommunityController;
   private photos: PhotosController;
   private groups: GroupsController;
+  private social: SocialController;
   /** Startseite als Einstieg (nicht Profil-, Boots-, Gruppen- oder Entdecken-Seite) – nur dort lädt die Startseite Neuigkeiten */
   private homeRoute = false;
   private timelinePts: TimedPoint[] = [];
@@ -157,6 +168,20 @@ export class App {
       profile: this.ui.page,
       toast: (msg, ms) => this.toast(msg, ms),
       openLogin: (reason) => this.session.openLogin(reason),
+      // Startseite: Stream groß, „Track anlegen“ kompakt (Konzept 12.6)
+      onCommunity: (visible) => (this.ui.empty.community = visible),
+      ready: () => this.session.backendReady,
+    });
+    this.social = new SocialController(this.store, {
+      page: this.ui.page,
+      home: this.ui.homeFeed,
+      groupPage: this.ui.groupPage,
+      account: this.ui.account,
+      shareReactions: this.ui.shareReactions,
+      reactionsPanel: this.ui.reactionsPanel,
+      lightbox: this.ui.lightbox,
+      toast: (msg, ms) => this.toast(msg, ms),
+      openLogin: (reason) => this.session.openLogin(reason),
     });
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
@@ -182,6 +207,8 @@ export class App {
         case 'discover':
         case 'group':
         case 'group-new':
+        case 'harbor':
+        case 'legal':
           return await this.openPage(route);
         case 'login':
           history.replaceState(null, '', '/');
@@ -241,6 +268,7 @@ export class App {
       if (prev) {
         if (this.homeRoute) void this.groups.loadHome(true);
         void this.groups.userChanged();
+        void this.social.userChanged();
       }
     }
     this.ui.toast.loading = s.loading;
@@ -274,6 +302,9 @@ export class App {
       // Fotos des geteilten Törns (Phase C)
       if (s.mode.kind === 'share' && s.backend) void this.photos.load(s.mode.share, s.mode.key);
       else this.photos.hide();
+      // Reaktionen auf den Törn (Konzept 12.5)
+      if (s.mode.kind === 'share' && s.backend) void this.social.loadShare(s.mode.share, s.mode.key);
+      else this.social.hideShare();
     }
     // Hover auf Track, Diagramm oder Kennzahl hebt das zeitlich nächste Foto hervor (Konzept 3.3).
     if (changed('hover') && s.hover?.source !== 'photo') {
@@ -455,11 +486,17 @@ export class App {
 
     // ---- Fotos (Phase C) ----
     const ph = this.photos;
-    on<{ id: string }>('sx-photo-open', (d) => ph.open(d.id));
+    on<{ id: string }>('sx-photo-open', (d) => {
+      ph.open(d.id);
+      void this.social.loadPhoto();
+    });
     on<{ id: string | null }>('sx-photo-hover', (d) => this.photoHover(d.id));
     on('sx-photo-add', () => ph.openUpload());
     on('sx-photo-support', () => ph.support());
-    on<{ index: number }>('sx-photo-nav', (d) => ph.nav(d.index));
+    on<{ index: number }>('sx-photo-nav', (d) => {
+      ph.nav(d.index);
+      void this.social.loadPhoto();
+    });
     on('sx-photo-close', () => {
       ph.close();
       this.photoHover(null);
@@ -493,8 +530,18 @@ export class App {
     on<{ id: string; boatId: string }>('sx-group-boat-remove', (d) => g.removeBoat(d));
     on<{ groupId: string; body: string; link: string }>('sx-post-create', (d) => g.createPost(d));
     on<{ id: string }>('sx-post-delete', (d) => g.deletePost(d.id));
-    on<{ scope: 'home' | 'group' }>('sx-stream-more', (d) => g.more(d.scope));
+    on<{ scope: 'home' | 'group' | 'harbor' | 'public' }>('sx-stream-more', (d) => (d.scope === 'harbor' ? this.social.moreHarbor() : g.more(d.scope)));
     on<{ kind: FollowKind; id: string; follow: boolean }>('sx-follow', (d) => g.follow(d));
+
+    // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
+    const so = this.social;
+    on<{ filter: StreamFilter }>('sx-stream-filter', (d) => g.setFilter(d.filter));
+    on<ReactDetail>('sx-react', (d) => so.react(d));
+    on<{ subject: ReactionSubject; id: string; key?: string | null; el: SxReactions }>('sx-react-who', (d) => so.who(d));
+    on<{ query: string; el: SxHarborPicker }>('sx-harbor-search', (d) => so.searchHarbors(d));
+    on<{ id: string; patch: HarborPatch }>('sx-harbor-save', (d) => so.saveHarbor(d));
+    on<{ clubId: string | null; harbor: HarborChoice }>('sx-home-save', (d) => so.saveHome(d));
+    on('sx-account-opened', () => so.loadHome());
   }
 
   private wireDragDrop() {
@@ -660,10 +707,20 @@ export class App {
       | { kind: 'boat'; id: string; key?: string }
       | { kind: 'discover' }
       | { kind: 'group'; slug: string; key?: string }
-      | { kind: 'group-new' },
+      | { kind: 'group-new' }
+      | { kind: 'harbor'; slug: string }
+      | { kind: 'legal'; page: 'impressum' | 'datenschutz' },
   ) {
     this.ui.app.setAttribute('data-page', '');
     if (route.kind === 'discover') return this.openDiscover();
+    if (route.kind === 'legal') {
+      // Impressum und Datenschutz kommen aus src/content/legal.ts – ohne Backend (Konzept 12.7).
+      this.ui.legalPage.page = route.page;
+      this.ui.legalPage.hidden = false;
+      document.title = `${route.page === 'impressum' ? 'Impressum' : 'Datenschutz'} · Sail Explorer`;
+      return;
+    }
+    if (route.kind === 'harbor') return this.social.openHarbor(route.slug);
     if (route.kind === 'group') {
       this.community.setPageKey(route.key);
       return this.groups.openGroup(route.slug, route.key);
@@ -731,6 +788,7 @@ export class App {
     this.ui.page.hidden = true;
     this.ui.discoverPage.hidden = true;
     this.ui.groupPage.hidden = true;
+    this.ui.legalPage.hidden = true;
     document.title = 'Sail Explorer';
   }
 

@@ -8,6 +8,11 @@ import { inviteGroup } from './invites';
 import { createPost, deletePost } from './posts';
 import { groupStream, personalStream } from './stream';
 import { follow, getSuggestions, unfollow } from './follows';
+// ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
+import { createHarbor, getHarbor, searchHarbors, updateHarbor } from './harbors';
+import { getMyHome, putMyHome } from './home';
+import { deleteReaction, getReactions, putReaction } from './reactions';
+import { harborStream, publicStream } from './stream';
 
 type Handler = (request: Request, env: Env, params: string[]) => Promise<Response>;
 
@@ -34,6 +39,18 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['DELETE', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => deletePost(r, env, id)],
   ['GET', /^\/api\/stream$/, (r, env) => personalStream(r, env)],
   ['GET', /^\/api\/me\/suggestions$/, (r, env) => getSuggestions(r, env)],
-  ['PUT', /^\/api\/follows\/(user|boat|group)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => follow(r, env, kind, id)],
-  ['DELETE', /^\/api\/follows\/(user|boat|group)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => unfollow(r, env, kind, id)],
+  ['PUT', /^\/api\/follows\/(user|boat|group|harbor)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => follow(r, env, kind, id)],
+  ['DELETE', /^\/api\/follows\/(user|boat|group|harbor)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => unfollow(r, env, kind, id)],
+  // ---- Konzept 12: öffentlicher Stream, Häfen, Heimat, Reaktionen ----
+  ['GET', /^\/api\/stream\/public$/, (r, env) => publicStream(r, env)],
+  ['GET', /^\/api\/harbors$/, (r, env) => searchHarbors(r, env)],
+  ['POST', /^\/api\/harbors$/, (r, env) => createHarbor(r, env)],
+  ['GET', /^\/api\/harbors\/slug\/([a-z0-9-]{1,100})$/, (r, env, [slug]) => getHarbor(r, env, slug)],
+  ['PATCH', new RegExp(`^/api/harbors/${ID}$`), (r, env, [id]) => updateHarbor(r, env, id)],
+  ['GET', new RegExp(`^/api/harbors/${ID}/stream$`), (r, env, [id]) => harborStream(r, env, id)],
+  ['GET', /^\/api\/me\/home$/, (r, env) => getMyHome(r, env)],
+  ['PUT', /^\/api\/me\/home$/, (r, env) => putMyHome(r, env)],
+  ['GET', new RegExp(`^/api/reactions/(share|post|photo|activity)/${ID}$`), (r, env, [kind, id]) => getReactions(r, env, kind, id)],
+  ['PUT', new RegExp(`^/api/reactions/(share|post|photo|activity)/${ID}$`), (r, env, [kind, id]) => putReaction(r, env, kind, id)],
+  ['DELETE', new RegExp(`^/api/reactions/(share|post|photo|activity)/${ID}$`), (r, env, [kind, id]) => deleteReaction(r, env, kind, id)],
 ];

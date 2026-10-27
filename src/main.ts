@@ -22,6 +22,10 @@ import './components/sx-report-dialog';
 import './components/sx-photo-strip';
 import './components/sx-photo-lightbox';
 import './components/sx-photo-upload';
+// ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
+import './components/sx-reactions';
+import './components/sx-harbor-picker';
+import './components/sx-legal-page';
 import { App } from './app';
 
 new App().start();

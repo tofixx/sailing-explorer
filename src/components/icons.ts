@@ -62,6 +62,16 @@ const paths = {
   right: svg`<path d="M9.5 5.5 16 12l-6.5 6.5"/>`,
   // Melden: Signalflagge
   flag: svg`<path class="f" d="M5.5 4.5h12l-2.5 4 2.5 4h-12z"/><path d="M5.5 21V3.5M5.5 4.5h12l-2.5 4 2.5 4h-12"/>`,
+  // Reaktionen (Konzept 12.5): „Gefällt mir“ als Herz aus Tauwerk-Linie
+  heart: svg`<path class="f" d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/>`,
+  // „Mast- und Schotbruch“: Mast mit Saling und lose auswehender Schot
+  mast: svg`<path class="f" d="M12 3.5v13.5l6.5-2.5c-1.6-3.8-3.8-7.5-6.5-11z"/><path d="M12 3.5V21M8.5 8h7M12 17l6.5-2.5c-1.6-3.8-3.8-7.5-6.5-11"/><path d="M18.5 14.5c1 1.4 1.4 2.8.8 4.2M6 21h12"/>`,
+  // „Starker Schlag“: Kreuzkurs im Zickzack mit Pfeil
+  tack: svg`<circle class="f" cx="4.5" cy="19" r="2"/><path d="M4 19.5 9 13l3.5 3.5L19.5 7M15 6.5h4.5V11"/>`,
+  // Plus (FAB „Track anlegen“)
+  plus: svg`<path d="M12 5v14M5 12h14"/>`,
+  // Waage/Paragraf für Rechtliches
+  scale: svg`<path d="M12 4v16M7 20h10M5 7h14M5 7l-2.5 6a2.5 2.5 0 0 0 5 0zM19 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/>`,
 };
 
 export type IconName = keyof typeof paths;

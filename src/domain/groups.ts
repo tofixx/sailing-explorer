@@ -1,6 +1,7 @@
 // Vereine, Teams, Folgen und Neuigkeiten (Konzept Abschnitt 11): reine Regeln ohne DOM und Netz –
 // genutzt von Worker (Prüfen, Schreiben, Lesen) und Oberfläche (Texte, Formulare).
 import { fmtNum } from './format';
+import type { ReactionSubject, ReactionSummary } from './reactions';
 
 // ---------------------------------------------------------------- Gruppen
 
@@ -77,13 +78,14 @@ export function canRemoveMember(actor: GroupRole | null, target: GroupRole, self
 
 // ---------------------------------------------------------------- Folgen
 
-export const FOLLOW_KINDS = ['user', 'boat', 'group'] as const;
+export const FOLLOW_KINDS = ['user', 'boat', 'group', 'harbor'] as const;
 export type FollowKind = (typeof FOLLOW_KINDS)[number];
 export const isFollowKind = oneOf(FOLLOW_KINDS);
 
 // ---------------------------------------------------------------- Neuigkeiten
 
-export const ACTIVITY_KINDS = ['voyage', 'photos', 'member', 'boat', 'post', 'milestone'] as const;
+/** `harbor` = „Neues Boot im Hafen“ (Konzept 12.4). */
+export const ACTIVITY_KINDS = ['voyage', 'photos', 'member', 'boat', 'post', 'milestone', 'harbor'] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 export const isActivityKind = oneOf(ACTIVITY_KINDS);
 
@@ -135,6 +137,23 @@ export interface StreamItem {
   post?: { id: string; body: string; link: string | null; canDelete: boolean };
   boat?: { id: string; name: string };
   milestone?: { nm: number; year: number; subject: 'user' | 'boat' | 'group'; name: string; path: string };
+  /** Hafen als Kontext (`harbor`: neues Boot im Hafen) */
+  harbor?: { slug: string; name: string };
+  /** Reaktionen (Konzept 12.5): Gegenstand, Zähler je Art und die eigene */
+  reactions?: StreamReactions;
+}
+
+/** Reaktionen eines Eintrags: Törn bei `voyage`/`photos`, Beitrag bei `post`, sonst die Aktivität selbst. */
+export interface StreamReactions extends ReactionSummary {
+  subject: ReactionSubject;
+  id: string;
+}
+
+/** Gegenstand der Reaktionen eines Eintrags – dieselbe Reaktion erscheint im Stream und auf der Törn-Seite. */
+export function reactionSubjectOf(i: Pick<StreamItem, 'id' | 'kind' | 'voyage' | 'post'>): { subject: ReactionSubject; id: string } {
+  if ((i.kind === 'voyage' || i.kind === 'photos') && i.voyage) return { subject: 'share', id: i.voyage.id };
+  if (i.kind === 'post' && i.post) return { subject: 'post', id: i.post.id };
+  return { subject: 'activity', id: i.id };
 }
 
 const who = (i: StreamItem, fallback: string) => i.actor?.displayName || fallback;
@@ -156,6 +175,8 @@ export function streamHeadline(i: StreamItem): string {
       return `Neuigkeit von ${i.group?.name ?? 'der Gruppe'}`;
     case 'milestone':
       return i.milestone ? `${i.milestone.name} hat ${fmtNum(i.milestone.nm, 0)} Seemeilen in der Saison ${i.milestone.year} erreicht` : 'Meilenstein';
+    case 'harbor':
+      return `Neues Boot im Hafen ${i.harbor?.name ?? ''}: ${i.boat?.name ?? 'Boot'}`;
   }
 }
 
@@ -163,8 +184,10 @@ export function streamHeadline(i: StreamItem): string {
 export function streamPath(i: StreamItem): string {
   if (i.voyage) return `/s/${i.voyage.id}`;
   if (i.kind === 'milestone' && i.milestone) return i.milestone.path;
+  if (i.kind === 'harbor' && i.boat) return `/b/${i.boat.id}`;
   if (i.group) return `/g/${i.group.slug}`;
   if (i.boat) return `/b/${i.boat.id}`;
+  if (i.harbor) return `/h/${i.harbor.slug}`;
   return '/';
 }
 

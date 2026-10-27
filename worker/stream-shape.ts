@@ -39,6 +39,10 @@ export interface ActivityRow {
   p_link: string | null;
   p_hidden: number | null;
   p_author: string | null;
+  /** Hafen bei `harbor` (Konzept 12.4) */
+  h_slug?: string | null;
+  h_name?: string | null;
+  h_hidden?: number | null;
 }
 
 export interface Viewer {
@@ -112,6 +116,12 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [])
       }
       if (!group) return null;
       return { ...base, actor: null, group, milestone: { nm, year, subject: 'group', name: group.name, path: `/g/${group.slug}` } };
+    }
+    case 'harbor': {
+      // Neues Boot im Hafen: nur öffentliches Boot und nicht ausgeblendeter Hafen.
+      const boat = publicBoat(r);
+      if (!boat || !r.h_slug || r.h_hidden) return null;
+      return { ...base, boat, harbor: { slug: r.h_slug, name: r.h_name ?? '' } };
     }
   }
   return null;

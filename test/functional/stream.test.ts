@@ -422,7 +422,8 @@ describe('F-164 Leute, die du kennen könntest', () => {
     const by = Object.fromEntries(people.map((p) => [p.handle, p]));
     expect(by[clubmate.handle!]?.reasonText).toBe('Im selben Verein');
     expect(by[skipper.handle!]?.reasonText).toBe('Mit dir gesegelt');
-    expect(by[neighbour.handle!]?.reasonText).toBe(`Heimathafen ${port.toUpperCase()}`);
+    // Gleicher Hafen (Konzept 12.2): die Schreibweise des Nachbarn landet im vorhandenen Hafen, genannt wird dessen Name
+    expect(by[neighbour.handle!]?.reasonText).toBe(`Heimathafen ${port}`);
     expect(by[hidden.handle!]).toBeUndefined();
     expect(by[followed.handle!]).toBeUndefined();
     expect(by[me.handle!]).toBeUndefined();

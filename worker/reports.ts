@@ -13,6 +13,7 @@ import { removeShare, visibleShare } from './shares';
 import { removePhotoById, visiblePhoto } from './photos';
 import { canViewGroup, loadGroup, removeGroup, roleIn } from './groups';
 import { removePost } from './posts';
+import { harborVisible, loadHarbor, removeHarbor } from './harbors';
 import { boatCleanup } from './activity';
 import { canManageGroup } from '../src/domain/groups';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, normalizeHandle, parseReportKind, parseReportReason } from './validate';
@@ -40,6 +41,7 @@ const TABLE: Record<ReportKind, { table: string; idCol: string }> = {
   boat: { table: 'boats', idCol: 'id' },
   group: { table: 'groups', idCol: 'id' },
   post: { table: 'posts', idCol: 'id' },
+  harbor: { table: 'harbors', idCol: 'id' },
 };
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Das gibt es nicht (mehr) oder du kannst es nicht sehen.');
@@ -86,6 +88,12 @@ async function resolveTarget(request: Request, env: Env, kind: ReportKind, rawId
     }
     if (post) return { kind, id: post.id, ownerId: post.author_id };
     return { kind, id: g.id, ownerId: canManageGroup(role) ? (user?.id ?? g.owner_id) : g.owner_id };
+  }
+  if (kind === 'harbor') {
+    // Häfen sind öffentlich; ausgeblendete nur für die Moderation (Konzept 12.2). Anleger:in = „Eigentümer“.
+    const h = await loadHarbor(env, rawId);
+    if (!harborVisible(h, admin)) throw NOT_FOUND();
+    return { kind, id: h.id, ownerId: h.created_by ?? '' };
   }
   if (kind === 'profile') {
     const handle = normalizeHandle(rawId);
@@ -243,6 +251,12 @@ async function preview(env: Env, kind: ReportKind, id: string) {
       .first<{ id: string; author_id: string; body: string; hidden_at: number | null; slug: string; name: string; visibility: Visibility; share_key: string | null }>();
     return p && { title: `Beitrag in „${p.name}“`, text: p.body, path: sharePath('g', p.slug, p.visibility, p.share_key), visibility: p.visibility, hiddenAt: p.hidden_at, owner: await owner(p.author_id) };
   }
+  if (kind === 'harbor') {
+    const h = await env.DB.prepare('SELECT id, slug, name, created_by, hidden_at FROM harbors WHERE id = ?')
+      .bind(id)
+      .first<{ id: string; slug: string; name: string; created_by: string | null; hidden_at: number | null }>();
+    return h && { title: `Hafen ${h.name} (/h/${h.slug})`, text: '', path: `/h/${h.slug}`, visibility: 'public' as Visibility, hiddenAt: h.hidden_at, owner: await owner(h.created_by ?? '') };
+  }
   const b = await env.DB.prepare('SELECT id, owner_id, name, description, visibility, share_key, hidden_at FROM boats WHERE id = ?')
     .bind(id)
     .first<{ id: string; owner_id: string; name: string; description: string; visibility: Visibility; share_key: string | null; hidden_at: number | null }>();
@@ -299,6 +313,7 @@ async function deleteTarget(env: Env, kind: ReportKind, id: string): Promise<voi
   if (kind === 'photo') return removePhotoById(env, id);
   if (kind === 'group') return removeGroup(env, id);
   if (kind === 'post') return removePost(env, id);
+  if (kind === 'harbor') return removeHarbor(env, id);
   if (kind === 'profile') {
     // Nur das Profil: Konto, Törns und Boote bleiben (der Autor erscheint dann ohne Namen).
     await env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(id).run();

@@ -1,4 +1,4 @@
-import { ApiError, api, groupApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamPage } from '../services/api';
+import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamFilter, type StreamPage } from '../services/api';
 import type { Store } from '../services/store';
 import type { SxGroupPage } from '../components/sx-group-page';
 import type { SxHomeFeed } from '../components/sx-home-feed';
@@ -11,6 +11,10 @@ export interface GroupsUi {
   profile: SxProfilePage;
   toast: (msg: string, ms?: number) => void;
   openLogin: (reason: string) => void;
+  /** Community-Stream sichtbar (Startseite: Stream groß, Hochladen im Hintergrund – Konzept 12.6) */
+  onCommunity?: (visible: boolean) => void;
+  /** wartet, bis Backend und Anmeldung bekannt sind */
+  ready?: () => Promise<void>;
 }
 
 /**
@@ -21,6 +25,10 @@ export class GroupsController {
   /** geöffnete Gruppe (Slug und Schlüssel aus der Adresse) */
   private current: { slug: string; key?: string } | null = null;
   private homeLoaded = false;
+  /** Filter des öffentlichen Streams (Gäste) */
+  private filter: StreamFilter = null;
+  /** laufendes Laden der Startseite (Schlüssel: angemeldet und Filter) */
+  private homeLoading: { key: string; p: Promise<void> } | null = null;
 
   constructor(
     private store: Store,
@@ -185,7 +193,7 @@ export class GroupsController {
 
   // ---------------------------------------------------------------- Neuigkeiten: mehr laden
 
-  async more(scope: 'home' | 'group'): Promise<void> {
+  async more(scope: 'home' | 'group' | 'public'): Promise<void> {
     if (scope === 'group') {
       const page = this.ui.page;
       const id = page.data?.group.id;
@@ -205,7 +213,7 @@ export class GroupsController {
     if (!home.stream?.cursor) return;
     home.loading = true;
     try {
-      const next = await groupApi.myStream(home.stream.cursor);
+      const next = scope === 'public' ? await socialApi.publicStream(home.stream.cursor, this.filter) : await groupApi.myStream(home.stream.cursor);
       home.stream = { ...next, items: [...home.stream.items, ...next.items] };
     } catch (e) {
       this.ui.toast(errorText(e));
@@ -216,27 +224,61 @@ export class GroupsController {
 
   // ---------------------------------------------------------------- Startseite
 
-  /** Neuigkeiten, eigene Gruppen und Vorschläge für Angemeldete; sonst bleibt die Leiste unsichtbar. */
+  /**
+   * Startseite (Konzept 12.6): angemeldet persönliche Neuigkeiten, eigene Gruppen und Vorschläge; als Gast der
+   * öffentliche Community-Stream mit Filtern. Ohne Backend bzw. bei Fehlern bleibt der Bereich unsichtbar.
+   */
   async loadHome(force = false): Promise<void> {
     const home = this.ui.home;
-    if (!this.signedIn() || !this.store.get().backend) {
+    // Anmeldestatus abwarten – sonst lädt die Startseite kurz den Gast-Stream, bevor das Konto bekannt ist.
+    await this.ui.ready?.();
+    if (!this.store.get().backend) {
       home.hidden = true;
       this.homeLoaded = false;
+      this.ui.onCommunity?.(false);
       return;
     }
     if (this.homeLoaded && !force) return;
-    this.homeLoaded = true;
-    home.loading = true;
+    const signedIn = this.signedIn();
+    const key = `${signedIn}:${JSON.stringify(this.filter)}`;
+    // Gleiche Anfrage läuft schon (z. B. Backend und Konto melden sich kurz nacheinander) – nicht doppelt laden.
+    if (this.homeLoading?.key === key) return this.homeLoading.p;
+    const p = this.fetchHome(signedIn);
+    this.homeLoading = { key, p };
     try {
-      const [stream, mine, sugg] = await Promise.all([groupApi.myStream(), groupApi.mine(), groupApi.suggestions().catch(() => ({ people: [] }))]);
-      Object.assign(home, { stream, groups: mine.groups, suggestions: sugg.people });
+      await p;
+    } finally {
+      if (this.homeLoading?.p === p) this.homeLoading = null;
+    }
+  }
+
+  private async fetchHome(signedIn: boolean): Promise<void> {
+    const home = this.ui.home;
+    this.homeLoaded = true;
+    Object.assign(home, { loading: true, signedIn });
+    try {
+      if (signedIn) {
+        const [stream, mine, sugg] = await Promise.all([groupApi.myStream(), groupApi.mine(), groupApi.suggestions().catch(() => ({ people: [] }))]);
+        Object.assign(home, { stream, groups: mine.groups, suggestions: sugg.people, filters: null, filter: null });
+      } else {
+        const page = await socialApi.publicStream(null, this.filter);
+        Object.assign(home, { stream: page, filters: page.filters ?? home.filters ?? null, filter: this.filter, groups: [], suggestions: [] });
+      }
       home.hidden = false;
+      this.ui.onCommunity?.(true);
     } catch {
       home.hidden = true;
       this.homeLoaded = false;
+      this.ui.onCommunity?.(false);
     } finally {
       home.loading = false;
     }
+  }
+
+  /** Filter-Chip im öffentlichen Stream (Hafen, Verein oder alle). */
+  async setFilter(filter: StreamFilter): Promise<void> {
+    this.filter = filter;
+    await this.loadHome(true);
   }
 
   /** Öffentliche Vereine aus /api/discover für „Tritt deinem Verein bei“. */
@@ -258,6 +300,7 @@ export class GroupsController {
       const p = this.ui.profile.data;
       if (p?.kind === 'profile' && d.kind === 'user' && p.profile.handle === d.id) this.ui.profile.data = { ...p, social: stats };
       if (p?.kind === 'boat' && d.kind === 'boat' && p.boat.id === d.id) this.ui.profile.data = { ...p, social: stats };
+      if (p?.kind === 'harbor' && d.kind === 'harbor' && p.harbor.id === d.id) this.ui.profile.data = { ...p, social: stats };
       if (d.kind === 'user' && d.follow) {
         home.suggestions = (home.suggestions ?? []).filter((s) => s.handle !== d.id);
         this.ui.toast('Du folgst jetzt – neue Törns erscheinen in deinen Neuigkeiten.');

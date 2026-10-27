@@ -68,5 +68,6 @@ export const deleteOrphanReports = (env: Env): D1PreparedStatement =>
        OR (target_kind = 'profile' AND NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = reports.target_id))
        OR (target_kind = 'boat' AND NOT EXISTS (SELECT 1 FROM boats WHERE id = reports.target_id))
        OR (target_kind = 'group' AND NOT EXISTS (SELECT 1 FROM groups WHERE id = reports.target_id))
-       OR (target_kind = 'post' AND NOT EXISTS (SELECT 1 FROM posts WHERE id = reports.target_id))`,
+       OR (target_kind = 'post' AND NOT EXISTS (SELECT 1 FROM posts WHERE id = reports.target_id))
+       OR (target_kind = 'harbor' AND NOT EXISTS (SELECT 1 FROM harbors WHERE id = reports.target_id))`,
   );

@@ -5,7 +5,8 @@ import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
 import { isAdmin } from './moderation';
 import { publicShares } from './shares';
-import { boatCleanup } from './activity';
+import { boatCleanup, recordHarborBoat } from './activity';
+import { harborFromBoatInput, type HarborRow } from './harbors';
 import { followStats } from './follows';
 import { checkBoatQuota, checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
@@ -18,7 +19,10 @@ interface BoatRow {
   boat_type: string;
   length_m: number | null;
   sail_number: string;
+  /** Anzeige-Kopie des Hafennamens (Konzept 12.2) */
   home_port: string;
+  /** Hafen des Boots (0013) */
+  harbor_id?: string | null;
   description: string;
   visibility: Visibility;
   /** Schlüssel für „Nur mit Link“ (0006) */
@@ -31,6 +35,9 @@ interface BoatRow {
   owner_handle?: string | null;
   owner_name?: string | null;
   owner_public?: number | null;
+  /** aus dem JOIN mit harbors (nur nicht ausgeblendete) */
+  harbor_slug?: string | null;
+  harbor_name?: string | null;
 }
 
 export type Role = 'owner' | 'admin' | null;
@@ -53,8 +60,13 @@ export async function roleFor(env: Env, userId: string, boatId: string): Promise
   return row?.role ?? null;
 }
 
-const BOAT_SELECT = `SELECT b.*, p.handle AS owner_handle, p.display_name AS owner_name, (p.visibility = 'public' AND p.hidden_at IS NULL) AS owner_public
-  FROM boats b LEFT JOIN profiles p ON p.user_id = b.owner_id`;
+const BOAT_SELECT = `SELECT b.*, p.handle AS owner_handle, p.display_name AS owner_name, (p.visibility = 'public' AND p.hidden_at IS NULL) AS owner_public,
+    h.slug AS harbor_slug, h.name AS harbor_name
+  FROM boats b LEFT JOIN profiles p ON p.user_id = b.owner_id LEFT JOIN harbors h ON h.id = b.harbor_id AND h.hidden_at IS NULL`;
+
+/** Für andere Abfragen über `boats b`: Hafen (nur nicht ausgeblendet) dazu. */
+export const BOAT_HARBOR_COLS = `(SELECT slug FROM harbors WHERE id = b.harbor_id AND hidden_at IS NULL) AS harbor_slug,
+  (SELECT name FROM harbors WHERE id = b.harbor_id AND hidden_at IS NULL) AS harbor_name`;
 
 async function stats(env: Env, boatId: string) {
   const s = await env.DB.prepare(
@@ -66,13 +78,16 @@ async function stats(env: Env, boatId: string) {
 }
 
 export function boatShape(b: BoatRow, role: Role) {
+  const harbor = b.harbor_id && b.harbor_slug ? { id: b.harbor_id, slug: b.harbor_slug, name: b.harbor_name ?? '' } : null;
   return {
     id: b.id,
     name: b.name,
     boatType: b.boat_type,
     lengthM: b.length_m,
     sailNumber: b.sail_number,
-    homePort: b.home_port,
+    // Name des Hafens (ausgeblendeter Hafen: leer)
+    homePort: harbor ? harbor.name : b.harbor_id ? '' : b.home_port,
+    harbor,
     description: b.description,
     visibility: b.visibility,
     // Schlüssel und Link nur für Eigner und Admins (Konzept 2.4).
@@ -94,6 +109,8 @@ interface BoatInput {
   lengthM?: unknown;
   sailNumber?: unknown;
   homePort?: unknown;
+  /** Hafen (Konzept 12.2): ID oder null; hat Vorrang vor homePort */
+  harborId?: unknown;
   description?: unknown;
   visibility?: unknown;
   rotateKey?: unknown;
@@ -108,7 +125,6 @@ function applyInput(b: BoatRow, input: BoatInput): Visibility | null {
   }
   if (input.boatType !== undefined) b.boat_type = cleanText(input.boatType, LIMITS.nameLength);
   if (input.sailNumber !== undefined) b.sail_number = cleanText(input.sailNumber, 20);
-  if (input.homePort !== undefined) b.home_port = cleanText(input.homePort, LIMITS.nameLength);
   if (input.description !== undefined) b.description = cleanText(input.description, LIMITS.bioLength);
   if (input.lengthM !== undefined) {
     const n = input.lengthM === null || input.lengthM === '' ? null : Number(input.lengthM);
@@ -131,6 +147,15 @@ async function applyVisibility(env: Env, b: BoatRow, next: Visibility | null, ro
   if (next) await checkVisibilityChoice(env, b.owner_id, v, previous);
   b.share_key = nextShareKey(previous ?? null, v, b.share_key, rotate);
   b.visibility = v;
+}
+
+/** Hafen übernehmen: undefined = unverändert, null = keiner; home_port ist die Anzeige-Kopie des Namens. */
+function setHarbor(b: BoatRow, harbor: HarborRow | null | undefined): void {
+  if (harbor === undefined) return;
+  b.harbor_id = harbor?.id ?? null;
+  b.home_port = harbor?.name ?? '';
+  b.harbor_slug = harbor?.slug ?? null;
+  b.harbor_name = harbor?.name ?? null;
 }
 
 /** GET /api/boats – Boote, die ich besitze oder verwalte. */
@@ -157,12 +182,15 @@ export async function createBoat(request: Request, env: Env): Promise<Response> 
   const input = await readJson<BoatInput>(request);
   // Neue Boote sind öffentlich (E1); eine andere Stufe nur mit Unterstützer-Status.
   await applyVisibility(env, b, applyInput(b, { name: '', ...input }) ?? DEFAULT_VISIBILITY, false, true);
+  const harbor = await harborFromBoatInput(env, user, input);
+  setHarbor(b, harbor);
   await env.DB.prepare(
-    `INSERT INTO boats (id, owner_id, name, boat_type, length_m, sail_number, home_port, description, visibility, share_key, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO boats (id, owner_id, name, boat_type, length_m, sail_number, home_port, harbor_id, description, visibility, share_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(b.id, b.owner_id, b.name, b.boat_type, b.length_m, b.sail_number, b.home_port, b.description, b.visibility, b.share_key, now, now)
+    .bind(b.id, b.owner_id, b.name, b.boat_type, b.length_m, b.sail_number, b.home_port, b.harbor_id ?? null, b.description, b.visibility, b.share_key, now, now)
     .run();
+  if (harbor) await recordHarborBoat(env, harbor.id, b.id, user.id, now);
   return json({ boat: boatShape(b, 'owner') }, { status: 201 });
 }
 
@@ -184,6 +212,15 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
     stats: await stats(env, id),
     voyages: await publicShares(env, 'boat', id),
     social: await followStats(env, 'boat', id, user?.id ?? null),
+    // „Verein des Boots“ (Konzept 12.2): öffentliche, nicht ausgeblendete Vereine, denen das Boot zugeordnet ist
+    clubs: (
+      await env.DB.prepare(
+        `SELECT g.slug, g.name, g.kind FROM group_boats gb JOIN groups g ON g.id = gb.group_id
+         WHERE gb.boat_id = ? AND g.kind = 'club' AND g.visibility = 'public' AND g.hidden_at IS NULL ORDER BY g.name`,
+      )
+        .bind(id)
+        .all<{ slug: string; name: string; kind: 'club' }>()
+    ).results,
   });
 }
 
@@ -197,12 +234,16 @@ export async function updateBoat(request: Request, env: Env, id: string): Promis
   if (!b) throw NOT_FOUND();
   const input = await readJson<BoatInput>(request);
   await applyVisibility(env, b, applyInput(b, input), input.rotateKey === true, false);
+  const before = b.harbor_id ?? null;
+  const harbor = await harborFromBoatInput(env, user, input);
+  setHarbor(b, harbor);
   b.updated_at = Date.now();
   await env.DB.prepare(
-    `UPDATE boats SET name = ?, boat_type = ?, length_m = ?, sail_number = ?, home_port = ?, description = ?, visibility = ?, share_key = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE boats SET name = ?, boat_type = ?, length_m = ?, sail_number = ?, home_port = ?, harbor_id = ?, description = ?, visibility = ?, share_key = ?, updated_at = ? WHERE id = ?`,
   )
-    .bind(b.name, b.boat_type, b.length_m, b.sail_number, b.home_port, b.description, b.visibility, b.share_key, b.updated_at, id)
+    .bind(b.name, b.boat_type, b.length_m, b.sail_number, b.home_port, b.harbor_id ?? null, b.description, b.visibility, b.share_key, b.updated_at, id)
     .run();
+  if (harbor && harbor.id !== before) await recordHarborBoat(env, harbor.id, b.id, user.id, b.updated_at);
   return json({ boat: boatShape(b, role) });
 }
 
