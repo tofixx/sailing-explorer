@@ -5,7 +5,7 @@ import { canViewShare, createShare, deleteShare, getShareData, getShareImage, ge
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
 import { getDiscover } from './discover';
-import { acceptInvite, getCrew, inviteBoatAdmin, inviteCrew, listBoatAdmins, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
+import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteCrew, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
 import { withPageHeaders } from './security';
 import { createCheckout, freeShares, getSupport, stripeWebhook, supportConfig } from './supporter';
 import { runRetention } from './retention';
@@ -48,6 +48,9 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/me\/profile$/, (r, env) => getMyProfile(r, env)],
   ['PUT', /^\/api\/me\/profile$/, (r, env) => putMyProfile(r, env)],
   ['GET', /^\/api\/me\/support$/, (r, env) => getSupport(r, env)],
+  ['GET', /^\/api\/me\/invites$/, (r, env) => listMyInvites(r, env)],
+  ['POST', /^\/api\/me\/invites\/([A-Za-z0-9]+)\/accept$/, (r, env, [id]) => acceptMyInvite(r, env, id)],
+  ['DELETE', /^\/api\/me\/invites\/([A-Za-z0-9]+)$/, (r, env, [id]) => declineMyInvite(r, env, id)],
   ['POST', /^\/api\/support\/checkout$/, (r, env) => createCheckout(r, env)],
   ['POST', /^\/api\/webhooks\/stripe$/, (r, env) => stripeWebhook(r, env)],
   ['GET', /^\/api\/profiles\/([A-Za-z0-9-]+)$/, (r, env, [h]) => getProfile(r, env, h)],

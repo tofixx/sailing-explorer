@@ -6,6 +6,7 @@ import {
   api,
   validatePayload,
   type BoatInput,
+  type InviteTo,
   type ProfileInput,
   type ShareMeta,
   type SharePatch,
@@ -295,13 +296,14 @@ export class SessionController {
     }
   }
 
-  /** Crew einladen: per E-Mail oder (email = null) als Einladungslink, der nur jetzt angezeigt wird. */
-  inviteCrew(email: string | null) {
+  /** Crew einladen: per E-Mail, Profilname oder (to = null) als Einladungslink, der nur jetzt angezeigt wird. */
+  inviteCrew(to: InviteTo | null) {
     return this.crewAct(async (id) => {
-      const res = await api.inviteCrew(id, email || null);
+      const res = await api.inviteCrew(id, to);
       if (res.link) this.ui.crew.newLink = res.link;
+      else this.ui.toast(invitedText(res.invite));
       if (res.devLink) console.info('Einladungslink (Entwicklung, kein Mailversand):', res.devLink);
-    }, email ? `Einladung an ${email} verschickt` : undefined);
+    });
   }
 
   removeCrew(userId: string) {
@@ -339,12 +341,30 @@ export class SessionController {
     }
   }
 
-  inviteAdmin(boatId: string, email: string) {
+  inviteAdmin(boatId: string, to: InviteTo) {
     return this.act(async () => {
-      const res = await api.inviteBoatAdmin(boatId, email);
+      const res = await api.inviteBoatAdmin(boatId, to);
       if (res.devLink) console.info('Einladungslink (Entwicklung, kein Mailversand):', res.devLink);
+      this.ui.toast(invitedText(res.invite));
       await this.loadAdmins(boatId);
-    }, `Einladung an ${email} verschickt`);
+    });
+  }
+
+  /** Einladung an mich aus dem Konto annehmen; als Admin erscheint das Boot gleich unter „Boote“. */
+  acceptMyInvite(id: string) {
+    return this.act(async () => {
+      const r = await api.acceptMyInvite(id);
+      this.ui.account.myInvites = this.ui.account.myInvites.filter((i) => i.id !== id);
+      if (r.kind === 'boat_admin') this.ui.account.boats = (await api.myBoats()).boats;
+      this.ui.toast(r.kind === 'boat_admin' ? `Du bist jetzt Admin von „${r.target ?? ''}“` : `Du bist jetzt in der Crew von „${r.target ?? ''}“`);
+    });
+  }
+
+  declineMyInvite(id: string) {
+    return this.act(async () => {
+      await api.declineMyInvite(id);
+      this.ui.account.myInvites = this.ui.account.myInvites.filter((i) => i.id !== id);
+    }, 'Einladung abgelehnt');
   }
 
   removeAdmin(boatId: string, userId: string) {
@@ -679,8 +699,10 @@ export class SessionController {
     this.ui.invite.open = false;
     Object.assign(this.ui.account, { open: true, tab, user: this.store.get().user, loading: true, error: '', admins: null });
     try {
-      const [shares, boats, me] = await Promise.all([api.listShares(), api.myBoats(), api.myProfile(), this.refreshSupport()]);
-      Object.assign(this.ui.account, { shares: shares.shares, boats: boats.boats, profile: me.profile, profileExists: me.exists });
+      const [shares, boats, me, invites] = await Promise.all([
+        api.listShares(), api.myBoats(), api.myProfile(), api.myInvites().catch(() => ({ invites: [] })), this.refreshSupport(),
+      ]);
+      Object.assign(this.ui.account, { shares: shares.shares, boats: boats.boats, profile: me.profile, profileExists: me.exists, myInvites: invites.invites });
     } catch (e) {
       this.ui.account.error = errorText(e);
     } finally {
@@ -747,6 +769,11 @@ export class SessionController {
       void this.refreshSupport();
     }, 'Freigabe gelöscht');
   }
+}
+
+/** Bestätigung nach dem Einladen – mit Namen bzw. der selbst eingegebenen Adresse, nie mit einer fremden. */
+function invitedText(invite: { email: string | null; invitee: { displayName: string } | null }): string {
+  return `Einladung an ${invite.invitee?.displayName ?? invite.email ?? 'die Crew'} verschickt`;
 }
 
 const ROTATED = 'Neuer Link erstellt – der alte Link funktioniert nicht mehr.';

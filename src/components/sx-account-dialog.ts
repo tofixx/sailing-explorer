@@ -1,5 +1,5 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, HomeInfo, Linkable, Profile, ShareMeta, SupportStatus, User } from '../services/api';
+import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, HomeInfo, Linkable, MyInvite, Profile, ShareMeta, SupportStatus, User } from '../services/api';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-harbor-picker';
 import { WARN_MS, type SupportTier } from '../domain/support';
@@ -7,7 +7,7 @@ import { boatLimitText, usageText } from '../domain/limits';
 import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { base, dialogStyles, emit } from './shared';
+import { base, dialogStyles, emit, inviteTarget, pendingLabel } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
 import './sx-admin-reports';
@@ -34,6 +34,7 @@ export class SxAccountDialog extends LitElement {
     boats: { attribute: false },
     shares: { attribute: false },
     admins: { attribute: false },
+    myInvites: { attribute: false },
     supportTiers: { attribute: false },
     checkoutBusy: { type: Boolean },
     supportStatus: { attribute: false },
@@ -63,6 +64,8 @@ export class SxAccountDialog extends LitElement {
   declare shares: ShareMeta[];
   /** Admins des aufgeklappten Boots (data null = lädt) */
   declare admins: { boatId: string; data: BoatAdmins | null } | null;
+  /** offene Einladungen an mich (Posteingang) */
+  declare myInvites: MyInvite[];
   /** Stufen des Unterstützen-Sliders; null = Unterstützen nicht eingerichtet */
   declare supportTiers: SupportTier[] | null;
   /** Checkout wird angelegt */
@@ -102,6 +105,7 @@ export class SxAccountDialog extends LitElement {
     this.boats = [];
     this.shares = [];
     this.admins = null;
+    this.myInvites = [];
     this.supportTiers = null;
     this.checkoutBusy = false;
     this.supportStatus = null;
@@ -280,6 +284,13 @@ export class SxAccountDialog extends LitElement {
       }
       .expiry.soon svg {
         color: var(--warn);
+      }
+      .inbox {
+        display: grid;
+        gap: var(--s-2);
+      }
+      .inbox .title {
+        white-space: normal;
       }
       .empty {
         padding: var(--s-5);
@@ -665,7 +676,7 @@ export class SxAccountDialog extends LitElement {
   private inviteAdmin(e: Event, boatId: string) {
     e.preventDefault();
     const input = (e.target as HTMLFormElement).querySelector('input') as HTMLInputElement;
-    emit(this, 'sx-boat-admin-invite', { boatId, email: input.value.trim() });
+    emit(this, 'sx-boat-admin-invite', { boatId, to: inviteTarget(input.value) });
     input.value = '';
   }
 
@@ -700,17 +711,18 @@ export class SxAccountDialog extends LitElement {
             <ul>
               ${d.invites.map(
                 (i) => html`<li>
-                  <div class="meta"><div class="title">${i.email}</div><div class="sub">gültig bis ${fmtDate(i.expiresAt)}</div></div>
-                  <button class="btn small ghost" ?disabled=${this.busy} aria-label="Einladung zurückziehen: ${i.email}" @click=${() => emit(this, 'sx-invite-revoke', { id: i.id, scope: 'boat', boatId: b.id })}>Zurückziehen</button>
+                  <div class="meta"><div class="title">${pendingLabel(i)}</div><div class="sub">gültig bis ${fmtDate(i.expiresAt)}</div></div>
+                  <button class="btn small ghost" ?disabled=${this.busy} aria-label="Einladung zurückziehen: ${pendingLabel(i)}" @click=${() => emit(this, 'sx-invite-revoke', { id: i.id, scope: 'boat', boatId: b.id })}>Zurückziehen</button>
                 </li>`,
               )}
             </ul>`
         : ''}
       ${owner
         ? html`<form class="inline" @submit=${(e: Event) => this.inviteAdmin(e, b.id)}>
-            <input type="email" required maxlength="254" placeholder="admin@example.org" aria-label="E-Mail-Adresse des neuen Admins" />
+            <input type="text" required maxlength="254" placeholder="E-Mail oder Profilname" aria-label="E-Mail-Adresse oder Profilname des neuen Admins" autocomplete="off" />
             <button class="btn small primary" type="submit" ?disabled=${this.busy}>${icon('mail')} Einladen</button>
-          </form>`
+          </form>
+          <p class="hint">Per E-Mail erreichst du neue und bestehende Konten; wer schon dabei ist, findet die Einladung auch im Konto. Bestehende Segler:innen kannst du auch über ihren Profilnamen einladen.</p>`
         : this.confirm === `leave:${b.id}`
           ? html`<div class="confirm" role="alert">
               <span>„${b.name}“ verlassen? Du kannst das Boot danach nicht mehr bearbeiten.</span>
@@ -912,6 +924,32 @@ export class SxAccountDialog extends LitElement {
     return TABS.filter(([key]) => key !== 'reports' || this.settings?.isAdmin);
   }
 
+  // ------------------------------------------------------------ Einladungen an mich
+
+  /** Posteingang: offene Einladungen an mein Konto (per Profilname oder an meine Adresse). */
+  private inbox() {
+    if (!this.myInvites.length) return '';
+    return html`<section class="inbox" aria-label="Einladungen an dich">
+      <div class="label">Einladungen an dich</div>
+      <ul>
+        ${this.myInvites.map(
+          (i) => html`<li>
+            <div class="meta">
+              <div class="title">${i.inviter} lädt dich ein, ${i.kind === 'boat_admin'
+                ? html`das Boot „${i.target ?? ''}“ mitzuverwalten`
+                : i.kind === 'group'
+                  ? html`${i.groupKind === 'team' ? 'in das Team' : 'in den Verein'} „${i.target ?? ''}“`
+                  : html`in die Crew des Törns „${i.target ?? ''}“`}</div>
+              <div class="sub">gültig bis ${fmtDate(i.expiresAt)}</div>
+            </div>
+            <button class="btn small" ?disabled=${this.busy} aria-label="Ablehnen: ${i.target ?? ''}" @click=${() => emit(this, 'sx-my-invite-decline', i.id)}>Ablehnen</button>
+            <button class="btn small primary" ?disabled=${this.busy} aria-label="Annehmen: ${i.target ?? ''}" @click=${() => emit(this, 'sx-my-invite-accept', i.id)}>${icon('check')} Annehmen</button>
+          </li>`,
+        )}
+      </ul>
+    </section>`;
+  }
+
   // ------------------------------------------------------------ Rahmen
 
   private count(key: AccountTab) {
@@ -938,6 +976,7 @@ export class SxAccountDialog extends LitElement {
               </div>
             </div>`
           : ''}
+        ${this.inbox()}
         <div class="tabs" role="tablist">
           ${this.tabs().map(
             ([key, label]) => html`<button

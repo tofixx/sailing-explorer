@@ -457,11 +457,13 @@ export class App {
     on('sx-invite-accept', () => s.acceptInvite());
     on<{ id: string; scope: 'crew' | 'boat'; boatId?: string }>('sx-invite-revoke', (d) => s.revokeInvite(d));
     on<string>('sx-invite-copy', (url) => s.copyInvite(url));
-    on<{ email: string | null }>('sx-crew-invite', (d) => s.inviteCrew(d.email));
+    on<{ to: { email: string } | { handle: string } | null }>('sx-crew-invite', (d) => s.inviteCrew(d.to));
     on<{ userId: string }>('sx-crew-remove', (d) => s.removeCrew(d.userId));
     on('sx-crew-leave', () => s.leaveCrew());
     on<string>('sx-boat-admins', (id) => s.loadAdmins(id));
-    on<{ boatId: string; email: string }>('sx-boat-admin-invite', (d) => s.inviteAdmin(d.boatId, d.email));
+    on<{ boatId: string; to: { email: string } | { handle: string } }>('sx-boat-admin-invite', (d) => s.inviteAdmin(d.boatId, d.to));
+    on<string>('sx-my-invite-accept', (id) => s.acceptMyInvite(id));
+    on<string>('sx-my-invite-decline', (id) => s.declineMyInvite(id));
     on<{ boatId: string; userId: string }>('sx-boat-admin-remove', (d) => s.removeAdmin(d.boatId, d.userId));
     on<string>('sx-boat-leave', (id) => s.leaveBoat(id));
     on('sx-logout', () => s.logout());
