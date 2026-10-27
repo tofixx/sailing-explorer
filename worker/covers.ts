@@ -176,8 +176,12 @@ export async function putCover(request: Request, env: Env, kind: string, publicI
        ON CONFLICT(kind, object_id) DO UPDATE SET ver = ?3, format = ?4, bytes = ?5, focus_y = ?6, user_id = ?7, created_at = ?8`,
     ).bind(c.kind, c.object_id, c.ver, c.format, c.bytes, c.focus_y, c.user_id, c.created_at),
   ]);
-  if (old) await deleteKeys(env, [coverKey(old)]);
-  return json(pageCover(k, publicId, c), { status: 201 });
+  // Paralleles Ersetzen: hat ein anderer Upload gewonnen, ist die eigene Datei verwaist – sofort entfernen.
+  const now = await loadCover(env, k, t.objectId);
+  if (now?.ver !== c.ver) await deleteKeys(env, [coverKey(c)]);
+  if (old && old.ver !== now?.ver) await deleteKeys(env, [coverKey(old)]);
+  // das tatsächlich gespeicherte Bild melden (bei parallelem Ersetzen das des anderen Uploads)
+  return json(pageCover(k, publicId, now ?? c), { status: 201 });
 }
 
 /** PATCH /api/covers/:kind/:id { focusY } – nur den Ausschnitt ändern, ohne neues Bild (Verwalter). */
@@ -195,22 +199,33 @@ export async function patchCover(request: Request, env: Env, kind: string, publi
 async function removeCover(env: Env, c: CoverRow): Promise<void> {
   await deleteKeys(env, [coverKey(c)]);
   await env.DB.batch([
-    env.DB.prepare('UPDATE counters SET value = MAX(0, value - ?) WHERE name = ?').bind(c.bytes, STORAGE_COUNTER),
+    // nur abziehen, was diese Zeile wirklich belegt (bei parallelem Ersetzen gibt es sie nicht mehr)
+    env.DB.prepare('UPDATE counters SET value = MAX(0, value - COALESCE((SELECT bytes FROM covers WHERE kind = ?1 AND object_id = ?2 AND ver = ?3), 0)) WHERE name = ?4').bind(
+      c.kind, c.object_id, c.ver, STORAGE_COUNTER,
+    ),
     env.DB.prepare('DELETE FROM covers WHERE kind = ? AND object_id = ? AND ver = ?').bind(c.kind, c.object_id, c.ver),
   ]);
+}
+
+/**
+ * Titelbild eines Objekts sofort entfernen – beim Löschen von Profil (Moderation, Konto), Boot und Gruppe. Der
+ * nächtliche Sweep bleibt als Netz für Kaskaden; so kann ein gelöschtes Bild aber nicht mit einem neuen Profil zurückkommen.
+ */
+export async function removeCoverOf(env: Env, kind: CoverKind, objectId: string): Promise<void> {
+  const c = await loadCover(env, kind, objectId);
+  if (c) await removeCover(env, c);
 }
 
 /** DELETE /api/covers/:kind/:id – Verwalter. */
 export async function deleteCover(request: Request, env: Env, kind: string, publicId: string): Promise<Response> {
   const { t, kind: k } = await managedTarget(request, env, kind, publicId);
-  const c = await loadCover(env, k, t.objectId);
-  if (c) await removeCover(env, c);
+  await removeCoverOf(env, k, t.objectId);
   return new Response(null, { status: 204 });
 }
 
 /**
- * Nächtlich: Titelbilder gelöschter Profile, Boote und Gruppen entfernen (Konto löschen, Boot löschen, Gruppe
- * löschen und Kaskaden brauchen dadurch keinen eigenen Pfad). Liefert die Anzahl.
+ * Nächtlich: Netz für Titelbilder, deren Objekt ohne Löschpfad verschwand (Kaskaden). Profil, Boot, Gruppe und Konto
+ * entfernen ihr Bild selbst sofort (removeCoverOf). Liefert die Anzahl.
  */
 export async function sweepOrphanCovers(env: Env, limit = 200): Promise<number> {
   const { results } = await env.DB.prepare(

@@ -17,5 +17,12 @@ Prüfpunkte:
 4. **Modularisierung** – klare Modulgrenzen, reine Regeln in `src/domain`, keine Gottdateien.
 5. **Architekturprinzipien** – `docs/PRINCIPLES.md`, fail closed, ein Löschpfad je Objekt, Sichtbarkeit beim Lesen
    prüfen, Tests je F-ID.
+6. **Löschkonzept** – wird alles, was das Feature speichert (D1-Zeilen, R2-Dateien, Zähler), auf jedem Weg wieder
+   entfernt: ersetzt (alte Datei), einzeln gelöscht, Eltern-Objekt gelöscht (Törn, Boot, Gruppe, Hafen), Konto gelöscht,
+   inaktives Konto entfernt, Aufbewahrung abgelaufen (Saison), Moderation? Bleibt der Speicherzähler stimmig? Gibt es
+   einen Test dafür? Datenschutz-Fristen (`src/content/legal.ts`) und Konzept passen dazu.
+7. **Anforderungen dokumentiert** – ist jedes neue oder geänderte Verhalten als funktionale Anforderung mit F-ID in
+   `docs/REQUIREMENTS.md` beschrieben (und im Konzept, wo es Entscheidungen gibt), gibt es zu jeder F-ID einen Test, und
+   stimmen geänderte alte Anforderungen noch mit dem Code überein?
 
 `npm run check` (Typecheck, Tests, Build) muss vorher grün sein.

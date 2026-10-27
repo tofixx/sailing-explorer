@@ -94,7 +94,7 @@ describe('sx-stream', () => {
     expect(text(empty.shadowRoot)).toContain('Nix los.');
   });
 
-  it('[F-212] Titelbild mit Ausschnitt, verlinkt wie der Eintrag; Törn-Übersichtsbild unbeschnitten', async () => {
+  it('[F-213] Titelbild mit Ausschnitt, verlinkt wie der Eintrag; Törn-Übersichtsbild unbeschnitten', async () => {
     const withCover: StreamItem[] = [
       { id: 'b1', kind: 'boat', createdAt: T, actor: null, group: { slug: 'sc', name: 'SC Kiel', kind: 'club' }, boat: { id: 'B1', name: 'Möwe' }, cover: { src: '/api/covers/b/B1/v1', y: 20 } },
       { id: 'v1', kind: 'voyage', createdAt: T, actor: null, group: null, voyage: { id: 'S1', title: 'Rügen', distNm: 4, startedAt: T, hasImage: true, boat: null } },

@@ -1104,7 +1104,7 @@ verhindert Doppelversand. Ohne Neues keine Mail. Einschalten zählt erst ab dann
 
 | Anlass | Was |
 |---|---|
-| Konto löschen (`purgeUser`) | Mitgliedschaften, Anfragen, Folgen (eigene und auf das Konto), Beiträge, Aktivitäten des Kontos und seiner Törns. Eigene Gruppen gehen an den dienstältesten Admin über; ohne Admin werden sie gelöscht |
+| Konto löschen (`purgeUser`) | Mitgliedschaften, Anfragen, Folgen (eigene und auf das Konto), Beiträge, Aktivitäten des Kontos und seiner Törns. Eigene Gruppen gehen an den dienstältesten Admin über; ohne Admin an das dienstälteste Mitglied, nur ohne weitere Mitglieder gelöscht (13.4) |
 | Törn löschen/ablaufen | Aktivitäten mit dem Törn als Gegenstand |
 | Boot löschen | Gruppen-Zuordnungen, Folgen, Aktivitäten des Boots, Ziele `boat` |
 | Gruppe löschen | Mitglieder, Anfragen, Boots-Zuordnungen, Beiträge, Einladungen, Folgen, Aktivitäten der Gruppe, Ziele `group`, Meldungen |
@@ -1340,7 +1340,7 @@ Wo es keinen Ausschnitt gibt (Oktober 2026 geprüft):
   erscheinen. Ein Fokus je Foto wäre eine weitere Einstellung pro Foto für winzige Kacheln; ein Klick zeigt ohnehin das
   ganze Bild (Lightbox). Mittig beschnitten bleibt.
 - **Törn-Übersichtsbild** (`sx-stream` `.cover`, Entdecken-Kacheln): das generierte Track-Vorschaubild mit Karte und
-  Kennzahlen, kein hochgeladenes Foto – im Stream wird es seit F-212 ganz gezeigt statt auf 180 px Höhe beschnitten.
+  Kennzahlen, kein hochgeladenes Foto – im Stream wird es seit F-213 ganz gezeigt statt auf 180 px Höhe beschnitten.
 - **Link-Vorschau (og:image)** für Profil, Boot und Gruppe: gibt es heute nicht (nur Törns haben ein Vorschaubild).
   Würde man das Titelbild nehmen, schnitte jede Plattform es selbst auf ca. 1,91:1 zu – `focus_y` ließe sich nicht
   mitgeben, und der Worker dekodiert keine Bilder. Das wäre eine eigene Funktion (Browser rendert beim Speichern des
@@ -1454,3 +1454,15 @@ Sitzung einen dauerhaften Zugang hinterlegt. Höchstens 10 Passkeys pro Konto (a
 sie ausdrücklich, abgelaufene Challenges räumt der Cron weg. Anmelden unterliegt dem IP-Limit der Anmeldung und geht
 auch für gesperrte Konten (wie Link und Code), Anlegen nicht. Bibliothek und Optionen werden beim Öffnen des Dialogs
 vorgeladen, weil Safari den WebAuthn-Aufruf direkt aus dem Klick verlangt; in Einbettungen gibt es keinen Passkey-Knopf.
+
+### 14.8 Löschkonzept – Prüfung Oktober 2026
+
+Ein eigener Prüflauf (Prüfpunkt 6 in `CLAUDE.md`) hat alle gespeicherten Daten gegen ihre Löschwege abgeglichen.
+Daraus: Titelbilder verschwinden sofort mit Profil (auch per Moderation), Boot, Gruppe und Konto (`removeCoverOf`),
+der nächtliche Sweep bleibt als Netz; paralleles Ersetzen hinterlässt keine verwaiste Datei, der Zähler zieht nur ab,
+was die Zeile belegt. Boote und Kommentare haben je einen Löschpfad (`removeBoat`, `removeComment`), den auch die
+Moderation nutzt; R2-Schlüssel für Törns stehen nur in `photo-keys.ts`. Scheitert D1 nach einem Upload (Törn, Foto,
+Übersichtsbild), wird die Datei wieder entfernt. Der nächtliche Lauf führt jeden Schritt einzeln aus (ein Fehler hält
+die übrigen nicht auf); die Neuberechnung des Speicherzählers läuft immer. Fristen: offene Meldungen nach 180 Tagen ohne
+Meldende und Anmerkung (sie zählen dann nicht mehr fürs automatische Ausblenden, dieselbe Person kann neu melden), Zahlungen 10 Jahre nach Ablauf der Unterstützung. Austritt bzw. Entfernen eines Boots aus einer
+Gruppe nimmt die zugehörige Neuigkeit mit. `covers.user_id` wird beim Konto-Löschen geleert.

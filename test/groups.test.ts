@@ -110,7 +110,7 @@ const viewer = { id: 'Viewer000000000001' };
 const groupRow = (over: Partial<ActivityRow> = {}) =>
   row({ kind: 'post', subject_kind: 'post', subject_id: 'Post00000000000001', group_id: 'Grp000000000000001', g_id: 'Grp000000000000001', g_slug: 'sc', g_name: 'SC', g_kind: 'club', g_vis: 'public', p_id: 'Post00000000000001', p_body: 'Hallo', p_author: 'User00000000000001', s_id: null, b_id: null, ...over });
 
-describe('[F-212] shapeItem – Titelbilder nur öffentlicher Objekte', () => {
+describe('[F-213] shapeItem – Titelbilder nur öffentlicher Objekte', () => {
   const boatRow = (over: Partial<ActivityRow> = {}) =>
     groupRow({ kind: 'boat', subject_kind: 'boat', subject_id: 'Boat00000000000001', b_id: 'Boat00000000000001', b_name: 'Möwe', b_vis: 'public', p_id: null, cb_ver: 'v1abcd', cb_y: 30, ...over });
 

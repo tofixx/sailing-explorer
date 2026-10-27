@@ -1,4 +1,4 @@
-// Funktionale Tests: Titelbilder, Galerien und Heimathafen von Vereinen/Teams (Konzept 13, F-190 … F-198, F-209/F-210, F-212/F-213).
+// Funktionale Tests: Titelbilder, Galerien und Heimathafen von Vereinen/Teams (Konzept 13, F-190 … F-198, F-209/F-210, F-213, F-215).
 // Echter Worker in workerd (Miniflare) mit lokalen D1-/R2-Bindings – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startWorker, type Harness } from './worker-harness';
@@ -200,7 +200,7 @@ describe('Titelbilder (Konzept 13.2)', () => {
     expect(((await (await s.send('GET', `/api/boats/${b.id}`, undefined)).json()) as { coverY: number }).coverY).toBe(50);
   });
 
-  it('F-212: Neuigkeiten zeigen das Titelbild von Boot und Person samt Ausschnitt; Löschen und Austausch wirken sofort', async () => {
+  it('F-213: Neuigkeiten zeigen das Titelbild von Boot und Person samt Ausschnitt; Löschen und Austausch wirken sofort', async () => {
     type Item = { kind: string; cover?: { src: string; y: number } };
     const owner = await s.person({ profile: 'public' });
     const g = await s.group(owner);
@@ -226,7 +226,7 @@ describe('Titelbilder (Konzept 13.2)', () => {
     expect((await items()).find((i) => i.kind === 'member')?.cover).toBeUndefined();
   });
 
-  it('F-213: Entdecken zeigt Titelbilder öffentlicher Boote, Segler und Vereine', async () => {
+  it('F-215: Entdecken zeigt Titelbilder öffentlicher Boote, Segler und Vereine', async () => {
     const owner = await s.person({ profile: 'public' });
     const boat = await s.boat(owner, { name: 'Entdeckt', visibility: 'public' });
     const g = await s.group(owner);
@@ -247,18 +247,22 @@ describe('Titelbilder (Konzept 13.2)', () => {
     expect(((await (await h.fetch('/api/discover?limit=50')).json()) as typeof d).boats.find((x) => x.id === other.id)?.cover).toBeNull();
   });
 
-  it('F-194: Titelbilder gelöschter Objekte räumt der Cron weg', async () => {
+  it('F-194: Boot löschen nimmt das Titelbild sofort mit; Reste aus Kaskaden räumt der Cron weg', async () => {
     const owner = await s.person({ profile: 'public' });
     const b = await s.boat(owner);
     await putCover('b', b.id, owner.cookie);
     const before = await counter();
     expect((await s.send('DELETE', `/api/boats/${b.id}`, owner.cookie)).status).toBe(204);
-    expect((await (await h.r2()).list({ prefix: `covers/b/${b.id}/` })).objects).toHaveLength(1);
-    await h.scheduled();
     expect((await (await h.r2()).list({ prefix: `covers/b/${b.id}/` })).objects).toHaveLength(0);
-    expect(await (await h.db()).prepare(`SELECT 1 AS x FROM covers WHERE object_id = ?`).bind(b.id).first()).toBeNull();
-    // Der Cron rechnet den Zähler ohnehin neu – das Titelbild zählt nicht mehr mit.
-    expect(await counter()).toBeLessThanOrEqual(before - webp(1500, 500).length);
+    expect(await counter()).toBe(before - webp(1500, 500).length);
+
+    // Netz: Objekt verschwindet ohne Löschpfad (z. B. Kaskade) – der nächtliche Sweep entfernt das Bild
+    const b2 = await s.boat(owner);
+    await putCover('b', b2.id, owner.cookie);
+    await (await h.db()).prepare('DELETE FROM boats WHERE id = ?').bind(b2.id).run();
+    await h.scheduled();
+    expect((await (await h.r2()).list({ prefix: `covers/b/${b2.id}/` })).objects).toHaveLength(0);
+    expect(await (await h.db()).prepare('SELECT 1 AS x FROM covers WHERE object_id = ?').bind(b2.id).first()).toBeNull();
   });
 });
 

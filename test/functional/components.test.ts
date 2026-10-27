@@ -252,7 +252,7 @@ describe('sx-discover', () => {
   const data = (o: Record<string, unknown> = {}) => ({ voyages: [], boats: [], people: [], ...o });
   const links = (el: LitEl) => [...el.shadowRoot.querySelectorAll('a')].map((a) => a.getAttribute('href'));
 
-  it('[F-213] Karten von Booten, Seglern und Vereinen zeigen ihr Titelbild mit Ausschnitt', async () => {
+  it('[F-215] Karten von Booten, Seglern und Vereinen zeigen ihr Titelbild mit Ausschnitt', async () => {
     const boat = { id: 'B1', name: 'Möwe', boatType: '', lengthM: null, homePort: '', createdAt: 0, owner: { handle: 'anna', displayName: 'Anna' }, stats: { voyages: 1, distNm: 1 } };
     const el = await mount('sx-discover', {
       variant: 'page',
