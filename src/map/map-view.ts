@@ -20,6 +20,9 @@ const HOVER_RADIUS_PX = 28;
  * Kapselt Leaflet. Bekommt fertige Daten, rendert sie und meldet Hover zurück –
  * kennt weder Store noch Komponenten.
  */
+/** Deckkraft der übrigen Tracks, solange einer hervorgehoben ist – blasser, aber gut erkennbar. */
+const DIMMED = 0.3;
+
 export class MapView {
   private map: L.Map;
   private trackLayer = L.layerGroup();
@@ -30,6 +33,10 @@ export class MapView {
   private hoverMarker: L.CircleMarker | null = null;
   private projected: Array<{ p: TrackPoint; x: number; y: number }> = [];
   private tracks: Track[] = [];
+  /** Ebene je Track und Zuordnung Punkt → Track – für das Hervorheben beim Hovern (F-215) */
+  private trackGroups = new Map<Track, L.LayerGroup>();
+  private pointTrack = new WeakMap<TrackPoint, Track>();
+  private focused: Track | null = null;
   private raf = 0;
   /** Ebene „Fotos“ (Phase C) – Callbacks setzt die Verdrahtung */
   readonly photos: PhotoLayer;
@@ -107,11 +114,16 @@ export class MapView {
   render(tracks: Track[], metric: MetricKey, range: Range | null): void {
     this.tracks = tracks;
     this.trackLayer.clearLayers();
+    this.trackGroups.clear();
+    this.focused = null;
     const noData = cssVar(this.el, '--text-3');
     const halo = cssVar(this.el, '--map-halo');
 
     for (const t of tracks) {
       const pts = t.points;
+      const group = L.layerGroup().addTo(this.trackLayer);
+      this.trackGroups.set(t, group);
+      for (const p of pts) this.pointTrack.set(p, t);
       const trackColor = cssVar(this.el, t.color);
       const values = range ? smoothedMetric(pts, metric) : null;
       const colorAt = (i: number): string => {
@@ -125,20 +137,20 @@ export class MapView {
       };
 
       // Halo unter der Linie für Kontrast auf jeder Grundkarte
-      L.polyline(pts.map((p) => [p.lat, p.lon] as L.LatLngTuple), { color: halo, weight: 7, opacity: 0.7, interactive: false }).addTo(this.trackLayer);
+      L.polyline(pts.map((p) => [p.lat, p.lon] as L.LatLngTuple), { color: halo, weight: 7, opacity: 0.7, interactive: false }).addTo(group);
 
       let run: L.LatLngTuple[] = [[pts[0].lat, pts[0].lon]];
       let runColor = pts.length > 1 ? colorAt(1) : trackColor;
       for (let i = 1; i < pts.length; i++) {
         const c = colorAt(i);
         if (c !== runColor) {
-          L.polyline(run, { color: runColor, weight: 4, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(this.trackLayer);
+          L.polyline(run, { color: runColor, weight: 4, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(group);
           run = [run[run.length - 1]];
           runColor = c;
         }
         run.push([pts[i].lat, pts[i].lon]);
       }
-      L.polyline(run, { color: runColor, weight: 4, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(this.trackLayer);
+      L.polyline(run, { color: runColor, weight: 4, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(group);
 
       const name = escapeHtml(t.name);
       const s = pts[0];
@@ -147,7 +159,7 @@ export class MapView {
         const icon = L.divIcon({ className: 'sx-marker', html: endpointPin(kind, t.color), iconSize: [28, 36], iconAnchor: [14, 34], tooltipAnchor: [0, -30] });
         L.marker([p.lat, p.lon], { icon, keyboard: false, zIndexOffset: kind === 'end' ? 600 : 500 })
           .bindTooltip(`<b>${label}</b><br>${name}`, { className: 'sx-tip', direction: 'top' })
-          .addTo(this.trackLayer);
+          .addTo(group);
       }
     }
     this.renderArrows(tracks);
@@ -238,7 +250,30 @@ export class MapView {
   }
 
   /** Zeigt den Hover-Punkt; bei Bedarf wird die Karte dorthin verschoben. */
+  /**
+   * Bei mehreren Tracks den gehoverten hervorheben: die übrigen deutlich verblasst, aber sichtbar (F-215).
+   * null bzw. ein einzelner Track: alle normal.
+   */
+  private focus(t: Track | null): void {
+    const target = this.trackGroups.size > 1 ? t : null;
+    if (target === this.focused) return;
+    this.focused = target;
+    for (const [track, group] of this.trackGroups) {
+      const dim = target !== null && track !== target;
+      group.eachLayer((l) => {
+        if (l instanceof L.Polyline) {
+          const o = l.options as L.PolylineOptions & { baseOpacity?: number };
+          o.baseOpacity ??= o.opacity ?? 1;
+          l.setStyle({ opacity: dim ? o.baseOpacity * DIMMED : o.baseOpacity });
+        } else if (l instanceof L.Marker) {
+          l.setOpacity(dim ? DIMMED : 1);
+        }
+      });
+    }
+  }
+
   showHover(p: TrackPoint | null, opts: { emphasize?: boolean; pan?: boolean } = {}): void {
+    this.focus(p ? (this.pointTrack.get(p) ?? null) : null);
     if (!p) {
       this.hoverMarker?.remove();
       this.hoverMarker = null;

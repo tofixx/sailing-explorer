@@ -270,7 +270,9 @@ export class App {
     const has = s.tracks.length > 0;
 
     // Startseite: ohne Tracks immer, mit Tracks auf Wunsch (Logo / „Start“) – die Tracks bleiben dabei geladen.
-    const home = !has || s.home;
+    // Während ein Törn bzw. Tracks geladen werden (z. B. Aufruf per Link), nicht die Einstiegs-/Hochladen-Ansicht
+    // zeigen, sondern nur die Ladeanzeige über der Karte (F-214).
+    const home = (!has && !s.loading) || s.home;
     this.ui.app.toggleAttribute('data-empty', home);
     this.ui.empty.hidden = !home;
     this.ui.empty.trackCount = s.tracks.length;
