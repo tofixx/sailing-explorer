@@ -1,6 +1,6 @@
 import type { Env } from './env';
 import { canonicalRedirect } from './canonical';
-import { deleteAccount, logout, me, peekLink, requestLink, verifyLink } from './auth';
+import { deleteAccount, logout, me, peekLink, requestLink, verifyCode, verifyLink } from './auth';
 import { HttpError, errorResponse, json } from './http';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
@@ -45,6 +45,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['POST', /^\/api\/auth\/request$/, (r, env) => requestLink(r, env)],
   ['POST', /^\/api\/auth\/peek$/, (r, env) => peekLink(r, env)],
   ['POST', /^\/api\/auth\/verify$/, (r, env) => verifyLink(r, env)],
+  ['POST', /^\/api\/auth\/code$/, (r, env) => verifyCode(r, env)],
   ['POST', /^\/api\/auth\/logout$/, (r, env) => logout(r, env)],
   ['DELETE', /^\/api\/account$/, (r, env) => deleteAccount(r, env)],
   ['GET', /^\/api\/me\/profile$/, (r, env) => getMyProfile(r, env)],

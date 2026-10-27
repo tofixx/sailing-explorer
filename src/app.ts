@@ -437,6 +437,7 @@ export class App {
     on<{ email: string; turnstile: string | null }>('sx-login-submit', (d) => s.requestLink(d.email, d.turnstile));
     on('sx-login-reset', () => s.resetLogin());
     on('sx-login-confirm', () => s.confirmLogin());
+    on<{ code: string }>('sx-login-code', (d) => s.loginWithCode(d.code));
     on('sx-login-for-share', () => s.loginForShare());
     on('sx-share-inline', () => s.shareInlineLink());
     on<{ format: ImageFormat; content: ImageContent }>('sx-image-options', (d) => s.setImageOptions(d.format, d.content));

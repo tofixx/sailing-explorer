@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { randomId, randomToken, sha256Hex } from './crypto';
+import { randomCode, randomId, randomToken, sha256Hex } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { magicLinkMail, sendMail } from './mail';
 import { subtractUserStmt } from './storage';
@@ -7,7 +7,7 @@ import { purgeUserReports } from './moderation';
 import { deleteKeys, photoKeysForUser } from './photo-keys';
 import { boatCleanup, userActivityCleanup } from './activity';
 import { purgeUserGroups } from './groups';
-import { TOKEN_RE, normalizeEmail } from './validate';
+import { TOKEN_RE, normalizeEmail, timingSafeEqual } from './validate';
 
 const SECURE_COOKIE = '__Host-sx_session';
 /** Nur für lokale Entwicklung über http:// im LAN (Handy-Test) – Secure-Cookies gingen dort nicht. */
@@ -15,6 +15,12 @@ const DEV_COOKIE = 'sx_session_dev';
 const SESSION_DAYS = 180;
 const LOGIN_TOKEN_MINUTES = 15;
 const MAX_LINKS_PER_EMAIL = 3; // pro 15 Minuten
+/** Falsche Codes pro Adresse und 24 h – danach nur noch der Link (Konzept 14.6). 10 Versuche bei 10⁶ Codes. */
+const MAX_CODE_FAILURES = 10;
+const CODE_RE = /^\d{6}$/;
+
+/** Gespeicherter Prüfwert eines Codes – an seinen Link gebunden (token_hash als Salz). */
+const codeHash = (tokenHash: string, code: string) => sha256Hex(`${tokenHash}:${code}`);
 
 export interface User {
   id: string;
@@ -101,8 +107,10 @@ export async function requestLink(request: Request, env: Env): Promise<Response>
   }
 
   const token = randomToken();
-  await env.DB.prepare('INSERT INTO login_tokens (token_hash, email, created_at, expires_at) VALUES (?, ?, ?, ?)')
-    .bind(await sha256Hex(token), email, now, now + LOGIN_TOKEN_MINUTES * 60_000)
+  const code = randomCode();
+  const tokenHash = await sha256Hex(token);
+  await env.DB.prepare('INSERT INTO login_tokens (token_hash, email, created_at, expires_at, code_hash) VALUES (?, ?, ?, ?, ?)')
+    .bind(tokenHash, email, now, now + LOGIN_TOKEN_MINUTES * 60_000, await codeHash(tokenHash, code))
     .run();
   // Abgelaufene Tokens nebenbei aufräumen.
   await env.DB.prepare('DELETE FROM login_tokens WHERE expires_at < ?').bind(now - 86_400_000).run();
@@ -110,11 +118,11 @@ export async function requestLink(request: Request, env: Env): Promise<Response>
   // Der Link öffnet die App, die das Token per POST einlöst. So verbrauchen
   // Link-Scanner in Mailprogrammen (die nur GET machen) das Token nicht.
   const link = `${url.origin}/login#token=${token}`;
-  await sendMail(env, magicLinkMail(env, email, link));
+  await sendMail(env, magicLinkMail(env, email, link, code));
 
-  // Nur auf lokalen/privaten Hosts und nur im Log-Modus: Link direkt zurückgeben, damit man ohne Mailserver testen kann.
-  const devLink = env.MAIL_PROVIDER === 'log' && isDevHost(url) ? link : undefined;
-  return json({ ok: true, devLink });
+  // Nur auf lokalen/privaten Hosts und nur im Log-Modus: Link und Code direkt zurückgeben (Test ohne Mailserver).
+  const dev = env.MAIL_PROVIDER === 'log' && isDevHost(url);
+  return json({ ok: true, devLink: dev ? link : undefined, devCode: dev ? code : undefined });
 }
 
 /**
@@ -147,10 +155,62 @@ export async function verifyLink(request: Request, env: Env): Promise<Response> 
     .bind(now, hash, now)
     .first<{ email: string }>();
   if (!claimed) throw new HttpError(400, 'invalid_token', 'Der Link ist abgelaufen oder wurde schon benutzt. Bitte einen neuen anfordern.');
+  return signIn(request, env, claimed.email, now);
+}
 
-  let user = await env.DB.prepare('SELECT id, email FROM users WHERE email = ?').bind(claimed.email).first<User>();
+/**
+ * POST /api/auth/code – `{ email, code }`: meldet mit dem Code aus der Anmeldemail an (Konzept 14.6). Gleiche Antwort
+ * für unbekannte Adresse und falschen Code; höchstens MAX_CODE_FAILURES Fehlversuche pro Adresse und 24 h, danach
+ * gilt nur noch der Link. Ein richtiger Code verbraucht seinen Link (und umgekehrt).
+ */
+export async function verifyCode(request: Request, env: Env): Promise<Response> {
+  await rateLimit(env.AUTH_LIMITER, `verify:${clientIp(request)}`);
+  const body = await readJson<{ email?: unknown; code?: unknown }>(request);
+  const email = normalizeEmail(body.email);
+  const code = typeof body.code === 'string' ? body.code.replace(/\s/g, '') : '';
+  const wrong = () => new HttpError(400, 'invalid_code', 'Der Code stimmt nicht oder ist abgelaufen. Bitte prüfen oder einen neuen anfordern.');
+  if (!email || !CODE_RE.test(code)) throw wrong();
+  const now = Date.now();
+  const { results } = await env.DB.prepare(
+    'SELECT token_hash, code_hash FROM login_tokens WHERE email = ? AND used_at IS NULL AND expires_at > ? AND code_hash IS NOT NULL ORDER BY created_at DESC LIMIT 5',
+  )
+    .bind(email, now)
+    .all<{ token_hash: string; code_hash: string }>();
+  // Ohne offenen Code gibt es nichts zu raten – gleiche Antwort wie ein falscher Code.
+  if (!results.length) throw wrong();
+  // Den Versuch VOR dem Vergleich atomar reservieren (eine Anweisung, D1 schreibt nacheinander): parallele Anfragen
+  // können die Grenze so nicht überholen. Gezählt wird am neuesten offenen Link.
+  const newest = results[0].token_hash;
+  const reserved = await env.DB.prepare(
+    `UPDATE login_tokens SET code_attempts = code_attempts + 1
+     WHERE token_hash = ?1 AND (SELECT COALESCE(SUM(code_attempts), 0) FROM login_tokens WHERE email = ?2 AND created_at > ?3) < ?4
+     RETURNING 1 AS ok`,
+  )
+    .bind(newest, email, now - 86_400_000, MAX_CODE_FAILURES)
+    .first();
+  if (!reserved) {
+    // Grenze erreicht: offene Codes der Adresse verwerfen – es gilt nur noch der Link.
+    await env.DB.prepare('UPDATE login_tokens SET code_hash = NULL WHERE email = ? AND used_at IS NULL').bind(email).run();
+    throw new HttpError(429, 'code_locked', 'Zu viele falsche Codes. Bitte den Link aus der Mail nutzen oder morgen erneut versuchen.');
+  }
+  for (const r of results) {
+    if (!timingSafeEqual(await codeHash(r.token_hash, code), r.code_hash)) continue;
+    const claimed = await env.DB.prepare('UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ? RETURNING email')
+      .bind(now, r.token_hash, now)
+      .first<{ email: string }>();
+    if (!claimed) break;
+    // Erfolg zählt nicht als Fehlversuch
+    await env.DB.prepare('UPDATE login_tokens SET code_attempts = MAX(0, code_attempts - 1) WHERE token_hash = ?').bind(newest).run();
+    return signIn(request, env, claimed.email, now);
+  }
+  throw wrong();
+}
+
+/** Konto zur Adresse holen oder anlegen und eine Sitzung setzen – nach eingelöstem Link oder Code. */
+async function signIn(request: Request, env: Env, email: string, now: number): Promise<Response> {
+  let user = await env.DB.prepare('SELECT id, email FROM users WHERE email = ?').bind(email).first<User>();
   if (!user) {
-    user = { id: randomId(), email: claimed.email };
+    user = { id: randomId(), email };
     await env.DB.prepare('INSERT INTO users (id, email, created_at, last_login) VALUES (?, ?, ?, ?)')
       .bind(user.id, user.email, now, now)
       .run();

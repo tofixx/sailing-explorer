@@ -163,6 +163,11 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
   if (url === '/api/auth/peek' && method === 'POST') return json({ email: 'skipper@example.org' });
   if (url === '/api/boats' && method === 'GET') return json({ boats: [] });
   if (url === '/api/me/profile' && method === 'GET') return json({ profile: null, exists: false });
+  if (url === '/api/auth/code' && method === 'POST') {
+    if (JSON.parse(String(init.body ?? '{}')).code !== '123456') return json({ error: 'invalid_code', message: 'Der Code stimmt nicht oder ist abgelaufen.' }, 400);
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    return json({ user: server.user });
+  }
   if (url === '/api/auth/verify' && method === 'POST') {
     server.user = { id: 'u1', email: 'skipper@example.org' };
     return json({ user: server.user });
@@ -626,6 +631,22 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
     const req = server.calls.find((c) => c.url === '/api/auth/request')!;
     expect(req.method).toBe('POST');
     expect(JSON.parse(String(req.body))).toMatchObject({ email: ' skipper@example.org ' });
+  });
+
+  it('[F-207] Code aus der Mail eintippen: falscher Code zeigt Fehler, richtiger meldet an', async () => {
+    await startApp();
+    emit('sx-login-submit', { email: 'skipper@example.org', turnstile: null });
+    const login = el<{ sentTo: string; error: string; open: boolean }>('sx-login-dialog');
+    await vi.waitFor(() => expect(login.sentTo).toBe('skipper@example.org'));
+    emit('sx-login-code', { code: '000000' });
+    await vi.waitFor(() => expect(login.error).toMatch(/Code stimmt nicht/));
+    expect(state().user).toBeNull();
+    emit('sx-login-code', { code: '123456' });
+    await vi.waitFor(() => expect(state().user).toEqual({ id: 'u1', email: 'skipper@example.org' }));
+    expect(login.open).toBe(false);
+    const call = server.calls.filter((c) => c.url === '/api/auth/code').at(-1)!;
+    expect(JSON.parse(String(call.body))).toEqual({ email: 'skipper@example.org', code: '123456' });
+    expect(toasts()).toContain('Angemeldet als skipper@example.org');
   });
 
   it('[F-32] Klick auf den Link (/login#token=…) fragt „Als … anmelden?“, meldet an und informiert den ursprünglichen Tab', async () => {

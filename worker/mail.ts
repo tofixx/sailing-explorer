@@ -8,15 +8,19 @@ interface Mail {
   html: string;
 }
 
-export function magicLinkMail(env: Env, to: string, link: string): Mail {
+export function magicLinkMail(env: Env, to: string, link: string, code: string): Mail {
   const app = env.APP_NAME;
-  const text = `Hallo,\n\nmit diesem Link meldest du dich bei ${app} an:\n\n${link}\n\nDer Link ist 15 Minuten gültig und funktioniert nur einmal. Wenn du das nicht angefordert hast, ignoriere diese Mail einfach.\n`;
+  const spaced = `${code.slice(0, 3)} ${code.slice(3)}`;
+  const text = `Hallo,\n\nmit diesem Link meldest du dich bei ${app} an:\n\n${link}\n\nOder gib diesen Code ein (z. B. in der App auf dem Home-Bildschirm oder auf einem anderen Gerät): ${spaced}\n\nLink und Code sind 15 Minuten gültig und funktionieren nur einmal. Wenn du das nicht angefordert hast, ignoriere diese Mail einfach.\n`;
   // Link stammt aus unserer eigenen Origin + base64url-Token, enthält also keine HTML-Sonderzeichen.
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
 <p>Hallo,</p><p>mit diesem Link meldest du dich bei <b>${app}</b> an:</p>
 <p><a href="${link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Anmelden</a></p>
-<p style="color:#5b6b7b;font-size:13px">Der Link ist 15 Minuten gültig und funktioniert nur einmal. Wenn du das nicht angefordert hast, ignoriere diese Mail einfach.</p>
+<p>Oder gib diesen Code ein – z. B. in der App auf dem Home-Bildschirm oder auf einem anderen Gerät:</p>
+<p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,monospace">${spaced}</p>
+<p style="color:#5b6b7b;font-size:13px">Link und Code sind 15 Minuten gültig und funktionieren nur einmal. Wenn du das nicht angefordert hast, ignoriere diese Mail einfach.</p>
 </body></html>`;
+  // Code bewusst nicht im Betreff (Sperrbildschirm, Mitteilungen) – iOS füllt ihn trotzdem aus der Mail vor.
   return { to, subject: `Dein Anmeldelink für ${app}`, text, html };
 }
 

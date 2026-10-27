@@ -12,6 +12,7 @@ import {
   type ShareMeta,
   type SharePatch,
   type SupportStatus,
+  type User,
 } from '../services/api';
 import { deflateToBase64Url, gzipString } from '../services/compress';
 import { DEFAULT_CONTENT, imageFileName, renderShareImage, type ImageContent, type ImageFormat } from '../services/share-image';
@@ -111,14 +112,14 @@ export class SessionController {
   }
 
   openLogin(reason = ''): void {
-    Object.assign(this.ui.login, { open: true, reason, error: '', sentTo: '', devLink: '', confirmEmail: '', busy: false });
+    Object.assign(this.ui.login, { open: true, reason, error: '', sentTo: '', devLink: '', devCode: '', confirmEmail: '', busy: false });
   }
 
   async requestLink(email: string, turnstile: string | null): Promise<void> {
     Object.assign(this.ui.login, { busy: true, error: '' });
     try {
       const res = await api.requestLink(email, turnstile);
-      Object.assign(this.ui.login, { sentTo: email.trim(), devLink: res.devLink ?? '' });
+      Object.assign(this.ui.login, { sentTo: email.trim(), devLink: res.devLink ?? '', devCode: res.devCode ?? '' });
     } catch (e) {
       this.ui.login.error = errorText(e);
     } finally {
@@ -127,7 +128,7 @@ export class SessionController {
   }
 
   resetLogin(): void {
-    Object.assign(this.ui.login, { sentTo: '', devLink: '', error: '' });
+    Object.assign(this.ui.login, { sentTo: '', devLink: '', devCode: '', error: '' });
   }
 
   /**
@@ -148,21 +149,40 @@ export class SessionController {
     }
   }
 
+  /** Anmelden mit dem Code aus der Mail (Konzept 14.6) – an die Adresse, an die der Link ging. */
+  async loginWithCode(code: string): Promise<void> {
+    const email = this.ui.login.sentTo;
+    if (!email) return;
+    Object.assign(this.ui.login, { busy: true, error: '' });
+    try {
+      this.loggedIn((await api.verifyCode(email, code)).user);
+    } catch (e) {
+      this.ui.login.error = errorText(e);
+    } finally {
+      this.ui.login.busy = false;
+    }
+  }
+
   async confirmLogin(): Promise<void> {
     if (!this.pendingToken) return;
     this.ui.login.busy = true;
     try {
       const { user } = await api.verify(this.pendingToken);
       this.pendingToken = null;
-      this.store.set({ user });
-      this.channel?.postMessage('login');
-      this.ui.toast(`Angemeldet als ${user.email}`);
-      this.afterLogin();
+      this.loggedIn(user);
     } catch (e) {
       Object.assign(this.ui.login, { confirmEmail: '', error: errorText(e) });
     } finally {
       this.ui.login.busy = false;
     }
+  }
+
+  /** Nach eingelöstem Link oder Code: Konto setzen, andere Tabs informieren, weiter mit dem Vorhaben. */
+  private loggedIn(user: User) {
+    this.store.set({ user });
+    this.channel?.postMessage('login');
+    this.ui.toast(`Angemeldet als ${user.email}`);
+    this.afterLogin();
   }
 
   private afterLogin() {

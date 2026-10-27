@@ -317,7 +317,9 @@ export const api = {
   /** Stripe-Checkout für eine der Stufen (Betrag in Cent) anlegen; liefert die URL der Bezahlseite. */
   supportCheckout: (amount: number) => call<{ url: string }>('/api/support/checkout', jsonInit('POST', { amount })),
   requestLink: (email: string, turnstile: string | null) =>
-    call<{ ok: true; devLink?: string }>('/api/auth/request', jsonInit('POST', { email, turnstile })),
+    call<{ ok: true; devLink?: string; devCode?: string }>('/api/auth/request', jsonInit('POST', { email, turnstile })),
+  /** Anmelden mit dem Code aus der Mail (Konzept 14.6) */
+  verifyCode: (email: string, code: string) => call<{ user: User }>('/api/auth/code', jsonInit('POST', { email, code })),
   peek: (token: string) => call<{ email: string }>('/api/auth/peek', jsonInit('POST', { token })),
   verify: (token: string) => call<{ user: User }>('/api/auth/verify', jsonInit('POST', { token })),
   logout: () => call<{ ok: true }>('/api/auth/logout', { method: 'POST' }),

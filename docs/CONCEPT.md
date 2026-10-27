@@ -1391,3 +1391,23 @@ Sekunden `sx-install-hint` – Android/Chrome mit „Installieren“, iOS-Safari
 **Bekannte Grenze iOS:** Apps auf dem Home-Bildschirm haben unter iOS eigene Cookies und eigenen Speicher. Der
 Anmeldelink aus der Mail öffnet Safari – die Anmeldung landet dort, nicht in der App. Abhilfe wäre eine Anmeldung per
 Code zum Eintippen (offene Frage an den Betreiber). Android ist nicht betroffen.
+
+### 14.6 Anmeldung per Code
+
+Jede Anmeldemail enthält neben dem Link einen **6-stelligen Code** (nicht im Betreff – sonst stünde er auf dem
+Sperrbildschirm). Den tippt man im Anmeldedialog ein – für die Home-Bildschirm-App auf dem iPhone (14.5) oder wenn die Mail auf
+einem anderen Gerät ankommt. Link und Code gehören zusammen: gleiche Gültigkeit (15 min), einmalig, das eine
+verbraucht das andere. Gespeichert wird nur `sha256(token_hash:code)` (Migration 0016). Schutz gegen Durchprobieren:
+höchstens 10 Code-Versuche pro Adresse und 24 h, **vor** dem Vergleich atomar reserviert (parallele Anfragen überholen
+die Grenze nicht); bei Erreichen werden die offenen Codes der Adresse verworfen (`code_locked`, nur noch der Link).
+Abgelaufene Anmeldelinks löscht der Cron erst 24 h nach Ablauf, damit ihre Fehlversuche so lange zählen. Dazu das
+IP-Limit der Anmeldung; gleiche Antwort für unbekannte Adresse und falschen Code.
+
+Bekannte Grenzen: Jemand kann mit absichtlich falschen Codes die Code-Anmeldung einer fremden Adresse für 24 h sperren
+(der Link funktioniert weiter – in der iPhone-App aber nur über Safari). Bei einem Datenbank-Leck wären die Codes
+offener Links (15 min) schnell zu erraten; ein HMAC mit Worker-Secret wäre die Verbesserung, falls nötig.
+
+**Passwörter, Passkeys, 2FA (Oktober 2026):** Passwörter bewusst nicht – Hashing kostet im Free-Tier zu viel CPU,
+„Passwort vergessen“ bräuchte wieder Mails, und Wiederverwendung/Phishing sind das größere Risiko. Als nächster
+Schritt sind **Passkeys** vorgesehen (Anmeldung per Fingerabdruck/Face ID ohne Mail; die Mail bleibt für das erste
+Gerät und als Rückfallweg). Eine zusätzliche 2FA ist mit Passkeys nicht nötig.

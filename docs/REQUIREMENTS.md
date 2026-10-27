@@ -188,6 +188,7 @@ Konzept: `docs/CONCEPT.md` Abschnitt 12. Umsetzung: `migrations/0013_social.sql`
 ## App auf dem Home-Bildschirm
 
 - **F-206** Web-App-Manifest (Name, Icons 192/512 maskable, Start `/`, eigenständige Anzeige) und iOS-Icon. Auf Touch-Geräten außerhalb der installierten App erscheint nach einigen Sekunden ein dezenter Hinweis: Android/Chrome mit „Installieren“ (eigenes `beforeinstallprompt`), iOS-Safari mit der Anleitung über „Teilen“ → „Zum Home-Bildschirm“. „Nicht jetzt“ blendet ihn auf dem Gerät dauerhaft aus; auf Geräten mit Maus erscheint er nie.
+- **F-207** Anmeldung per Code: Die Anmeldemail enthält zusätzlich einen 6-stelligen Code; `POST /api/auth/code { email, code }` meldet an. Gleiche Gültigkeit wie der Link, einmalig, Link und Code verbrauchen sich gegenseitig; höchstens 10 falsche Codes pro Adresse und 24 h (429 `code_locked`), gleiche Antwort für unbekannte Adresse und falschen Code. Der Anmeldedialog bietet nach dem Versand ein Codefeld (`autocomplete=one-time-code`).
 
 ## Community (Entdecken)
 
