@@ -370,7 +370,7 @@ function drawInfo(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box, opts
   if (!(content.legend && opts.range) || format === 'square') {
     ctx.fillStyle = C.faint;
     ctx.font = `500 13px ${FONT}`;
-    ctx.fillText('sailing.wollow.ski', box.x + box.w - pad, footY - 22);
+    ctx.fillText('segeln-potsdam.de', box.x + box.w - pad, footY - 22);
   }
   ctx.textAlign = 'left';
 }

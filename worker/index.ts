@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { canonicalRedirect } from './canonical';
 import { deleteAccount, logout, me, peekLink, requestLink, verifyLink } from './auth';
 import { HttpError, errorResponse, json } from './http';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
@@ -201,6 +202,9 @@ function noindex(res: Response): Response {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    // www., Subdomains und die alte Domain → Hauptdomain (301, mit Pfad)
+    const redirect = canonicalRedirect(url, env);
+    if (redirect) return redirect;
     try {
       if (url.pathname.startsWith('/api/')) return noindex(await handleApi(request, env, url.pathname));
       // Optionales letztes Segment = Teilen-Schlüssel („Nur mit Link“, Konzept 2.1).
@@ -223,6 +227,6 @@ export default {
 
   // Nächtliches Aufräumen (Cron-Trigger in wrangler.jsonc).
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runRetention(env, env.APP_ORIGIN || 'https://sailing.wollow.ski').then((r) => console.log('retention', JSON.stringify(r))));
+    ctx.waitUntil(runRetention(env, env.APP_ORIGIN || 'https://segeln-potsdam.de').then((r) => console.log('retention', JSON.stringify(r))));
   },
 } satisfies ExportedHandler<Env>;

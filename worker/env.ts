@@ -17,6 +17,10 @@ export interface Env {
   TURNSTILE_SECRET?: string;
   /** Öffentliche Adresse für Links in Mails aus dem Cron (ohne Request). */
   APP_ORIGIN?: string;
+  /** Hauptdomain; Alias-Hosts und ihre Subdomains leiten dorthin weiter (worker/canonical.ts). Leer = keine Weiterleitung. */
+  CANONICAL_HOST?: string;
+  /** Weitere Hosts, die auf CANONICAL_HOST weiterleiten (kommagetrennt), z. B. die alte Domain. */
+  ALIAS_HOSTS?: string;
 
   /** Kostenlose gespeicherte Freigaben pro Konto (Standard 3); darüber braucht es den Unterstützer-Status. */
   FREE_SHARES?: string;

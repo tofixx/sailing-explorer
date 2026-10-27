@@ -10,7 +10,14 @@
     // API sowie Törn-, Profil-, Boots-, Gruppen- (inkl. RSS) und Entdecken-Seite (Link-Vorschau-Metadaten) laufen durch den Worker
     "run_worker_first": ["/api/*", "/s/*", "/u/*", "/b/*", "/g/*", "/entdecken"]
   },
-  "routes": [{ "pattern": "sailing.wollow.ski", "custom_domain": true }],
+  // Hauptdomain segeln-potsdam.de; www., alle nicht anders belegten Subdomains (*, proxied) und die alte
+  // Domain sailing.wollow.ski leiten per 301 dorthin weiter (worker/canonical.ts). Daten (D1/R2) bleiben dieselben.
+  "routes": [
+    { "pattern": "segeln-potsdam.de", "custom_domain": true },
+    { "pattern": "www.segeln-potsdam.de", "custom_domain": true },
+    { "pattern": "sailing.wollow.ski", "custom_domain": true },
+    { "pattern": "*.segeln-potsdam.de/*", "zone_name": "segeln-potsdam.de" }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
@@ -43,7 +50,9 @@
     // Moderation (Kommentare & Melden): ADMIN_USER_IDS = kommagetrennte Konto-IDs (Variable oder Secret, leer = keine
     // Admin-Oberfläche) und REPORT_CONTACT = Kontaktadresse für Meldungen ohne Konto (Impressum). Siehe README.
     // Links in Mails aus dem nächtlichen Aufräumen
-    "APP_ORIGIN": "https://sailing.wollow.ski"
+    "APP_ORIGIN": "https://segeln-potsdam.de",
+    "CANONICAL_HOST": "segeln-potsdam.de",
+    "ALIAS_HOSTS": "www.segeln-potsdam.de,sailing.wollow.ski"
   },
   // Nächtliches Aufräumen: abgelaufene Törns, Erinnerungsmails, inaktive Konten (UTC)
   "triggers": { "crons": ["17 3 * * *"] },

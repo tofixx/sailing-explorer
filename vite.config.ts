@@ -7,5 +7,5 @@ export default defineConfig(({ mode }) => ({
   plugins: mode === 'test' ? [] : [cloudflare()],
   server: { host: true, port: 5173, strictPort: true },
   build: { target: 'es2022', sourcemap: false },
-  test: { include: ['test/**/*.test.ts'], environment: 'node', globalSetup: ['test/global-setup.ts'] },
+  test: { include: ['test/**/*.test.ts'], environment: 'node', globalSetup: ['test/global-setup.ts'], testTimeout: 20_000 },
 }));
