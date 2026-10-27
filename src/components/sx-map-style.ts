@@ -64,6 +64,16 @@ export class SxMapStyle extends LitElement {
         overflow-y: auto;
         z-index: 1;
       }
+      /* Mobil ist die Karte über dem Bottom-Sheet zu niedrig: das Popover wird selbst zum Sheet am unteren Rand. */
+      @media (max-width: 760px) {
+        dialog {
+          position: fixed;
+          inset: auto 0 0 0;
+          width: 100%;
+          max-height: 80dvh;
+          border-radius: var(--radius-l) var(--radius-l) 0 0;
+        }
+      }
       header {
         padding: var(--s-3) var(--s-3) var(--s-1) var(--s-4);
       }
@@ -157,16 +167,38 @@ export class SxMapStyle extends LitElement {
     const dlg = this.renderRoot.querySelector('dialog')!;
     if (changed.has('open')) {
       if (this.open && !dlg.open) dlg.show();
-      else if (!this.open && dlg.open) dlg.close();
+      else if (!this.open && dlg.open) {
+        // Fokus aus dem Popover zurück auf den Knopf (nicht modale Dialoge geben ihn nicht zurück)
+        const focusInside = dlg.contains(this.shadowRoot?.activeElement ?? null);
+        dlg.close();
+        if (focusInside) this.renderRoot.querySelector<HTMLButtonElement>('.toggle')?.focus();
+      }
     }
   }
+
+  connectedCallback() {
+    super.connectedCallback();
+    document.addEventListener('pointerdown', this.onOutside);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    document.removeEventListener('pointerdown', this.onOutside);
+  }
+
+  /** Klick neben das Popover verwirft die Vorschau. */
+  private onOutside = (e: PointerEvent) => {
+    if (this.open && !e.composedPath().includes(this)) this.cancel();
+  };
 
   private toggle = () => {
     if (this.open) this.cancel();
     else this.open = true;
   };
 
+  /** Während gespeichert wird, bleibt das Popover offen – sonst ginge ein Fehler oder Erfolg unbemerkt verloren. */
   private cancel = () => {
+    if (this.busy) return;
     this.open = false;
     emit(this, 'sx-map-style-cancel');
   };
@@ -175,7 +207,6 @@ export class SxMapStyle extends LitElement {
     if (e.key !== 'Escape') return;
     e.preventDefault();
     this.cancel();
-    this.renderRoot.querySelector<HTMLButtonElement>('.toggle')?.focus();
   };
 
   private pick(id: MapStyleId) {
@@ -207,7 +238,7 @@ export class SxMapStyle extends LitElement {
     return html`<p class="ask">Übernehmen – nur jetzt (bis du den Tab schließt) oder als Standard im Profil für alle Geräte?</p>
       <div class="actions">
         <button class="btn" type="button" ?disabled=${this.busy || this.selected === this.current} @click=${() => this.apply('now')}>Nur jetzt</button>
-        <button class="btn primary" type="button" ?disabled=${this.busy || this.selected === this.profileStyle} @click=${() => this.apply('profile')}>${icon('check')} Als Standard speichern</button>
+        <button class="btn primary" type="button" ?disabled=${this.busy || (this.selected === this.profileStyle && this.current === this.profileStyle)} @click=${() => this.apply('profile')}>${icon('check')} Als Standard speichern</button>
       </div>`;
   }
 
@@ -219,7 +250,7 @@ export class SxMapStyle extends LitElement {
       <dialog id="ms" aria-labelledby="ms-h" @keydown=${this.onKey}>
         <header>
           <h2 id="ms-h">Kartenansicht</h2>
-          <button class="btn ghost icon small" aria-label="Schließen" @click=${this.cancel}>${icon('x')}</button>
+          <button class="btn ghost icon small" aria-label="Schließen" ?disabled=${this.busy} @click=${this.cancel}>${icon('x')}</button>
         </header>
         <div class="body">
           <fieldset>

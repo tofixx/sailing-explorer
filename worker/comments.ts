@@ -213,12 +213,16 @@ export async function getSettings(request: Request, env: Env): Promise<Response>
 export async function patchSettings(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const body = await readJson<{ notifyComments?: unknown; notifyGroups?: unknown; mapStyle?: unknown }>(request);
+  // Erst alles prüfen, dann schreiben – ein 400 hinterlässt keine Teiländerung.
+  const invalid =
+    (body.mapStyle !== undefined && body.mapStyle !== null && !isMapStyleId(body.mapStyle)) ||
+    (body.notifyGroups !== undefined && !isGroupNotifyMode(body.notifyGroups)) ||
+    (body.notifyComments !== undefined && !parseNotifyMode(body.notifyComments));
+  if (invalid) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
   if (body.mapStyle !== undefined) {
-    if (body.mapStyle !== null && !isMapStyleId(body.mapStyle)) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
     await env.DB.prepare('UPDATE users SET map_style = ? WHERE id = ?').bind(body.mapStyle, user.id).run();
   }
   if (body.notifyGroups !== undefined) {
-    if (!isGroupNotifyMode(body.notifyGroups)) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
     // Einschalten zählt erst ab jetzt – die erste Sammelmail kommt am nächsten Sonntag.
     await env.DB.prepare(
       `UPDATE users SET groups_mailed_at = CASE WHEN ?1 = 'weekly' AND notify_groups <> 'weekly' THEN ?2 ELSE groups_mailed_at END,

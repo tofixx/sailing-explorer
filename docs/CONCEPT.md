@@ -1448,13 +1448,18 @@ den Kontrast auf beiden Grundkarten). Die Verlaufsfarben sind Daten des Sets (wi
 Diagramme und die Bedeutungsfarben (`--c-speed` usw.) ändern sich nicht.
 
 **Bedienung:** „Ansicht konfigurieren“ unten rechts über der Karte (nur in der Törn-Ansicht) öffnet ein nicht modales
-Popover: je Set Name, Kurzbeschreibung und Vorschau; die Karte zeigt die Auswahl sofort. Übernehmen fragt angemeldet
+Popover (mobil als Sheet am unteren Rand): je Set Name, Kurzbeschreibung und Vorschau; die Karte zeigt die Auswahl
+sofort. Abbrechen, Escape, ein Klick daneben oder ein Wechsel der Törn-Ansicht verwerfen die Vorschau. In Einbettungen
+fehlt der Knopf (kein Konto-Bezug im fremden iframe, wie beim Passkey). Übernehmen fragt angemeldet
 „Nur jetzt“ oder „Als Standard speichern“; ohne Anmeldung gibt es nur „Übernehmen“ mit dem Hinweis auf das Profil.
 
 **Speicherung und Vorrang:** „Nur jetzt“ (angemeldet) liegt im sessionStorage und gilt bis zum Schließen des Tabs;
 ohne Anmeldung merkt sich das Gerät die Wahl im localStorage (es gibt kein Profil). Der Profil-Standard liegt in
 `users.map_style` (Migration 0019, NULL = keiner) und kommt über `GET /api/me/settings` nach jeder Anmeldung – so gilt
 er auf allen Geräten. Vorrang: „Nur jetzt“ → Profil → Gerät → „Klassisch“. Speichern als Standard hebt „Nur jetzt“ auf.
+Die Gast-Wahl liegt nur im localStorage, damit nach einer Anmeldung im selben Tab der Profil-Standard gilt. Den
+Standard ganz entfernen (`mapStyle: null`) kann vorerst nur die API; in der Oberfläche ist „Klassisch“ als Standard
+gleichwertig. Die Symbol-Erzeuger (`src/map/glyphs.ts`, reine SVG-Strings ohne Leaflet) nutzt auch die Vorschau.
 Gültige Werte prüft der Worker mit derselben Domain-Regel (kein SQL-`CHECK`); ein unbekannter Wert in der Datenbank
 gilt als „kein Standard“. Löschen: die Spalte liegt in der Konto-Zeile und verschwindet mit dem Konto (alle Löschpfade
 des Kontos), sonst wird nichts gespeichert.

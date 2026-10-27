@@ -277,7 +277,9 @@ sx-map-style {
   bottom: 28px;
   z-index: 1000; /* wie Leaflets Control-Ecken, steht im DOM danach */
 }
-.app[data-empty] sx-map-style {
+/* Einbettungen: ohne Anmeldung (Cookie fehlt im fremden iframe) und ohne Konto-Bezug – kein Knopf, wie beim Passkey */
+.app[data-empty] sx-map-style,
+.app[data-embed] sx-map-style {
   display: none;
 }
 @media (max-width: 760px) {

@@ -20,12 +20,14 @@ function read(storage: () => Storage): string | null {
   }
 }
 
-function write(storage: () => Storage, id: MapStyleId | null): void {
+/** false: Speicher fehlt (privater Modus) – dann gilt die Wahl nur bis zum Neuladen */
+function write(storage: () => Storage, id: MapStyleId | null): boolean {
   try {
     if (id) storage().setItem(KEY, id);
     else storage().removeItem(KEY);
+    return true;
   } catch {
-    /* ohne Speicher gilt die Wahl nur bis zum Neuladen */
+    return false;
   }
 }
 
@@ -39,7 +41,7 @@ const device = () => localStorage;
  */
 export class MapStyleController {
   private profile: MapStyleId | null = null;
-  /** Wahl „Nur jetzt“, solange der Speicher fehlt (privater Modus) */
+  /** Wahl „Nur jetzt“ bzw. des Gasts, falls der Speicher fehlt (privater Modus) */
   private now: MapStyleId | null = null;
   private seq = 0;
 
@@ -50,17 +52,22 @@ export class MapStyleController {
     this.store.subscribe((s, prev) => {
       if (s.user?.id !== prev.user?.id) void this.loadProfile();
       if (s.user !== prev.user) this.ui.picker.signedIn = !!s.user;
+      // Popover offen, aber die Törn-Ansicht wechselt (Startseite, andere Tracks): Vorschau verwerfen.
+      if (this.ui.picker.open && (s.home !== prev.home || s.tracks !== prev.tracks)) {
+        this.ui.picker.open = false;
+        this.apply();
+      }
     });
     this.apply();
   }
 
-  /** Geltenden Stil aus den drei Quellen bestimmen und im Store setzen. */
+  /** Geltenden Stil aus den drei Quellen bestimmen und im Store setzen – nicht, solange eine Vorschau läuft. */
   private apply(): void {
     const sessionChoice = read(session) ?? this.now;
     const id = resolveMapStyle(sessionChoice, this.store.get().user ? this.profile : null, read(device));
     this.ui.picker.current = id;
     this.ui.picker.profileStyle = this.profile;
-    if (this.store.get().mapStyle !== id) this.store.set({ mapStyle: id });
+    if (!this.ui.picker.open && this.store.get().mapStyle !== id) this.store.set({ mapStyle: id });
   }
 
   /** Nach An- oder Abmeldung: Profil-Standard holen bzw. vergessen. */
@@ -85,6 +92,7 @@ export class MapStyleController {
   }
 
   cancel(): void {
+    this.ui.picker.open = false;
     this.apply();
   }
 
@@ -99,6 +107,7 @@ export class MapStyleController {
         this.profile = isMapStyleId(st.mapStyle) ? st.mapStyle : id;
       } catch (e) {
         picker.error = errorText(e);
+        if (!picker.open) this.ui.toast(picker.error);
         return;
       } finally {
         picker.busy = false;
@@ -107,11 +116,12 @@ export class MapStyleController {
       this.now = null;
       write(session, null);
       this.ui.toast('Als Standard in deinem Profil gespeichert – gilt auf allen Geräten.');
+    } else if (this.store.get().user) {
+      this.now = write(session, id) ? null : id;
     } else {
-      this.now = id;
-      write(session, id);
-      // Ohne Anmeldung merkt sich das Gerät die Wahl (es gibt kein Profil dafür).
-      if (!this.store.get().user) write(device, id);
+      // Ohne Anmeldung merkt sich das Gerät die Wahl (es gibt kein Profil dafür). Nicht im Tab: Nach einer Anmeldung
+      // soll hier der Profil-Standard gelten.
+      this.now = write(device, id) ? null : id;
     }
     picker.open = false;
     this.apply();

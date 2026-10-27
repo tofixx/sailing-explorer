@@ -1,4 +1,4 @@
-// Kartenstile (F-215): feste Sets für Farbverlauf und Wind-/Wellen-Symbole, Vorrang der Quellen, Symbolfarben und -größen.
+// Kartenstile (F-216): feste Sets für Farbverlauf und Wind-/Wellen-Symbole, Vorrang der Quellen, Symbolfarben und -größen.
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_MAP_STYLE, MAP_STYLES, MAP_STYLE_IDS, isMapStyleId, resolveMapStyle } from '../src/domain/map-style';
 import { RAMP, rampColor, rampCss } from '../src/domain/metrics';
@@ -10,8 +10,8 @@ function luminance(hex: string): number {
   return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 }
 
-describe('F-215 Kartenstile', () => {
-  it('[F-215] vier Sets: Klassisch (heutiger Stil, Standard), Kontrast, Farbenblind-freundlich, Dezent', () => {
+describe('F-216 Kartenstile', () => {
+  it('[F-216] vier Sets: Klassisch (heutiger Stil, Standard), Kontrast, Farbenblind-freundlich, Dezent', () => {
     expect(MAP_STYLE_IDS).toEqual(['classic', 'contrast', 'colorblind', 'subtle']);
     expect(DEFAULT_MAP_STYLE).toBe('classic');
     expect(MAP_STYLES.classic.ramp).toBe(RAMP);
@@ -25,14 +25,14 @@ describe('F-215 Kartenstile', () => {
     }
   });
 
-  it('[F-215] Farbenblind-freundlich wird stetig heller, Dezent stetig dunkler – eindeutig auch ohne Farbsehen', () => {
+  it('[F-216] Farbenblind-freundlich wird stetig heller, Dezent stetig dunkler – eindeutig auch ohne Farbsehen', () => {
     for (const [id, dir] of [['colorblind', 1], ['subtle', -1]] as const) {
       const l = MAP_STYLES[id].ramp.map(luminance);
       for (let i = 1; i < l.length; i++) expect(dir * (l[i] - l[i - 1]), `${id} Stufe ${i}`).toBeGreaterThan(0);
     }
   });
 
-  it('[F-215] Kontrast: Enden des Verlaufs mit deutlichem Helligkeitsabstand, dickere Linie, größere Symbole', () => {
+  it('[F-216] Kontrast: Enden des Verlaufs mit deutlichem Helligkeitsabstand, dickere Linie, größere Symbole', () => {
     const s = MAP_STYLES.contrast;
     const l = s.ramp.map(luminance);
     expect(Math.max(...l) / Math.min(...l)).toBeGreaterThan(10);
@@ -40,12 +40,12 @@ describe('F-215 Kartenstile', () => {
     expect(s.symbolScale).toBeGreaterThan(1);
   });
 
-  it('[F-215] isMapStyleId kennt nur die Sets (keine Prototyp-Namen, keine anderen Typen)', () => {
+  it('[F-216] isMapStyleId kennt nur die Sets (keine Prototyp-Namen, keine anderen Typen)', () => {
     for (const id of MAP_STYLE_IDS) expect(isMapStyleId(id)).toBe(true);
     for (const v of ['', 'Classic', 'toString', '__proto__', 'constructor', null, undefined, 1, {}]) expect(isMapStyleId(v)).toBe(false);
   });
 
-  it('[F-215] Vorrang: Wahl „Nur jetzt“ vor Profil-Standard vor Gerät, sonst Klassisch; Ungültiges wird übersprungen', () => {
+  it('[F-216] Vorrang: Wahl „Nur jetzt“ vor Profil-Standard vor Gerät, sonst Klassisch; Ungültiges wird übersprungen', () => {
     expect(resolveMapStyle('contrast', 'subtle', 'colorblind')).toBe('contrast');
     expect(resolveMapStyle(null, 'subtle', 'colorblind')).toBe('subtle');
     expect(resolveMapStyle(null, null, 'colorblind')).toBe('colorblind');
@@ -54,7 +54,7 @@ describe('F-215 Kartenstile', () => {
     expect(resolveMapStyle()).toBe('classic');
   });
 
-  it('[F-215] rampColor und rampCss nehmen den Verlauf des Stils (Standard: Klassisch)', () => {
+  it('[F-216] rampColor und rampCss nehmen den Verlauf des Stils (Standard: Klassisch)', () => {
     const v = MAP_STYLES.colorblind.ramp;
     expect(rampColor(0, v)).toBe('rgb(68,1,84)');
     expect(rampColor(1, v)).toBe('rgb(253,231,37)');
@@ -63,7 +63,7 @@ describe('F-215 Kartenstile', () => {
     expect(rampCss(v)).toBe(`linear-gradient(90deg, ${v.join(', ')})`);
   });
 
-  it('[F-215] Symbole: Stärkefarbe aus dem Verlauf des Stils, bei Dezent die feste Bedeutungsfarbe; Größe skaliert', () => {
+  it('[F-216] Symbole: Stärkefarbe aus dem Verlauf des Stils, bei Dezent die feste Bedeutungsfarbe; Größe skaliert', () => {
     const cb = MAP_STYLES.colorblind;
     expect(windColor(30, cb)).toBe(rampColor(1, cb.ramp));
     expect(waveColor(0, cb)).toBe(rampColor(0, cb.ramp));
