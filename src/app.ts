@@ -51,6 +51,7 @@ import type { PhotoVisibility } from './domain/visibility';
 import { GroupsController } from './controllers/groups';
 import type { SxGroupPage } from './components/sx-group-page';
 import type { SxHomeFeed } from './components/sx-home-feed';
+import type { SxJoinCard } from './components/sx-join-card';
 import type { FollowKind, GroupInput } from './services/api';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
@@ -121,6 +122,7 @@ export class App {
     photoUpload: $<SxPhotoUpload>('sx-photo-upload'),
     groupPage: $<SxGroupPage>('sx-group-page'),
     homeFeed: $<SxHomeFeed>('sx-home-feed'),
+    join: $<SxJoinCard>('sx-join-card'),
     legalPage: $<SxLegalPage>('sx-legal-page'),
     shareReactions: $<SxReactions>('#share-reactions'),
     reactionsPanel: $<HTMLElement>('#reactions-panel'),
@@ -181,7 +183,10 @@ export class App {
       toast: (msg, ms) => this.toast(msg, ms),
       openLogin: (reason) => this.session.openLogin(reason),
       // Startseite: Stream groß, „Track anlegen“ kompakt (Konzept 12.6)
-      onCommunity: (visible) => (this.ui.empty.community = visible),
+      onCommunity: (visible) => {
+        this.ui.empty.community = visible;
+        this.ui.join.hidden = !visible;
+      },
       onPersonalStream: (at) => {
         this.pendingSeen = { at };
         this.markSeen();
@@ -311,6 +316,9 @@ export class App {
     // Neuigkeiten auf der Startseite und Rollen auf der Gruppenseite hängen an der Anmeldung (Konzept 11.5).
     if (changed('user') || changed('backend')) {
       this.ui.page.signedIn = !!s.user;
+      // Startseite (F-223/F-224): angemeldet zuerst der eigene Stream, „Mitmachen“ zeigt nächste Schritte
+      this.ui.empty.streamFirst = !!s.user;
+      this.ui.join.signedIn = !!s.user;
       if (prev) {
         if (this.homeRoute) void this.groups.loadHome(true);
         void this.groups.userChanged();

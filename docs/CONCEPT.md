@@ -1229,16 +1229,25 @@ beschrieben; Reaktionen wären neben neuen Followern, Kommentaren und Einladunge
 
 ### 12.6 Startseite
 
+**Die Startseite ist die Community-Seite** (Betreiber, Oktober 2026: „/entdecken zur Startseite, Beitreten und eigenen
+Track hochladen als Seitenleiste als Pendant zum Stream“): Die Hauptspalte zeigt die Entdecken-Vorschau (zuletzt
+gesegelte Törns, neue Boote, Segler, Vereine) und den Stream – Gäste zuerst Entdecken (das Schaufenster), Angemeldete
+zuerst ihren persönlichen Stream (dazu passt das Badge am Reiter „Community“, 12.10). Die Seitenleiste daneben ist das
+Gegenstück: „Eigenen Törn anlegen“ und „Mitmachen“ – für Gäste, wozu man sich anmeldet (Törns speichern und teilen,
+Verein/Team, Heimathafen, Folgen und Reagieren, Freunde einladen, Fotos als Unterstützer:in, Anmeldung ohne Passwort),
+für Angemeldete die nächsten Schritte. `/entdecken` bleibt die vollständige Liste. Mobil: eine Spalte; für Gäste
+„Mitmachen“ zuerst, Hochladen als runder Knopf (F-223, F-224).
+
 Der Community-Stream ist der Kern der Startseite – für alle:
 
 | Wer | Hauptbereich |
 |---|---|
-| Gäste und Abgemeldete | „Neues aus der Community“: öffentlicher Stream (12.4) mit Filter-Chips nach Hafen und Verein, dazu deutlich „Anmelden & mitmachen“ |
+| Gäste und Abgemeldete | „Neues aus der Community“: öffentlicher Stream (12.4) mit Filter-Chips nach Hafen und Verein; „Anmelden & mitmachen“ in der Seitenleiste |
 | Angemeldete | „Neuigkeiten aus deinem Verein, Hafen und Team“ (persönlicher Stream), eigene Gruppen, Hinweis zum Wählen von Verein und Heimathafen, „Leute, die du kennen könntest“; ohne Gruppen zusätzlich „Tritt deinem Verein bei“ |
 | ohne Backend | wie bisher nur die Einstiegskarte (groß) |
 
 Hochladen tritt zurück: „Track anlegen“ als **zweitrangiger Knopf in der Kopfzeile**, eine **kompakte Karte** in der
-Seitenspalte (mit Beispielen) und Ziehen & Ablegen auf der ganzen Seite (beim Ziehen erscheint eine Ablagefläche). Mobil
+Seitenleiste (mit Beispielen) und Ziehen & Ablegen auf der ganzen Seite (beim Ziehen erscheint eine Ablagefläche). Mobil
 (< 760 px) steht der Stream in voller Breite oben, Hochladen ist ein runder Knopf unten rechts (FAB, 56 px). Die
 Kartenansicht eines geladenen Törns bleibt unverändert; den Wechsel Startseite ↔ Törn übernehmen die Reiter der Kopfzeile (12.10, F-75). Unten eine
 kleine Fußzeile mit „Impressum“ und „Datenschutz“.

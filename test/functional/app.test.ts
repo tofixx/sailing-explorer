@@ -1286,6 +1286,31 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
   const topbar = () => el<{ section: string; unread: string }>('sx-topbar');
   const seenCalls = () => server.calls.filter((c) => c.url === '/api/stream/seen');
 
+  it('[F-223] Startseite: Mitmachen-Karte sichtbar; angemeldet steht der Stream vor Entdecken', async () => {
+    server.groups = {};
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    const join = el<{ hidden: boolean; signedIn: boolean }>('sx-join-card');
+    expect(join.hidden).toBe(false);
+    expect(join.signedIn).toBe(false);
+    expect(el<{ streamFirst: boolean }>('sx-empty-state').streamFirst).toBe(false);
+  });
+
+  it('[F-223] Startseite angemeldet: Stream zuerst, Mitmachen mit nächsten Schritten', async () => {
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { myStream: { items: [post], cursor: null, hasGroups: true }, mine: { groups: [], requests: [] } };
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    expect(el<{ streamFirst: boolean }>('sx-empty-state').streamFirst).toBe(true);
+    expect(el<{ signedIn: boolean }>('sx-join-card').signedIn).toBe(true);
+  });
+
+  it('[F-225] Link-Vorschau der Startseite beschreibt die Community', () => {
+    const html = readFileSync(resolve('index.html'), 'utf8');
+    expect(/<meta property="og:description" content="([^"]*)"/.exec(html)?.[1]).toMatch(/^Segel-Community:/);
+    expect(/<meta name="description" content="([^"]*)"/.exec(html)?.[1]).toMatch(/Verein, Hafen und Team/);
+  });
+
   it('[F-220] Kopfzeile kennt den Bereich: Community auf der Startseite, Törn mit Tracks, Entdecken auf /entdecken', async () => {
     server.groups = {};
     await startApp();

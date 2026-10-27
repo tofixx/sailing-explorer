@@ -120,8 +120,7 @@ describe('sx-reactions', () => {
 // ---------------------------------------------------------------- Startseite
 
 describe('Startseite (F-182)', () => {
-  it('[F-182] Gäste: „Neues aus der Community“, „Anmelden & mitmachen“, Filter-Chips nach Hafen und Verein', async () => {
-    const login = listen('sx-login');
+  it('[F-182] Gäste: „Neues aus der Community“ mit Filter-Chips nach Hafen und Verein; „Anmelden & mitmachen“ steht in der Seitenleiste (F-224)', async () => {
     const filter = listen('sx-stream-filter');
     const el = await mount('sx-home-feed', {
       signedIn: false,
@@ -132,8 +131,7 @@ describe('Startseite (F-182)', () => {
     await settle(el);
     expect(text(el.shadowRoot)).toContain('Neues aus der Community');
     expect(text(el.shadowRoot)).not.toContain('Neuigkeiten aus deinem Verein');
-    button(el.shadowRoot, /Anmelden & mitmachen/)!.click();
-    expect(login).toHaveLength(1);
+    expect(button(el.shadowRoot, /Anmelden & mitmachen/)).toBeUndefined();
     expect(button(el.shadowRoot, /^ *Alle/)!.getAttribute('aria-pressed')).toBe('true');
     button(el.shadowRoot, /Potsdam/)!.click();
     expect(filter).toEqual([{ filter: { kind: 'harbor', slug: 'potsdam' } }]);

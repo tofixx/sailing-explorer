@@ -6,6 +6,8 @@ import '../../src/components/sx-metric-picker';
 import '../../src/components/sx-topbar';
 import '../../src/components/sx-account-dialog';
 import '../../src/components/sx-discover';
+import '../../src/components/sx-join-card';
+import '../../src/components/sx-empty-state';
 import type { Track } from '../../src/domain/types';
 import { T0, genPoints, makeTrack, P } from './helpers';
 
@@ -294,6 +296,42 @@ describe('sx-account-dialog', () => {
 });
 
 
+describe('Startseite = Community (F-223, F-224)', () => {
+  it('[F-224] Gäste: „Mitmachen“ erklärt, wozu die Anmeldung gut ist, und meldet an', async () => {
+    const logins = listen('sx-login');
+    const el = await mount('sx-join-card', { signedIn: false });
+    const t = text(el);
+    for (const w of ['Törns speichern und teilen', 'Verein oder Team', 'Heimathafen', 'Folgen', 'Freunde einladen', 'Fotos', 'Passkey']) expect(t).toContain(w);
+    button(el, /Anmelden & mitmachen/)!.click();
+    expect(logins).toHaveLength(1);
+  });
+
+  it('[F-224] Angemeldete: nächste Schritte statt Werbung', async () => {
+    const accounts = listen('sx-account');
+    const el = await mount('sx-join-card', { signedIn: true });
+    expect(button(el, /Anmelden/)).toBeUndefined();
+    expect([...el.shadowRoot.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/entdecken#vereine', '/g/neu']);
+    button(el, /Passkey/)!.click();
+    button(el, /Heimathafen/)!.click();
+    expect(accounts).toEqual(['settings', 'profile']);
+  });
+
+  it('[F-223] Hauptspalte: Entdecken und Stream – Gäste Entdecken zuerst, angemeldet der Stream; Seitenleiste: Hochladen und Mitmachen', async () => {
+    const el = await mount('sx-empty-state', { community: true, samples: [] });
+    const main = el.shadowRoot.querySelector('.feed')!;
+    const side = el.shadowRoot.querySelector('.side')!;
+    expect(main.querySelector('slot[name="discover"]')).not.toBeNull();
+    expect(main.querySelector('slot[name="feed"]')).not.toBeNull();
+    expect(side.querySelector('slot[name="join"]')).not.toBeNull();
+    expect(side.textContent).toMatch(/Eigenen Törn anlegen/);
+    const order = () => getComputedStyle(main.querySelector('.discover')!).order;
+    expect(order()).toBe('0');
+    el.streamFirst = true;
+    await el.updateComplete;
+    expect(el.hasAttribute('stream-first')).toBe(true);
+  });
+});
+
 describe('sx-discover', () => {
   const voyage = (id: string, o: Record<string, unknown> = {}) => ({
     id, title: `Törn ${id}`, summary: '', distNm: 12.5, startedAt: Date.UTC(2026, 5, 13, 10), createdAt: 0, trackCount: 1, hasImage: false,
@@ -305,8 +343,17 @@ describe('sx-discover', () => {
   it('[F-70] Leiste: höchstens 6 Törns und Link „Alle entdecken“', async () => {
     const el = await mount('sx-discover', { variant: 'strip', data: data({ voyages: Array.from({ length: 9 }, (_, i) => voyage(`v${i}`)) }) });
     expect(el.shadowRoot.querySelectorAll('article')).toHaveLength(6);
-    expect(text(el)).toContain('Zuletzt gesegelt');
+    expect(text(el)).toContain('Entdecken · Zuletzt gesegelt');
     expect(links(el)).toContain('/entdecken');
+  });
+
+  it('[F-223] Vorschau auf der Startseite: neue Boote, Segler, Vereine als Chips; Anker #entdecken', async () => {
+    const el = await mount('sx-discover', {
+      variant: 'strip',
+      data: data({ boats: [{ id: 'B1', name: 'Möwe' }], people: [{ handle: 'anna', displayName: 'Anna' }], groups: [{ slug: 'pyc', name: 'PYC', kind: 'club', members: 3 }] }),
+    });
+    expect(el.shadowRoot.getElementById('entdecken')).not.toBeNull();
+    expect(links(el)).toEqual(expect.arrayContaining(['/b/B1', '/u/anna', '/g/pyc']));
   });
 
   it('[F-70] Leiste ohne Törns lädt zum ersten öffentlichen Törn ein', async () => {

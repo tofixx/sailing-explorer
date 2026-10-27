@@ -131,7 +131,7 @@ interface PageMeta {
   image?: string;
 }
 
-const DEFAULT_DESCRIPTION = 'Segeltörns auf der Seekarte mit Wind- und Wellendaten';
+const DEFAULT_DESCRIPTION = 'Segel-Community: Törns auf der Seekarte mit Wind und Wellen, Neuigkeiten aus Verein, Hafen und Team';
 
 /**
  * Vorschau-Metadaten (Messenger, Social, Konzept 1.4) – nur für Besucher ohne Anmeldung Sichtbares:

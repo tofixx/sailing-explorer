@@ -1,6 +1,7 @@
 import './styles/app.css';
 import './components/sx-topbar';
 import './components/sx-empty-state';
+import './components/sx-join-card';
 import './components/sx-panel';
 import './components/sx-conditions';
 import './components/sx-metric-picker';
