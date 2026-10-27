@@ -246,7 +246,8 @@ export default {
   },
 
   // Nächtliches Aufräumen (Cron-Trigger in wrangler.jsonc).
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runRetention(env, env.APP_ORIGIN || 'https://segeln-potsdam.de').then((r) => console.log('retention', JSON.stringify(r))));
+  // Zeitbezug ist der geplante Zeitpunkt (in Tests frei wählbar, z. B. ein Dezembertag für die Saison-Erinnerung).
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runRetention(env, env.APP_ORIGIN || 'https://segeln-potsdam.de', controller.scheduledTime || Date.now()).then((r) => console.log('retention', JSON.stringify(r))));
   },
 } satisfies ExportedHandler<Env>;

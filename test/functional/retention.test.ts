@@ -1,10 +1,15 @@
-// Funktionale Tests: nächtliches Aufräumen (Cron, worker/retention.ts) – F-63.
+// Funktionale Tests: nächtliches Aufräumen (Cron, worker/retention.ts) – F-63, Saison-Regeln (Konzept 5.5).
 // Daten werden direkt in D1/R2 mit Zeitstempeln in der Vergangenheit angelegt, dann wird der
 // scheduled-Handler des echten Workers (Miniflare) ausgelöst.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startWorker, type Harness } from './worker-harness';
+import { seasonOf } from '../../src/domain/support';
 
 const DAY = 86_400_000;
+/** Upload vor drei Saisons – als kostenloser Törn längst abgelaufen, mit Unterstützung zählt deren Ende. */
+const OLD = () => Date.UTC(seasonOf(Date.now()) - 3, 5, 1);
+/** Unterstützung, deren Ende den Törn in `days` Tagen ablaufen lässt (Ende + 31 Tage Schonfrist). */
+const lapsedUntil = (days: number) => Date.now() - 31 * DAY + days * DAY;
 
 let h: Harness;
 /** Mailversand schlägt fehl (resend ohne API-Key) → nichts darf als gewarnt markiert werden. */
@@ -32,9 +37,8 @@ async function user(hh: Harness, o: { createdAgo?: number; loginAgo?: number | n
   return { id, email };
 }
 
-async function share(hh: Harness, userId: string, createdAgo: number, title = 'Törn') {
+async function share(hh: Harness, userId: string, t: number, title = 'Törn') {
   const id = uid('s');
-  const t = Date.now() - createdAgo;
   await (await hh.db())
     .prepare('INSERT INTO shares (id, user_id, title, size_bytes, track_count, created_at, updated_at, has_image) VALUES (?, ?, ?, 10, 1, ?, ?, 1)')
     .bind(id, userId, title, t, t)
@@ -91,27 +95,28 @@ describe('F-63 Aufbewahrung (Cron)', () => {
   beforeAll(async () => {
     const now = Date.now();
     free = await user(h);
-    expiredShare = await share(h, free.id, 91 * DAY);
-    freshShare = await share(h, free.id, 10 * DAY);
+    expiredShare = await share(h, free.id, OLD());
+    freshShare = await share(h, free.id, now);
 
     supporter = await user(h);
     await support(h, supporter.id, now + 100 * DAY);
-    supporterOldShare = await share(h, supporter.id, 300 * DAY);
+    supporterOldShare = await share(h, supporter.id, OLD());
 
-    // Unterstützung vor 80 Tagen beendet → Törn läuft in 10 Tagen ab (90 Tage nach Ende der Unterstützung)
+    // Unterstützung beendet → Törn läuft in 10 Tagen ab (Ende der Unterstützung + Januar)
     lapsed = await user(h);
-    await support(h, lapsed.id, now - 80 * DAY);
-    lapsedShare = await share(h, lapsed.id, 300 * DAY, 'Alter Törn');
+    await support(h, lapsed.id, lapsedUntil(10));
+    lapsedShare = await share(h, lapsed.id, OLD(), 'Alter Törn');
 
     // Vor einem Jahr schon einmal gewarnt, dann unterstützt (Ablauf verschoben) – jetzt läuft er wieder ab
     rewarn = await user(h);
-    await support(h, rewarn.id, now - 80 * DAY);
-    rewarnShare = await share(h, rewarn.id, 500 * DAY);
+    await support(h, rewarn.id, lapsedUntil(10));
+    rewarnShare = await share(h, rewarn.id, OLD());
     await (await h.db()).prepare('UPDATE shares SET expiry_warned_at = ? WHERE id = ?').bind(now - 370 * DAY, rewarnShare).run();
 
     warn = await user(h);
-    warnA = await share(h, warn.id, 80 * DAY, 'Ostsee');
-    warnB = await share(h, warn.id, 85 * DAY, '<b>Bodden</b>');
+    await support(h, warn.id, lapsedUntil(7));
+    warnA = await share(h, warn.id, OLD(), 'Ostsee');
+    warnB = await share(h, warn.id, OLD() + DAY, '<b>Bodden</b>');
 
     inactiveEmpty = await user(h, { createdAgo: 500 * DAY, loginAgo: 400 * DAY });
     await (await h.db())
@@ -120,12 +125,12 @@ describe('F-63 Aufbewahrung (Cron)', () => {
       .run();
     inactiveNeverLoggedIn = await user(h, { createdAgo: 400 * DAY, loginAgo: null });
     inactiveWithShares = await user(h, { createdAgo: 500 * DAY, loginAgo: 400 * DAY });
-    inactiveShare = await share(h, inactiveWithShares.id, 10 * DAY);
+    inactiveShare = await share(h, inactiveWithShares.id, now);
     inactiveSupporter = await user(h, { createdAgo: 500 * DAY, loginAgo: 400 * DAY });
     await support(h, inactiveSupporter.id, now + 10 * DAY);
     // Einziger Törn ist abgelaufen → wird gelöscht, danach ist das Konto leer und inaktiv
     inactiveExpired = await user(h, { createdAgo: 500 * DAY, loginAgo: 400 * DAY });
-    await share(h, inactiveExpired.id, 120 * DAY);
+    await share(h, inactiveExpired.id, OLD());
     recentEmpty = await user(h, { createdAgo: 400 * DAY, loginAgo: 30 * DAY });
 
     const db = await h.db();
@@ -147,7 +152,7 @@ describe('F-63 Aufbewahrung (Cron)', () => {
     expect(await userExists(h, free.id)).toBe(true);
   });
 
-  it('[F-63] Törns laufender Unterstützer bleiben – auch wenn sie älter als 90 Tage sind', async () => {
+  it('[F-63] Törns laufender Unterstützer bleiben – auch aus früheren Saisons', async () => {
     const row = await shareRow(h, supporterOldShare);
     expect(row).toMatchObject({ id: supporterOldShare, expiry_warned_at: null });
     expect(await objects(h, supporterOldShare)).toBe(2);
@@ -162,7 +167,7 @@ describe('F-63 Aufbewahrung (Cron)', () => {
     expect(mails[0]).toContain('Ostsee');
     expect(mails[0]).toContain('https://sail.example/?support=open');
 
-    // nach abgelaufener Unterstützung zählt deren Ende + 90 Tage
+    // nach abgelaufener Unterstützung zählt deren Ende + Januar
     expect((await shareRow(h, lapsedShare))!.expiry_warned_at).toEqual(expect.any(Number));
     expect(mailsTo(h, lapsed.email)).toHaveLength(1);
     expect(mailsTo(h, lapsed.email)[0]).toMatch(/Ein Törn wird bald gelöscht/);
@@ -208,14 +213,67 @@ describe('F-63 Aufbewahrung (Cron)', () => {
 
   it('[F-63] Mailversand fehlgeschlagen → Törn bleibt ungewarnt (nächste Nacht erneut), Lauf bricht nicht ab', async () => {
     const u = await user(hFail);
-    const s = await share(hFail, u.id, 80 * DAY);
+    await support(hFail, u.id, lapsedUntil(10));
+    const s = await share(hFail, u.id, OLD());
     const old = await user(hFail);
-    const expired = await share(hFail, old.id, 100 * DAY);
+    const expired = await share(hFail, old.id, OLD());
     const empty = await user(hFail, { createdAgo: 400 * DAY, loginAgo: 400 * DAY });
     expect((await hFail.scheduled()).outcome).toBe('ok');
     expect((await shareRow(hFail, s))!.expiry_warned_at).toBeNull();
     // die übrigen Schritte laufen trotzdem
     expect(await shareRow(hFail, expired)).toBeNull();
     expect(await userExists(hFail, empty.id)).toBe(false);
+  });
+});
+
+describe('Saison-Erinnerung im Dezember (Konzept 5.5)', () => {
+  it('[F-64] einmal pro Konto und Jahr, nur für Törns, die mit der Saison enden; Unterstützer der nächsten Saison nicht', async () => {
+    const season = seasonOf(Date.now()) + 1;
+    const dec = new Date(Date.UTC(season, 11, 3, 3, 17));
+    const ending = await user(h);
+    const a = await share(h, ending.id, Date.UTC(season, 4, 1), 'Havel');
+    await share(h, ending.id, Date.UTC(season, 6, 1), 'Wannsee');
+    const later = await user(h);
+    await share(h, later.id, Date.UTC(season, 10, 10)); // November: zählt zur nächsten Saison
+    const backer = await user(h);
+    await support(h, backer.id, Date.UTC(season + 2, 0, 1));
+    await share(h, backer.id, Date.UTC(season, 4, 1));
+
+    expect((await h.scheduled('17 3 * * *', dec)).outcome).toBe('ok');
+    const mails = mailsTo(h, ending.email);
+    expect(mails).toHaveLength(1);
+    expect(mails[0]).toContain('Deine Saison ' + season);
+    expect(mails[0]).toContain('deine 2 Törns');
+    expect(mails[0]).toContain('privates Projekt');
+    expect(mails[0]).toContain('1.2.' + (season + 1));
+    expect(mailsTo(h, later.email)).toHaveLength(0);
+    expect(mailsTo(h, backer.email)).toHaveLength(0);
+    expect(await shareRow(h, a)).not.toBeNull();
+
+    // zweiter Lauf im selben Dezember: keine weitere Mail; außerhalb des Dezembers nie
+    expect((await h.scheduled('17 3 * * *', new Date(dec.getTime() + 86_400_000))).outcome).toBe('ok');
+    expect(mailsTo(h, ending.email)).toHaveLength(1);
+    const novUser = await user(h);
+    await share(h, novUser.id, Date.UTC(season, 4, 1));
+    expect((await h.scheduled('17 3 * * *', new Date(Date.UTC(season, 10, 20)))).outcome).toBe('ok');
+    expect(mailsTo(h, novUser.email)).toHaveLength(0);
+  });
+});
+
+describe('Löschzeitpunkt: SQL = TypeScript (Konzept 5.5)', () => {
+  it('[F-63] EXPIRES_SQL rechnet wie shareExpiry – auch an Monats- und Jahresgrenzen', async () => {
+    const { EXPIRES_SQL } = await import('../../worker/shares');
+    const { shareExpiry } = await import('../../src/domain/support');
+    const db = await h.db();
+    const times = [Date.UTC(2026, 0, 1), Date.UTC(2026, 9, 31, 23, 59, 59, 999), Date.UTC(2026, 10, 1), Date.UTC(2027, 11, 31, 23), Date.UTC(2028, 1, 29, 12)];
+    for (const t of times) {
+      for (const until of [null, Date.UTC(2027, 0, 1), Date.UTC(2030, 0, 1)]) {
+        const u = await user(h, { createdAgo: 0 });
+        if (until !== null) await support(h, u.id, until);
+        const id = await share(h, u.id, t);
+        const row = await db.prepare(`SELECT ${EXPIRES_SQL} AS e FROM shares s WHERE s.id = ?`).bind(id).first<{ e: number }>();
+        expect(row?.e, `${new Date(t).toISOString()} / ${until}`).toBe(shareExpiry(t, until));
+      }
+    }
   });
 });

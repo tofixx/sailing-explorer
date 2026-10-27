@@ -12,7 +12,7 @@ import { deleteShareActivity, recordVoyage } from './activity';
 import { deleteShareReactions } from './reaction-cleanup';
 import { quotaVerdict } from '../src/domain/limits';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseCommentsMode, parseVisibility } from './validate';
-import { FREE_RETENTION_MS } from '../src/domain/support';
+import { GRACE_MS, NEXT_SEASON_FROM_MONTH } from '../src/domain/support';
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
 
 export interface ShareRow {
@@ -53,11 +53,18 @@ const key = (id: string) => `shares/${id}`;
 const imageKey = (id: string) => `previews/${id}.jpg`;
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
+/** 1. Januar (ms) nach der Saison eines Zeitpunkts in ms (wie seasonEnd(seasonOf(t)) in src/domain/support.ts). */
+export function seasonEndSql(t: string): string {
+  const year = `CAST(strftime('%Y', ${t} / 1000, 'unixepoch') AS INTEGER)`;
+  const late = `(CAST(strftime('%m', ${t} / 1000, 'unixepoch') AS INTEGER) > ${NEXT_SEASON_FROM_MONTH})`;
+  return `CAST(ROUND((julianday(printf('%04d-01-01', ${year} + 1 + ${late})) - 2440587.5) * 86400000) AS INTEGER)`;
+}
+
 /**
- * Löschzeitpunkt eines Törns: 3 Monate nach Upload bzw. nach Ende der Unterstützung (später gilt).
+ * Löschzeitpunkt eines Törns: 1. Februar nach seiner Saison bzw. nach der letzten unterstützten Saison (später gilt).
  * Gleiche Regel wie shareExpiry() in src/domain/support.ts.
  */
-export const EXPIRES_SQL = `(MAX(s.created_at, COALESCE((SELECT MAX(valid_until) FROM supports WHERE user_id = s.user_id), 0)) + ${FREE_RETENTION_MS})`;
+export const EXPIRES_SQL = `(MAX(${seasonEndSql('s.created_at')}, COALESCE((SELECT MAX(valid_until) FROM supports WHERE user_id = s.user_id), 0)) + ${GRACE_MS})`;
 
 export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at
   FROM shares s LEFT JOIN boats b ON b.id = s.boat_id`;

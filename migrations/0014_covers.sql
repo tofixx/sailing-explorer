@@ -1,4 +1,4 @@
--- Titelbilder (Konzept 13.2) und Heimathafen für Vereine und Teams (Konzept 13.3).
+-- Titelbilder (Konzept 13.2), Heimathafen für Vereine und Teams (Konzept 13.3), Saison-Erinnerung (Konzept 5.5).
 
 -- Ein Titelbild je Profil (kind 'u', object_id = user_id), Boot ('b') oder Verein/Team ('g'). ver wechselt bei jedem
 -- Austausch (Teil des R2-Keys und der URL, daher lange cachebar). Ohne Fremdschlüssel: Titelbilder gelöschter Objekte
@@ -53,3 +53,6 @@ UPDATE groups SET
 WHERE id IN (SELECT group_id FROM harbor_import);
 
 DROP TABLE harbor_import;
+
+-- Saison-Erinnerung (Konzept 5.5): Jahr der zuletzt verschickten Dezember-Mail.
+ALTER TABLE users ADD COLUMN season_mail_year INTEGER;

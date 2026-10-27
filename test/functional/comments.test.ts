@@ -392,7 +392,7 @@ describe('F-110 Kommentare werden mit ihrem Törn und dem Konto gelöscht', () =
     const p = await person();
     await comment(p, share.id, 'läuft ab');
     const d = await db();
-    await d.prepare('UPDATE shares SET created_at = ? WHERE id = ?').bind(Date.now() - 200 * DAY, share.id).run();
+    await d.prepare('UPDATE shares SET created_at = ? WHERE id = ?').bind(Date.now() - 1200 * DAY, share.id).run();
     await d.prepare('UPDATE comment_log SET created_at = ? WHERE user_id = ?').bind(Date.now() - 2 * DAY, p.user.id).run();
     await h.scheduled();
     expect(await count('SELECT COUNT(*) AS n FROM shares WHERE id = ?', share.id)).toBe(0);

@@ -472,6 +472,25 @@ Konten oder 16 Unterstützer – genau dafür gibt es die Notbremse.
   ≈ 1,35 $/Monat – ein „Kaffee“ (3 €) deckt rund 200 GB-Monate. Wechsel auf
   bezahltes R2 ist ohne Workers Paid möglich (offene Frage 6).
 
+### 5.5 Saison statt Monate (Oktober 2026)
+
+Entscheidung des Betreibers: Inhalte und Unterstützung gelten **je Saison = Kalenderjahr** – so lässt sich
+kalenderjährlich planen, und die Bitte um Unterstützung kommt einmal im Jahr, freundlich, vor Weihnachten.
+
+| Regel | Wert (`src/domain/support.ts`) |
+|---|---|
+| Saison eines Törns | Jahr des Uploads; ab **1. November** Hochgeladenes zählt zur nächsten Saison |
+| Kostenlose Törns (samt Fotos) | gelöscht am **1. Februar** nach ihrer Saison (Januar = Schonfrist) |
+| Unterstützung | gilt bis **31.12.** der Saison des Zahltags (ab November: der nächsten); jede weitere Zahlung hängt eine Saison an |
+| Törns von Unterstützern | gelöscht am 1. Februar nach der letzten unterstützten Saison |
+| Saison-Erinnerung | im **Dezember** einmal pro Konto und Jahr (`users.season_mail_year`): Dank, Hinweis auf das private Projekt, Bitte um eine kleine Unterstützung für die nächste Saison, Löschdatum; nur an Konten, deren Törns mit der Saison enden |
+| Letzte Erinnerung | 14 Tage vor dem Löschen (Mitte Januar), je Törn einmal – wie bisher |
+| Inaktive leere Konten | unverändert nach 12 Monaten ohne Anmeldung |
+
+Die Regel steht zweimal: `shareExpiry`/`extendSupport` in TypeScript, `EXPIRES_SQL`/Webhook in SQL; ein Test
+vergleicht beide an Monats- und Jahresgrenzen. Bestehende Törns werden nicht kürzer: was bisher nach 3 Monaten
+gelöscht worden wäre, bleibt jetzt bis zum 1. Februar nach seiner Saison.
+
 ## 6. Datenmodell, API, Oberfläche
 
 ### 6.1 Migrationen
@@ -1315,7 +1334,7 @@ Worker lehnt Bilder mit Metadaten oder Übergröße ab.
 
 | Bild | Größe | Lebt so lange wie | Aufräumen |
 |---|---|---|---|
-| Foto am Törn | lange Kante 2048 px, ≤ 1 MB; Vorschau 400 px, ≤ 80 KB | der Törn (Ablauf: Unterstützungsende bzw. Upload + 3 Monate, Abschnitt 5) | mit dem Törn (Ablauf, Löschen, Konto löschen, inaktive Konten) im selben Lauf |
+| Foto am Törn | lange Kante 2048 px, ≤ 1 MB; Vorschau 400 px, ≤ 80 KB | der Törn (gelöscht am 1. Februar nach seiner bzw. der letzten unterstützten Saison, 5.5) | mit dem Törn (Ablauf, Löschen, Konto löschen, inaktive Konten) im selben Lauf |
 | Übersichtsbild des Törns | ≤ 1,5 MB JPEG | der Törn | wie oben |
 | Titelbild Profil | 1500 × 500 px, ≤ 300 KB | das Profil (Konto löschen; leere Konten nach 12 Monaten ohne Anmeldung) | nächtlich `sweepOrphanCovers` |
 | Titelbild Boot | wie oben | das Boot (Boot oder Konto des Eigners löschen) | nächtlich |

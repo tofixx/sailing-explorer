@@ -238,7 +238,7 @@ describe('Impressum und Datenschutz (F-183)', () => {
     const t = text(el.shadowRoot);
     for (const must of [
       'Cloudflare Workers', 'D1', 'R2', 'Turnstile', '60 Sekunden', 'Resend', 'Stripe', 'Webhook', 'Open-Meteo', 'server.arcgisonline.com', 'OpenSeaMap',
-      'EMODnet', 'IndexedDB', 'Sitzungs-Cookie', '3 Monate', '12 Monate', 'Konto löschen', 'Art. 15', 'Art. 21', 'Art. 77', 'Brandenburg', 'melden@example.org',
+      'EMODnet', 'IndexedDB', 'Sitzungs-Cookie', '1. Februar nach ihrer Saison', '12 Monate', 'Titelbilder', 'Konto löschen', 'Art. 15', 'Art. 21', 'Art. 77', 'Brandenburg', 'melden@example.org',
       'Positionen und Zeitpunkte', 'Reaktionen',
     ]) {
       expect(t, must).toContain(must);

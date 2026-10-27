@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing, type PropertyValues } from 'lit';
 import type { SupportStatus } from '../services/api';
-import { FREE_RETENTION_DAYS, SUPPORT_DAYS, formatEuro, type SupportTier } from '../domain/support';
+import { formatEuro, seasonOf, type SupportTier } from '../domain/support';
 import { fmtMB } from '../util/html';
 import { limitsFor } from '../domain/limits';
 import { icon } from './icons';
@@ -8,8 +8,6 @@ import { base, emit } from './shared';
 
 export type SupportVariant = 'offer' | 'required';
 
-/** Tage → ganze Monate für Fließtext („12 Monate“, „3 Monate“). */
-const months = (days: number) => Math.round(days / 30.4);
 
 /**
  * „Unterstützen“ – reine Darstellung.
@@ -221,10 +219,10 @@ export class SxSupport extends LitElement {
   /** Was die Unterstützung bringt – kurz und ehrlich. */
   private terms() {
     const sup = this.status?.limits?.supporter ?? limitsFor('supporter');
-    const keep = months(FREE_RETENTION_DAYS);
+    const season = seasonOf(Date.now());
     return html`<ul class="terms">
-      <li>Der Unterstützer-Status gilt ${months(SUPPORT_DAYS)} Monate pro Zahlung – jede weitere Zahlung verlängert ihn.</li>
-      <li>Kostenlose Törns bleiben ${keep} Monate gespeichert, Törns von Unterstützern so lange die Unterstützung läuft und ${keep} Monate darüber hinaus.</li>
+      <li>Eine Unterstützung gilt für die Saison ${season} (bis 31.12.) – ab November schon für die nächste; jede weitere Zahlung hängt eine Saison an.</li>
+      <li>Törns bleiben für ihre Saison gespeichert und werden Ende Januar danach gelöscht – mit Unterstützung nimmst du sie in die nächste Saison mit.</li>
       <li>
         Als Unterstützer speicherst du
         bis zu ${sup.shares.toLocaleString('de-DE')} Törns, ${fmtMB(sup.bytes)} Speicher und ${sup.boats.toLocaleString('de-DE')} Boote.

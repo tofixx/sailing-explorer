@@ -5,7 +5,7 @@ import { isDevHost, requireUser } from './auth';
 import { randomId } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readBodyCapped, readJson } from './http';
 import { SHARE_ID_RE, parseFreeShares, storageThresholds, parseStripeSignature, parseSupportAmount, timingSafeEqual } from './validate';
-import { SUPPORT_MS, SUPPORT_TIERS, formatEuro, tierFor, type SupportTier } from '../src/domain/support';
+import { SUPPORT_TIERS, formatEuro, seasonOf, tierFor, type SupportTier } from '../src/domain/support';
 import { boatLimitMessage, brakeBlocks, brakeLevel, limitsFor, quotaVerdict, tierOf, type Tier, type TierLimits } from '../src/domain/limits';
 import { fmtMB } from '../src/domain/format';
 import { STORAGE_COUNTER, USER_BYTES_SQL } from './storage';
@@ -207,7 +207,7 @@ export async function createCheckout(request: Request, env: Env): Promise<Respon
     'line_items[0][price_data][currency]': 'eur',
     'line_items[0][price_data][unit_amount]': String(amount),
     'line_items[0][price_data][product_data][name]': `${env.APP_NAME} unterstützen – ${tier.label}`,
-    'line_items[0][price_data][product_data][description]': `Unterstützer-Status für 12 Monate (${formatEuro(amount)})`,
+    'line_items[0][price_data][product_data][description]': `Unterstützer-Status für die Saison ${seasonOf(Date.now())} (${formatEuro(amount)})`,
     client_reference_id: user.id,
     customer_email: user.email,
     'metadata[app]': METADATA_APP,
@@ -265,7 +265,7 @@ interface CheckoutSession {
 }
 
 /**
- * POST /api/webhooks/stripe – verlängert nach bezahltem Checkout den Unterstützer-Status um 12 Monate.
+ * POST /api/webhooks/stripe – verlängert nach bezahltem Checkout den Unterstützer-Status um eine Saison.
  * Ausnahme von der Origin-Prüfung (Stripe sendet keinen Origin); geschützt durch die Signatur.
  * Ereignisse, die nicht zu uns passen, werden mit 200 quittiert und ignoriert (sonst wiederholt Stripe sie).
  */
@@ -297,14 +297,18 @@ export async function stripeWebhook(request: Request, env: Env): Promise<Respons
   const amount = Number.isSafeInteger(session.amount_total) ? Math.max(0, session.amount_total as number) : 0;
   const currency = typeof session.currency === 'string' && /^[a-z]{3}$/.test(session.currency) ? session.currency : '';
   const now = Date.now();
-  // Verlängert ein laufendes Ende, sonst ab heute (wie extendSupport() in src/domain/support.ts) – in einer
-  // Anweisung, damit parallele Webhooks sich nicht überholen. Idempotent: dieselbe Session zählt nur einmal.
+  // Eine Saison: die des Zahltags oder die auf eine laufende Unterstützung folgende (wie extendSupport() in
+  // src/domain/support.ts) – in einer Anweisung, damit parallele Webhooks sich nicht überholen. Idempotent: dieselbe
+  // Session zählt nur einmal.
+  const cur = '(SELECT COALESCE(MAX(valid_until), 0) FROM supports WHERE user_id = ?6)';
+  const next = `CASE WHEN ${cur} > ?7 THEN CAST(strftime('%Y', (${cur} - 1) / 1000, 'unixepoch') AS INTEGER) + 1 ELSE 0 END`;
   await env.DB.prepare(
     `INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at, valid_until)
-     VALUES (?, ?, 'stripe', ?, ?, ?, ?, MAX(COALESCE((SELECT MAX(valid_until) FROM supports WHERE user_id = ?), 0), ?) + ?)
+     VALUES (?1, ?6, 'stripe', ?2, ?3, ?4, ?7,
+       CAST(ROUND((julianday(printf('%04d-01-01', MAX(?5, ${next}) + 1)) - 2440587.5) * 86400000) AS INTEGER))
      ON CONFLICT(provider_ref) DO NOTHING`,
   )
-    .bind(randomId(), user.id, session.id, amount, currency, now, user.id, now, SUPPORT_MS)
+    .bind(randomId(), session.id, amount, currency, seasonOf(now), user.id, now)
     .run();
   return json({ received: true });
 }
