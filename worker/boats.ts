@@ -33,6 +33,8 @@ interface BoatRow {
   share_key: string | null;
   /** per Meldung oder Admin ausgeblendet (0009) */
   hidden_at?: number | null;
+  /** gesperrt (0023, Konzept 18.2) */
+  locked_at?: number | null;
   created_at: number;
   updated_at: number;
   /** aus JOIN/Aggregaten */
@@ -53,7 +55,7 @@ export async function canManageBoat(env: Env, userId: string, boatId: string): P
   return (await roleFor(env, userId, boatId)) !== null;
 }
 
-/** Rolle des Kontos am Boot: Eigner, Admin oder keine (auch bei unbekanntem oder gesperrtem Boot, Konzept 15.2). */
+/** Rolle des Kontos am Boot: Eigner, Admin oder keine (auch bei unbekanntem oder gesperrtem Boot, Konzept 18.2). */
 export async function roleFor(env: Env, userId: string, boatId: string): Promise<Role> {
   const row = await env.DB.prepare(
     `SELECT CASE WHEN b.owner_id = ?1 THEN 'owner' WHEN a.user_id IS NOT NULL THEN 'admin' END AS role
@@ -212,7 +214,7 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
   const b = BOAT_ID_RE.test(id) ? await env.DB.prepare(`${BOAT_SELECT} WHERE b.id = ?`).bind(id).first<BoatRow>() : null;
   const user = await currentUser(request, env);
   const role = b && user ? await roleFor(env, user.id, id) : null;
-  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key ?? null, hiddenAt: b.hidden_at ?? null }, { manager: !!role, key, admin: isAdmin(env, user?.id) })) {
+  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key ?? null, hiddenAt: b.hidden_at ?? null, lockedAt: b.locked_at ?? null }, { manager: !!role, key, admin: isAdmin(env, user?.id) })) {
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }

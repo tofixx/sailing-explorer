@@ -221,7 +221,7 @@ async function signIn(request: Request, env: Env, email: string, now: number): P
 
 /** Sitzung für ein bestehendes Konto setzen (Link, Code, Passkey) und die letzte Anmeldung vermerken. */
 export async function startSession(request: Request, env: Env, user: User, now: number): Promise<Response> {
-  // Gesperrte Konten (Konzept 15.2) melden sich auf keinem Weg an – Link, Code und Passkey laufen hier durch.
+  // Gesperrte Konten (Konzept 18.2) melden sich auf keinem Weg an – Link, Code und Passkey laufen hier durch.
   const locked = await env.DB.prepare('SELECT locked_at FROM users WHERE id = ?').bind(user.id).first<{ locked_at: number | null }>();
   if (locked?.locked_at) throw new HttpError(403, 'account_locked', 'Dieses Konto ist gesperrt. Bei Fragen wende dich an die Kontaktadresse im Impressum.');
   await env.DB.prepare('UPDATE users SET last_login = ? WHERE id = ?').bind(now, user.id).run();
@@ -233,7 +233,7 @@ export async function startSession(request: Request, env: Env, user: User, now: 
   return json({ user }, { headers: { 'Set-Cookie': sessionCookie(request, session, maxAge) } });
 }
 
-/** GET /api/auth/me – `admin: true` nur für Admins (Kopfzeile „Admin“, Konzept 15.1). */
+/** GET /api/auth/me – `admin: true` nur für Admins (Kopfzeile „Admin“, Konzept 18.1). */
 export async function me(request: Request, env: Env): Promise<Response> {
   const user = await currentUser(request, env);
   return json({ user, ...(isAdmin(env, user?.id) ? { admin: true } : {}) });
@@ -250,7 +250,7 @@ export async function logout(request: Request, env: Env): Promise<Response> {
 /** DELETE /api/account – löscht Konto, Sessions und alle Freigaben inkl. Dateien. */
 export async function deleteAccount(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  // Beweissicherung (Konzept 15.3): gesperrte Törns, Boote oder Gruppen verhindern das Löschen bis zum Ende der Prüfung.
+  // Beweissicherung (Konzept 18.3): gesperrte Törns, Boote oder Gruppen verhindern das Löschen bis zum Ende der Prüfung.
   if (await env.DB.prepare(`SELECT 1 AS x WHERE ${ownsLockedSql('?1')}`).bind(user.id).first()) {
     throw new HttpError(409, 'locked_content', 'Ein Teil deiner Inhalte ist wegen einer Prüfung gesperrt. Dein Konto lässt sich löschen, sobald die Prüfung abgeschlossen ist – bei Fragen wende dich an die Kontaktadresse im Impressum.');
   }

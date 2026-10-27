@@ -61,8 +61,13 @@ export async function removePost(env: Env, id: string): Promise<void> {
 /** DELETE /api/posts/:id – Autor:in oder Eigner/Admins der Gruppe; für alle anderen 404. */
 export async function deletePost(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
-  const p = SHARE_ID_RE.test(id) ? await env.DB.prepare('SELECT id, author_id, group_id FROM posts WHERE id = ?').bind(id).first<{ id: string; author_id: string; group_id: string | null }>() : null;
-  if (!p) throw NOT_FOUND();
+  const p = SHARE_ID_RE.test(id)
+    ? await env.DB.prepare('SELECT p.id, p.author_id, p.group_id, g.locked_at FROM posts p LEFT JOIN groups g ON g.id = p.group_id WHERE p.id = ?')
+        .bind(id)
+        .first<{ id: string; author_id: string; group_id: string | null; locked_at: number | null }>()
+    : null;
+  // Beiträge einer gesperrten Gruppe bleiben als Beleg (Konzept 18.2)
+  if (!p || p.locked_at) throw NOT_FOUND();
   const role = p.group_id ? await roleIn(env, user.id, p.group_id) : null;
   if (p.author_id !== user.id && !canManageGroup(role)) throw NOT_FOUND();
   await removePost(env, p.id);

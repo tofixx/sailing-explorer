@@ -57,7 +57,7 @@ export function parseRoute(loc: Pick<Location, 'pathname' | 'search' | 'hash'>):
   if (harbor) return { kind: 'harbor', slug: harbor[1].toLowerCase() };
   const legal = /^\/(impressum|datenschutz)\/?$/.exec(loc.pathname);
   if (legal) return { kind: 'legal', page: legal[1] as 'impressum' | 'datenschutz' };
-  // Admin-Bereich (Konzept 15): der Server liefert Nicht-Admins 404, die API ebenso
+  // Admin-Bereich (Konzept 18): der Server liefert Nicht-Admins 404, die API ebenso
   if (/^\/admin\/?$/.test(loc.pathname)) return { kind: 'admin' };
   if (loc.pathname === '/login') {
     const token = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(loc.hash)?.[1] ?? null;

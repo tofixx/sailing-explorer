@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-// Funktionale Tests der Admin-Oberfläche (Konzept 15.1, 15.12): Eintrag „Admin“ in der Kopfzeile nur für Admins,
+// Funktionale Tests der Admin-Oberfläche (Konzept 18.1, 18.12): Eintrag „Admin“ in der Kopfzeile nur für Admins,
 // Admin-Seite mit Reitern, Filtern, Details, Sperren und Bestätigung beim Löschen.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../src/components/sx-topbar';
-import '../../src/components/sx-admin-page';
+import { AdminController } from '../../src/controllers/admin';
 
 type LitEl = HTMLElement & { updateComplete: Promise<boolean>; shadowRoot: ShadowRoot } & Record<string, unknown>;
 
@@ -12,6 +12,13 @@ async function mount(tag: string, props: Record<string, unknown> = {}): Promise<
   Object.assign(el, props);
   document.body.append(el);
   await el.updateComplete;
+  return el;
+}
+
+/** Admin-Seite samt Controller, wie openAdmin in src/app.ts. */
+async function adminPage(props: Record<string, unknown> = {}): Promise<LitEl> {
+  const el = await mount('sx-admin-page', props);
+  new AdminController(el as never).start();
   return el;
 }
 const text = (el: LitEl) => (el.shadowRoot.textContent ?? '').replace(/\s+/g, ' ');
@@ -58,7 +65,7 @@ describe('Admin-Oberfläche', () => {
   });
 
   it('[F-231] Reiter und Filter laden die Übersicht; Zeilen zeigen Sperre (bald ablaufend hervorgehoben) und Sichtbarkeit', async () => {
-    const page = await mount('sx-admin-page');
+    const page = await adminPage();
     await settle(page);
     expect(calls[0].url).toMatch(/^\/api\/admin\/list\/users\?/);
     button(page, /^Boote$/)!.click();
@@ -73,7 +80,7 @@ describe('Admin-Oberfläche', () => {
   });
 
   it('[F-233] Details: Verlängern mit Begründung, Löschen nur mit eingetippter ID', async () => {
-    const page = await mount('sx-admin-page', { tab: 'boats' });
+    const page = await adminPage({ tab: 'boats' });
     await settle(page);
     page.shadowRoot.querySelector<HTMLElement>('tr.item')!.click();
     await vi.waitFor(() => expect(calls.some((c) => c.url === `/api/admin/boats/${ITEM.id}`)).toBe(true));

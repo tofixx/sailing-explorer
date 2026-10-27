@@ -1,6 +1,5 @@
 import { LitElement, css, html, nothing } from 'lit';
-import { adminApi, type AdminDetail, type AdminItem, type AdminLogEntry, type MergePreview } from '../services/admin-api';
-import { ApiError } from '../services/api';
+import type { AdminDetail, AdminItem, AdminLogEntry, AdminOp, MergePreview } from '../services/admin-api';
 import {
   ADMIN_FILTER_LABEL, ADMIN_KINDS, ADMIN_KIND_LABEL, FILTERS_FOR, LOCK_WARN_MS,
   type AdminFilter, type AdminKind,
@@ -8,18 +7,25 @@ import {
 import { VISIBILITY_LABEL } from '../domain/visibility';
 import { fmtDate, fmtDateTime } from '../util/html';
 import { icon } from './icons';
-import { base } from './shared';
+import { base, emit } from './shared';
 
-type Tab = AdminKind | 'log';
+export type Tab = AdminKind | 'log';
 /** offene Aktion in der Detailansicht */
 type Form = 'lock' | 'rename' | 'owner' | 'merge' | 'delete' | 'support' | null;
 
-const errText = (e: unknown) => (e instanceof ApiError ? e.message : 'Unbekannter Fehler');
+/** Abfrage der Übersicht bzw. des Protokolls */
+export interface AdminQuery {
+  tab: Tab;
+  q: string;
+  filter: AdminFilter;
+  page: number;
+}
 
 /**
- * Admin-Bereich (Konzept 15, F-230 ff.): Reiter je Objektart und Protokoll, Suche, Filter, Blättern, Details mit
- * Sperren, Umbenennen, Eigner, Zusammenführen und Löschen. Wird erst auf /admin nachgeladen und holt seine Daten
- * selbst (adminApi) – die Server-Routen prüfen jede Aktion.
+ * Admin-Bereich (Konzept 18, F-230 ff.): Reiter je Objektart und Protokoll, Suche, Filter, Blättern, Details mit
+ * Sperren, Umbenennen, Eigner, Zusammenführen und Löschen. Wird erst auf /admin nachgeladen. Reine Darstellung – Daten
+ * setzt der AdminController (src/controllers/admin.ts); Events: `sx-admin-query` AdminQuery, `sx-admin-open`
+ * { kind, id }, `sx-admin-act` { op, done }, `sx-admin-preview` { id, into }.
  */
 export class SxAdminPage extends LitElement {
   static properties = {
@@ -229,71 +235,30 @@ export class SxAdminPage extends LitElement {
     `,
   ];
 
-  connectedCallback(): void {
-    super.connectedCallback();
-    void this.load();
-  }
-
   private get kind(): AdminKind | null {
     return this.tab === 'log' ? null : this.tab;
   }
 
-  /** Liste bzw. Protokoll neu laden. */
-  async load(): Promise<void> {
-    this.loading = true;
-    this.error = '';
-    try {
-      if (this.tab === 'log') {
-        const r = await adminApi.log(this.q, this.page);
-        this.log = r.entries;
-        this.more = r.more;
-      } else {
-        const r = await adminApi.list(this.tab, { q: this.q, filter: this.filter, page: this.page });
-        this.items = r.items;
-        this.more = r.more;
-      }
-    } catch (e) {
-      this.error = e instanceof ApiError && e.status === 404 ? 'Diese Seite gibt es nicht.' : errText(e);
-    } finally {
-      this.loading = false;
-    }
+  /** Liste bzw. Protokoll mit dem aktuellen Reiter, Suchbegriff, Filter und der Seite neu anfordern. */
+  reload(): void {
+    emit<AdminQuery>(this, 'sx-admin-query', { tab: this.tab, q: this.q, filter: this.filter, page: this.page });
   }
 
   private switchTab(tab: Tab) {
     Object.assign(this, { tab, filter: 'all', page: 1, q: '', detail: null, form: null, note: '' });
-    void this.load();
+    this.reload();
   }
 
-  private async open(id: string) {
+  private open(id: string) {
     const kind = this.kind;
     if (!kind) return;
-    this.form = null;
-    this.preview = null;
-    this.note = '';
-    try {
-      this.detail = await adminApi.detail(kind, id);
-    } catch (e) {
-      this.note = errText(e);
-    }
+    Object.assign(this, { form: null, preview: null, note: '' });
+    emit(this, 'sx-admin-open', { kind, id });
   }
 
-  /** Aktion ausführen, danach Liste und Details aktualisieren. */
-  private async act(fn: () => Promise<unknown>, done: string, close = true) {
-    this.busy = true;
-    this.note = '';
-    try {
-      await fn();
-      this.note = done;
-      if (close) this.form = null;
-      const id = this.detail?.item.id;
-      await this.load();
-      if (id && this.items.some((i) => i.id === id)) await this.open(id).then(() => (this.note = done));
-      else this.detail = null;
-    } catch (e) {
-      this.note = errText(e);
-    } finally {
-      this.busy = false;
-    }
+  /** Aktion anfordern; der Controller führt sie aus, lädt neu und setzt `note` (bei Erfolg schließt er das Formular). */
+  private act(op: AdminOp, done: string) {
+    emit(this, 'sx-admin-act', { op, done });
   }
 
   private value(name: string): string {
@@ -316,7 +281,7 @@ export class SxAdminPage extends LitElement {
         ${FILTERS_FOR[kind].map(
           (f) => html`<button class="chip" aria-pressed=${this.filter === f} @click=${() => {
             Object.assign(this, { filter: f, page: 1 });
-            void this.load();
+            this.reload();
           }}>${ADMIN_FILTER_LABEL[f]}</button>`,
         )}
       </div>
@@ -371,7 +336,7 @@ export class SxAdminPage extends LitElement {
           <p class="hint">Gesperrt ist es nur noch für Admins sichtbar, für niemanden änderbar und von den normalen Löschfristen ausgenommen. Nach 180 Tagen wird es endgültig gelöscht, wenn niemand verlängert.</p>
           <div class="row-actions">
             <button class="btn danger" ?disabled=${this.busy} @click=${() =>
-              this.act(() => adminApi.lock(kind, i.id, this.value('reason')), i.lock ? 'Sperre verlängert' : 'Gesperrt')}>${i.lock ? 'Um 180 Tage verlängern' : 'Sperren'}</button>
+              this.act({ kind, id: i.id, type: 'lock', reason: this.value('reason') }, i.lock ? 'Sperre verlängert' : 'Gesperrt')}>${i.lock ? 'Um 180 Tage verlängern' : 'Sperren'}</button>
           </div>
         </div>`;
       case 'rename': {
@@ -385,7 +350,7 @@ export class SxAdminPage extends LitElement {
           ${fields.map(([n, l, v]) => html`<label class="label" for=${n}>${l}</label><input type="text" id=${n} name=${n} .value=${v} />`)}
           <div class="row-actions">
             <button class="btn primary" ?disabled=${this.busy} @click=${() =>
-              this.act(() => adminApi.rename(kind, i.id, Object.fromEntries(fields.map(([n]) => [n, this.value(n)]))), 'Umbenannt')}>Speichern</button>
+              this.act({ kind, id: i.id, type: 'rename', patch: Object.fromEntries(fields.map(([n]) => [n, this.value(n)])) }, 'Umbenannt')}>Speichern</button>
           </div>
         </div>`;
       }
@@ -395,7 +360,7 @@ export class SxAdminPage extends LitElement {
           <input type="text" id="owner" name="owner" />
           <p class="hint">${kind === 'boats' ? 'Das bisherige Konto bleibt Boots-Admin.' : kind === 'groups' ? 'Das bisherige Konto wird Admin der Gruppe.' : 'Die neue Anleger:in darf Name und Position pflegen.'}</p>
           <div class="row-actions">
-            <button class="btn primary" ?disabled=${this.busy} @click=${() => this.act(() => adminApi.owner(kind, i.id, this.value('owner')), 'Eigner geändert')}>Übertragen</button>
+            <button class="btn primary" ?disabled=${this.busy} @click=${() => this.act({ kind, id: i.id, type: 'owner', userId: this.value('owner') }, 'Eigner geändert')}>Übertragen</button>
           </div>
         </div>`;
       case 'merge':
@@ -405,20 +370,16 @@ export class SxAdminPage extends LitElement {
               <input type="text" id="into" name="into" />
               <p class="hint">Boote, Gruppen, Heimathäfen, Folgende und Neuigkeiten wandern mit; /h/… leitet danach weiter. „${i.name}“ wird gelöscht.</p>
               <div class="row-actions">
-                <button class="btn danger" ?disabled=${this.busy} @click=${() => this.act(() => adminApi.mergeHarbor(i.id, this.value('into')), 'Häfen zusammengeführt')}>Zusammenführen</button>
+                <button class="btn danger" ?disabled=${this.busy} @click=${() => this.act({ kind, id: i.id, type: 'mergeHarbor', into: this.value('into') }, 'Häfen zusammengeführt')}>Zusammenführen</button>
               </div>
             </div>`
           : html`<div class="form">
               <label class="label" for="into">ID des Kontos, das bleibt (Mail-Adresse und Anmeldung bleiben dort)</label>
               <input type="text" id="into" name="into" />
               <div class="row-actions">
-                <button class="btn" ?disabled=${this.busy} @click=${async () => {
+                <button class="btn" ?disabled=${this.busy} @click=${() => {
                   this.note = '';
-                  try {
-                    this.preview = await adminApi.mergePreview(i.id, this.value('into'));
-                  } catch (e) {
-                    this.note = errText(e);
-                  }
+                  emit(this, 'sx-admin-preview', { id: i.id, into: this.value('into') });
                 }}>Vorschau</button>
               </div>
               ${this.preview
@@ -432,7 +393,7 @@ export class SxAdminPage extends LitElement {
                     <input type="text" id="confirm" name="confirm" />
                     <div class="row-actions">
                       <button class="btn danger" ?disabled=${this.busy} @click=${() =>
-                        this.act(() => adminApi.mergeUsers(i.id, this.preview!.into.id, this.value('confirm')), 'Konten verbunden')}>Konten verbinden</button>
+                        this.act({ kind, id: i.id, type: 'mergeUsers', into: this.preview!.into.id, confirm: this.value('confirm') }, 'Konten verbunden')}>Konten verbinden</button>
                     </div>`
                 : nothing}
             </div>`;
@@ -447,8 +408,8 @@ export class SxAdminPage extends LitElement {
           <p class="hint">Wirkt wie eine Zahlung: Fotos, „Nur mit Link“/„Nur ich“ und die höheren Kontingente, angehängt an eine laufende Unterstützung.</p>
           <div class="row-actions">
             <button class="btn primary" ?disabled=${this.busy} @click=${() =>
-              this.act(() => adminApi.grantSupport(i.id, Number(this.value('seasons')), this.value('note')), 'Gutschein zugewiesen')}>Zuweisen</button>
-            <button class="btn ghost" ?disabled=${this.busy} @click=${() => this.act(() => adminApi.revokeSupport(i.id), 'Gutschein entzogen')}>Gutscheine entziehen</button>
+              this.act({ kind, id: i.id, type: 'grantSupport', seasons: Number(this.value('seasons')), note: this.value('note') }, 'Gutschein zugewiesen')}>Zuweisen</button>
+            <button class="btn ghost" ?disabled=${this.busy} @click=${() => this.act({ kind, id: i.id, type: 'revokeSupport' }, 'Gutschein entzogen')}>Gutscheine entziehen</button>
           </div>
         </div>`;
       case 'delete':
@@ -456,7 +417,7 @@ export class SxAdminPage extends LitElement {
           <label class="label" for="confirm">Endgültig löschen – zur Bestätigung die ID eingeben: ${i.id}</label>
           <input type="text" id="confirm" name="confirm" />
           <div class="row-actions">
-            <button class="btn danger" ?disabled=${this.busy} @click=${() => this.act(() => adminApi.remove(kind, i.id, this.value('confirm')), 'Gelöscht')}>Endgültig löschen</button>
+            <button class="btn danger" ?disabled=${this.busy} @click=${() => this.act({ kind, id: i.id, type: 'remove', confirm: this.value('confirm') }, 'Gelöscht')}>Endgültig löschen</button>
           </div>
         </div>`;
       default:
@@ -492,7 +453,7 @@ export class SxAdminPage extends LitElement {
           : html`
               ${i.lock?.viaUser ? nothing : button('lock', locked ? 'Sperre verlängern' : 'Sperren', 'btn small danger')}
               ${locked && !i.lock?.viaUser
-                ? html`<button class="btn small" ?disabled=${this.busy} @click=${() => this.act(() => adminApi.unlock(kind, i.id), 'Entsperrt')}>Entsperren</button>`
+                ? html`<button class="btn small" ?disabled=${this.busy} @click=${() => this.act({ kind, id: i.id, type: 'unlock' }, 'Entsperrt')}>Entsperren</button>`
                 : nothing}
               ${!locked && kind !== 'shares' ? button('rename', 'Umbenennen') : nothing}
               ${!locked && canOwner ? button('owner', 'Eigner ändern') : nothing}
@@ -523,7 +484,7 @@ export class SxAdminPage extends LitElement {
         @submit=${(e: Event) => {
           e.preventDefault();
           Object.assign(this, { q: this.value('q'), page: 1 });
-          void this.load();
+          this.reload();
         }}
       >
         <input type="text" name="q" .value=${this.q} placeholder=${kind ? 'Name, Adresse, ID' + (kind === 'users' ? ', E-Mail' : '') : 'Ziel-ID, Admin-ID oder Aktion'} aria-label="Suchen" />
@@ -535,12 +496,12 @@ export class SxAdminPage extends LitElement {
       <div class="pager">
         <button class="btn small" ?disabled=${this.page <= 1 || this.loading} @click=${() => {
           this.page--;
-          void this.load();
+          this.reload();
         }}>${icon('left')} Zurück</button>
         <span class="muted">Seite ${this.page}</span>
         <button class="btn small" ?disabled=${!this.more || this.loading} @click=${() => {
           this.page++;
-          void this.load();
+          this.reload();
         }}>Weiter ${icon('right')}</button>
       </div>
     </main>`;

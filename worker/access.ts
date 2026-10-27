@@ -9,7 +9,7 @@ export interface Guarded {
   shareKey: string | null;
   /** per Meldung oder Admin ausgeblendet (Konzept 4.4): wie nicht existent außer für Verwalter und Admins */
   hiddenAt?: number | null;
-  /** gesperrt (Konzept 15.2): nur noch für Admins sichtbar, auch nicht für Verwalter */
+  /** gesperrt (Konzept 18.2): nur noch für Admins sichtbar, auch nicht für Verwalter */
   lockedAt?: number | null;
 }
 
@@ -24,7 +24,7 @@ export interface Viewer {
 
 /**
  * Darf der Betrachter das Objekt sehen?
- * - Gesperrtes (Konzept 15.2) nur Admins – auch keine Verwalter.
+ * - Gesperrtes (Konzept 18.2) nur Admins – auch keine Verwalter.
  * - Ausgeblendetes (Meldung/Admin) nur Verwalter und Admins, sonst gelten die Regeln unten.
  * - Verwalter immer; „Öffentlich“ immer (ein mitgeschickter Schlüssel wird ignoriert, auch ein falscher).
  * - „Nur ich“ nie.

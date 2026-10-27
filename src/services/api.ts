@@ -15,7 +15,7 @@ export type { Visibility };
 export interface User {
   id: string;
   email: string;
-  /** Plattform-Admin (Konzept 15.1) – nur aus /api/auth/me */
+  /** Plattform-Admin (Konzept 18.1) – nur aus /api/auth/me */
   admin?: boolean;
 }
 

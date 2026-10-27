@@ -1,4 +1,4 @@
-// Funktionale Tests: Admin-Bereich (Konzept 15, F-230 … F-242) – Zugang, Übersicht, Sperren und Sperrfristen,
+// Funktionale Tests: Admin-Bereich (Konzept 18, F-230 … F-242) – Zugang, Übersicht, Sperren und Sperrfristen,
 // Umbenennen, Eigner, Häfen zusammenführen, Konten verbinden, Löschen, Protokoll. Admins kommen aus ADMIN_USER_IDS.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createShare, login, startWorker, type Harness } from './worker-harness';
@@ -61,7 +61,7 @@ describe('Admin-Bereich: reine Regeln', () => {
   });
 });
 
-describe('Admin-Bereich (Konzept 15)', () => {
+describe('Admin-Bereich (Konzept 18)', () => {
   it('[F-230] nur Admins: me.admin, Admin-Routen und /admin sonst 404 (auch für Gäste)', async () => {
     const p = await s.person();
     expect(((await json<{ admin?: boolean }>(await s.send('GET', '/api/auth/me', admin.cookie))).admin)).toBe(true);
@@ -154,6 +154,40 @@ describe('Admin-Bereich (Konzept 15)', () => {
     expect((await A('POST', `/api/admin/reports/${rep!.id}`, { action: 'keep' })).status).toBe(409);
   });
 
+  it('[F-233] eingefroren: Fotos, Kommentare, Crew, Beiträge; einzeln entsperren bei gesperrtem Konto → 409; Hafen bearbeiten → 409', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const other = await s.person({ profile: 'public' });
+    const sh = await share(owner);
+    const db = await s.db();
+    const now = Date.now();
+    await db.prepare(`INSERT INTO photos (id, share_id, user_id, width, height, bytes, created_at) VALUES ('FotoGesperrt0001', ?, ?, 10, 10, 100, ?)`).bind(sh.id, owner.user.id, now).run();
+    await db.prepare('INSERT INTO share_crew (share_id, user_id, created_at) VALUES (?, ?, ?)').bind(sh.id, other.user.id, now).run();
+    const c = await json<{ comment: { id: string } }>(await s.send('POST', `/api/shares/${sh.id}/comments`, other.cookie, { body: 'Ahoi!' }));
+    const g = await s.group(owner);
+    await db.prepare(`INSERT INTO posts (id, author_id, group_id, body, created_at) VALUES ('BeitragGesperrt1', ?, ?, 'Hallo', ?)`).bind(owner.user.id, g.id, now).run();
+    await lock('shares', sh.id);
+    await lock('groups', g.id);
+    expect((await s.send('PATCH', '/api/photos/FotoGesperrt0001', owner.cookie, { caption: 'x' })).status).toBe(404);
+    expect((await s.send('DELETE', '/api/photos/FotoGesperrt0001', owner.cookie)).status).toBe(404);
+    expect((await s.send('DELETE', `/api/comments/${c.comment.id}`, other.cookie)).status).toBe(404);
+    expect((await s.send('DELETE', `/api/comments/${c.comment.id}`, owner.cookie)).status).toBe(404);
+    expect((await s.send('DELETE', `/api/shares/${sh.id}/crew/${other.user.id}`, owner.cookie)).status).toBe(404);
+    expect((await s.send('DELETE', `/api/shares/${sh.id}/crew/me`, other.cookie)).status).toBe(404);
+    expect((await s.send('DELETE', '/api/posts/BeitragGesperrt1', owner.cookie)).status).toBe(404);
+    expect(await one(`SELECT 1 AS x FROM photos WHERE id = 'FotoGesperrt0001'`)).not.toBeNull();
+    // die Moderation darf – und das steht im Protokoll
+    expect((await s.send('DELETE', `/api/comments/${c.comment.id}`, admin.cookie)).status).toBe(204);
+    expect(await one(`SELECT 1 AS x FROM admin_log WHERE action = 'delete_comment' AND detail LIKE ?`, `%${c.comment.id}%`)).not.toBeNull();
+
+    // Konto gesperrt: ein einzeln gesperrter Törn bleibt gesperrt, bis das Konto entsperrt ist
+    await lock('users', owner.user.id);
+    expect(await s.errorOf(await A('DELETE', `/api/admin/shares/${sh.id}/lock`))).toBe('owner_locked');
+
+    const hb = await harbor(other, s.uniq('Gesperrter Hafen'));
+    await lock('harbors', hb.id);
+    expect(await s.errorOf(await A('PATCH', `/api/harbors/${hb.id}`, { name: 'Neu' }))).toBe('locked');
+  });
+
   it('[F-234] Konto sperren: Sitzungen enden, keine Anmeldung, Profil, Törns, Boote und Kommentare weg; Entsperren nur das Mitgesperrte', async () => {
     const p = await s.person({ profile: 'public' });
     const other = await s.person({ profile: 'public' });
@@ -191,6 +225,12 @@ describe('Admin-Bereich (Konzept 15)', () => {
     expect((await s.send('GET', `/api/shares/${own.id}`, undefined)).status).toBe(404);
     expect(await one<{ suspended_at: number | null }>('SELECT suspended_at FROM users WHERE id = ?', p.user.id)).toEqual({ suspended_at: null });
     expect((await login(h, p.email)).user.id).toBe(p.user.id);
+    // auch per Code keine Anmeldung, solange gesperrt
+    await lock('users', p.user.id);
+    // Linkgrenze je Adresse (3 in 15 min) ist durch die Anmeldungen oben erreicht
+    await (await s.db()).prepare('DELETE FROM login_tokens WHERE email = ?').bind(p.email).run();
+    const again = await json<{ devCode: string }>(await s.send('POST', '/api/auth/request', undefined, { email: p.email }));
+    expect(await s.errorOf(await s.send('POST', '/api/auth/code', undefined, { email: p.email, code: again.devCode }))).toBe('account_locked');
   });
 
   it('[F-235] Gesperrtes ist von Fristen ausgenommen, Konto löschen → 409; nach Ablauf löscht die Nacht endgültig', async () => {
@@ -212,6 +252,28 @@ describe('Admin-Bereich (Konzept 15)', () => {
     expect(await one(`SELECT 1 AS x FROM admin_log WHERE action = 'lock_expired' AND target_id = ? AND admin_id IS NULL`, sh.id)).not.toBeNull();
     // ohne Sperre geht das Konto zu löschen
     expect((await s.send('DELETE', '/api/account', p.cookie)).status).toBe(200);
+
+    // inaktive leere Konten: gesperrt bleiben sie
+    const idle = await s.person();
+    await (await s.db()).prepare('UPDATE users SET last_login = ?, created_at = ? WHERE id = ?').bind(Date.now() - 500 * DAY, Date.now() - 500 * DAY, idle.user.id).run();
+    await lock('users', idle.user.id);
+    await h.scheduled();
+    expect(await one('SELECT id FROM users WHERE id = ?', idle.user.id)).not.toBeNull();
+
+    // abgelaufene Konto-Sperre wartet auf einzeln Gesperrtes des Kontos
+    const q = await s.person({ profile: 'public' });
+    const own = await share(q);
+    await lock('shares', own.id);
+    await lock('users', q.user.id);
+    const db = await s.db();
+    await db.prepare(`UPDATE locks SET until = ? WHERE target_kind = 'user' AND target_id = ?`).bind(Date.now() - 1000, q.user.id).run();
+    await h.scheduled();
+    expect(await one('SELECT id FROM users WHERE id = ?', q.user.id)).not.toBeNull();
+    await db.prepare(`UPDATE locks SET until = ? WHERE target_kind = 'share' AND target_id = ?`).bind(Date.now() - 2000, own.id).run();
+    await h.scheduled();
+    await h.scheduled();
+    expect(await one('SELECT id FROM shares WHERE id = ?', own.id)).toBeNull();
+    expect(await one('SELECT id FROM users WHERE id = ?', q.user.id)).toBeNull();
 
     // Sperren ohne Ziel fallen nachts weg
     await (await s.db()).prepare(`INSERT INTO locks (target_kind, target_id, locked_at, until, locked_by) VALUES ('boat', 'Verwaist12345678', 1, ?, ?)`).bind(Date.now() + DAY, ADMIN_ID).run();
@@ -265,6 +327,15 @@ describe('Admin-Bereich (Konzept 15)', () => {
     const hb = await harbor(old, s.uniq('Eignerhafen'));
     expect((await A('POST', `/api/admin/harbors/${hb.id}/owner`, { userId: neu.user.id })).status).toBe(200);
     expect(await one<{ created_by: string }>('SELECT created_by FROM harbors WHERE id = ?', hb.id)).toEqual({ created_by: neu.user.id });
+
+    // Boot eines gesperrten Kontos (mitgesperrt, „ohne Eigner“) lässt sich übertragen – die Mitsperre endet
+    const locked = await s.person({ profile: 'public' });
+    const lb = await boat(locked);
+    await lock('users', locked.user.id);
+    expect((await list('boats', 'filter=ownerless')).items.map((i) => i.id)).toContain(lb.id);
+    expect((await A('POST', `/api/admin/boats/${lb.id}/owner`, { userId: neu.user.id })).status).toBe(200);
+    expect((await s.send('GET', `/api/boats/${lb.id}`, undefined)).status).toBe(200);
+    expect(await one('SELECT 1 AS x FROM locks WHERE target_id = ?', lb.id)).toBeNull();
 
     const sh = await share(old);
     expect(await s.errorOf(await A('POST', `/api/admin/shares/${sh.id}/owner`, { userId: neu.user.id }))).toBe('not_supported');
@@ -321,6 +392,11 @@ describe('Admin-Bereich (Konzept 15)', () => {
     await (await s.db()).prepare(`INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?, ?, 'member', ?)`).bind(g.id, into.user.id, Date.now()).run();
     expect((await s.send('PUT', `/api/follows/user/${into.handle}`, from.cookie)).status).toBeLessThan(300);
     expect((await s.send('PUT', `/api/follows/user/${from.handle}`, third.cookie)).status).toBeLessThan(300);
+    // Konflikte: Ziel ist Crew auf einem Törn der Quelle, beide reagieren auf denselben Törn
+    await (await s.db()).prepare('INSERT INTO share_crew (share_id, user_id, created_at) VALUES (?, ?, ?)').bind(sh.id, into.user.id, Date.now()).run();
+    const thirdShare = await share(third);
+    expect((await s.send('PUT', `/api/reactions/share/${thirdShare.id}`, into.cookie, { kind: 'like' })).status).toBe(200);
+    expect((await s.send('PUT', `/api/reactions/share/${thirdShare.id}`, from.cookie, { kind: 'mast' })).status).toBe(200);
     await (await s.db()).prepare(`INSERT INTO passkeys (id, user_id, public_key, created_at) VALUES ('pk-merge-1', ?, 'x', ?)`).bind(from.user.id, Date.now()).run();
 
     const prev = await json<{ counts: Record<string, number>; profile: string }>(await A('GET', `/api/admin/users/${from.user.id}/merge?into=${into.user.id}`));
@@ -336,6 +412,8 @@ describe('Admin-Bereich (Konzept 15)', () => {
     expect(await one<{ owner_id: string }>('SELECT owner_id FROM groups WHERE id = ?', g.id)).toEqual({ owner_id: into.user.id });
     expect(await one<{ role: string }>('SELECT role FROM group_members WHERE group_id = ? AND user_id = ?', g.id, into.user.id)).toEqual({ role: 'owner' });
     expect(await one<{ user_id: string }>(`SELECT user_id FROM passkeys WHERE id = 'pk-merge-1'`)).toEqual({ user_id: into.user.id });
+    expect(await one('SELECT 1 AS x FROM share_crew WHERE share_id = ? AND user_id = ?', sh.id, into.user.id)).toBeNull();
+    expect((await (await s.db()).prepare('SELECT user_id, kind FROM reactions WHERE subject_id = ?').bind(thirdShare.id).all()).results).toEqual([{ user_id: into.user.id, kind: 'like' }]);
     // Folgen auf sich selbst entfallen, Folgende der Quelle folgen dem Ziel
     expect(await one(`SELECT 1 AS x FROM follows WHERE user_id = ?1 AND target_kind = 'user' AND target_id = ?1`, into.user.id)).toBeNull();
     expect(await one(`SELECT 1 AS x FROM follows WHERE user_id = ? AND target_kind = 'user' AND target_id = ?`, third.user.id, into.user.id)).not.toBeNull();
@@ -358,6 +436,10 @@ describe('Admin-Bereich (Konzept 15)', () => {
     expect((await (await h.r2()).list({ prefix: `shares/${sh.id}` })).objects).toHaveLength(0);
     expect(await s.errorOf(await A('DELETE', `/api/admin/users/${ADMIN_ID}`, { confirm: ADMIN_ID }))).toBe('cannot_delete_admin');
     const q = await s.person({ profile: 'public' });
+    const qs = await share(q);
+    await lock('shares', qs.id);
+    expect(await s.errorOf(await A('DELETE', `/api/admin/users/${q.user.id}`, { confirm: q.user.id }))).toBe('locked_content');
+    await A('DELETE', `/api/admin/shares/${qs.id}/lock`);
     expect((await A('DELETE', `/api/admin/users/${q.user.id}`, { confirm: q.user.id })).status).toBe(204);
     expect(await one('SELECT id FROM users WHERE id = ?', q.user.id)).toBeNull();
   });

@@ -348,7 +348,8 @@ export async function inviteCrew(request: Request, env: Env, id: string): Promis
 export async function removeCrew(request: Request, env: Env, id: string, who: string): Promise<Response> {
   const user = await requireUser(request, env);
   const row = await getShareRow(env, id);
-  if (!row) throw SHARE_NOT_FOUND();
+  // gesperrter Törn (Konzept 18.2): die Crew bleibt, wie sie ist
+  if (!row || row.locked_at) throw SHARE_NOT_FOUND();
   const isOwner = row.user_id === user.id;
   const target = who === 'me' ? user.id : who;
   // Fremde (weder Eigentümer noch selbst betroffen) bekommen dieselbe 404 wie bei unbekannten Törns.
@@ -415,11 +416,11 @@ interface LoadedInvite extends InviteRow {
   share_title: string | null;
   share_owner: string | null;
   share_visibility: string | null;
-  /** einladendes Konto gesperrt (Konzept 15.2) */
+  /** einladendes Konto gesperrt (Konzept 18.2) */
   inviter_locked: number | null;
 }
 
-// Gesperrte Ziele (Boot, Törn, Gruppe) zählen wie gelöscht, Einladungen gesperrter Konten wie ungültig (Konzept 15.2).
+// Gesperrte Ziele (Boot, Törn, Gruppe) zählen wie gelöscht, Einladungen gesperrter Konten wie ungültig (Konzept 18.2).
 const LOADED_SELECT = `SELECT i.*, b.name AS boat_name, b.owner_id AS boat_owner, s.title AS share_title, s.user_id AS share_owner, s.visibility AS share_visibility,
     g.name AS group_name, g.owner_id AS group_owner, g.slug AS group_slug, g.kind AS group_kind, g.join_mode AS group_join_mode, g.approve_by AS group_approve_by,
     g.visibility AS group_visibility, g.hidden_at AS group_hidden_at,

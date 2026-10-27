@@ -1,10 +1,10 @@
-// Admin-Bereich (Konzept 15, F-230 … F-242): Übersicht über alle Objekte, Details, Sperren, Umbenennen, Eigner neu
+// Admin-Bereich (Konzept 18, F-230 … F-242): Übersicht über alle Objekte, Details, Sperren, Umbenennen, Eigner neu
 // zuweisen, endgültig löschen, Protokoll. Jede Route prüft requireAdmin (404 für alle anderen); jede Aktion und jeder
 // Einblick landet im Admin-Protokoll. Zusammenführen steht in worker/admin-merge.ts.
 import type { Env } from './env';
 import { HttpError, json, readJson } from './http';
-import { LOCKED, adminLogStmt, isAdmin, requireAdmin } from './moderation';
-import { loadLock, lockTarget, removeTarget, targetExists, unlockTarget } from './locks';
+import { LOCKED, adminLogStmt, isAdmin, ownsLockedSql, requireAdmin } from './moderation';
+import { loadLock, lockTarget, releaseViaLockStmts, removeTarget, targetExists, unlockTarget } from './locks';
 import { LIMITS, SHARE_ID_RE, cleanText, normalizeHandle } from './validate';
 import { HARBOR_LIMITS, harborKey } from '../src/domain/harbors';
 import { normalizeSlug } from '../src/domain/groups';
@@ -174,7 +174,7 @@ export async function adminList(request: Request, env: Env, rawKind: string): Pr
   const { results } = await env.DB.prepare(`${spec.from} WHERE ${where} ORDER BY x.created_at DESC, x.id LIMIT ?3 OFFSET ?4`)
     .bind(q, likePattern(q), ADMIN_LIMITS.page + 1, (page - 1) * ADMIN_LIMITS.page)
     .all<Row>();
-  // Suchbegriffe ins Protokoll – Mail-Adressen nicht (Konzept 15.10)
+  // Suchbegriffe ins Protokoll – Mail-Adressen nicht (Konzept 18.10)
   const searched = q && (q.includes('@') ? 'Suche nach Mail-Adresse' : `Suche „${q}“`);
   await adminLogStmt(env, admin.id, 'list', LOCK_KIND[kind], null, [filter !== 'all' && `Filter ${filter}`, searched, page > 1 && `Seite ${page}`].filter(Boolean).join(', ')).run();
   return json({
@@ -334,7 +334,7 @@ async function activeUser(env: Env, userId: unknown): Promise<string> {
 
 /**
  * POST /api/admin/:art/:id/owner { userId } – Eigner neu zuweisen (F-237): Boote (altes Konto bleibt Boots-Admin),
- * Gruppen (neues Konto wird Eigner-Mitglied, das alte Admin), Häfen (Anleger:in). Törns nicht (Konzept 15.6).
+ * Gruppen (neues Konto wird Eigner-Mitglied, das alte Admin), Häfen (Anleger:in). Törns nicht (Konzept 18.6).
  */
 export async function adminOwner(request: Request, env: Env, rawKind: string, id: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
@@ -342,7 +342,10 @@ export async function adminOwner(request: Request, env: Env, rawKind: string, id
   if (kind !== 'boats' && kind !== 'groups' && kind !== 'harbors') {
     throw new HttpError(400, 'not_supported', 'Törns und Konten haben keinen übertragbaren Eigner.');
   }
-  await assertUnlocked(env, lk, id);
+  // Ein nur mit dem gesperrten Eigner-Konto mitgesperrtes Boot darf an ein anderes Konto gehen (dann ohne Sperre)
+  const lock = await loadLock(env, lk, id);
+  const viaOwner = kind === 'boats' && !!lock?.via_user;
+  if (lock && !viaOwner) throw LOCKED();
   const { userId } = await readJson<{ userId?: unknown }>(request);
   const to = await activeUser(env, userId);
   const now = Date.now();
@@ -355,6 +358,7 @@ export async function adminOwner(request: Request, env: Env, rawKind: string, id
       env.DB.prepare('UPDATE boats SET owner_id = ?, updated_at = ? WHERE id = ?').bind(to, now, id),
       env.DB.prepare('DELETE FROM boat_admins WHERE boat_id = ? AND user_id = ?').bind(id, to),
       env.DB.prepare('INSERT OR IGNORE INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)').bind(id, before, now),
+      ...(viaOwner ? releaseViaLockStmts(env, 'boat', id) : []),
       log,
     ]);
   } else if (kind === 'groups') {
@@ -381,14 +385,19 @@ export async function adminDelete(request: Request, env: Env, rawKind: string, i
   const { confirm } = await readJson<{ confirm?: unknown }>(request);
   if (confirm !== id) throw new HttpError(400, 'confirm_required', 'Zur Bestätigung bitte die ID eingeben.');
   if (lk === 'user' && isAdmin(env, id)) throw new HttpError(400, 'cannot_delete_admin', 'Admin-Konten lassen sich hier nicht löschen.');
+  // Beweissicherung (Konzept 18.9): einzeln gesperrte Objekte des Kontos erst einzeln entscheiden
+  if (lk === 'user' && (await env.DB.prepare(`SELECT 1 AS x WHERE ${ownsLockedSql('?1', true)}`).bind(id).first())) {
+    throw new HttpError(409, 'locked_content', 'Das Konto besitzt einzeln gesperrte Törns, Boote oder Gruppen – diese zuerst entsperren oder löschen.');
+  }
   const row = await loadRow(env, kind, id);
-  await removeTarget(env, lk, id);
+  // erst protokollieren: scheitert das Löschen halb, ist der Versuch trotzdem belegt
   await adminLogStmt(env, admin.id, 'delete', lk, id, row?.name ?? '').run();
+  await removeTarget(env, lk, id);
   return new Response(null, { status: 204 });
 }
 
 /**
- * POST /api/admin/users/:id/support { seasons, note } – Unterstützer-Gutschein (Konzept 15.9a): 1 – 3 Saisons wie eine
+ * POST /api/admin/users/:id/support { seasons, note } – Unterstützer-Gutschein (Konzept 18.9a): 1 – 3 Saisons wie eine
  * Zahlung (an eine laufende Unterstützung angehängt), als Zeile in `supports` mit provider 'admin' und Betrag 0.
  */
 export async function adminGrantSupport(request: Request, env: Env, id: string): Promise<Response> {
@@ -416,11 +425,13 @@ export async function adminGrantSupport(request: Request, env: Env, id: string):
 export async function adminRevokeSupport(request: Request, env: Env, id: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
   await target(env, 'users', id);
-  const [res] = await env.DB.batch([
+  if (!(await env.DB.prepare(`SELECT 1 AS x FROM supports WHERE user_id = ? AND provider = 'admin'`).bind(id).first())) {
+    throw new HttpError(404, 'no_grant', 'Dieses Konto hat keinen Gutschein.');
+  }
+  await env.DB.batch([
     env.DB.prepare(`DELETE FROM supports WHERE user_id = ? AND provider = 'admin'`).bind(id),
     adminLogStmt(env, admin.id, 'revoke_support', 'user', id),
   ]);
-  if (!res.meta.changes) throw new HttpError(404, 'no_grant', 'Dieses Konto hat keinen Gutschein.');
   const u = await env.DB.prepare('SELECT MAX(valid_until) AS u FROM supports WHERE user_id = ?').bind(id).first<{ u: number | null }>();
   return json({ supporterUntil: u?.u ?? null });
 }

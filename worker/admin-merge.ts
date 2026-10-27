@@ -1,4 +1,4 @@
-// Zusammenführen im Admin-Bereich (Konzept 15.7, 15.8): Hafen-Dubletten und zwei Konten derselben Person.
+// Zusammenführen im Admin-Bereich (Konzept 18.7, 18.8): Hafen-Dubletten und zwei Konten derselben Person.
 // Alles Umhängen läuft in einem D1-Batch (eine Transaktion); gelöscht wird über die üblichen Wege.
 import type { Env } from './env';
 import { purgeUser } from './auth';
@@ -108,9 +108,10 @@ async function mergeCounts(env: Env, from: string, into: string) {
 
 /** GET /api/admin/users/:id/merge?into= – Vorschau: was wandert, welche Konflikte (F-240). */
 export async function mergeUserPreview(request: Request, env: Env, id: string): Promise<Response> {
-  await requireAdmin(request, env);
+  const admin = await requireAdmin(request, env);
   const { from, into } = await mergePair(env, id, new URL(request.url).searchParams.get('into'));
   const counts = await mergeCounts(env, from.id, into.id);
+  await adminLogStmt(env, admin.id, 'view', 'user', from.id, `Vorschau: verbinden mit ${into.id}`).run();
   return json({
     from: { id: from.id, name: label(from), suspended: !!from.suspended_at },
     into: { id: into.id, name: label(into), suspended: !!into.suspended_at },
@@ -120,7 +121,7 @@ export async function mergeUserPreview(request: Request, env: Env, id: string): 
 }
 
 /**
- * POST /api/admin/users/:id/merge { into, confirm } – Konto :id in `into` aufgehen lassen (Konzept 15.8): alles
+ * POST /api/admin/users/:id/merge { into, confirm } – Konto :id in `into` aufgehen lassen (Konzept 18.8): alles
  * umhängen (ein Batch), Konflikte nach festen Regeln, danach das leere Konto über purgeUser löschen.
  */
 export async function mergeUsers(request: Request, env: Env, id: string): Promise<Response> {
@@ -141,6 +142,9 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     db.prepare('UPDATE posts SET author_id = ?1 WHERE author_id = ?2').bind(A, B),
     db.prepare('UPDATE activity SET actor_id = ?1 WHERE actor_id = ?2').bind(A, B),
     db.prepare(`UPDATE activity SET subject_id = ?1 WHERE subject_kind = 'user' AND subject_id = ?2`).bind(A, B),
+    // Bündel-Schlüssel mit der Konto-ID (Beitritt, Meilensteine): ans Ziel; gab es ihn dort schon, bleibt der des Ziels
+    db.prepare(`UPDATE OR IGNORE activity SET bucket = replace(bucket, ?2, ?1) WHERE instr(bucket, ?2) > 0`).bind(A, B),
+    db.prepare(`DELETE FROM activity WHERE instr(bucket, ?) > 0`).bind(B),
     db.prepare(
       `INSERT OR IGNORE INTO activity_target (activity_id, target_kind, target_id, created_at)
        SELECT activity_id, 'user', ?1, created_at FROM activity_target WHERE target_kind = 'user' AND target_id = ?2`,

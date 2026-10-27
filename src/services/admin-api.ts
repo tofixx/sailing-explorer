@@ -1,4 +1,4 @@
-// API des Admin-Bereichs (Konzept 15) – eigenes Modul, damit es nur mit der Admin-Seite nachgeladen wird.
+// API des Admin-Bereichs (Konzept 18) – eigenes Modul, damit es nur mit der Admin-Seite nachgeladen wird.
 import { call, jsonInit } from './api';
 import type { Visibility } from '../domain/visibility';
 import type { AdminFilter, AdminKind } from '../domain/admin';
@@ -43,6 +43,19 @@ export interface MergePreview {
   profile: 'keep' | 'take' | 'none';
 }
 
+/** Aktion aus der Admin-Seite (Event `sx-admin-act`), ausgeführt vom AdminController. */
+export type AdminOp = { kind: AdminKind; id: string } & (
+  | { type: 'lock'; reason: string }
+  | { type: 'unlock' }
+  | { type: 'rename'; patch: Record<string, string> }
+  | { type: 'owner'; userId: string }
+  | { type: 'remove'; confirm: string }
+  | { type: 'mergeHarbor'; into: string }
+  | { type: 'mergeUsers'; into: string; confirm: string }
+  | { type: 'grantSupport'; seasons: number; note: string }
+  | { type: 'revokeSupport' }
+);
+
 const enc = encodeURIComponent;
 const one = (kind: AdminKind, id: string) => `/api/admin/${kind}/${enc(id)}`;
 
@@ -65,3 +78,27 @@ export const adminApi = {
   revokeSupport: (id: string) => call<{ supporterUntil: number | null }>(`/api/admin/users/${enc(id)}/support`, { method: 'DELETE' }),
   log: (q: string, page: number) => call<{ entries: AdminLogEntry[]; page: number; more: boolean }>(`/api/admin/log?${new URLSearchParams({ q, page: String(page) })}`),
 };
+
+/** Führt eine Aktion der Admin-Seite aus. */
+export function runAdminOp(op: AdminOp): Promise<unknown> {
+  switch (op.type) {
+    case 'lock':
+      return adminApi.lock(op.kind, op.id, op.reason);
+    case 'unlock':
+      return adminApi.unlock(op.kind, op.id);
+    case 'rename':
+      return adminApi.rename(op.kind, op.id, op.patch);
+    case 'owner':
+      return adminApi.owner(op.kind, op.id, op.userId);
+    case 'remove':
+      return adminApi.remove(op.kind, op.id, op.confirm);
+    case 'mergeHarbor':
+      return adminApi.mergeHarbor(op.id, op.into);
+    case 'mergeUsers':
+      return adminApi.mergeUsers(op.id, op.into, op.confirm);
+    case 'grantSupport':
+      return adminApi.grantSupport(op.id, op.seasons, op.note);
+    case 'revokeSupport':
+      return adminApi.revokeSupport(op.id);
+  }
+}

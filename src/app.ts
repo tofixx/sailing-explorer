@@ -55,6 +55,7 @@ import type { FollowKind, GroupInput } from './services/api';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
 import type { SxLegalPage } from './components/sx-legal-page';
+import type { SxAdminPage } from './components/sx-admin-page';
 import type { ReactDetail, SxReactions } from './components/sx-reactions';
 import type { HarborChoice, SxHarborPicker } from './components/sx-harbor-picker';
 import type { HarborPatch, StreamFilter } from './services/api';
@@ -858,15 +859,17 @@ export class App {
   }
 
   /**
-   * Admin-Bereich (Konzept 15): erst hier nachgeladen – andere laden keinen Admin-Code. Die Seite holt ihre Daten
-   * selbst; für Nicht-Admins antwortet die API mit 404 und die Seite zeigt nur das.
+   * Admin-Bereich (Konzept 18): Seite und Controller erst hier nachgeladen – andere laden keinen Admin-Code. Für
+   * Nicht-Admins antwortet die API mit 404 und die Seite zeigt nur das.
    */
   private async openAdmin() {
     this.ui.app.setAttribute('data-page', '');
-    await import('./components/sx-admin-page');
-    const page = document.querySelector<HTMLElement>('sx-admin-page');
-    if (page) page.hidden = false;
+    const { AdminController } = await import('./controllers/admin');
+    const page = document.querySelector<SxAdminPage>('sx-admin-page');
+    if (!page) return;
+    page.hidden = false;
     document.title = 'Admin · Sail Explorer';
+    new AdminController(page).start();
   }
 
   /** Zurück von Profil-/Boots-/Entdecken-Seite zur Kartenansicht. */

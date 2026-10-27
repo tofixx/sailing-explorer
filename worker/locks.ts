@@ -1,4 +1,4 @@
-// Sperren zur Beweissicherung (Konzept 15.2 – 15.4): nur noch für Admins sichtbar, ausgenommen von den normalen
+// Sperren zur Beweissicherung (Konzept 18.2 – 18.4): nur noch für Admins sichtbar, ausgenommen von den normalen
 // Löschfristen, nach Ablauf der Sperrfrist endgültig gelöscht. Baut auf hidden_at und users.suspended_at auf: die Sperre
 // setzt beide und merkt sich die vorherigen Werte (locks.prev_at), Entsperren stellt sie wieder her.
 import type { Env } from './env';
@@ -108,6 +108,12 @@ export async function unlockTarget(env: Env, adminId: string, kind: LockKind, id
   const lock = await loadLock(env, kind, id);
   if (!lock) throw new HttpError(404, 'not_locked', 'Das ist nicht gesperrt.');
   if (lock.via_user) throw new HttpError(409, 'locked_via_user', 'Das ist mit seinem Konto gesperrt – bitte das Konto entsperren.');
+  // Törn oder Boot eines gesperrten Kontos bliebe sonst als einziges sichtbar
+  if ((kind === 'share' || kind === 'boat') && (await env.DB.prepare(
+    `SELECT 1 AS x FROM ${TABLE[kind].table} t JOIN users u ON u.id = t.${kind === 'share' ? 'user_id' : 'owner_id'} WHERE t.id = ? AND u.locked_at IS NOT NULL`,
+  ).bind(id).first())) {
+    throw new HttpError(409, 'owner_locked', 'Das Konto des Eigentümers ist gesperrt – erst das Konto entsperren.');
+  }
   if (kind !== 'user') {
     await env.DB.batch([...unlockObjectStmts(env, kind, 'target_id', id), adminLogStmt(env, adminId, 'unlock', kind, id, '', now)]);
     return;
@@ -121,6 +127,9 @@ export async function unlockTarget(env: Env, adminId: string, kind: LockKind, id
     adminLogStmt(env, adminId, 'unlock', kind, id, '', now),
   ]);
 }
+
+/** Mitsperre eines Boots beim Eigner-Wechsel lösen (Konzept 18.6): das Boot gehört dann einem nicht gesperrten Konto. */
+export const releaseViaLockStmts = (env: Env, kind: 'boat', id: string): D1PreparedStatement[] => unlockObjectStmts(env, kind, 'target_id', id);
 
 /**
  * Endgültig löschen über den einen Löschpfad des Objekts (Admin-Löschen, abgelaufene Sperre) und die Sperre(n) dazu
@@ -139,7 +148,7 @@ export async function removeTarget(env: Env, kind: LockKind, id: string): Promis
 }
 
 /**
- * Nächtlich (Konzept 15.4): abgelaufene Sperren → endgültig löschen (höchstens 20), mit System-Eintrag im Protokoll.
+ * Nächtlich (Konzept 18.4): abgelaufene Sperren → endgültig löschen (höchstens 20), mit System-Eintrag im Protokoll.
  * Ein Konto, das noch einzeln gesperrte Objekte besitzt, wartet, bis deren Sperre endet (sonst gingen sie früher).
  */
 export async function expireLocks(env: Env, now: number): Promise<number> {

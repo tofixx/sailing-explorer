@@ -46,7 +46,7 @@ export interface GroupRow {
   approve_by: Approvers;
   owner_id: string;
   hidden_at: number | null;
-  /** gesperrt (0020, Konzept 15.2): niemand hat dann eine Rolle */
+  /** gesperrt (0023, Konzept 18.2): niemand hat dann eine Rolle */
   locked_at?: number | null;
   created_at: number;
   updated_at: number;
@@ -70,7 +70,7 @@ export async function loadGroupBySlug(env: Env, raw: string): Promise<GroupRow |
   return slug ? env.DB.prepare(`${GROUP_SELECT} WHERE g.slug = ?`).bind(slug).first<GroupRow>() : null;
 }
 
-/** Rolle des Kontos in der Gruppe (auch bei unbekannter oder gesperrter Gruppe null, Konzept 15.2). */
+/** Rolle des Kontos in der Gruppe (auch bei unbekannter oder gesperrter Gruppe null, Konzept 18.2). */
 export async function roleIn(env: Env, userId: string | null | undefined, groupId: string): Promise<GroupRole | null> {
   if (!userId) return null;
   const row = await env.DB.prepare(
@@ -85,7 +85,8 @@ export async function roleIn(env: Env, userId: string | null | undefined, groupI
  * Darf der Betrachter die Gruppe sehen? Ausgeblendet: nur Eigner/Admins und Moderation. Sonst wie Abschnitt 1:
  * öffentlich alle, „Nur mit Link“ mit Schlüssel, geschlossen nur Mitglieder (Mitglieder sehen jede Stufe).
  */
-export function canViewGroup(g: Pick<GroupRow, 'visibility' | 'share_key' | 'hidden_at'>, role: GroupRole | null, key: string | null, admin = false): boolean {
+export function canViewGroup(g: Pick<GroupRow, 'visibility' | 'share_key' | 'hidden_at' | 'locked_at'>, role: GroupRole | null, key: string | null, admin = false): boolean {
+  if (g.locked_at) return admin;
   if (g.hidden_at && !canManageGroup(role) && !admin) return false;
   return canView({ visibility: g.visibility, shareKey: g.share_key, hiddenAt: null }, { manager: role !== null, key });
 }

@@ -112,7 +112,7 @@ export class SessionController {
   private async refreshUser() {
     try {
       const { user, admin } = await api.me();
-      // Admin nur aus /api/auth/me – blendet „Admin“ in der Kopfzeile ein (Konzept 15.1)
+      // Admin nur aus /api/auth/me – blendet „Admin“ in der Kopfzeile ein (Konzept 18.1)
       this.store.set({ user: user && admin ? { ...user, admin } : user });
     } catch {
       /* offline */
@@ -240,7 +240,7 @@ export class SessionController {
   /** Nach eingelöstem Link oder Code: Konto setzen, andere Tabs informieren, weiter mit dem Vorhaben. */
   private loggedIn(user: User) {
     this.store.set({ user });
-    // Admin-Kennzeichen kommt nur aus /api/auth/me (Konzept 15.1)
+    // Admin-Kennzeichen kommt nur aus /api/auth/me (Konzept 18.1)
     void this.refreshUser();
     this.channel?.postMessage('login');
     this.ui.toast(`Angemeldet als ${user.email}`);

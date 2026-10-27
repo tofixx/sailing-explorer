@@ -330,7 +330,7 @@ export async function decideReport(request: Request, env: Env, reportId: string)
     : null;
   const kind = parseReportKind(r?.target_kind);
   if (!r || !kind) throw new HttpError(404, 'not_found', 'Diese Meldung gibt es nicht (mehr).');
-  // Gesperrtes (Konzept 15.2) entscheidet der Admin-Bereich – sonst höbe „wieder einblenden“ die Sperre unbemerkt auf.
+  // Gesperrtes (Konzept 18.2) entscheidet der Admin-Bereich – sonst höbe „wieder einblenden“ die Sperre unbemerkt auf.
   if (await isLockedTarget(env, kind, r.target_id)) throw LOCKED();
   const now = Date.now();
   const log = adminLogStmt(env, admin.id, `report_${action}`, kind, r.target_id, '', now);
@@ -365,7 +365,7 @@ export async function suspendUser(request: Request, env: Env, userId: string): P
   const { suspended } = await readJson<{ suspended?: unknown }>(request);
   if (typeof suspended !== 'boolean') throw new HttpError(400, 'invalid_body', 'suspended: true oder false.');
   if (userId === admin.id || isAdmin(env, userId)) throw new HttpError(400, 'cannot_suspend_admin', 'Admin-Konten lassen sich nicht sperren.');
-  // Die Sperre (Konzept 15.2) hat die Suspendierung gesetzt und stellt sie beim Entsperren wieder her.
+  // Die Sperre (Konzept 18.2) hat die Suspendierung gesetzt und stellt sie beim Entsperren wieder her.
   if (await isLockedTarget(env, 'user', userId)) throw LOCKED();
   const [res] = await env.DB.batch([
     env.DB.prepare('UPDATE users SET suspended_at = ? WHERE id = ?').bind(suspended ? Date.now() : null, userId),

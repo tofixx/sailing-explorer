@@ -1,4 +1,4 @@
-// Routen des Admin-Bereichs (Konzept 15) – als eigener Block, damit worker/index.ts nur eine Zeile braucht.
+// Routen des Admin-Bereichs (Konzept 18) – als eigener Block, damit worker/index.ts nur eine Zeile braucht.
 // Jeder Handler prüft selbst requireAdmin (404 für alle anderen).
 import type { Env } from './env';
 import { adminDelete, adminDetail, adminGrantSupport, adminList, adminLock, adminLogList, adminOwner, adminRename, adminRevokeSupport, adminUnlock } from './admin';

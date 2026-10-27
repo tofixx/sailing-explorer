@@ -53,6 +53,8 @@ interface PhotoWithShare extends PhotoRow {
   share_visibility: Visibility;
   share_key: string | null;
   share_hidden_at: number | null;
+  /** Törn gesperrt (Konzept 18.2): Fotos nur noch für Admins, auch nicht für den Eigentümer */
+  share_locked_at: number | null;
 }
 
 /** Höchstens so viele Fotos liefert die Liste (Grenze pro Törn ist 100). */
@@ -82,6 +84,7 @@ export function photoShape(p: PhotoRow, shareVisibility: Visibility, isOwner: bo
 
 /** Darf der Betrachter dieses Foto sehen? Eigentümer immer; sonst Törn sichtbar, Foto „wie der Törn“ und nicht ausgeblendet. */
 function canViewPhoto(p: PhotoWithShare, viewer: { userId: string | null; key: string | null; admin: boolean }): boolean {
+  if (p.share_locked_at) return viewer.admin;
   if (viewer.userId !== null && viewer.userId === p.owner_id) return true;
   const shareOk = canView({ visibility: p.share_visibility, shareKey: p.share_key, hiddenAt: p.share_hidden_at }, { manager: false, key: viewer.key, admin: viewer.admin }, true);
   if (!shareOk || p.visibility !== 'public') return false;
@@ -91,7 +94,7 @@ function canViewPhoto(p: PhotoWithShare, viewer: { userId: string | null; key: s
 async function loadPhoto(env: Env, id: string): Promise<PhotoWithShare | null> {
   if (!SHARE_ID_RE.test(id)) return null;
   return env.DB.prepare(
-    `SELECT p.*, s.user_id AS owner_id, s.visibility AS share_visibility, s.share_key, s.hidden_at AS share_hidden_at
+    `SELECT p.*, s.user_id AS owner_id, s.visibility AS share_visibility, s.share_key, s.hidden_at AS share_hidden_at, s.locked_at AS share_locked_at
      FROM photos p JOIN shares s ON s.id = p.share_id WHERE p.id = ?`,
   )
     .bind(id)
@@ -117,7 +120,7 @@ export async function visiblePhoto(request: Request, env: Env, id: string, allow
 async function ownedPhoto(request: Request, env: Env, id: string) {
   const user = await requireUser(request, env);
   const row = await loadPhoto(env, id);
-  if (!row || row.owner_id !== user.id) throw NOT_FOUND();
+  if (!row || row.owner_id !== user.id || row.share_locked_at) throw NOT_FOUND();
   return { row, user };
 }
 

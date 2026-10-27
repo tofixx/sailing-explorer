@@ -50,7 +50,7 @@ export interface RetentionResult {
   digests: number;
   /** verschickte wöchentliche Sammelmails aus Vereinen und Teams (Konzept 11.7) */
   groupDigests: number;
-  /** nach Ablauf der Sperrfrist endgültig gelöschte Objekte (Konzept 15.4) */
+  /** nach Ablauf der Sperrfrist endgültig gelöschte Objekte (Konzept 18.4) */
   lockExpired: number;
 }
 
@@ -62,7 +62,7 @@ function chunks<T>(list: T[], size = CHUNK): T[][] {
 
 /**
  * Löscht Törns, deren Aufbewahrung abgelaufen ist (Datei, Vorschaubild, Fotos, Datensatz; Foto-Zeilen per CASCADE).
- * Gesperrte bleiben zur Beweissicherung (Konzept 15.3).
+ * Gesperrte bleiben zur Beweissicherung (Konzept 18.3).
  */
 async function deleteExpired(env: Env, now: number): Promise<number> {
   const { results } = await env.DB.prepare(`SELECT s.id FROM shares s WHERE ${EXPIRES_SQL} <= ? AND s.locked_at IS NULL LIMIT ?`)
@@ -146,7 +146,7 @@ async function remindSeason(env: Env, origin: string, now: number): Promise<numb
 
 /**
  * Konten ohne Törns, die seit 12 Monaten nicht angemeldet waren (und keinen laufenden Unterstützer-Status haben).
- * Gesperrte Konten und Konten mit Gesperrtem bleiben (Konzept 15.3).
+ * Gesperrte Konten und Konten mit Gesperrtem bleiben (Konzept 18.3).
  */
 async function purgeInactive(env: Env, now: number): Promise<number> {
   const cutoff = now - INACTIVE_ACCOUNT_MS;
@@ -183,7 +183,7 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
       return fallback;
     });
   const deleted = await step('expired', deleteExpired(env, now), 0);
-  // Sperrfrist abgelaufen (Konzept 15.4): endgültig löschen über den Löschpfad des Objekts
+  // Sperrfrist abgelaufen (Konzept 18.4): endgültig löschen über den Löschpfad des Objekts
   const lockExpired = await step('locks', expireLocks(env, now), 0);
   const warned = await step('warn', warnExpiring(env, origin, now), 0);
   const seasonMails = await remindSeason(env, origin, now).catch((err) => {
@@ -207,7 +207,7 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     env.DB.prepare('DELETE FROM comment_log WHERE created_at < ?').bind(now - COMMENT_LOG_MS),
     env.DB.prepare('DELETE FROM reports WHERE resolved_at IS NOT NULL AND resolved_at < ?').bind(now - RESOLVED_REPORTS_MS),
     deleteOrphanReports(env),
-    // Admin-Bereich (Konzept 15.4, 15.10): Sperren ohne Ziel, Protokoll nach Frist (außer zu noch Gesperrtem)
+    // Admin-Bereich (Konzept 18.4, 18.10): Sperren ohne Ziel, Protokoll nach Frist (außer zu noch Gesperrtem)
     orphanLocksStmt(env),
     env.DB.prepare(
       `DELETE FROM admin_log WHERE created_at < CASE WHEN action IN ('list', 'view') THEN ?1 ELSE ?2 END
@@ -219,8 +219,12 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   // Datenschutz-Fristen als eigener Batch (scheitert einer, läuft der andere trotzdem)
   await step('privacy', env.DB.batch([
     // Offene Meldungen nach 180 Tagen ohne Entscheidung: ohne Meldende und Anmerkung (Datenschutz, Abschnitt 9)
-    env.DB.prepare(`UPDATE reports SET reporter_id = NULL, note = '' WHERE resolved_at IS NULL AND created_at < ? AND (reporter_id IS NOT NULL OR note <> '')`).bind(now - OPEN_REPORT_MS),
-    // Gutscheine der Admins (Konzept 15.9a): keine Zahlung, keine Aufbewahrungspflicht – 2 Jahre nach Ablauf gelöscht
+    // – außer das Ziel ist gesperrt: dann bleibt die Meldung als Beleg, bis die Sperre endet (Konzept 18.3)
+    env.DB.prepare(
+      `UPDATE reports SET reporter_id = NULL, note = '' WHERE resolved_at IS NULL AND created_at < ? AND (reporter_id IS NOT NULL OR note <> '')
+         AND NOT EXISTS (SELECT 1 FROM locks l WHERE l.target_kind = CASE reports.target_kind WHEN 'profile' THEN 'user' ELSE reports.target_kind END AND l.target_id = reports.target_id)`,
+    ).bind(now - OPEN_REPORT_MS),
+    // Gutscheine der Admins (Konzept 18.9a): keine Zahlung, keine Aufbewahrungspflicht – 2 Jahre nach Ablauf gelöscht
     env.DB.prepare(`DELETE FROM supports WHERE provider = 'admin' AND valid_until < ?`).bind(now - LOG_ACTION_MS),
     // Zahlungen: 10 Jahre nach Ablauf der Unterstützung (steuerliche Aufbewahrung), dann gelöscht
     env.DB.prepare('DELETE FROM supports WHERE valid_until < ? AND created_at < ?').bind(now - SUPPORT_RECORD_MS, now - SUPPORT_RECORD_MS),

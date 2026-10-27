@@ -42,7 +42,7 @@ export interface ShareRow {
   comments_mode?: string;
   /** per Meldung oder Admin ausgeblendet (0009) */
   hidden_at?: number | null;
-  /** gesperrt (0020, Konzept 15.2): nur Admins */
+  /** gesperrt (0023, Konzept 18.2): nur Admins */
   locked_at?: number | null;
   /** aus EXPIRES_SQL */
   expires_at?: number | null;

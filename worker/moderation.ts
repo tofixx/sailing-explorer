@@ -11,7 +11,7 @@ import { ADMIN_LIMITS } from '../src/domain/admin';
 export { adminIds, isAdmin } from './validate';
 
 /**
- * Admin oder 404 – auch für Gäste: Nicht-Admins erfahren nicht, dass es die Route gibt (Konzept 15.1, fail closed bei
+ * Admin oder 404 – auch für Gäste: Nicht-Admins erfahren nicht, dass es die Route gibt (Konzept 18.1, fail closed bei
  * leerem ADMIN_USER_IDS).
  */
 export async function requireAdmin(request: Request, env: Env): Promise<User> {
@@ -21,7 +21,7 @@ export async function requireAdmin(request: Request, env: Env): Promise<User> {
 }
 
 /**
- * Eintrag im Admin-Protokoll (Konzept 15.10): wer (null = nächtlicher Lauf), was, Ziel, kurzes Detail – nie
+ * Eintrag im Admin-Protokoll (Konzept 18.10): wer (null = nächtlicher Lauf), was, Ziel, kurzes Detail – nie
  * Mail-Adressen. Als Anweisung, damit er im selben Batch wie die Aktion landet.
  */
 export const adminLogStmt = (env: Env, adminId: string | null, action: string, kind: string | null, id: string | null, detail = '', now = Date.now()): D1PreparedStatement =>
@@ -29,7 +29,7 @@ export const adminLogStmt = (env: Env, adminId: string | null, action: string, k
     randomId(), adminId, action, kind, id, detail.slice(0, ADMIN_LIMITS.detailMax), now,
   );
 
-/** Ist das Ziel gesperrt (Konzept 15.2)? Profile zählen als Konto. */
+/** Ist das Ziel gesperrt (Konzept 18.2)? Profile zählen als Konto. */
 export async function isLockedTarget(env: Env, kind: string, id: string): Promise<boolean> {
   const k = kind === 'profile' ? 'user' : kind;
   return !!(await env.DB.prepare('SELECT 1 AS x FROM locks WHERE target_kind = ? AND target_id = ?').bind(k, id).first());
