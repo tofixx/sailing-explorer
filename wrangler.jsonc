@@ -4,6 +4,10 @@
   "account_id": "801ebb5d236032b8396c4ec45dc8df93",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
+  // Nur über die eigenen Domains erreichbar (keine *.workers.dev-Adresse) – sonst gäbe es einen Host ohne Weiterleitung
+  // mit Produktionsdaten (Passkeys, Cookies).
+  "workers_dev": false,
+  "preview_urls": false,
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",

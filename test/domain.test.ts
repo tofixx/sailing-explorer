@@ -113,3 +113,16 @@ describe('Formate', () => {
     expect(plural(1200, 'Punkt', 'Punkte')).toBe('1.200 Punkte');
   });
 });
+
+describe('deviceName (Passkey-Liste, Konzept 14.7)', () => {
+  it('erkennt die gängigen Geräte, sonst „Passkey“', async () => {
+    const { deviceName } = await import('../src/domain/device');
+    expect(deviceName('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)')).toBe('iPhone');
+    expect(deviceName('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 5)).toBe('iPad');
+    expect(deviceName('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 0)).toBe('Mac');
+    expect(deviceName('Mozilla/5.0 (Linux; Android 15)')).toBe('Android');
+    expect(deviceName('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe('Windows');
+    expect(deviceName('Mozilla/5.0 (X11; Linux x86_64)')).toBe('Linux');
+    expect(deviceName('curl/8')).toBe('Passkey');
+  });
+});

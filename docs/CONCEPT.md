@@ -1411,3 +1411,19 @@ offener Links (15 min) schnell zu erraten; ein HMAC mit Worker-Secret wäre die 
 „Passwort vergessen“ bräuchte wieder Mails, und Wiederverwendung/Phishing sind das größere Risiko. Als nächster
 Schritt sind **Passkeys** vorgesehen (Anmeldung per Fingerabdruck/Face ID ohne Mail; die Mail bleibt für das erste
 Gerät und als Rückfallweg). Eine zusätzliche 2FA ist mit Passkeys nicht nötig.
+
+### 14.7 Passkeys
+
+Anmelden per Fingerabdruck, Face ID oder Geräte-PIN, ohne Mail und ohne Passwort (WebAuthn, discoverable
+credentials). Angelegt wird ein Passkey angemeldet im Konto („Einstellungen“ → „Passkey für dieses Gerät anlegen“);
+der Anmeldedialog bietet „Mit Passkey anmelden“, wenn der Browser es kann – die Mail bleibt für das erste Gerät und als
+Rückfallweg. Die WebAuthn-Prüfung (CBOR, COSE, Signaturen) übernimmt die Bibliothek `@simplewebauthn/server`
+(Wiederverwendung statt Eigenbau); gespeichert werden Credential-ID, öffentlicher Schlüssel, Zähler, Transportwege und
+ein Gerätename (Migration 0017), nie Biometrie oder private Schlüssel. Challenges sind einmalig und 5 Minuten gültig (atomar eingelöst), die
+Registrierungs-Challenge gehört zum angemeldeten Konto. Nutzerprüfung (Fingerabdruck, Face ID, PIN) ist Pflicht.
+Relying Party ist die Hauptdomain (`CANONICAL_HOST`), die Herkunft wird exakt verglichen; der Worker hat keine
+workers.dev-Adresse. Jeder neue Passkey löst eine Hinweis-Mail aus – so fällt auf, wenn jemand mit einer fremden
+Sitzung einen dauerhaften Zugang hinterlegt. Höchstens 10 Passkeys pro Konto (atomar geprüft); Konto löschen entfernt
+sie ausdrücklich, abgelaufene Challenges räumt der Cron weg. Anmelden unterliegt dem IP-Limit der Anmeldung und geht
+auch für gesperrte Konten (wie Link und Code), Anlegen nicht. Bibliothek und Optionen werden beim Öffnen des Dialogs
+vorgeladen, weil Safari den WebAuthn-Aufruf direkt aus dem Klick verlangt; in Einbettungen gibt es keinen Passkey-Knopf.
