@@ -51,6 +51,9 @@ export interface ShareRequest {
   includeView: boolean;
 }
 
+/** localStorage: „never“ = nach der Anmeldung per Mail keinen Passkey mehr anbieten (auf diesem Gerät) */
+const PASSKEY_HINT_KEY = 'sx-passkey-hint';
+
 /**
  * Alles rund um Konto und Server: Anmelden per Magic Link, Code oder Passkey, Teilen, Profil, Boote, Freigaben.
  * Kennt Store und Dialoge, aber weder Karte noch Track-Darstellung.
@@ -118,7 +121,7 @@ export class SessionController {
   }
 
   openLogin(reason = ''): void {
-    Object.assign(this.ui.login, { open: true, reason, error: '', sentTo: '', devLink: '', devCode: '', confirmEmail: '', busy: false });
+    Object.assign(this.ui.login, { open: true, reason, error: '', sentTo: '', devLink: '', devCode: '', confirmEmail: '', offerPasskey: false, busy: false });
     this.preparePasskeyLogin();
   }
 
@@ -186,7 +189,7 @@ export class SessionController {
       // beide sind beim Öffnen vorgeladen – hier nur noch Mikrotasks bis zum Browser-Dialog
       const [{ startAuthentication }, { options, challengeId }] = await Promise.all([passkeyLib(), this.passkeyLogin.take()]);
       const response = await startAuthentication({ optionsJSON: options });
-      this.loggedIn((await passkeyApi.login(challengeId, response)).user);
+      this.loggedIn((await passkeyApi.login(challengeId, response)).user, false);
     } catch (e) {
       if (!isPasskeyCancel(e)) this.ui.login.error = errorText(e);
       this.passkeyLogin.prefetch(); // für den nächsten Versuch
@@ -197,21 +200,62 @@ export class SessionController {
 
   /** Passkey für dieses Gerät anlegen (Konto, Einstellungen). */
   addPasskey() {
-    return this.act(async () => {
-      const [{ startRegistration }, { options, challengeId }] = await Promise.all([passkeyLib(), this.passkeyRegister.take()]);
-      let response;
+    return this.act(async () => void (await this.registerPasskey()));
+  }
+
+  /** Passkey anlegen – true, wenn angelegt; false, wenn im Browser abgebrochen. Andere Fehler werfen. */
+  private async registerPasskey(): Promise<boolean> {
+    const [{ startRegistration }, { options, challengeId }] = await Promise.all([passkeyLib(), this.passkeyRegister.take()]);
+    let response;
+    try {
+      response = await startRegistration({ optionsJSON: options });
+    } catch (e) {
+      this.passkeyRegister.prefetch();
+      if (isPasskeyCancel(e)) return false;
+      if (isPasskeyDuplicate(e)) throw new Error('Auf diesem Gerät gibt es schon einen Passkey für dein Konto.');
+      throw e;
+    }
+    const { passkey } = await passkeyApi.register(challengeId, response, deviceName(navigator.userAgent, navigator.maxTouchPoints));
+    this.ui.account.passkeys = [...(this.ui.account.passkeys ?? []), passkey];
+    this.ui.toast('Passkey angelegt – nächstes Mal ohne Mail anmelden');
+    return true;
+  }
+
+  /**
+   * Antwort auf das Passkey-Angebot nach der Anmeldung per Mail (Konzept 14.7). „Nicht mehr fragen“ gilt für dieses
+   * Gerät; ein im Browser abgebrochenes Anlegen lässt das Angebot stehen. Danach geht es mit dem Vorhaben weiter.
+   */
+  async answerPasskeyOffer(answer: 'add' | 'later' | 'never'): Promise<void> {
+    if (answer === 'add') {
+      Object.assign(this.ui.login, { busy: true, error: '' });
       try {
-        response = await startRegistration({ optionsJSON: options });
+        if (!(await this.registerPasskey())) return;
       } catch (e) {
-        this.passkeyRegister.prefetch();
-        if (isPasskeyCancel(e)) return;
-        if (isPasskeyDuplicate(e)) throw new Error('Auf diesem Gerät gibt es schon einen Passkey für dein Konto.');
-        throw e;
+        this.ui.login.error = errorText(e);
+        return;
+      } finally {
+        this.ui.login.busy = false;
       }
-      const { passkey } = await passkeyApi.register(challengeId, response, deviceName(navigator.userAgent, navigator.maxTouchPoints));
-      this.ui.account.passkeys = [...(this.ui.account.passkeys ?? []), passkey];
-      this.ui.toast('Passkey angelegt – nächstes Mal ohne Mail anmelden');
-    });
+    }
+    if (answer === 'never') {
+      try {
+        localStorage.setItem(PASSKEY_HINT_KEY, 'never');
+      } catch {
+        /* ohne Speicher: fragt beim nächsten Mal wieder */
+      }
+    }
+    this.ui.login.offerPasskey = false;
+    this.afterLogin();
+  }
+
+  /** Nach der Anmeldung per Mail einen Passkey anbieten? Nur wenn der Browser es kann und es nicht abgewählt ist. */
+  private shouldOfferPasskey(): boolean {
+    if (!passkeysSupported()) return false;
+    try {
+      return localStorage.getItem(PASSKEY_HINT_KEY) !== 'never';
+    } catch {
+      return true;
+    }
   }
 
   removePasskey(id: string) {
@@ -235,11 +279,21 @@ export class SessionController {
     }
   }
 
-  /** Nach eingelöstem Link oder Code: Konto setzen, andere Tabs informieren, weiter mit dem Vorhaben. */
-  private loggedIn(user: User) {
+  /**
+   * Nach eingelöstem Link, Code oder Passkey: Konto setzen, andere Tabs informieren, weiter mit dem Vorhaben. Per Mail
+   * angemeldet (`viaMail`), bietet der Dialog vorher einen Passkey an; Bibliothek und Optionen werden dafür vorgeladen
+   * (Safari verlangt den WebAuthn-Aufruf direkt aus dem Klick).
+   */
+  private loggedIn(user: User, viaMail = true) {
     this.store.set({ user });
     this.channel?.postMessage('login');
     this.ui.toast(`Angemeldet als ${user.email}`);
+    if (viaMail && this.shouldOfferPasskey()) {
+      void passkeyLib().catch(() => undefined);
+      this.passkeyRegister.prefetch();
+      Object.assign(this.ui.login, { offerPasskey: true, confirmEmail: '', error: '' });
+      return;
+    }
     this.afterLogin();
   }
 

@@ -1417,7 +1417,8 @@ Gerät und als Rückfallweg). Eine zusätzliche 2FA ist mit Passkeys nicht nöti
 Anmelden per Fingerabdruck, Face ID oder Geräte-PIN, ohne Mail und ohne Passwort (WebAuthn, discoverable
 credentials). Angelegt wird ein Passkey angemeldet im Konto („Einstellungen“ → „Passkey für dieses Gerät anlegen“);
 der Anmeldedialog bietet „Mit Passkey anmelden“, wenn der Browser es kann – die Mail bleibt für das erste Gerät und als
-Rückfallweg. Die WebAuthn-Prüfung (CBOR, COSE, Signaturen) übernimmt die Bibliothek `@simplewebauthn/server`
+Rückfallweg. Wer sich per Link oder Code angemeldet hat, bekommt im selben Dialog gleich das Angebot „Passkey für
+dieses Gerät anlegen“ (Später / Nicht mehr fragen – gemerkt im Browser); erst danach geht es mit dem Vorhaben weiter. Die WebAuthn-Prüfung (CBOR, COSE, Signaturen) übernimmt die Bibliothek `@simplewebauthn/server`
 (Wiederverwendung statt Eigenbau); gespeichert werden Credential-ID, öffentlicher Schlüssel, Zähler, Transportwege und
 ein Gerätename (Migration 0017), nie Biometrie oder private Schlüssel. Challenges sind einmalig und 5 Minuten gültig (atomar eingelöst), die
 Registrierungs-Challenge gehört zum angemeldeten Konto. Nutzerprüfung (Fingerabdruck, Face ID, PIN) ist Pflicht.
