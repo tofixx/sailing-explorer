@@ -8,7 +8,7 @@ import { publicShares } from './shares';
 import { boatCleanup, recordHarborBoat } from './activity';
 import { harborFromBoatInput, type HarborRow } from './harbors';
 import { followStats } from './follows';
-import { coverUrl, loadCover } from './covers';
+import { loadCover, pageCover } from './covers';
 import { galleryPhotos } from './gallery';
 import { checkBoatQuota, checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
@@ -222,7 +222,7 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
     voyages: await publicShares(env, 'boat', id),
     social: await followStats(env, 'boat', id, user?.id ?? null),
     // Titelbild und neueste öffentliche Fotos der Törns mit diesem Boot (Konzept 13)
-    cover: coverUrl('b', b.id, await loadCover(env, 'b', b.id), b.visibility === 'public' ? null : key),
+    ...pageCover('b', b.id, await loadCover(env, 'b', b.id), b.visibility === 'public' ? null : key),
     photos: await galleryPhotos(env, 'boat', b.id),
     // „Verein des Boots“ (Konzept 12.2): öffentliche, nicht ausgeblendete Vereine, denen das Boot zugeordnet ist
     clubs: (

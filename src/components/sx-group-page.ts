@@ -4,6 +4,7 @@ import {
   APPROVERS, APPROVERS_LABEL, GROUP_KIND_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODES, JOIN_MODE_LABEL, JOIN_MODE_SHORT, POST_LINK_MAX, POST_MAX,
   canApprove, canManageGroup, slugFromName, type Approvers, type GroupKind, type JoinMode,
 } from '../domain/groups';
+import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import { commentLength } from '../domain/comment-text';
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
@@ -646,7 +647,7 @@ export class SxGroupPage extends LitElement {
     const g = d.group;
     const manager = canManageGroup(g.role);
     return html`
-      <sx-cover kind="g" target-id=${g.id} .src=${d.cover ?? null} ?can-edit=${manager} label="Titelbild von ${g.name}"></sx-cover>
+      <sx-cover kind="g" target-id=${g.id} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} ?can-edit=${manager} label="Titelbild von ${g.name}"></sx-cover>
       ${this.hero(d)}
       ${manager && g.hiddenAt ? html`<p class="note" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.editing && manager ? this.editForm(g) : ''}

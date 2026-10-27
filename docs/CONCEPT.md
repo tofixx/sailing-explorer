@@ -21,7 +21,7 @@ Diese Entscheidungen gehen allen Vorschlägen unten vor; betroffene Stellen sind
 | E2 | **Öffentlich heißt öffentlich.** | Öffentliche Törns, Boote und Profile sind gelistet und indexierbar, ohne 24-h-Verzögerung (offene Fragen 1 und 2 erledigt). |
 | E3 | **Fotos nur für Unterstützer**, Speicher für Unterstützer **200 MB** (Tracks, Übersichtsbilder und Fotos zusammen). | Kostenlos: keine Fotos (offene Frage 5 erledigt). Kostenlose Konten: Speicher wie bisher nur über 3 Törns begrenzt. |
 | E4 | **Ende der Unterstützung macht nichts öffentlich.** | Nicht öffentliche Objekte bleiben, wie sie sind, bis sie ablaufen (Unterstützungsende + 3 Monate). Neu „Nur mit Link“/„Nur ich“ setzen oder Fotos hinzufügen geht nicht mehr; auf „Öffentlich“ schalten oder löschen geht immer. Eine stille Hochstufung würde private Positionsdaten veröffentlichen. |
-| E6 | **Titelbilder für alle** (Oktober 2026, Konzept 13.2). | Ein Titelbild je Profil, Boot, Verein/Team auch für kostenlose Konten – höchstens 300 KB, nur im globalen Speicherzähler. Fotos an Törns bleiben Unterstützern vorbehalten (E3). |
+| E6 | **Titelbilder für alle** (Oktober 2026, Konzept 13.2). | Ein Titelbild je Profil, Boot, Verein/Team auch für kostenlose Konten – höchstens 400 KB, nur im globalen Speicherzähler. Fotos an Törns bleiben Unterstützern vorbehalten (E3). |
 | E5 | **Altbestand** wird nicht hochgestuft. | Heute private oder nicht gelistete Törns, Boote und Profile kostenloser Konten bleiben, wie sie sind (F-86); nur Neues folgt E1. |
 
 ## 0. Ausgangslage
@@ -1310,14 +1310,30 @@ Damit der Betreiber Fotos ohne Stripe nutzen kann, lässt sich ein Konto direkt 
 |---|---|
 | Wofür | Profil (`u`, öffentliche ID = Profiladresse), Boot (`b`), Verein/Team (`g`). Häfen bekommen keins – ihre Seite lebt vom Stream. |
 | Wer | Profil: die Person; Boot: Eigner und Boots-Admins; Gruppe: Eigner und Admins. Alle Konten (E6), gesperrte nicht. |
-| Format | Im Browser mittig auf 3:1 zugeschnitten, höchstens 1500 × 500 px, WebP (sonst JPEG), höchstens 300 KB, neu kodiert ohne Metadaten (`processCover`). Der Worker prüft wie bei Fotos nur Kopfdaten (`inspectImage`). |
+| Format | Im Browser auf ein Seitenverhältnis zwischen 3:1 und 3:2 gebracht (`coverCrop`: breitere Bilder mittig links/rechts, höhere mittig oben/unten beschnitten), höchstens 1500 × 1000 px, WebP (sonst JPEG), höchstens 400 KB, neu kodiert ohne Metadaten (`processCover`). Der Worker prüft wie bei Fotos nur Kopfdaten (`inspectImage`). |
+| Ausschnitt | Das Banner bleibt 3:1; den sichtbaren Streifen wählt `covers.focus_y` (0 = oben … 100 = unten, Standard 50; reine Regeln in `src/domain/cover.ts`), angezeigt per `object-fit: cover; object-position: 50% <focus_y>%`. Justieren ändert nur diese Zahl (`PATCH`), kein neuer Upload, keine neue Adresse. Waagerecht wird nicht verschoben – das Banner ist breiter als jedes gespeicherte Bild. |
 | Speicher | Tabelle `covers` (eine Zeile je Objekt, `ver` wechselt bei jedem Austausch), R2 `covers/<art>/<id>/<ver>.<format>`. Zählt im globalen Zähler (Notbremse), nicht im Kontingent des Kontos. |
 | Sichtbar | wie das Objekt: öffentlich für alle (1 Tag cachebar, die Version steckt in der Adresse), „Nur mit Link“ mit Schlüssel – die Seite liefert die Adresse schon mit `?k=` –, privat nur Verwalter. |
-| API | `PUT/DELETE /api/covers/:art/:id`, `GET /api/covers/:art/:id/:ver`; Seiten-Antworten tragen `cover` (Adresse oder null). |
+| API | `PUT/PATCH/DELETE /api/covers/:art/:id` (PATCH `{ focusY }`), `GET /api/covers/:art/:id/:ver`; Seiten-Antworten tragen `cover` (Adresse oder null) und `coverY`. |
 | Löschen | Objekt gelöscht (auch per Kaskade beim Konto-Löschen) → der nächtliche Cron entfernt Datei, Zeile und Zähleranteil (`sweepOrphanCovers`). |
 
 Oberfläche: Banner über dem Kopf der Seite (`sx-cover`); Verwalter sehen ohne Bild einen schmalen Platzhalter
-„Titelbild hinzufügen“, mit Bild „Ändern“ und „Entfernen“.
+„Titelbild hinzufügen“, mit Bild „Ausschnitt“ (nur wenn das Bild höher als 3:1 ist), „Ändern“ und „Entfernen“. Im
+Ausschnitt-Modus zieht man das Bild mit Maus oder Finger hoch/runter (Pointer-Events, `touch-action: none`) oder nutzt
+den Schieberegler darunter (Tastatur, Screenreader); „Speichern“/„Abbrechen“, Escape bricht ab. Nach einem Upload
+öffnet sich der Modus von selbst, sobald das neue Bild geladen ist.
+
+Wo es keinen Ausschnitt gibt (Oktober 2026 geprüft):
+
+- **Galerie-Kacheln** (`sx-gallery`, quadratisch) und **Foto-Vorschaubilder im Törn** (`sx-photo-strip`), **Stream-Fotos**
+  (`sx-stream`, 72-px-Kacheln): Das sind Törn-Fotos mit eigenem Eigentümer, die automatisch an Person, Boot und Gruppe
+  erscheinen. Ein Fokus je Foto wäre eine weitere Einstellung pro Foto für winzige Kacheln; ein Klick zeigt ohnehin das
+  ganze Bild (Lightbox). Mittig beschnitten bleibt.
+- **Stream-Törnbild** (`sx-stream` `.cover`): das generierte Track-Vorschaubild, kein hochgeladenes Foto.
+- **Link-Vorschau (og:image)** für Profil, Boot und Gruppe: gibt es heute nicht (nur Törns haben ein Vorschaubild).
+  Würde man das Titelbild nehmen, schnitte jede Plattform es selbst auf ca. 1,91:1 zu – `focus_y` ließe sich nicht
+  mitgeben, und der Worker dekodiert keine Bilder. Das wäre eine eigene Funktion (Browser rendert beim Speichern des
+  Ausschnitts eine 1200 × 630-Fassung mit).
 
 ### 13.3 Heimathafen für Vereine und Teams
 
@@ -1336,7 +1352,7 @@ Worker lehnt Bilder mit Metadaten oder Übergröße ab.
 |---|---|---|---|
 | Foto am Törn | lange Kante 2048 px, ≤ 1 MB; Vorschau 400 px, ≤ 80 KB | der Törn (gelöscht am 1. Februar nach seiner bzw. der letzten unterstützten Saison, 5.5) | mit dem Törn (Ablauf, Löschen, Konto löschen, inaktive Konten) im selben Lauf |
 | Übersichtsbild des Törns | ≤ 1,5 MB JPEG | der Törn | wie oben |
-| Titelbild Profil | 1500 × 500 px, ≤ 300 KB | das Profil (Konto löschen; leere Konten nach 12 Monaten ohne Anmeldung) | nächtlich `sweepOrphanCovers` |
+| Titelbild Profil | bis 1500 × 1000 px, ≤ 400 KB | das Profil (Konto löschen; leere Konten nach 12 Monaten ohne Anmeldung) | nächtlich `sweepOrphanCovers` |
 | Titelbild Boot | wie oben | das Boot (Boot oder Konto des Eigners löschen) | nächtlich |
 | Titelbild Verein/Team | wie oben | die Gruppe | nächtlich |
 
