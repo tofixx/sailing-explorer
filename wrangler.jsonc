@@ -52,7 +52,8 @@
     // Admin-Oberfläche) und REPORT_CONTACT = Kontaktadresse für Meldungen ohne Konto (Impressum). Siehe README.
     // Links in Mails aus dem nächtlichen Aufräumen
     "APP_ORIGIN": "https://segeln-potsdam.de",
-    "CANONICAL_HOST": "segeln-potsdam.de",
+    // VORÜBERGEHEND leer: Weiterleitung aus, bis der CI-Token die Zone segeln-potsdam.de bedienen darf
+    "CANONICAL_HOST": "",
     "ALIAS_HOSTS": "www.segeln-potsdam.de,sailing.wollow.ski"
   },
   // Nächtliches Aufräumen: abgelaufene Törns, Erinnerungsmails, inaktive Konten (UTC)
