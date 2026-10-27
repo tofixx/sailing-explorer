@@ -130,7 +130,8 @@ export class SxStream extends LitElement {
         overflow-x: auto;
       }
       .thumbs img,
-      .cover {
+      .cover,
+      .banner {
         border-radius: var(--radius-s, 6px);
         object-fit: cover;
         display: block;
@@ -140,10 +141,19 @@ export class SxStream extends LitElement {
         width: 72px;
         height: 72px;
       }
-      .cover {
+      /* Übersichtsbild des Törns (1200 × 630, Karte mit Kennzahlen): ganz zeigen, nicht beschneiden */
+      .cover,
+      .banner {
         width: 100%;
-        max-height: 180px;
+        height: auto;
         margin-top: var(--s-2);
+      }
+      .cover {
+        aspect-ratio: 1200 / 630;
+      }
+      /* Titelbild (COVER_BANNER_RATIO) mit gespeichertem Ausschnitt */
+      .banner {
+        aspect-ratio: 3 / 1;
       }
       .tools {
         margin-left: auto;
@@ -223,11 +233,19 @@ export class SxStream extends LitElement {
     }
   }
 
+  /** Titelbild des Boots, der Person oder der Gruppe, um die es geht (Konzept 13.2) – verlinkt wie der Eintrag. */
+  private banner(i: StreamItem) {
+    if (!i.cover) return '';
+    const href = i.milestone?.path ?? (i.boat ? `/b/${i.boat.id}` : i.actor ? `/u/${i.actor.handle}` : null);
+    const img = html`<img class="banner" src=${i.cover.src} style="object-position: 50% ${i.cover.y}%" alt="" loading="lazy" decoding="async" />`;
+    return href ? html`<a href=${href} tabindex="-1" aria-hidden="true">${img}</a>` : img;
+  }
+
   private item(i: StreamItem) {
     return html`<li aria-label=${streamHeadline(i)}>
       <span class="ic" aria-hidden="true">${icon(KIND_ICON[i.kind] ?? 'info')}</span>
       <div>
-        ${this.content(i)}
+        ${this.content(i)} ${this.banner(i)}
         <time datetime=${new Date(i.createdAt).toISOString()}>${fmtDateTime(i.createdAt)}</time>
         ${i.reactions ? html`<sx-reactions class="reactions" .value=${i.reactions}></sx-reactions>` : ''}
       </div>

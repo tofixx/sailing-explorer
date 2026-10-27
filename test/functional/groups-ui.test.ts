@@ -93,6 +93,20 @@ describe('sx-stream', () => {
     const empty = await mount('sx-stream', { items: [], emptyText: 'Nix los.' });
     expect(text(empty.shadowRoot)).toContain('Nix los.');
   });
+
+  it('[F-212] Titelbild mit Ausschnitt, verlinkt wie der Eintrag; Törn-Übersichtsbild unbeschnitten', async () => {
+    const withCover: StreamItem[] = [
+      { id: 'b1', kind: 'boat', createdAt: T, actor: null, group: { slug: 'sc', name: 'SC Kiel', kind: 'club' }, boat: { id: 'B1', name: 'Möwe' }, cover: { src: '/api/covers/b/B1/v1', y: 20 } },
+      { id: 'v1', kind: 'voyage', createdAt: T, actor: null, group: null, voyage: { id: 'S1', title: 'Rügen', distNm: 4, startedAt: T, hasImage: true, boat: null } },
+    ];
+    const el = await mount('sx-stream', { items: withCover, cursor: null });
+    const banner = el.shadowRoot.querySelector<HTMLImageElement>('img.banner')!;
+    expect(banner.getAttribute('src')).toBe('/api/covers/b/B1/v1');
+    expect(banner.style.objectPosition).toBe('50% 20%');
+    expect(banner.closest('a')!.getAttribute('href')).toBe('/b/B1');
+    expect(el.shadowRoot.querySelectorAll('img.banner')).toHaveLength(1);
+    expect(el.shadowRoot.querySelector('img.cover')).not.toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------- Startseite

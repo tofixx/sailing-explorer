@@ -16,11 +16,10 @@ import { deleteKeys } from './photo-keys';
 import { normalizeHandle } from './validate';
 import { COVER_BYTES, COVER_HEIGHT, COVER_WIDTH } from '../src/domain/limits';
 import { canManageGroup } from '../src/domain/groups';
-import { COVER_FOCUS_DEFAULT, parseFocusY } from '../src/domain/cover';
+import { COVER_FOCUS_DEFAULT, coverPath, parseFocusY, type CoverKind } from '../src/domain/cover';
 import type { Visibility } from '../src/domain/visibility';
 
-/** u = Profil (öffentliche ID: Profiladresse), b = Boot, g = Verein/Team (öffentliche ID: Objekt-ID). */
-export type CoverKind = 'u' | 'b' | 'g';
+export type { CoverKind };
 export const isCoverKind = (k: unknown): k is CoverKind => k === 'u' || k === 'b' || k === 'g';
 
 export interface CoverRow {
@@ -45,8 +44,7 @@ export const coverKey = (c: Pick<CoverRow, 'kind' | 'object_id' | 'ver' | 'forma
  * geöffnet wurde (sonst lädt das <img> nicht); Verwalter brauchen keinen (Cookie).
  */
 export function coverUrl(kind: CoverKind, publicId: string, c: Pick<CoverRow, 'ver'> | null, key?: string | null): string | null {
-  if (!c) return null;
-  return `/api/covers/${kind}/${encodeURIComponent(publicId)}/${c.ver}${key ? `?k=${encodeURIComponent(key)}` : ''}`;
+  return c ? coverPath(kind, publicId, c.ver, key) : null;
 }
 
 /** Titelbild-Felder einer Seiten-Antwort: Adresse (siehe coverUrl) und Ausschnitt. */

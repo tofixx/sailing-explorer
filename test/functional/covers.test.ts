@@ -1,4 +1,4 @@
-// Funktionale Tests: Titelbilder, Galerien und Heimathafen von Vereinen/Teams (Konzept 13, F-190 … F-198, F-209/F-210).
+// Funktionale Tests: Titelbilder, Galerien und Heimathafen von Vereinen/Teams (Konzept 13, F-190 … F-198, F-209/F-210, F-212/F-213).
 // Echter Worker in workerd (Miniflare) mit lokalen D1-/R2-Bindings – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startWorker, type Harness } from './worker-harness';
@@ -198,6 +198,53 @@ describe('Titelbilder (Konzept 13.2)', () => {
     const again = (await (await putCover('b', b.id, owner.cookie, webp(1500, 900))).json()) as { coverY: number };
     expect(again.coverY).toBe(50);
     expect(((await (await s.send('GET', `/api/boats/${b.id}`, undefined)).json()) as { coverY: number }).coverY).toBe(50);
+  });
+
+  it('F-212: Neuigkeiten zeigen das Titelbild von Boot und Person samt Ausschnitt; Löschen und Austausch wirken sofort', async () => {
+    type Item = { kind: string; cover?: { src: string; y: number } };
+    const owner = await s.person({ profile: 'public' });
+    const g = await s.group(owner);
+    const crew = await s.person({ profile: 'public' });
+    await putCover('u', crew.handle!, crew.cookie, webp(1500, 1000));
+    await s.send('PATCH', `/api/covers/u/${crew.handle}`, crew.cookie, { focusY: 25 });
+    await s.join(owner, g, crew);
+    const boat = await s.boat(crew, { name: 'Bildschön', visibility: 'public' });
+    const up = (await (await putCover('b', boat.id, crew.cookie)).json()) as { cover: string };
+    await s.send('POST', `/api/groups/${g.id}/boats`, crew.cookie, { boatId: boat.id });
+    const items = async () => ((await (await h.fetch(`/api/groups/${g.id}/stream`, { cookie: owner.cookie })).json()) as { items: Item[] }).items;
+
+    const first = await items();
+    expect(first.find((i) => i.kind === 'member')?.cover).toEqual({ src: expect.stringMatching(new RegExp(`^/api/covers/u/${crew.handle}/`)), y: 25 });
+    expect(first.find((i) => i.kind === 'boat')?.cover).toEqual({ src: up.cover, y: 50 });
+    // Beiträge und Einträge ohne Bild tragen keins
+    expect(first.filter((i) => i.kind !== 'member' && i.kind !== 'boat').every((i) => !i.cover)).toBe(true);
+
+    // Austausch: neue Adresse; Löschen: weg
+    const again = (await (await putCover('b', boat.id, crew.cookie, webp(1500, 900))).json()) as { cover: string };
+    expect((await items()).find((i) => i.kind === 'boat')?.cover?.src).toBe(again.cover);
+    await s.send('DELETE', `/api/covers/u/${crew.handle}`, crew.cookie);
+    expect((await items()).find((i) => i.kind === 'member')?.cover).toBeUndefined();
+  });
+
+  it('F-213: Entdecken zeigt Titelbilder öffentlicher Boote, Segler und Vereine', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const boat = await s.boat(owner, { name: 'Entdeckt', visibility: 'public' });
+    const g = await s.group(owner);
+    const b = (await (await putCover('b', boat.id, owner.cookie)).json()) as { cover: string };
+    const u = (await (await putCover('u', owner.handle!, owner.cookie)).json()) as { cover: string };
+    const gc = (await (await putCover('g', g.id, owner.cookie)).json()) as { cover: string };
+    await s.send('PATCH', `/api/covers/g/${g.id}`, owner.cookie, { focusY: 80 });
+    type Card = { cover?: { src: string; y: number } | null };
+    const d = (await (await h.fetch('/api/discover?limit=50')).json()) as {
+      boats: (Card & { id: string })[];
+      people: (Card & { handle: string })[];
+      groups: (Card & { id: string })[];
+    };
+    expect(d.boats.find((x) => x.id === boat.id)?.cover).toEqual({ src: b.cover, y: 50 });
+    expect(d.people.find((x) => x.handle === owner.handle)?.cover).toEqual({ src: u.cover, y: 50 });
+    expect(d.groups.find((x) => x.id === g.id)?.cover).toEqual({ src: gc.cover, y: 80 });
+    const other = await s.boat(owner, { name: 'Ohne Bild', visibility: 'public' });
+    expect(((await (await h.fetch('/api/discover?limit=50')).json()) as typeof d).boats.find((x) => x.id === other.id)?.cover).toBeNull();
   });
 
   it('F-194: Titelbilder gelöschter Objekte räumt der Cron weg', async () => {

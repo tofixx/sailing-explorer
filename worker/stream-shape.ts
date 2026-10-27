@@ -1,5 +1,6 @@
 // Prüfung einer Aktivität beim Lesen (Konzept 11.3, F-160) – rein, ohne Worker-APIs, damit unit-testbar.
 import { canManageGroup, isActivityKind, type GroupKind, type GroupRole, type StreamItem } from '../src/domain/groups';
+import { coverRef } from '../src/domain/cover';
 
 /** Eine Aktivität samt allem, was die Prüfung braucht (ein Batch, LEFT JOINs). */
 export interface ActivityRow {
@@ -43,6 +44,13 @@ export interface ActivityRow {
   h_slug?: string | null;
   h_name?: string | null;
   h_hidden?: number | null;
+  /** Titelbilder (Version, Ausschnitt) von Boot, handelnder Person und Gruppe (Konzept 13.2) */
+  cb_ver?: string | null;
+  cb_y?: number | null;
+  cu_ver?: string | null;
+  cu_y?: number | null;
+  cg_ver?: string | null;
+  cg_y?: number | null;
 }
 
 export interface Viewer {
@@ -50,6 +58,12 @@ export interface Viewer {
 }
 
 const publicBoat = (r: ActivityRow) => (r.b_id && r.b_vis === 'public' && !r.b_hidden ? { id: r.b_id, name: r.b_name ?? '' } : null);
+
+/** Titelbilder nur öffentlicher Objekte – die Adresse kommt ohne Schlüssel aus und ist cachebar. */
+const boatCover = (r: ActivityRow) => (publicBoat(r) ? coverRef('b', r.b_id!, r.cb_ver, r.cb_y) : null);
+const groupCover = (r: ActivityRow) => (r.g_id && r.g_vis === 'public' && !r.g_hidden ? coverRef('g', r.g_id, r.cg_ver, r.cg_y) : null);
+/** `cover` nur setzen, wenn es eins gibt (kein `cover: null` in der Antwort). */
+const withCover = <T extends StreamItem>(item: T, cover: StreamItem['cover'] | null): T => (cover ? { ...item, cover } : item);
 
 /** Gruppe für den Betrachter sichtbar? Öffentlich oder Mitglied; ausgeblendet nur für Eigner/Admins. */
 function groupVisible(r: ActivityRow): boolean {
@@ -90,11 +104,11 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [])
     }
     case 'member':
       if (!group) return null;
-      return { ...base, group };
+      return withCover({ ...base, group }, actor ? coverRef('u', actor.handle, r.cu_ver, r.cu_y) : null);
     case 'boat': {
       const boat = publicBoat(r);
       if (!group || !boat) return null;
-      return { ...base, group, boat };
+      return withCover({ ...base, group, boat }, boatCover(r));
     }
     case 'post': {
       if (!group || !r.p_id || r.p_hidden) return null;
@@ -107,21 +121,21 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [])
       const year = Number(data.year) || 0;
       if (r.subject_kind === 'user') {
         if (!actor) return null; // nur mit öffentlichem Profil
-        return { ...base, milestone: { nm, year, subject: 'user', name: actor.displayName, path: `/u/${actor.handle}` } };
+        return withCover({ ...base, milestone: { nm, year, subject: 'user', name: actor.displayName, path: `/u/${actor.handle}` } }, coverRef('u', actor.handle, r.cu_ver, r.cu_y));
       }
       if (r.subject_kind === 'boat') {
         const boat = publicBoat(r);
         if (!boat) return null;
-        return { ...base, actor: null, boat, milestone: { nm, year, subject: 'boat', name: boat.name, path: `/b/${boat.id}` } };
+        return withCover({ ...base, actor: null, boat, milestone: { nm, year, subject: 'boat', name: boat.name, path: `/b/${boat.id}` } }, boatCover(r));
       }
       if (!group) return null;
-      return { ...base, actor: null, group, milestone: { nm, year, subject: 'group', name: group.name, path: `/g/${group.slug}` } };
+      return withCover({ ...base, actor: null, group, milestone: { nm, year, subject: 'group', name: group.name, path: `/g/${group.slug}` } }, groupCover(r));
     }
     case 'harbor': {
       // Neues Boot im Hafen: nur öffentliches Boot und nicht ausgeblendeter Hafen.
       const boat = publicBoat(r);
       if (!boat || !r.h_slug || r.h_hidden) return null;
-      return { ...base, boat, harbor: { slug: r.h_slug, name: r.h_name ?? '' } };
+      return withCover({ ...base, boat, harbor: { slug: r.h_slug, name: r.h_name ?? '' } }, boatCover(r));
     }
   }
   return null;

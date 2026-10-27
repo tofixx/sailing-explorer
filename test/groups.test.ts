@@ -110,6 +110,33 @@ const viewer = { id: 'Viewer000000000001' };
 const groupRow = (over: Partial<ActivityRow> = {}) =>
   row({ kind: 'post', subject_kind: 'post', subject_id: 'Post00000000000001', group_id: 'Grp000000000000001', g_id: 'Grp000000000000001', g_slug: 'sc', g_name: 'SC', g_kind: 'club', g_vis: 'public', p_id: 'Post00000000000001', p_body: 'Hallo', p_author: 'User00000000000001', s_id: null, b_id: null, ...over });
 
+describe('[F-212] shapeItem – Titelbilder nur öffentlicher Objekte', () => {
+  const boatRow = (over: Partial<ActivityRow> = {}) =>
+    groupRow({ kind: 'boat', subject_kind: 'boat', subject_id: 'Boat00000000000001', b_id: 'Boat00000000000001', b_name: 'Möwe', b_vis: 'public', p_id: null, cb_ver: 'v1abcd', cb_y: 30, ...over });
+
+  it('neues Boot: Titelbild des öffentlichen Boots mit Ausschnitt; ohne Bild kein Feld', () => {
+    expect(shapeItem(boatRow(), viewer)!.cover).toEqual({ src: '/api/covers/b/Boat00000000000001/v1abcd', y: 30 });
+    expect('cover' in shapeItem(boatRow({ cb_ver: null }), viewer)!).toBe(false);
+  });
+
+  it('Mitglied: Titelbild nur mit öffentlichem Profil; Meilenstein einer Gruppe nur bei öffentlicher Gruppe', () => {
+    const member = groupRow({ kind: 'member', subject_kind: 'group', p_id: null, cu_ver: 'u1abcd', cu_y: 10 });
+    expect(shapeItem(member, viewer)!.cover).toEqual({ src: '/api/covers/u/anna/u1abcd', y: 10 });
+    expect(shapeItem({ ...member, actor_public: 0 }, viewer)!.cover).toBeUndefined();
+    const milestone = groupRow({ kind: 'milestone', subject_kind: 'group', subject_id: 'Grp000000000000001', p_id: null, data: '{"nm":100,"year":2026}', cg_ver: 'g1abcd', cg_y: null });
+    expect(shapeItem(milestone, viewer)!.cover).toEqual({ src: '/api/covers/g/Grp000000000000001/g1abcd', y: 50 });
+    // geschlossene Gruppe, als Mitglied sichtbar: Eintrag ja, Bild nein (Adresse bräuchte Anmeldung/Schlüssel)
+    const closed = shapeItem({ ...milestone, g_vis: 'private', g_role: 'member' }, viewer)!;
+    expect(closed.milestone).toBeDefined();
+    expect(closed.cover).toBeUndefined();
+  });
+
+  it('Törns und Beiträge tragen kein Titelbild', () => {
+    expect(shapeItem(row({ cb_ver: 'v1abcd', cu_ver: 'u1abcd' }), viewer)!.cover).toBeUndefined();
+    expect(shapeItem(groupRow({ cg_ver: 'g1abcd' }), viewer)!.cover).toBeUndefined();
+  });
+});
+
 describe('[F-160] shapeItem – Sichtbarkeit beim Lesen', () => {
   it('öffentlicher Törn: mit Segler und öffentlichem Boot, ohne IDs der Konten', () => {
     const i = shapeItem(row(), viewer)!;

@@ -23,7 +23,8 @@ const ROWS_SQL = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subject_id,
     b.id AS b_id, b.name AS b_name, b.visibility AS b_vis, b.hidden_at AS b_hidden,
     g.id AS g_id, g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.hidden_at AS g_hidden, gm.role AS g_role,
     p.id AS p_id, p.body AS p_body, p.link AS p_link, p.hidden_at AS p_hidden, p.author_id AS p_author,
-    h.slug AS h_slug, h.name AS h_name, h.hidden_at AS h_hidden
+    h.slug AS h_slug, h.name AS h_name, h.hidden_at AS h_hidden,
+    cb.ver AS cb_ver, cb.focus_y AS cb_y, cu.ver AS cu_ver, cu.focus_y AS cu_y, cg.ver AS cg_ver, cg.focus_y AS cg_y
   FROM activity a
   LEFT JOIN users au ON au.id = a.actor_id
   LEFT JOIN profiles ap ON ap.user_id = a.actor_id
@@ -33,6 +34,9 @@ const ROWS_SQL = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subject_id,
   LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = ?1
   LEFT JOIN posts p ON a.subject_kind = 'post' AND p.id = a.subject_id
   LEFT JOIN harbors h ON a.kind = 'harbor' AND h.id = json_extract(a.data, '$.harbor')
+  LEFT JOIN covers cb ON cb.kind = 'b' AND cb.object_id = b.id
+  LEFT JOIN covers cu ON cu.kind = 'u' AND cu.object_id = a.actor_id
+  LEFT JOIN covers cg ON cg.kind = 'g' AND cg.object_id = g.id
   WHERE a.id IN (SELECT value FROM json_each(?2))`;
 
 interface Candidate {

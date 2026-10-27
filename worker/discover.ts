@@ -1,6 +1,7 @@
 import type { Env } from './env';
 import { json } from './http';
 import { publicGroups } from './groups';
+import { coverRef } from '../src/domain/cover';
 
 /**
  * Entdecken (F-70 … F-74): zuletzt gesegelte Törns, neue Boote und Segler.
@@ -31,21 +32,23 @@ const VOYAGES = `SELECT s.id, s.title, s.summary, s.dist_nm, s.started_at, s.cre
   ORDER BY COALESCE(s.started_at, s.created_at) DESC, s.id
   LIMIT ?1`;
 
-const BOATS = `SELECT b.id, b.name, b.boat_type, b.length_m, b.home_port, b.created_at, p.handle, p.display_name,
+const BOATS = `SELECT b.id, b.name, b.boat_type, b.length_m, b.home_port, b.created_at, p.handle, p.display_name, c.ver AS cover_ver, c.focus_y AS cover_y,
     (SELECT COUNT(*) FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS voyages,
     (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS dist_nm
   FROM boats b
   JOIN profiles p ON p.user_id = b.owner_id AND p.visibility = 'public' AND p.hidden_at IS NULL
+  LEFT JOIN covers c ON c.kind = 'b' AND c.object_id = b.id
   WHERE b.visibility = 'public' AND b.hidden_at IS NULL AND ${ACTIVE('b.owner_id')}
   ORDER BY b.created_at DESC, b.id
   LIMIT ?1`;
 
 const PEOPLE = `SELECT * FROM (
-    SELECT p.handle, p.display_name, p.bio, p.created_at,
+    SELECT p.handle, p.display_name, p.bio, p.created_at, c.ver AS cover_ver, c.focus_y AS cover_y,
       (SELECT COUNT(*) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED}) AS voyages,
       (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED}) AS dist_nm,
       (SELECT COUNT(*) FROM boats b WHERE b.owner_id = p.user_id AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats
     FROM profiles p
+    LEFT JOIN covers c ON c.kind = 'u' AND c.object_id = p.user_id
     WHERE p.visibility = 'public' AND p.hidden_at IS NULL AND ${ACTIVE('p.user_id')}
   )
   WHERE voyages > 0 OR boats > 0
@@ -80,6 +83,8 @@ interface BoatRow {
   display_name: string;
   voyages: number;
   dist_nm: number;
+  cover_ver: string | null;
+  cover_y: number | null;
 }
 
 interface PersonRow {
@@ -90,6 +95,8 @@ interface PersonRow {
   voyages: number;
   dist_nm: number;
   boats: number;
+  cover_ver: string | null;
+  cover_y: number | null;
 }
 
 export function parseLimit(raw: string | null): number {
@@ -122,6 +129,7 @@ const boatShape = (r: BoatRow) => ({
   createdAt: r.created_at,
   owner: { handle: r.handle, displayName: r.display_name },
   stats: { voyages: r.voyages, distNm: r.dist_nm },
+  cover: coverRef('b', r.id, r.cover_ver, r.cover_y),
 });
 
 const personShape = (r: PersonRow) => ({
@@ -130,6 +138,7 @@ const personShape = (r: PersonRow) => ({
   bio: r.bio,
   createdAt: r.created_at,
   stats: { voyages: r.voyages, distNm: r.dist_nm, boats: r.boats },
+  cover: coverRef('u', r.handle, r.cover_ver, r.cover_y),
 });
 
 /** GET /api/discover?limit=… – öffentliche Inhalte, neueste zuerst. */
