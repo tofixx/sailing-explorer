@@ -11,7 +11,7 @@
     // Domain auch für „/“ und statische Routen (worker/canonical.ts), und Törn-/Profil-/Boots-/Gruppen-/Hafen-Seiten bekommen
     // ihre Link-Vorschau. Gehashte Bundles, Beispiel-Tracks und das Favicon kommen direkt aus den Assets (keine Worker-Aufrufe).
     // HTML aus dem Asset-Fallback bekommt im Worker dieselben Sicherheits-Header wie in public/_headers (withPageHeaders).
-    "run_worker_first": ["/*", "!/assets/*", "!/tracks/*", "!/favicon.svg"]
+    "run_worker_first": ["/*", "!/assets/*", "!/tracks/*", "!/icons/*", "!/favicon.svg", "!/manifest.webmanifest"]
   },
   // Hauptdomain segeln-potsdam.de; www., alle nicht anders belegten Subdomains (*, proxied) und die alte
   // Domain sailing.wollow.ski leiten per 301 dorthin weiter (worker/canonical.ts). Daten (D1/R2) bleiben dieselben.

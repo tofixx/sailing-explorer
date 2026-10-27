@@ -185,6 +185,10 @@ Konzept: `docs/CONCEPT.md` Abschnitt 12. Umsetzung: `migrations/0013_social.sql`
 - **F-204** Per Adresse gebundene Freundes-Einladungen nur einmal gleichzeitig; Zurückziehen (`DELETE /api/invites/:id`) nur durch die einladende Person. Das gegenseitige Folgen beachtet die Folge-Grenze.
 - **F-205** Willkommens-Karte nach der Anmeldung: Heimathafen, Verein/Team (Beitreten je nach Stufe), Freunde einladen; „Später“ blendet aus. Öffentliche Gruppen in `/api/discover` tragen ID und Beitrittsstufe.
 
+## App auf dem Home-Bildschirm
+
+- **F-206** Web-App-Manifest (Name, Icons 192/512 maskable, Start `/`, eigenständige Anzeige) und iOS-Icon. Auf Touch-Geräten außerhalb der installierten App erscheint nach einigen Sekunden ein dezenter Hinweis: Android/Chrome mit „Installieren“ (eigenes `beforeinstallprompt`), iOS-Safari mit der Anleitung über „Teilen“ → „Zum Home-Bildschirm“. „Nicht jetzt“ blendet ihn auf dem Gerät dauerhaft aus; auf Geräten mit Maus erscheint er nie.
+
 ## Community (Entdecken)
 
 - **F-70** Entdecken: Auf der Startseite zeigt – solange keine eigenen Tracks geladen sind – neben (breite Bildschirme) bzw. unter der Einstiegskarte eine Community-Leiste „Zuletzt gesegelt“ mit neuen Booten und Seglern; ohne öffentliche Törns lädt sie zum ersten Teilen ein, nur ohne Backend bleibt sie ausgeblendet die neuesten öffentlichen Törns (Übersichtsbild oder Platzhalter, Titel, Distanz, Datum, Segler, Boot) mit Link „Alle entdecken“. Die Seite `/entdecken` zeigt drei Abschnitte: Törns, Boote, Segler, jeweils neueste zuerst. Die Leiste verdeckt die Karte nicht und ist mobil seitlich scrollbar; ohne Backend, bei Fehlern oder ohne öffentliche Törns bleibt sie unsichtbar.
