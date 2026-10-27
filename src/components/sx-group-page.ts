@@ -5,6 +5,7 @@ import {
   canApprove, canManageGroup, slugFromName, type Approvers, type GroupKind, type JoinMode,
 } from '../domain/groups';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
+import './sx-filter-select';
 import { commentLength } from '../domain/comment-text';
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
@@ -385,10 +386,10 @@ export class SxGroupPage extends LitElement {
         <textarea maxlength="1000" .value=${d.description ?? ''} @input=${(e: Event) => this.set({ description: (e.target as HTMLTextAreaElement).value })}></textarea></label>
       ${create && d.kind === 'team' && this.clubs.length
         ? html`<label><span class="label">Gehört zum Verein (optional)</span>
-            <select .value=${d.parentId ?? ''} @change=${(e: Event) => this.set({ parentId: (e.target as HTMLSelectElement).value || null })}>
+            <sx-filter-select label="Vereine filtern"><select .value=${d.parentId ?? ''} @change=${(e: Event) => this.set({ parentId: (e.target as HTMLSelectElement).value || null })}>
               <option value="">– kein Verein –</option>
               ${this.clubs.map((c) => html`<option value=${c.id} ?selected=${d.parentId === c.id}>${c.name}</option>`)}
-            </select></label>`
+            </select></sx-filter-select></label>`
         : ''}
       ${this.visibilityOptions(g?.visibility, owner)}
       ${!owner ? html`<p class="hint">Die Sichtbarkeit ändert nur der Eigner.</p>` : ''}
@@ -634,9 +635,9 @@ export class SxGroupPage extends LitElement {
             e.preventDefault();
             if (pick) emit(this, 'sx-group-boat-add', { id: g.id, boatId: pick });
           }}>
-            <select aria-label="Eigenes Boot zuordnen" @change=${(e: Event) => (pick = (e.target as HTMLSelectElement).value)}>
+            <sx-filter-select label="Boote filtern"><select aria-label="Eigenes Boot zuordnen" @change=${(e: Event) => (pick = (e.target as HTMLSelectElement).value)}>
               ${addable.map((b) => html`<option value=${b.id}>${b.name}</option>`)}
-            </select>
+            </select></sx-filter-select>
             <button class="btn" type="submit" ?disabled=${this.busy}>${icon('sail')} Boot zuordnen</button>
           </form>`
         : ''}

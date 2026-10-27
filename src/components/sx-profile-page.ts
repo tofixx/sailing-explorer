@@ -9,6 +9,7 @@ import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
 import './sx-stream';
 import './sx-page-media';
+import './sx-filter-select';
 
 /** Kurzer Hinweis für Eigentümer, wer die Seite sieht. */
 const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
@@ -411,10 +412,10 @@ export class SxProfilePage extends LitElement {
         : ''}
       ${clubs.length || d.canClearClub
         ? html`<div><label class="label" for="hc">Verein des Hafens</label>
-            <select id="hc" name="clubId">
+            <sx-filter-select label="Vereine filtern"><select id="hc" name="clubId">
               <option value="">– kein Verein –</option>
               ${clubs.map((c) => html`<option value=${c.id} ?selected=${d.club?.slug === c.slug}>${c.name}</option>`)}
-            </select></div>`
+            </select></sx-filter-select></div>`
         : ''}
       <div class="row">
         <button class="btn" type="button" @click=${() => (this.editing = false)}>Abbrechen</button>

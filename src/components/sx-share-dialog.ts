@@ -8,6 +8,7 @@ import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
+import './sx-filter-select';
 
 /** Was nach dem Hochladen wer sieht – ein Satz je Stufe (Konzept 1.1). */
 export const SHARE_CONSEQUENCE: Record<Visibility, string> = {
@@ -477,10 +478,10 @@ export class SxShareDialog extends LitElement {
       ${this.boats.length
         ? html`<div>
             <label class="label" for="boat">Boot</label>
-            <select id="boat" name="boat">
+            <sx-filter-select label="Boote filtern"><select id="boat" name="boat">
               <option value="">Kein Boot</option>
               ${this.boats.map((b) => html`<option value=${b.id}>${b.name}</option>`)}
-            </select>
+            </select></sx-filter-select>
           </div>`
         : ''}
       <label class="check"><input type="checkbox" name="view" checked /> Aktuelle Ansicht mitgeben (Einfärbung &amp; Ebenen)</label>
