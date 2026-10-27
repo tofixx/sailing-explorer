@@ -8,12 +8,15 @@ import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { inviteMail, sendMail } from './mail';
 import { assertActive } from './moderation';
 import { getShareRow, ownedShare, visibleShare } from './shares';
+import { clearConfirmations } from './crew-cleanup';
 import { GROUP_FULL, addMember, insertRequest, loadGroup, roleIn } from './groups';
 import { addFollow } from './follows';
 import { GROUP_LIMITS } from '../src/domain/limits';
 import { canManageGroup, effectiveJoinMode, inviteJoinsDirectly, type Approvers, type JoinMode } from '../src/domain/groups';
 import { BOAT_ID_RE, TOKEN_RE, normalizeEmail, normalizeHandle, parseInviteKind, type InviteKind } from './validate';
 import { funnyName } from '../src/domain/names';
+import { isSelfRole, voyageRole, type VoyageRole } from '../src/domain/crew-roles';
+import { skipperOf } from './crew-roles';
 
 const DAY = 86_400_000;
 
@@ -47,6 +50,8 @@ interface InviteRow {
   email: string | null;
   /** an dieses Konto gebunden (Einladung über den Profilnamen) */
   invitee_id: string | null;
+  /** Crew: Rolle beim Annehmen (0022), NULL = crew */
+  role?: string | null;
   max_uses: number;
   uses: number;
   created_at: number;
@@ -109,6 +114,8 @@ interface NewInvite {
   maxUses: number;
   days: number;
   targetName: string;
+  /** Crew: Rolle, die beim Annehmen gesetzt wird */
+  role?: VoyageRole;
 }
 
 /**
@@ -179,19 +186,19 @@ async function createInvite(request: Request, env: Env, user: User, o: NewInvite
   const token = randomToken();
   const row: InviteRow = {
     id: randomId(), kind: o.kind, boat_id: o.boatId ?? null, share_id: o.shareId ?? null, group_id: o.groupId ?? null, inviter_id: user.id,
-    email: to && 'email' in to ? to.email : null, invitee_id: to && 'userId' in to ? to.userId : null,
+    email: to && 'email' in to ? to.email : null, invitee_id: to && 'userId' in to ? to.userId : null, role: o.role ?? null,
     max_uses: o.maxUses, uses: 0, created_at: now, expires_at: now + o.days * DAY,
   };
   await env.DB.prepare(
-    `INSERT INTO invites (id, token_hash, kind, boat_id, share_id, group_id, inviter_id, email, invitee_id, max_uses, uses, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+    `INSERT INTO invites (id, token_hash, kind, boat_id, share_id, group_id, inviter_id, email, invitee_id, role, max_uses, uses, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
   )
-    .bind(row.id, await sha256Hex(token), row.kind, row.boat_id, row.share_id, row.group_id, row.inviter_id, row.email, row.invitee_id, row.max_uses, row.created_at, row.expires_at)
+    .bind(row.id, await sha256Hex(token), row.kind, row.boat_id, row.share_id, row.group_id, row.inviter_id, row.email, row.invitee_id, row.role, row.max_uses, row.created_at, row.expires_at)
     .run();
   const link = inviteLink(request, token);
   if (mailTo) {
     try {
-      await sendMail(env, inviteMail(env, mailTo, { kind: o.kind, groupKind: o.groupKind, inviter: await displayName(env, user.id), target: o.targetName, link, days: o.days }));
+      await sendMail(env, inviteMail(env, mailTo, { kind: o.kind, groupKind: o.groupKind, role: o.role, inviter: await displayName(env, user.id), target: o.targetName, link, days: o.days }));
     } catch (err) {
       // Ohne Mail keine offene Einladung – sonst sperrt sie die Person (already_invited).
       await env.DB.prepare('DELETE FROM invites WHERE id = ?').bind(row.id).run();
@@ -281,44 +288,71 @@ interface CrewRow {
   handle: string | null;
   display_name: string | null;
   visibility: string | null;
+  role: string;
+  confirmed_at: number | null;
+  confirmed_by: string | null;
+  confirmer_name: string | null;
 }
 
 async function crewRows(env: Env, shareId: string): Promise<CrewRow[]> {
   const { results } = await env.DB.prepare(
-    `SELECT c.user_id, c.created_at, p.handle, p.display_name, CASE WHEN p.hidden_at IS NULL THEN p.visibility END AS visibility FROM share_crew c
-     LEFT JOIN profiles p ON p.user_id = c.user_id WHERE c.share_id = ? ORDER BY c.created_at`,
+    `SELECT c.user_id, c.created_at, p.handle, p.display_name, CASE WHEN p.hidden_at IS NULL THEN p.visibility END AS visibility,
+       c.role, c.confirmed_at, c.confirmed_by,
+       CASE WHEN q.visibility = 'public' AND q.hidden_at IS NULL THEN q.display_name END AS confirmer_name
+     FROM share_crew c LEFT JOIN profiles p ON p.user_id = c.user_id LEFT JOIN profiles q ON q.user_id = c.confirmed_by
+     WHERE c.share_id = ? ORDER BY c.created_at`,
   )
     .bind(shareId)
     .all<CrewRow>();
   return results;
 }
 
+/** Bestätigung für Beteiligte: wann und von wem (Name nur bei öffentlichem Profil, sonst Spaßname; gelöschtes Konto → null). */
+const confirmation = (at: number | null | undefined, by: string | null | undefined, name: string | null | undefined) =>
+  at ? { at, by: by ? name || funnyName(by) : null } : null;
+
 /**
  * GET /api/shares/:id/crew – wer den Törn sehen darf (gleiche Prüfung wie die Freigabe). Besucher sehen Crew nur bei
- * öffentlichen Törns, namentlich nur mit öffentlichem Profil, sonst als Anzahl (Konzept 10.6). Der Eigentümer sieht alle,
- * mit IDs zum Entfernen und offenen Einladungen.
+ * öffentlichen Törns, namentlich nur mit öffentlichem Profil, sonst als Anzahl (Konzept 10.6), jeweils mit Rolle
+ * (Konzept 15). Eigentümer und Skipper sehen alle mit IDs, Rollen und Bestätigungen – Anzeigenamen privater Profile
+ * nur der Eigentümer (10.6), der Skipper deren Spaßnamen; nur der Eigentümer offene Einladungen. Ein Crew-Mitglied
+ * sieht zusätzlich die eigene Rolle und Bestätigung (`me`).
  */
 export async function getCrew(request: Request, env: Env, id: string): Promise<Response> {
   const { row, isOwner, user } = await visibleShare(request, env, id);
   const rows = await crewRows(env, row.id);
-  const isCrew = !!user && rows.some((r) => r.user_id === user.id);
-  if (isOwner) {
-    const invites = (await env.DB.prepare(pendingSql('share_id')).bind(row.id, Date.now()).all<InviteRow>()).results.map(inviteShape);
+  const mine = user ? rows.find((r) => r.user_id === user.id) : undefined;
+  const skipper = await skipperOf(env, row);
+  const isSkipper = !!user && skipper === user.id;
+  const ownerRole = row.owner_role ? voyageRole(row.owner_role) : null;
+  const base = { isOwner, isCrew: !!mine, isSkipper, ownerRole, me: mine ? { role: voyageRole(mine.role), confirmed: confirmation(mine.confirmed_at, mine.confirmed_by, mine.confirmer_name) } : null };
+  if (isOwner || isSkipper) {
+    const invites = isOwner ? (await env.DB.prepare(pendingSql('share_id')).bind(row.id, Date.now()).all<InviteRow>()).results.map(inviteShape) : [];
+    const ownerBy = row.role_confirmed_by
+      ? await env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ? AND visibility = 'public' AND hidden_at IS NULL`).bind(row.role_confirmed_by).first<{ display_name: string }>()
+      : null;
     return json({
-      members: rows.map((r) => ({ id: r.user_id, handle: r.visibility === 'public' ? r.handle : null, displayName: r.display_name || funnyName(r.user_id) })),
+      ...base,
+      members: rows.map((r) => ({
+        id: r.user_id,
+        handle: r.visibility === 'public' ? r.handle : null,
+        displayName: (isOwner || r.visibility === 'public' ? r.display_name : null) || funnyName(r.user_id),
+        role: voyageRole(r.role),
+        confirmed: confirmation(r.confirmed_at, r.confirmed_by, r.confirmer_name),
+      })),
       others: 0,
-      isOwner: true,
-      isCrew: false,
+      ownerConfirmed: confirmation(row.role_confirmed_at, row.role_confirmed_by, ownerBy?.display_name),
       invites,
     });
   }
   const shown = row.visibility === 'public' ? rows : [];
   const named = shown.filter((r) => r.visibility === 'public' && r.handle);
   return json({
-    members: named.map((r) => ({ id: null, handle: r.handle, displayName: r.display_name ?? '' })),
+    ...base,
+    // Bestätigungen anderer sind nie öffentlich – Besucher sehen nur Name und Rolle.
+    members: named.map((r) => ({ id: null, handle: r.handle, displayName: r.display_name ?? '', role: voyageRole(r.role), confirmed: null })),
     others: shown.length - named.length,
-    isOwner: false,
-    isCrew,
+    ownerConfirmed: null,
     invites: [],
   });
 }
@@ -329,7 +363,11 @@ export async function getCrew(request: Request, env: Env, id: string): Promise<R
  */
 export async function inviteCrew(request: Request, env: Env, id: string): Promise<Response> {
   const { row, user } = await ownedShare(request, env, id);
-  const to = await readRecipient(env, await readJson<{ email?: unknown; handle?: unknown }>(request), true);
+  const body = await readJson<{ email?: unknown; handle?: unknown; role?: unknown }>(request);
+  // Einladungen geben Co-Skipper, Crew oder Gast vor – Skipper trägt der Eigentümer erst nach dem Annehmen ein.
+  if (body.role !== undefined && body.role !== null && !isSelfRole(body.role)) throw new HttpError(400, 'invalid_role', 'Einladen geht als Co-Skipper:in, Crew oder Gast.');
+  const role = isSelfRole(body.role) ? body.role : 'crew';
+  const to = await readRecipient(env, body, true);
   const now = Date.now();
   const crew = await count(env, 'SELECT COUNT(*) AS n FROM share_crew WHERE share_id = ?', row.id);
   if (crew >= INVITE_LIMITS.crewPerShare) throw new HttpError(409, 'quota', `Ein Törn hat höchstens ${INVITE_LIMITS.crewPerShare} Crew-Mitglieder.`);
@@ -339,7 +377,7 @@ export async function inviteCrew(request: Request, env: Env, id: string): Promis
   if (isSelf(to, user)) throw new HttpError(409, 'own_object', 'Das ist dein eigener Törn.');
   await checkNotMember(env, to, 'share_crew', row.id);
   const { invite, link } = await createInvite(request, env, user, {
-    kind: 'crew', shareId: row.id, to, maxUses: to ? 1 : INVITE_LIMITS.crewPerShare - crew, days: INVITE_LIMITS.crewDays, targetName: row.title,
+    kind: 'crew', shareId: row.id, to, maxUses: to ? 1 : INVITE_LIMITS.crewPerShare - crew, days: INVITE_LIMITS.crewDays, targetName: row.title, role,
   });
   return json({ invite, link: to ? undefined : link, devLink: to ? devLink(request, env, link) : undefined }, { status: 201 });
 }
@@ -353,8 +391,10 @@ export async function removeCrew(request: Request, env: Env, id: string, who: st
   const target = who === 'me' ? user.id : who;
   // Fremde (weder Eigentümer noch selbst betroffen) bekommen dieselbe 404 wie bei unbekannten Törns.
   if (!isOwner && target !== user.id) throw SHARE_NOT_FOUND();
-  const res = await env.DB.prepare('DELETE FROM share_crew WHERE share_id = ? AND user_id = ?').bind(row.id, target).run();
-  if (!res.meta.changes) throw isOwner ? new HttpError(404, 'not_found', 'Diese Person ist nicht in der Crew.') : SHARE_NOT_FOUND();
+  const gone = await env.DB.prepare('DELETE FROM share_crew WHERE share_id = ? AND user_id = ? RETURNING role').bind(row.id, target).first<{ role: string }>();
+  if (!gone) throw isOwner ? new HttpError(404, 'not_found', 'Diese Person ist nicht in der Crew.') : SHARE_NOT_FOUND();
+  // Ohne Skipper gilt keine Bestätigung mehr (Konzept 15).
+  if (gone.role === 'skipper') await env.DB.batch(clearConfirmations(env, row.id));
   return new Response(null, { status: 204 });
 }
 
@@ -453,6 +493,9 @@ async function isMember(env: Env, inv: LoadedInvite, userId: string): Promise<bo
     : !!(await count(env, 'SELECT COUNT(*) AS n FROM share_crew WHERE share_id = ? AND user_id = ?', inv.share_id, userId));
 }
 
+/** Rolle aus einer Crew-Einladung – nie Skipper, Unbekanntes gilt als Crew. */
+const inviteRole = (inv: InviteRow): VoyageRole => (isSelfRole(inv.role) ? inv.role : 'crew');
+
 /** Gebunden (an eine Adresse oder ein Konto)? Dann gilt sie nur für genau dieses Konto. */
 const isBound = (inv: InviteRow) => !!(inv.email || inv.invitee_id);
 const isFor = (inv: InviteRow, user: User) => (inv.invitee_id ? inv.invitee_id === user.id : inv.email ? inv.email === user.email : true);
@@ -473,6 +516,8 @@ export async function peekInvite(request: Request, env: Env): Promise<Response> 
     /** an eine Adresse bzw. ein Konto gebunden (welches, verrät die Antwort nicht) */
     bound: isBound(inv),
     expiresAt: inv.expires_at,
+    /** nur bei Crew: Rolle, als die eingeladen wird */
+    role: inv.kind === 'crew' ? inviteRole(inv) : undefined,
     /** null: nicht angemeldet bzw. nicht gebunden */
     emailMatches: user && isBound(inv) ? isFor(inv, user) : null,
     isOwner: !!user && user.id === ownerOf(inv),
@@ -513,9 +558,10 @@ async function acceptLoaded(env: Env, user: User, inv: LoadedInvite) {
   }
   if (!(await claim(env, inv.id))) throw INVALID();
   const now = Date.now();
-  await env.DB.prepare(boat ? 'INSERT OR IGNORE INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)' : 'INSERT OR IGNORE INTO share_crew (share_id, user_id, created_at) VALUES (?, ?, ?)')
-    .bind(targetId, user.id, now)
-    .run();
+  await (boat
+    ? env.DB.prepare('INSERT OR IGNORE INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)').bind(targetId, user.id, now)
+    : env.DB.prepare('INSERT OR IGNORE INTO share_crew (share_id, user_id, created_at, role) VALUES (?, ?, ?, ?)').bind(targetId, user.id, now, inviteRole(inv))
+  ).run();
   return { ...result, already: false };
 }
 
@@ -600,6 +646,7 @@ export async function listMyInvites(request: Request, env: Env): Promise<Respons
       kind: inv.kind,
       target: targetOf(inv),
       groupKind: inv.kind === 'group' ? inv.group_kind : undefined,
+      role: inv.kind === 'crew' ? inviteRole(inv) : undefined,
       inviter: await displayName(env, inv.inviter_id),
       expiresAt: inv.expires_at,
     });

@@ -302,7 +302,7 @@ describe('F-133 Crew per Link oder E-Mail', () => {
     const { link } = await inviteCrew(owner, share.id);
     const noProfile = await person();
     expect(await getJson(await accept(noProfile, tokenOf(link!)))).toMatchObject({ already: false });
-    expect((await getJson<CrewOut>(await crewOf(share.id, owner))).members).toEqual([{ id: noProfile.user.id, handle: null, displayName: funnyName(noProfile.user.id) }]);
+    expect((await getJson<CrewOut>(await crewOf(share.id, owner))).members).toEqual([{ id: noProfile.user.id, handle: null, displayName: funnyName(noProfile.user.id), role: 'crew', confirmed: null }]);
     expect(await getJson(await crewOf(share.id))).toMatchObject({ members: [], others: 1 });
   });
 
@@ -335,7 +335,7 @@ describe('F-134 Crew nur auf öffentlichen Törns', () => {
   it('[F-134] öffentlicher Törn: Besucher sehen Mitglieder mit öffentlichem Profil, die anderen nur als Anzahl, ohne IDs', async () => {
     const { share, pub, priv } = await shareWithCrew('public');
     const crew = await getJson<CrewOut>(await crewOf(share.id));
-    expect(crew).toEqual({ members: [{ id: null, handle: pub.handle, displayName: `Name ${pub.handle}` }], others: 1, isOwner: false, isCrew: false, invites: [] });
+    expect(crew).toEqual({ members: [{ id: null, handle: pub.handle, displayName: `Name ${pub.handle}`, role: 'crew', confirmed: null }], others: 1, isOwner: false, isCrew: false, isSkipper: false, ownerRole: null, ownerConfirmed: null, me: null, invites: [] });
     expect(JSON.stringify(crew)).not.toContain(priv.handle!);
     // Das Mitglied selbst erfährt, dass es dabei ist (für „Mich entfernen“)
     expect(await getJson(await crewOf(share.id, priv))).toMatchObject({ isCrew: true });
@@ -343,12 +343,12 @@ describe('F-134 Crew nur auf öffentlichen Törns', () => {
 
   it('[F-134] „Nur mit Link“: Besucher mit Schlüssel sehen keine Crew, der Eigentümer alle (auch private Profile mit Namen)', async () => {
     const { owner, share, pub, priv } = await shareWithCrew('unlisted');
-    expect(await getJson(await crewOf(share.id, undefined, share.shareKey))).toEqual({ members: [], others: 0, isOwner: false, isCrew: false, invites: [] });
+    expect(await getJson(await crewOf(share.id, undefined, share.shareKey))).toEqual({ members: [], others: 0, isOwner: false, isCrew: false, isSkipper: false, ownerRole: null, ownerConfirmed: null, me: null, invites: [] });
     expect((await crewOf(share.id)).status).toBe(404); // ohne Schlüssel wie die Freigabe selbst
     const own = await getJson<CrewOut>(await crewOf(share.id, owner));
     expect(own.members).toEqual([
-      { id: pub.user.id, handle: pub.handle, displayName: `Name ${pub.handle}` },
-      { id: priv.user.id, handle: null, displayName: `Name ${priv.handle}` },
+      { id: pub.user.id, handle: pub.handle, displayName: `Name ${pub.handle}`, role: 'crew', confirmed: null },
+      { id: priv.user.id, handle: null, displayName: `Name ${priv.handle}`, role: 'crew', confirmed: null },
     ]);
   });
 

@@ -1,6 +1,7 @@
 import { computeTrackStats } from './domain/stats';
 import { GpxError, parseGpx } from './domain/gpx';
 import { METRICS, METRIC_KEYS, metricRange, type MetricDef } from './domain/metrics';
+import type { VoyageRole } from './domain/crew-roles';
 import { averageConditions, kpis } from './domain/summary';
 import { nearestByTime, timeline, type TimedPoint } from './domain/timeline';
 import { attachConditions, parseWeatherData, type WeatherData } from './domain/weather';
@@ -477,7 +478,11 @@ export class App {
     on('sx-invite-accept', () => s.acceptInvite());
     on<{ id: string; scope: 'crew' | 'boat'; boatId?: string }>('sx-invite-revoke', (d) => s.revokeInvite(d));
     on<string>('sx-invite-copy', (url) => s.copyInvite(url));
-    on<{ to: { email: string } | { handle: string } | null }>('sx-crew-invite', (d) => s.inviteCrew(d.to));
+    on<{ to: { email: string } | { handle: string } | null; role?: VoyageRole }>('sx-crew-invite', (d) => s.inviteCrew(d.to, d.role));
+    on<{ userId: string; role: VoyageRole }>('sx-crew-role', (d) => s.setCrewRole(d.userId, d.role));
+    on<{ role: VoyageRole }>('sx-crew-own-role', (d) => s.setOwnerRole(d.role));
+    on<{ userIds: string[] | 'all'; owner: boolean }>('sx-crew-confirm', (d) => s.confirmCrew(d.userIds, d.owner));
+    on<{ userId: string }>('sx-crew-unconfirm', (d) => s.unconfirmCrew(d.userId));
     on<{ userId: string }>('sx-crew-remove', (d) => s.removeCrew(d.userId));
     on('sx-crew-leave', () => s.leaveCrew());
     on<string>('sx-boat-admins', (id) => s.loadAdmins(id));

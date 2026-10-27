@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { HttpError } from './http';
+import { VOYAGE_ROLE_SHORT, type VoyageRole } from '../src/domain/crew-roles';
 
 interface Mail {
   to: string;
@@ -97,6 +98,8 @@ export interface InviteMailInput {
   kind: 'boat_admin' | 'crew' | 'group' | 'friend';
   /** nur bei Gruppen: Verein oder Team */
   groupKind?: 'club' | 'team';
+  /** nur bei Crew: Rolle, als die eingeladen wird (Konzept 15) */
+  role?: VoyageRole;
   /** Anzeigename des Einladenden (selbst gewählt oder Spaßname) – nie die E-Mail-Adresse */
   inviter: string;
   /** Boots- bzw. Törnname (Nutzertext) */
@@ -112,10 +115,12 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
   const who = short(m.inviter.trim() || 'Ein Segler oder eine Seglerin', 60);
   const group = m.groupKind === 'team' ? 'das Team' : 'den Verein';
   const target = short(m.target.trim() || (m.kind === 'crew' ? 'Törn' : m.kind === 'group' ? 'Gruppe' : 'Boot'), 80);
+  // „als Gast“ usw. – feste Texte, kein Nutzertext
+  const asRole = m.role && m.role !== 'crew' ? `als ${VOYAGE_ROLE_SHORT[m.role]} ` : '';
   const what =
     m.kind === 'friend'
       ? `zu ${app} ein – Törns teilen, Boote, Vereine und Teams rund ums Segeln`
-      : m.kind === 'boat_admin' ? `das Boot „${target}“ bei ${app} mitzuverwalten` : m.kind === 'group' ? `in ${group} „${target}“ bei ${app}` : `in die Crew des Törns „${target}“ bei ${app}`;
+      : m.kind === 'boat_admin' ? `das Boot „${target}“ bei ${app} mitzuverwalten` : m.kind === 'group' ? `in ${group} „${target}“ bei ${app}` : `${asRole}in die Crew des Törns „${target}“ bei ${app}`;
   const whatHtml =
     m.kind === 'friend'
       ? `zu <b>${app}</b> ein – Törns teilen, Boote, Vereine und Teams rund ums Segeln`
@@ -123,7 +128,7 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
       ? `das Boot <b>„${escapeHtml(target)}“</b> bei <b>${app}</b> mitzuverwalten`
       : m.kind === 'group'
         ? `in ${group} <b>„${escapeHtml(target)}“</b> bei <b>${app}</b>`
-        : `in die Crew des Törns <b>„${escapeHtml(target)}“</b> bei <b>${app}</b>`;
+        : `${asRole}in die Crew des Törns <b>„${escapeHtml(target)}“</b> bei <b>${app}</b>`;
   const verb = m.kind === 'boat_admin' ? 'lädt dich ein,' : m.kind === 'friend' ? 'lädt dich' : 'lädt dich ein';
   const after =
     m.kind === 'friend'

@@ -1455,3 +1455,27 @@ Moderation nutzt; R2-Schlüssel für Törns stehen nur in `photo-keys.ts`. Schei
 die übrigen nicht auf); die Neuberechnung des Speicherzählers läuft immer. Fristen: offene Meldungen nach 180 Tagen ohne
 Meldende und Anmerkung (sie zählen dann nicht mehr fürs automatische Ausblenden, dieselbe Person kann neu melden), Zahlungen 10 Jahre nach Ablauf der Unterstützung. Austritt bzw. Entfernen eines Boots aus einer
 Gruppe nimmt die zugehörige Neuigkeit mit. `covers.user_id` wird beim Konto-Löschen geleert.
+
+## 15. Crew-Rollen
+
+Stand: 27.10.2026, vom Betreiber freigegeben. Ausführliches Konzept mit Stammcrew-Schaltern, Boot-Beiträgen, Charter
+und Meilennachweis: `crew-rollen-konzept.md` (außerhalb des Repos; baut auf `docs/ROLLEN.md` aus
+`feature/supporter-badges` auf). Anforderungen **F-270 … F-280**. Umgesetzt ist der Teil, der nicht von den
+Boots-Stufen aus ROLLEN.md abhängt: **Rollen am Törn und Bestätigung durch den Skipper** (F-275, F-276, F-279, F-280).
+Umsetzung: `migrations/0022_crew_roles.sql`, `src/domain/crew-roles.ts`, `worker/crew-roles.ts`, `worker/invites.ts`
+(`getCrew`, Einladung mit Rolle), `sx-crew`.
+
+| Punkt | Entscheidung |
+|---|---|
+| Rollen | `skipper` · `co` (Co-Skipper:in/Wachführer:in) · `crew` (Standard) · `guest`. Crew-Mitglieder in `share_crew.role`, die Eigentümer:in in `shares.owner_role` (NULL = nicht angegeben). Das Fahrtenbuch liest künftig diese Spalte statt `log.role` |
+| Wer setzt | Eigentümer:in alle Rollen; Crew nur die eigene, nie Skipper; Einladungen geben Co-Skipper, Crew oder Gast vor |
+| Skipper | höchstens eine:r je Törn, geprüft in derselben SQL-Anweisung (409 `skipper_taken`) |
+| Bestätigung | nur die Skipper:in bestätigt die anderen (nie sich selbst), auch die Eigentümer:in. Neue Rolle → Bestätigung der Person fällt; anderes Boot, Skipper-Wechsel oder Skipper verlässt die Crew → alle fallen. Ersetzt keine Unterschrift |
+| Sichtbarkeit | Crew öffnet weiter nichts (10.6): Rollen erscheinen für Besucher nur neben namentlich genannten Mitgliedern öffentlicher Törns; Bestätigungen nur für Eigentümer:in, Skipper:in und die Person selbst. Ein Skipper aus der Crew sieht alle Mitglieder (zum Bestätigen), private Profile aber nur mit Spaßnamen; Anzeigenamen privater Profile sieht nur die Eigentümer:in. „Bestätigt von“ nennt den Namen nur bei öffentlichem Profil |
+| Nicht öffentliche Törns | Die Schreib-Endpunkte prüfen die Mitgliedschaft, nicht die Sichtbarkeit. Das Crew-Panel gibt es aber nur, wo man den Törn sehen darf; für Crew nicht öffentlicher Törns kommt die Ansicht mit dem Meilennachweis (Ausnahme M1, nur Eckdaten). Ausgeblendete Törns (Moderation) → 404 auch für Rollen |
+| Gleichzeitigkeit | Skipper-Prüfung, „Rolle noch die gelesene“ (sonst 409 `role_changed`) und „bin noch Skipper“ beim Bestätigen stehen jeweils in derselben SQL-Anweisung; dazu ein eindeutiger Teilindex „ein Skipper je Törn“ |
+| Löschen | mit Törn und Crew-Eintrag; Boot gelöscht (auch mit dem Konto des Eigners) → Bestätigungen der Törns fallen; Konto der Skipper:in gelöscht → Bestätigung bleibt ohne Konto-ID |
+
+Noch offen (eigene Schritte): Stammcrew-Schalter, Titel, Boot-Beiträge und „Törns zuordnen“ (F-270 … F-274, brauchen
+`boat_admins.role` aus ROLLEN.md Schritt 1); Meilennachweis-Export und „In mein Fahrtenbuch übernehmen“ (F-277, F-278,
+mit dem Fahrtenbuch); Ausnahme M1 (Eckdaten nicht öffentlicher Törns im eigenen Nachweis) kommt mit dem Export.

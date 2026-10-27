@@ -3,6 +3,7 @@ import { PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passk
 import { deviceName } from '../domain/device';
 import { passkeyApi } from '../services/api';
 import { inviteAcceptedText } from '../domain/invite-text';
+import type { VoyageRole } from '../domain/crew-roles';
 import { shareSummary } from '../domain/summary';
 import { needsSupport, type SupportTier } from '../domain/support';
 import {
@@ -376,9 +377,9 @@ export class SessionController {
   }
 
   /** Crew einladen: per E-Mail, Profilname oder (to = null) als Einladungslink, der nur jetzt angezeigt wird. */
-  inviteCrew(to: InviteTo | null) {
+  inviteCrew(to: InviteTo | null, role: VoyageRole = 'crew') {
     return this.crewAct(async (id) => {
-      const res = await api.inviteCrew(id, to);
+      const res = await api.inviteCrew(id, to, role);
       if (res.link) this.ui.crew.newLink = res.link;
       else this.ui.toast(invitedText(res.invite));
       if (res.devLink) console.info('Einladungslink (Entwicklung, kein Mailversand):', res.devLink);
@@ -387,6 +388,31 @@ export class SessionController {
 
   removeCrew(userId: string) {
     return this.crewAct((id) => api.removeCrew(id, userId), 'Aus der Crew entfernt');
+  }
+
+  /** Rolle am Törn: `userId` 'me' = eigene Rolle als Crew-Mitglied (Konzept 15). */
+  setCrewRole(userId: string, role: VoyageRole) {
+    return this.crewAct(async (id) => {
+      await api.setCrewRole(id, userId, role);
+    }, 'Rolle gespeichert');
+  }
+
+  /** Eigene Rolle als Eigentümer:in des Törns. */
+  setOwnerRole(role: VoyageRole) {
+    return this.crewAct(async (id) => {
+      await api.setOwnerRole(id, role);
+    }, 'Rolle gespeichert');
+  }
+
+  /** Skipper bestätigt Rolle und Meilen (`userIds` 'all' = alle, `owner` = auch die Eigentümer:in). */
+  confirmCrew(userIds: string[] | 'all', owner: boolean) {
+    return this.crewAct(async (id) => {
+      await api.confirmCrew(id, userIds, owner);
+    }, 'Bestätigt');
+  }
+
+  unconfirmCrew(userId: string) {
+    return this.crewAct((id) => api.unconfirmCrew(id, userId), 'Bestätigung zurückgezogen');
   }
 
   leaveCrew() {

@@ -173,7 +173,7 @@ describe('sx-crew', () => {
     submit(' mate2@example.org ');
     submit('@mats');
     submit('anna-k');
-    expect(invites).toEqual([{ to: null }, { to: { email: 'mate2@example.org' } }, { to: { handle: 'mats' } }, { to: { handle: 'anna-k' } }]);
+    expect(invites).toEqual([{ to: null, role: 'crew' }, { to: { email: 'mate2@example.org' }, role: 'crew' }, { to: { handle: 'mats' }, role: 'crew' }, { to: { handle: 'anna-k' }, role: 'crew' }]);
     expect(text(el)).toContain('Per E-Mail erreichst du neue und bestehende Konten');
     button(el, /Einladung zurückziehen: mate@example.org/)!.click();
     expect(revokes).toEqual([{ id: 'I1', scope: 'crew' }]);
@@ -198,6 +198,66 @@ describe('sx-crew', () => {
     await el.updateComplete;
     button(el, /Ja, entfernen/)!.click();
     expect(removes).toEqual([{ userId: 'U1' }]);
+  });
+});
+
+describe('sx-crew: Rollen und Bestätigung (Konzept 15)', () => {
+  const crew = (over: Record<string, unknown> = {}) => ({ members: [], others: 0, isOwner: false, isCrew: false, isSkipper: false, ownerRole: null, ownerConfirmed: null, me: null, invites: [], ...over });
+  const select = (el: LitEl, label: RegExp) => [...el.shadowRoot.querySelectorAll('select')].find((s) => label.test(s.getAttribute('aria-label') ?? '')) as HTMLSelectElement;
+  const pick = (s: HTMLSelectElement, v: string) => {
+    s.value = v;
+    s.dispatchEvent(new Event('change'));
+  };
+
+  it('[F-275] Eigentümer: eigene Rolle, Rollen der Crew und Rolle für Einladungen wählen', async () => {
+    const roles = listen('sx-crew-role');
+    const own = listen('sx-crew-own-role');
+    const invites = listen('sx-crew-invite');
+    const el = await mount('sx-crew', { isOwner: true, crew: crew({ isOwner: true, members: [{ id: 'U1', handle: null, displayName: 'Tom', role: 'crew', confirmed: null }] }) });
+    pick(select(el, /Deine Rolle/), 'skipper');
+    await el.updateComplete;
+    expect(own).toEqual([]); // Skipper erst nach Rückfrage – Bestätigungen fallen weg
+    button(el, /Ja, eintragen/)!.click();
+    pick(select(el, /Rolle von Tom/), 'co');
+    const forInvites = select(el, /Rolle für Einladungen/);
+    expect([...forInvites.options].map((o) => o.value)).toEqual(['co', 'crew', 'guest']); // nie Skipper
+    pick(forInvites, 'guest');
+    button(el, /Einladungslink erzeugen/)!.click();
+    expect(own).toEqual([{ role: 'skipper' }]);
+    expect(roles).toEqual([{ userId: 'U1', role: 'co' }]);
+    expect(invites).toEqual([{ to: null, role: 'guest' }]);
+  });
+
+  it('[F-276] Skipper bestätigt einzeln und alle; Bestätigte zeigen „bestätigt von …“, Hinweis auf Unterschrift', async () => {
+    const confirms = listen('sx-crew-confirm');
+    const unconfirms = listen('sx-crew-unconfirm');
+    const el = await mount('sx-crew', {
+      crew: crew({ isCrew: true, isSkipper: true, ownerRole: 'co', me: { role: 'skipper', confirmed: null }, members: [
+        { id: 'U1', handle: null, displayName: 'Tom', role: 'co', confirmed: { at: Date.now(), by: 'Lisa' } },
+        { id: 'U2', handle: null, displayName: 'Mara', role: 'guest', confirmed: null },
+      ] }),
+    });
+    expect(text(el)).toContain('bestätigt von Lisa');
+    expect(text(el)).toContain('ersetzt keine Unterschrift');
+    button(el, /bestätigen: Mara/)!.click();
+    button(el, /zurückziehen: Tom/)!.click();
+    button(el, /bestätigen: Eigentümer/)!.click();
+    button(el, /Alle bestätigen/)!.click();
+    expect(confirms).toEqual([{ userIds: ['U2'], owner: false }, { userIds: [], owner: true }, { userIds: 'all', owner: true }]);
+    expect(unconfirms).toEqual([{ userId: 'U1' }]);
+  });
+
+  it('[F-275] Crew-Mitglied wählt die eigene Rolle ohne Skipper; Besucher sehen Rollen nur als Text', async () => {
+    const roles = listen('sx-crew-role');
+    const el = await mount('sx-crew', { crew: crew({ isCrew: true, me: { role: 'crew', confirmed: null } }) });
+    const mine = select(el, /Deine Rolle/);
+    expect([...mine.options].map((o) => o.value)).toEqual(['co', 'crew', 'guest']);
+    pick(mine, 'guest');
+    expect(roles).toEqual([{ userId: 'me', role: 'guest' }]);
+    const visitor = await mount('sx-crew', { crew: crew({ members: [{ id: null, handle: 'mats', displayName: 'Mats', role: 'co', confirmed: null }] }) });
+    expect(visitor.shadowRoot.querySelector('select')).toBeNull();
+    expect(text(visitor)).toContain('Co-Skipper:in');
+    expect(button(visitor, /Bestätigen/)).toBeUndefined();
   });
 });
 
