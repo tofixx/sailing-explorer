@@ -7,7 +7,7 @@ import { attachConditions, parseWeatherData, type WeatherData } from './domain/w
 import { median } from './domain/geo';
 import type { MetricKey, Track, TrackPoint } from './domain/types';
 import { MapView } from './map/map-view';
-import { ApiError, api, coverApi, type CoverKind } from './services/api';
+import { ApiError, api, coverApi, type CoverKind, type PageMedia } from './services/api';
 import { PhotoError, processCover } from './services/photo-process';
 import type { SxCover } from './components/sx-page-media';
 import { inflateFromBase64Url } from './services/compress';
@@ -466,6 +466,7 @@ export class App {
     on<{ path: string; title: string }>('sx-page-share', (d) => s.sharePage(d.path, d.title));
     on<{ kind: CoverKind; id: string; file: File }>('sx-cover-change', (d, e) => this.changeCover(d, e));
     on<{ kind: CoverKind; id: string }>('sx-cover-remove', (d, e) => this.changeCover({ ...d, file: null }, e));
+    on<{ kind: CoverKind; id: string; focusY: number; previous: number }>('sx-cover-focus', (d, e) => this.moveCover(d, e));
     on<{ id: string; patch: Parameters<SessionController['updateShare']>[1] }>('sx-share-update', (d) => s.updateShare(d.id, d.patch));
     on<string>('sx-share-delete', (id) => s.deleteShare(id));
     on<Parameters<SessionController['saveProfile']>[0]>('sx-profile-save', (p) => s.saveProfile(p));
@@ -776,26 +777,49 @@ export class App {
     }
   }
 
+  /** Titelbild-Felder der angezeigten Profil-, Boots- oder Gruppenseite ersetzen. */
+  private patchCover(kind: CoverKind, media: PageMedia) {
+    if (kind === 'g') {
+      const g = this.ui.groupPage;
+      if (g.data) g.data = { ...g.data, ...media };
+    } else if (this.ui.page.data && this.ui.page.data.kind !== 'harbor') {
+      this.ui.page.data = { ...this.ui.page.data, ...media };
+    }
+  }
+
   /**
    * Titelbild hochladen oder entfernen (Konzept 13.2): im Browser zuschneiden und neu kodieren, dann die angezeigte
-   * Seite mit der neuen Adresse aktualisieren.
+   * Seite mit der neuen Adresse aktualisieren. Nach einem Upload gleich den Ausschnitt wählen lassen.
    */
   private async changeCover(d: { kind: CoverKind; id: string; file: File | null }, e: Event) {
     const el = e.composedPath()[0] as SxCover;
     el.busy = true;
     try {
-      let cover: string | null = null;
-      if (d.file) cover = (await coverApi.put(d.kind, d.id, await processCover(d.file))).cover;
-      else await coverApi.remove(d.kind, d.id);
-      if (d.kind === 'g') {
-        const g = this.ui.groupPage;
-        if (g.data) g.data = { ...g.data, cover };
-      } else if (this.ui.page.data && this.ui.page.data.kind !== 'harbor') {
-        this.ui.page.data = { ...this.ui.page.data, cover };
+      if (d.file) {
+        this.patchCover(d.kind, await coverApi.put(d.kind, d.id, await processCover(d.file)));
+        el.adjust();
+      } else {
+        await coverApi.remove(d.kind, d.id);
+        this.patchCover(d.kind, { cover: null });
       }
       this.toast(d.file ? 'Titelbild gespeichert' : 'Titelbild entfernt');
     } catch (err) {
       this.toast(err instanceof PhotoError ? err.message : errorText(err), 6000);
+    } finally {
+      el.busy = false;
+    }
+  }
+
+  /** Ausschnitt des Titelbilds speichern; schlägt es fehl, zeigt das Banner wieder den alten. */
+  private async moveCover(d: { kind: CoverKind; id: string; focusY: number; previous: number }, e: Event) {
+    const el = e.composedPath()[0] as SxCover;
+    el.busy = true;
+    try {
+      this.patchCover(d.kind, await coverApi.focus(d.kind, d.id, d.focusY));
+      this.toast('Ausschnitt gespeichert');
+    } catch (err) {
+      el.focusY = d.previous;
+      this.toast(errorText(err), 6000);
     } finally {
       el.busy = false;
     }

@@ -8,7 +8,7 @@ import { publicShares } from './shares';
 import { boatCleanup, recordHarborBoat } from './activity';
 import { harborFromBoatInput, type HarborRow } from './harbors';
 import { followStats } from './follows';
-import { coverUrl, loadCover } from './covers';
+import { loadCover, pageCover, removeCoverOf } from './covers';
 import { galleryPhotos } from './gallery';
 import { checkBoatQuota, checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
@@ -222,7 +222,7 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
     voyages: await publicShares(env, 'boat', id),
     social: await followStats(env, 'boat', id, user?.id ?? null),
     // Titelbild und neueste öffentliche Fotos der Törns mit diesem Boot (Konzept 13)
-    cover: coverUrl('b', b.id, await loadCover(env, 'b', b.id), b.visibility === 'public' ? null : key),
+    ...pageCover('b', b.id, await loadCover(env, 'b', b.id), b.visibility === 'public' ? null : key),
     photos: await galleryPhotos(env, 'boat', b.id),
     // „Verein des Boots“ (Konzept 12.2): öffentliche, nicht ausgeblendete Vereine, denen das Boot zugeordnet ist
     clubs: (
@@ -263,6 +263,16 @@ export async function updateBoat(request: Request, env: Env, id: string): Promis
 export async function deleteBoat(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   if (!BOAT_ID_RE.test(id) || (await roleFor(env, user.id, id)) !== 'owner') throw NOT_FOUND();
+  await removeBoat(env, id);
+  return new Response(null, { status: 204 });
+}
+
+/**
+ * Der eine Löschpfad für Boote (Eigner, Moderation): Titelbild, Zuordnungen, Admins, Einladungen, Meldungen, Folgen
+ * und Aktivitäten; Törns bleiben und verlieren nur die Zuordnung.
+ */
+export async function removeBoat(env: Env, id: string): Promise<void> {
+  await removeCoverOf(env, 'b', id);
   await env.DB.batch([
     ...boatCleanup(env, id),
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id = ?').bind(id),
@@ -271,5 +281,4 @@ export async function deleteBoat(request: Request, env: Env, id: string): Promis
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'boat' AND target_id = ?`).bind(id),
     env.DB.prepare('DELETE FROM boats WHERE id = ?').bind(id),
   ]);
-  return new Response(null, { status: 204 });
 }

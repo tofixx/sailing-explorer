@@ -1,10 +1,11 @@
 import type { Env } from './env';
+import { removeCoverOf } from './covers';
 import { randomCode, randomId, randomToken, sha256Hex } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { magicLinkMail, sendMail } from './mail';
 import { subtractUserStmt } from './storage';
 import { purgeUserReports } from './moderation';
-import { deleteKeys, photoKeysForUser } from './photo-keys';
+import { deleteKeys, photoKeysForUser, shareFileKeys } from './photo-keys';
 import { boatCleanup, userActivityCleanup } from './activity';
 import { purgeUserGroups } from './groups';
 import { TOKEN_RE, normalizeEmail, timingSafeEqual } from './validate';
@@ -251,10 +252,13 @@ export async function deleteAccount(request: Request, env: Env): Promise<Respons
 /** Entfernt ein Konto vollständig (auch vom nächtlichen Aufräumen für inaktive Konten genutzt). */
 export async function purgeUser(env: Env, user: User): Promise<void> {
   const { results } = await env.DB.prepare('SELECT id FROM shares WHERE user_id = ?').bind(user.id).all<{ id: string }>();
-  await deleteKeys(env, [...results.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]), ...(await photoKeysForUser(env, user.id))]);
+  await deleteKeys(env, [...results.flatMap((r) => shareFileKeys(r.id)), ...(await photoKeysForUser(env, user.id))]);
   // Vereine und Teams (Konzept 11.9): eigene Gruppen an den dienstältesten Admin übergeben bzw. löschen.
   const groupStmts = await purgeUserGroups(env, user.id);
   const { results: boats } = await env.DB.prepare('SELECT id FROM boats WHERE owner_id = ?').bind(user.id).all<{ id: string }>();
+  // Titelbilder von Profil und eigenen Booten sofort (Gruppen: removeGroup bzw. Übergabe)
+  await removeCoverOf(env, 'u', user.id);
+  for (const b of boats) await removeCoverOf(env, 'b', b.id);
   await env.DB.batch([
     // Neuigkeiten: Aktivitäten des Kontos und seiner Törns, Folgen in beide Richtungen, Beiträge, Mitgliedschaften,
     // Anfragen, Boote in Gruppen – vor dem Löschen der Törns, Boote und des Kontos.
@@ -284,8 +288,10 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
     env.DB.prepare('DELETE FROM share_crew WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM boats WHERE owner_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(user.id),
-    // Unterstützungen bleiben als Buchung erhalten, verlieren aber den Bezug zum Konto.
+    // Unterstützungen bleiben als Buchung erhalten (Frist: retention.ts), verlieren aber den Bezug zum Konto.
     env.DB.prepare('UPDATE supports SET user_id = NULL WHERE user_id = ?').bind(user.id),
+    // Titelbilder übergebener Gruppen und fremder Boote behalten keine Konto-ID des gelöschten Kontos
+    env.DB.prepare('UPDATE covers SET user_id = NULL WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
 }

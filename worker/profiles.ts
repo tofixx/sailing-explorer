@@ -12,7 +12,7 @@ import { funnyName } from '../src/domain/names';
 import { followStats } from './follows';
 import { homeOf, publicHome } from './home';
 import { BOAT_HARBOR_COLS } from './boats';
-import { coverUrl, loadCover } from './covers';
+import { loadCover, pageCover } from './covers';
 import { galleryPhotos } from './gallery';
 
 interface ProfileRow {
@@ -143,7 +143,7 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
     // „Mein Verein“ und Heimathafen (Konzept 12.1/12.2) – nur, was öffentlich sein darf
     home: publicHome(await homeOf(env, p.user_id)),
     // Titelbild und neueste öffentliche Fotos aus eigenen und mitgesegelten Törns (Konzept 13)
-    cover: coverUrl('u', p.handle, await loadCover(env, 'u', p.user_id), p.visibility === 'public' ? null : key),
+    ...pageCover('u', p.handle, await loadCover(env, 'u', p.user_id), p.visibility === 'public' ? null : key),
     photos: await galleryPhotos(env, 'user', p.user_id),
   });
 }

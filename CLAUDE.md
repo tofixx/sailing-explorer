@@ -21,5 +21,8 @@ Prüfpunkte:
    entfernt: ersetzt (alte Datei), einzeln gelöscht, Eltern-Objekt gelöscht (Törn, Boot, Gruppe, Hafen), Konto gelöscht,
    inaktives Konto entfernt, Aufbewahrung abgelaufen (Saison), Moderation? Bleibt der Speicherzähler stimmig? Gibt es
    einen Test dafür? Datenschutz-Fristen (`src/content/legal.ts`) und Konzept passen dazu.
+7. **Anforderungen dokumentiert** – ist jedes neue oder geänderte Verhalten als funktionale Anforderung mit F-ID in
+   `docs/REQUIREMENTS.md` beschrieben (und im Konzept, wo es Entscheidungen gibt), gibt es zu jeder F-ID einen Test, und
+   stimmen geänderte alte Anforderungen noch mit dem Code überein?
 
 `npm run check` (Typecheck, Tests, Build) muss vorher grün sein.

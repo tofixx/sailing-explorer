@@ -7,12 +7,17 @@ import { EXPIRES_SQL } from './shares';
 import { recomputeStorage, storageTotal, subtractShareStmt } from './storage';
 import { sendCommentDigests } from './comments';
 import { deleteOrphanReports, deleteShareReports } from './moderation';
-import { deleteKeys, photoKeysForShares } from './photo-keys';
+import { deleteKeys, photoKeysForShares, shareFileKeys } from './photo-keys';
 import { deleteShareActivity, nightlyActivityCleanup } from './activity';
 import { deleteShareReactions } from './reaction-cleanup';
 import { sendGroupDigests } from './group-digest';
 import { sweepOrphanCovers } from './covers';
 import { GRACE_MS, INACTIVE_ACCOUNT_MS, SEASON_MAIL_MONTH, WARN_MS, seasonEnd } from '../src/domain/support';
+
+/** Offene Meldungen werden nach so langer Zeit ohne Entscheidung anonymisiert. */
+const OPEN_REPORT_MS = 180 * 86_400_000;
+/** Zahlungsdaten (supports) werden so lange nach Ablauf aufbewahrt (steuerliche Aufbewahrung), dann gelöscht. */
+const SUPPORT_RECORD_MS = 10 * 365 * 86_400_000;
 
 /** Obergrenzen pro Lauf – hält den Cron im Free-Tier-CPU-Budget; der Rest folgt in der nächsten Nacht. */
 const MAX_DELETE = 200;
@@ -37,6 +42,8 @@ export interface RetentionResult {
   storageBytes: number;
   /** Abweichung des inkrementell gepflegten Zählers vom neu berechneten Wert (null = Zeile fehlte) */
   storageDrift: number | null;
+  /** Schritte, die in diesem Lauf gescheitert sind (leer = alles gelaufen); null-Drift kann auch daher kommen */
+  failed: string[];
   /** verschickte Sammelmails über neue Kommentare */
   digests: number;
   /** verschickte wöchentliche Sammelmails aus Vereinen und Teams (Konzept 11.7) */
@@ -56,7 +63,7 @@ async function deleteExpired(env: Env, now: number): Promise<number> {
     .all<{ id: string }>();
   for (const part of chunks(results)) {
     const photoKeys = await photoKeysForShares(env, part.map((r) => r.id));
-    await deleteKeys(env, [...part.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]), ...photoKeys]);
+    await deleteKeys(env, [...part.flatMap((r) => shareFileKeys(r.id)), ...photoKeys]);
     // Speicher vom globalen Zähler abziehen und Meldungen zum Törn entfernen – im selben Batch wie das Löschen.
     await env.DB.batch(
       part.flatMap((r) => [subtractShareStmt(env, r.id), deleteShareReports(env, r.id), deleteShareReactions(env, r.id), deleteShareActivity(env, r.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)]),
@@ -138,28 +145,45 @@ async function purgeInactive(env: Env, now: number): Promise<number> {
      WHERE COALESCE(u.last_login, u.created_at) < ?
        AND NOT EXISTS (SELECT 1 FROM shares WHERE user_id = u.id)
        AND NOT EXISTS (SELECT 1 FROM supports WHERE user_id = u.id AND valid_until > ?)
-     LIMIT ?`,
+     ORDER BY COALESCE(u.last_login, u.created_at), u.id LIMIT ?`,
   )
     .bind(cutoff, now, MAX_PURGE_USERS)
     .all<{ id: string; email: string }>();
-  for (const user of results) await purgeUser(env, user);
-  return results.length;
+  let purged = 0;
+  for (const user of results) {
+    // Ein fehlerhaftes Konto hält die übrigen (und den Rest der Nacht) nicht auf.
+    try {
+      await purgeUser(env, user);
+      purged++;
+    } catch (err) {
+      console.error('purge inactive failed', user.id, err);
+    }
+  }
+  return purged;
 }
 
 export async function runRetention(env: Env, origin: string, now = Date.now()): Promise<RetentionResult> {
-  const deleted = await deleteExpired(env, now);
-  const warned = await warnExpiring(env, origin, now);
+  // Jeder Schritt einzeln: ein Fehler hält die übrigen nicht auf, steht aber im Ergebnis (failed) und im Log.
+  const failed: string[] = [];
+  const step = <T>(name: string, p: Promise<T>, fallback: T): Promise<T> =>
+    p.catch((err) => {
+      console.error(`retention step ${name} failed`, err);
+      failed.push(name);
+      return fallback;
+    });
+  const deleted = await step('expired', deleteExpired(env, now), 0);
+  const warned = await step('warn', warnExpiring(env, origin, now), 0);
   const seasonMails = await remindSeason(env, origin, now).catch((err) => {
     console.error('season reminders failed', err);
     return 0;
   });
-  const purged = await purgeInactive(env, now);
+  const purged = await step('inactive', purgeInactive(env, now), 0);
   // Sammelmail nach dem Aufräumen: Kommentare auf gerade gelöschten Törns zählen nicht mehr.
   const digests = await sendCommentDigests(env, origin, now).catch((err) => {
     console.error('comment digests failed', err);
     return 0;
   });
-  await env.DB.batch([
+  await step('cleanup', env.DB.batch([
     // erst 24 h nach Ablauf – so lange zählen ihre Code-Fehlversuche noch zur Grenze pro Adresse (Konzept 14.6)
     env.DB.prepare('DELETE FROM login_tokens WHERE expires_at < ?').bind(now - 86_400_000),
     env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now),
@@ -172,7 +196,14 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     deleteOrphanReports(env),
     // Neuigkeiten (Konzept 11.9): alte Aktivitäten, verwaiste Ziele und Folgen, alte Anfragen
     ...nightlyActivityCleanup(env, now),
-  ]);
+  ]), []);
+  // Datenschutz-Fristen als eigener Batch (scheitert einer, läuft der andere trotzdem)
+  await step('privacy', env.DB.batch([
+    // Offene Meldungen nach 180 Tagen ohne Entscheidung: ohne Meldende und Anmerkung (Datenschutz, Abschnitt 9)
+    env.DB.prepare(`UPDATE reports SET reporter_id = NULL, note = '' WHERE resolved_at IS NULL AND created_at < ? AND (reporter_id IS NOT NULL OR note <> '')`).bind(now - OPEN_REPORT_MS),
+    // Zahlungen: 10 Jahre nach Ablauf der Unterstützung (steuerliche Aufbewahrung), dann gelöscht
+    env.DB.prepare('DELETE FROM supports WHERE valid_until < ? AND created_at < ?').bind(now - SUPPORT_RECORD_MS, now - SUPPORT_RECORD_MS),
+  ]), []);
   const groupDigests = await sendGroupDigests(env, origin, now).catch((err) => {
     console.error('group digests failed', err);
     return 0;
@@ -184,7 +215,7 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   });
   // Notbremse: Zähler aus D1 neu berechnen – korrigiert Abweichungen der inkrementellen Pflege und legt eine
   // fehlende Zeile wieder an (bis dahin gelten Uploads als pausiert).
-  const counted = await storageTotal(env);
+  const counted = await step('count', storageTotal(env), null);
   const storageBytes = await recomputeStorage(env);
-  return { deleted, warned, seasonMails, purged, digests, groupDigests, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
+  return { deleted, warned, seasonMails, purged, digests, groupDigests, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted, failed };
 }

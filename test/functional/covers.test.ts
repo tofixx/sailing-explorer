@@ -1,4 +1,4 @@
-// Funktionale Tests: Titelbilder, Galerien und Heimathafen von Vereinen/Teams (Konzept 13, F-190 … F-198).
+// Funktionale Tests: Titelbilder, Galerien und Heimathafen von Vereinen/Teams (Konzept 13, F-190 … F-198, F-209/F-210).
 // Echter Worker in workerd (Miniflare) mit lokalen D1-/R2-Bindings – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startWorker, type Harness } from './worker-harness';
@@ -159,18 +159,63 @@ describe('Titelbilder (Konzept 13.2)', () => {
     expect(page.cover).toMatch(new RegExp(`^/api/covers/g/${g.id}/`));
   });
 
-  it('F-194: Titelbilder gelöschter Objekte räumt der Cron weg', async () => {
+  it('F-209: höhere Titelbilder bis 1500 × 1000 px werden angenommen, höhere nicht', async () => {
+    const me = await s.person({ profile: 'public' });
+    expect((await putCover('u', me.handle!, me.cookie, webp(1500, 1000))).status).toBe(201);
+    const tall = await putCover('u', me.handle!, me.cookie, webp(1500, 1001));
+    expect(tall.status).toBe(400);
+    expect(await s.errorOf(tall)).toBe('too_large');
+    // Hochformat zeigte im Banner nur einen Streifen
+    const portrait = await putCover('u', me.handle!, me.cookie, webp(600, 900));
+    expect(portrait.status).toBe(400);
+    expect(await s.errorOf(portrait)).toBe('invalid_image');
+  });
+
+  it('F-210: Ausschnitt per PATCH ändern – ohne neues Bild, nur Verwalter; ein neues Bild beginnt wieder mittig', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const other = await s.person({ profile: 'public' });
+    const b = await s.boat(owner, { visibility: 'public' });
+    const focus = (cookie: string | undefined, body: unknown) => s.send('PATCH', `/api/covers/b/${b.id}`, cookie, body);
+    // ohne Titelbild: nichts zu verschieben
+    expect((await focus(owner.cookie, { focusY: 20 })).status).toBe(404);
+
+    const up = (await (await putCover('b', b.id, owner.cookie, webp(1500, 1000))).json()) as { cover: string; coverY: number };
+    expect(up.coverY).toBe(50);
+    expect((await focus(other.cookie, { focusY: 20 })).status).toBe(404);
+    expect((await focus(undefined, { focusY: 20 })).status).toBe(401);
+    for (const bad of [-1, 101, 12.5, '20', null]) {
+      const res = await focus(owner.cookie, { focusY: bad });
+      expect(res.status).toBe(400);
+      expect(await s.errorOf(res)).toBe('invalid_focus');
+    }
+    const ok = await focus(owner.cookie, { focusY: 20 });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ coverY: 20 });
+    const page = (await (await s.send('GET', `/api/boats/${b.id}`, undefined)).json()) as { cover: string; coverY: number };
+    // gleiche Adresse (kein neues Bild), neuer Ausschnitt
+    expect(page).toMatchObject({ cover: up.cover, coverY: 20 });
+
+    const again = (await (await putCover('b', b.id, owner.cookie, webp(1500, 900))).json()) as { coverY: number };
+    expect(again.coverY).toBe(50);
+    expect(((await (await s.send('GET', `/api/boats/${b.id}`, undefined)).json()) as { coverY: number }).coverY).toBe(50);
+  });
+
+  it('F-194: Boot löschen nimmt das Titelbild sofort mit; Reste aus Kaskaden räumt der Cron weg', async () => {
     const owner = await s.person({ profile: 'public' });
     const b = await s.boat(owner);
     await putCover('b', b.id, owner.cookie);
     const before = await counter();
     expect((await s.send('DELETE', `/api/boats/${b.id}`, owner.cookie)).status).toBe(204);
-    expect((await (await h.r2()).list({ prefix: `covers/b/${b.id}/` })).objects).toHaveLength(1);
-    await h.scheduled();
     expect((await (await h.r2()).list({ prefix: `covers/b/${b.id}/` })).objects).toHaveLength(0);
-    expect(await (await h.db()).prepare(`SELECT 1 AS x FROM covers WHERE object_id = ?`).bind(b.id).first()).toBeNull();
-    // Der Cron rechnet den Zähler ohnehin neu – das Titelbild zählt nicht mehr mit.
-    expect(await counter()).toBeLessThanOrEqual(before - webp(1500, 500).length);
+    expect(await counter()).toBe(before - webp(1500, 500).length);
+
+    // Netz: Objekt verschwindet ohne Löschpfad (z. B. Kaskade) – der nächtliche Sweep entfernt das Bild
+    const b2 = await s.boat(owner);
+    await putCover('b', b2.id, owner.cookie);
+    await (await h.db()).prepare('DELETE FROM boats WHERE id = ?').bind(b2.id).run();
+    await h.scheduled();
+    expect((await (await h.r2()).list({ prefix: `covers/b/${b2.id}/` })).objects).toHaveLength(0);
+    expect(await (await h.db()).prepare('SELECT 1 AS x FROM covers WHERE object_id = ?').bind(b2.id).first()).toBeNull();
   });
 });
 
