@@ -11,7 +11,7 @@ export class SxTopbar extends LitElement {
     mode: { attribute: false },
     hasTracks: { type: Boolean },
     backend: { type: Boolean },
-    home: { type: Boolean },
+    home: { type: Boolean, reflect: true },
     saved: { type: Boolean },
   };
   declare user: User | null;
@@ -181,6 +181,12 @@ export class SxTopbar extends LitElement {
           width: var(--control-h);
         }
       }
+      /* Startseite mobil: Hochladen ist der runde Knopf unten rechts bzw. die Einstiegskarte (Konzept 12.6) */
+      @media (max-width: 760px) {
+        :host([home]) .btn.upload {
+          display: none;
+        }
+      }
       @media (max-width: 420px) {
         .brand .name {
           display: none;
@@ -233,8 +239,8 @@ export class SxTopbar extends LitElement {
       ${this.chip()}
       <span class="spacer"></span>
       <div class="actions">
-        <button class="btn collapse" @click=${() => pickGpx(this)} title="GPX-Dateien laden">
-          ${icon('upload')}<span class="label-text">GPX laden</span>
+        <button class="btn collapse upload" @click=${() => pickGpx(this)} title="Track anlegen – GPX-Dateien laden" aria-label="Track anlegen">
+          ${icon('upload')}<span class="label-text">Track anlegen</span>
         </button>
         ${this.hasTracks && this.home
           ? html`<button class="btn collapse" @click=${() => emit(this, 'sx-track-view')} title="Zurück zur Törn-Ansicht">

@@ -5,6 +5,8 @@ import { fmtDateTime } from '../util/html';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import { photoLabel, type PhotoView } from './sx-photo-strip';
+import type { ReactionValue } from './sx-reactions';
+import './sx-reactions';
 
 const PLACEMENT_TEXT = { gps: 'Ort aus dem GPS des Fotos', time: 'Ort aus der Aufnahmezeit', manual: 'Ort von Hand gesetzt', none: 'Ohne Ort' } as const;
 
@@ -24,7 +26,13 @@ export class SxPhotoLightbox extends LitElement {
     busy: { type: Boolean },
     error: { type: String },
     confirm: { state: true },
+    reactions: { attribute: false },
+    shareKey: { attribute: false },
   };
+  /** Reaktionen des angezeigten Fotos (Konzept 12.5); nur gezeigt, wenn sie zum Foto passen */
+  declare reactions: ReactionValue | null;
+  /** Schlüssel des Törns („Nur mit Link“) für Reaktionen */
+  declare shareKey: string | null;
   declare open: boolean;
   declare photos: PhotoView[];
   declare index: number;
@@ -45,6 +53,8 @@ export class SxPhotoLightbox extends LitElement {
     this.busy = false;
     this.error = '';
     this.confirm = false;
+    this.reactions = null;
+    this.shareKey = null;
   }
 
   static styles = [
@@ -232,6 +242,7 @@ export class SxPhotoLightbox extends LitElement {
                 ${p.lat !== null
                   ? html`<button class="btn small" type="button" @click=${() => emit(this, 'sx-photo-show', { id: p.id })}>${icon('map')} Auf Karte zeigen</button>`
                   : ''}
+                ${this.reactions && this.reactions.subject === 'photo' && this.reactions.id === p.id ? html`<sx-reactions .value=${this.reactions} .shareKey=${this.shareKey}></sx-reactions>` : ''}
                 <span class="spacer"></span>
                 ${!this.isOwner
                   ? html`<button class="btn small ghost" type="button" @click=${() => emit(this, 'sx-report', { kind: 'photo', id: p.id, label: 'dieses Foto' })}>

@@ -13,6 +13,10 @@ export type Route =
   | { kind: 'discover' }
   | { kind: 'group'; slug: string; key?: string }
   | { kind: 'group-new' }
+  /** Hafenseite (Konzept 12.2) */
+  | { kind: 'harbor'; slug: string }
+  /** Impressum und Datenschutz (Konzept 12.7) – ohne Backend */
+  | { kind: 'legal'; page: 'impressum' | 'datenschutz' }
   | { kind: 'login'; token: string | null }
   | { kind: 'invite'; token: string | null }
   | { kind: 'files'; names: string[] }
@@ -48,6 +52,10 @@ export function parseRoute(loc: Pick<Location, 'pathname' | 'search' | 'hash'>):
   if (/^\/g\/neu\/?$/.test(loc.pathname)) return { kind: 'group-new' };
   const group = new RegExp(`^/g/([a-z0-9-]{3,30})${KEY}/?$`, 'i').exec(loc.pathname);
   if (group) return withKey({ kind: 'group', slug: group[1].toLowerCase() }, group[2]);
+  const harbor = /^\/h\/([a-z0-9-]{1,100})\/?$/i.exec(loc.pathname);
+  if (harbor) return { kind: 'harbor', slug: harbor[1].toLowerCase() };
+  const legal = /^\/(impressum|datenschutz)\/?$/.exec(loc.pathname);
+  if (legal) return { kind: 'legal', page: legal[1] as 'impressum' | 'datenschutz' };
   if (loc.pathname === '/login') {
     const token = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(loc.hash)?.[1] ?? null;
     return { kind: 'login', token };

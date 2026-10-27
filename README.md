@@ -27,6 +27,9 @@
 | **Profile & Boote** | Profilseite `/u/<name>` und Bootsseiten `/b/<id>` mit Seemeilen und Törns. Boote haben einen Eigner (weitere Admins vorgesehen). |
 | **Unterstützen** | 3 gespeicherte Törns pro Konto sind kostenlos. Wer mehr speichern will, gibt einmal einen Kaffee oder ein Bier aus (Stripe) – und hilft so, Server und Karten zu bezahlen. |
 | **Entdecken** | Leiste „Zuletzt gesegelt“ auf der Startseite und Seite `/entdecken` mit den neuesten öffentlichen Törns, Booten und Seglern – ausschließlich Inhalte, die ohnehin öffentlich sind (`GET /api/discover`). |
+| **Community-Startseite** | Der Stream steht im Mittelpunkt: Gäste sehen „Neues aus der Community“ (filterbar nach Hafen und Verein), Angemeldete „Neuigkeiten aus deinem Verein, Hafen und Team“. „Track anlegen“ sitzt als Knopf in der Kopfzeile, als kompakte Karte und mobil als runder Knopf; Drag & Drop geht überall. |
+| **Verein, Hafen, Team** | „Mein Verein“ und Heimathafen im Konto, Häfen als eigene Seiten `/h/<slug>` (Boote wählen ihren Hafen per Autovervollständigung), Teams zeigen die Törns ihrer Mitglieder. |
+| **Reaktionen** | „Gefällt mir“, „Mast- und Schotbruch“, „Starker Schlag“ auf Törns, Beiträge, Fotos und Neuigkeiten – eine pro Person, nur auf Sichtbares. |
 | **Läuft überall** | Hell/Dunkel, Tastatur, Screenreader-Texte, mobil als Bottom-Sheet. |
 
 ## Schnellstart
@@ -165,6 +168,18 @@ npx wrangler secret put REPORT_CONTACT
 
 Ohne `ADMIN_USER_IDS` gibt es keine Admin-Oberfläche (die Admin-Routen antworten 404); Meldungen werden trotzdem gespeichert und blenden bei 3 Meldungen bzw. „Ich bin abgebildet“ automatisch aus. Admins sehen offene Meldungen im Konto unter „Meldungen“.
 
+### Impressum und Datenschutz
+
+`/impressum` und `/datenschutz` kommen aus **einer** Datei: `src/content/legal.ts` (statische SPA-Seiten, laufen auch ohne
+Backend; verlinkt auf der Startseite, im Konto-Dialog und in jeder Mail). Die Betreiberangaben stehen im Objekt
+`OPERATOR` – Werte wie `[NAME DES BETREIBERS]` sind Platzhalter; solange einer übrig ist, zeigen beide Seiten einen
+deutlichen Warnhinweis. `OPERATOR.reportEmail` sollte dem Worker-Wert `REPORT_CONTACT` entsprechen.
+
+> **Vorlage, keine Rechtsberatung:** Die Texte beschreiben, was der Code tatsächlich tut (Cloudflare, Resend, Stripe,
+> Open-Meteo, Kartenkacheln, Fristen, Rechte), ersetzen aber keine Prüfung durch eine fachkundige Person. Vor dem Livegang
+> (z. B. unter segeln-potsdam.de) Angaben ausfüllen, Auftragsverarbeitungsverträge (Cloudflare, Resend, Stripe) abschließen
+> und die Texte prüfen lassen; bei Änderungen an Diensten oder Fristen `src/content/legal.ts` mitpflegen.
+
 ### Aufbewahrung und Aufräumen
 
 Ein Cron-Trigger (`17 3 * * *` UTC, siehe `wrangler.jsonc`) räumt nachts auf (`worker/retention.ts`):
@@ -178,6 +193,7 @@ Ein Cron-Trigger (`17 3 * * *` UTC, siehe `wrangler.jsonc`) räumt nachts auf (`
 | Login-Links, Sessions | nach Ablauf |
 | Kommentare | mit ihrem Törn; Sammelmail (opt-in) höchstens 25 pro Lauf |
 | Meldungen | verwaiste sofort, entschiedene (anonymisiert) nach 180 Tagen; Spam-Zähler der Kommentare nach 24 h |
+| Reaktionen | mit ihrem Gegenstand (Törn, Foto, Beitrag, Neuigkeit) bzw. Konto; verwaiste nachts; Zähler nach 24 h |
 
 Pro Lauf werden höchstens 200 Törns gelöscht und 50 Konten benachrichtigt bzw. entfernt; der Rest folgt in der nächsten Nacht. Das Ablaufdatum berechnet die Datenbank (`EXPIRES_SQL` in `worker/shares.ts`, gleiche Regel wie `shareExpiry()` in `src/domain/support.ts`). Eigentümer sehen es im Konto bei jedem Törn.
 

@@ -301,7 +301,7 @@ describe('F-176/F-177 Stream-Zusammensetzung', () => {
 
   it('[F-177] die Stream-Abfrage nutzt den Index von activity_target (Schlüsselliste als äußere Schleife)', async () => {
     const db = await s.db();
-    const { PERSONAL_SQL } = await import('../../worker/stream');
+    const { PERSONAL_SQL } = await import('../../worker/stream-sql');
     const plan = await db.prepare(`EXPLAIN QUERY PLAN ${PERSONAL_SQL}`).bind('[["user","x"]]', Date.now(), '~', 60).all<{ detail: string }>();
     const details = plan.results.map((r) => r.detail).join('\n');
     expect(details).toMatch(/SEARCH t USING (COVERING )?INDEX (activity_target_feed|sqlite_autoindex_activity_target_1)/);
@@ -492,6 +492,17 @@ describe('F-179/F-180 Reaktionen', () => {
     const again = await h.fetch(`/api/groups/${g.id}/stream`);
     expect(again.headers.get('X-Stream-Cache')).toBe('hit');
     expect(((await again.json()) as Page).items.find((i) => i.post?.id === p.id)?.reactions?.mine).toBeNull();
+  });
+});
+
+describe('F-183 Rechtliches in Mails', () => {
+  it('[F-183] jede Mail nennt Impressum und Datenschutz', async () => {
+    const before = h.logs.length;
+    await s.person();
+    const mail = h.logs.slice(before).find((l) => l.includes('[mail:log]'));
+    expect(mail).toBeDefined();
+    expect(mail).toContain('Impressum: https://sailing.wollow.ski/impressum');
+    expect(mail).toContain('Datenschutz: https://sailing.wollow.ski/datenschutz');
   });
 });
 

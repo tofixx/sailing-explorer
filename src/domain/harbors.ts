@@ -46,6 +46,7 @@ export const harborSlugBase = (name: string): string => slugFromName(name) || 'h
 export function parseHarborPosition(lat: unknown, lon: unknown): { lat: number | null; lon: number | null } | undefined {
   const empty = (v: unknown) => v === null || v === '' || v === undefined;
   if (empty(lat) && empty(lon)) return { lat: null, lon: null };
+  if (empty(lat) || empty(lon)) return undefined;
   const a = Number(lat);
   const o = Number(lon);
   if (!Number.isFinite(a) || !Number.isFinite(o) || Math.abs(a) > 90 || Math.abs(o) > 180) return undefined;

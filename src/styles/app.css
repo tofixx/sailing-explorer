@@ -245,12 +245,13 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Profil- und Bootsseiten ersetzen die Kartenansicht */
+/* Profil-, Boots-, Hafen-, Gruppen-, Entdecken- und Rechtsseiten ersetzen die Kartenansicht */
 .app[data-page] .workspace {
   display: none;
 }
 .app[data-page] sx-profile-page,
 .app[data-page] sx-group-page,
+.app[data-page] sx-legal-page,
 .app[data-page] #discover-page {
   min-height: 0;
 }

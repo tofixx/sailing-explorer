@@ -6,6 +6,8 @@ import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
 import type { GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
+import type { HarborRef } from '../domain/harbors';
+import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 
 export type { Visibility };
 
@@ -95,6 +97,8 @@ export interface Boat extends Linkable {
   lengthM: number | null;
   sailNumber: string;
   homePort: string;
+  /** Hafen (Konzept 12.2) – fehlt bei älteren Servern */
+  harbor?: HarborRef | null;
   description: string;
   createdAt: number;
   updatedAt: number;
@@ -103,6 +107,8 @@ export interface Boat extends Linkable {
 }
 
 export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'lengthM' | 'sailNumber' | 'homePort' | 'description' | 'visibility'>> & {
+  /** Hafen (Konzept 12.2): ID, null = keiner; hat Vorrang vor homePort */
+  harborId?: string | null;
   /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
   rotateKey?: boolean;
 };
@@ -327,14 +333,14 @@ export const api = {
   myProfile: () => call<{ profile: Profile; exists: boolean }>('/api/me/profile'),
   saveProfile: (p: ProfileInput) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),
   profile: (handle: string, key?: string | null) =>
-    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[]; social?: FollowStats }>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
+    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[]; social?: FollowStats; home?: PublicHome }>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
 
   myBoats: () => call<{ boats: Boat[] }>('/api/boats'),
   createBoat: (b: BoatInput) => call<{ boat: Boat }>('/api/boats', jsonInit('POST', b)),
   updateBoat: (id: string, b: BoatInput) => call<{ boat: Boat }>(`/api/boats/${encodeURIComponent(id)}`, jsonInit('PATCH', b)),
   deleteBoat: (id: string) => call<void>(`/api/boats/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   boat: (id: string, key?: string | null) =>
-    call<{ boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats }>(`/api/boats/${encodeURIComponent(id)}`, keyInit(key)),
+    call<{ boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[] }>(`/api/boats/${encodeURIComponent(id)}`, keyInit(key)),
 
   boatAdmins: (id: string) => call<BoatAdmins>(`/api/boats/${encodeURIComponent(id)}/admins`),
   inviteBoatAdmin: (id: string, email: string) => call<InviteCreated>(`/api/boats/${encodeURIComponent(id)}/invites`, jsonInit('POST', { email })),
@@ -656,6 +662,8 @@ export interface StreamPage {
   cursor: string | null;
   /** nur im persönlichen Stream */
   hasGroups?: boolean;
+  /** nur im persönlichen Stream: Heimatverein und Heimathafen (Konzept 12.4) */
+  home?: { club: { slug: string; name: string } | null; harbor: { slug: string; name: string } | null };
 }
 
 export interface Suggestion {
@@ -686,7 +694,7 @@ export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description'
   rotateKey?: boolean;
 };
 
-export type FollowKind = 'user' | 'boat' | 'group';
+export type FollowKind = 'user' | 'boat' | 'group' | 'harbor';
 
 const gid = (id: string) => encodeURIComponent(id);
 
@@ -717,4 +725,88 @@ export const groupApi = {
   myStream: (cursor?: string | null) => call<StreamPage>(`/api/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
   suggestions: () => call<{ people: Suggestion[] }>('/api/me/suggestions'),
   follow: (kind: FollowKind, id: string, on: boolean) => call<FollowStats>(`/api/follows/${kind}/${encodeURIComponent(id)}`, { method: on ? 'PUT' : 'DELETE' }),
+};
+
+// ================================================================ Verein, Hafen, Team und Reaktionen (Konzept 12)
+
+export type { HarborRef, ReactionKind, ReactionSubject, ReactionSummary };
+
+/** „Mein Verein“ und Heimathafen (eigene Sicht). */
+export interface HomeInfo {
+  club: { id: string; slug: string; name: string } | null;
+  harbor: HarborRef | null;
+  /** Hafen ausdrücklich gewählt (sonst aus den eigenen Booten) */
+  harborExplicit: boolean;
+  /** wählbare Vereine (nur GET) */
+  clubs?: Array<{ id: string; slug: string; name: string }>;
+}
+
+/** Verein und Hafen auf einem öffentlichen Profil (nur, was öffentlich sein darf). */
+export interface PublicHome {
+  club: { slug: string; name: string } | null;
+  harbor: { slug: string; name: string } | null;
+}
+
+export interface StreamFilters {
+  harbors: Array<{ slug: string; name: string; boats: number }>;
+  clubs: Array<{ slug: string; name: string; members: number }>;
+}
+
+export interface PublicStreamPage extends StreamPage {
+  /** nur auf der ersten Seite */
+  filters?: StreamFilters;
+}
+
+export type StreamFilter = { kind: 'harbor' | 'club'; slug: string } | null;
+
+export interface HarborSearchHit extends HarborRef {
+  boats: number;
+}
+
+export interface HarborPageData {
+  harbor: HarborRef & { lat: number | null; lon: number | null; canEdit: boolean; hiddenAt?: number | null; createdAt: number };
+  club: GroupRef | null;
+  stats: { boats: number; voyages: number; distNm: number; seasonNm: number };
+  boats: Array<{ id: string; name: string; boatType: string; lengthM: number | null; owner: { handle: string; displayName: string } | null }>;
+  voyages: ShareMeta[];
+  social: FollowStats;
+  clubChoices: Array<{ id: string; slug: string; name: string }>;
+  canClearClub: boolean;
+}
+
+export interface HarborPatch {
+  name?: string;
+  lat?: number | null;
+  lon?: number | null;
+  clubId?: string | null;
+}
+
+/** „Wer hat reagiert“ – Namen nur öffentlicher Profile, der Rest als Anzahl. */
+export interface ReactionWho extends ReactionSummary {
+  people: Array<{ handle: string; displayName: string; kind: ReactionKind }>;
+  others: number;
+}
+
+const q = (params: Record<string, string | null | undefined>) => {
+  const s = new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => !!e[1])).toString();
+  return s ? `?${s}` : '';
+};
+
+export const socialApi = {
+  searchHarbors: (query: string) => call<{ harbors: HarborSearchHit[] }>(`/api/harbors${q({ q: query })}`),
+  createHarbor: (name: string) => call<{ harbor: HarborRef; created: boolean }>('/api/harbors', jsonInit('POST', { name })),
+  harbor: (slug: string) => call<HarborPageData>(`/api/harbors/slug/${encodeURIComponent(slug)}`),
+  updateHarbor: (id: string, patch: HarborPatch) => call<{ harbor: HarborPageData['harbor'] }>(`/api/harbors/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
+  harborStream: (id: string, cursor?: string | null) => call<StreamPage>(`/api/harbors/${encodeURIComponent(id)}/stream${q({ cursor })}`),
+  home: () => call<HomeInfo>('/api/me/home'),
+  saveHome: (patch: { clubId?: string | null; harborId?: string | null }) => call<HomeInfo>('/api/me/home', jsonInit('PUT', patch)),
+  publicStream: (cursor?: string | null, filter?: StreamFilter) =>
+    call<PublicStreamPage>(`/api/stream/public${q({ cursor, harbor: filter?.kind === 'harbor' ? filter.slug : null, club: filter?.kind === 'club' ? filter.slug : null })}`),
+  /** kind null = zurücknehmen; Schlüssel für „Nur mit Link“-Törns als X-Share-Key */
+  react: (subject: ReactionSubject, id: string, kind: ReactionKind | null, key?: string | null) =>
+    call<ReactionSummary>(`/api/reactions/${subject}/${encodeURIComponent(id)}`, {
+      ...(kind ? jsonInit('PUT', { kind }) : { method: 'DELETE' }),
+      headers: { ...(kind ? { 'Content-Type': 'application/json' } : {}), ...(key ? { 'X-Share-Key': key } : {}) },
+    }),
+  reactions: (subject: ReactionSubject, id: string, key?: string | null) => call<ReactionWho>(`/api/reactions/${subject}/${encodeURIComponent(id)}`, keyInit(key)),
 };

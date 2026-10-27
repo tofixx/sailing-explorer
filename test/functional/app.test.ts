@@ -83,7 +83,9 @@ interface Server {
   /** Antwort von /api/shares/:id/crew (fehlt = 404) */
   crew?: Record<string, unknown>;
   /** Vereine, Teams, Neuigkeiten (Konzept 11): Gruppenseite, Gruppen-Stream, eigene Gruppen, persönlicher Stream, Vorschläge */
-  groups?: { page?: Record<string, unknown>; stream?: unknown; mine?: unknown; myStream?: unknown; suggestions?: unknown };
+  groups?: { page?: Record<string, unknown>; stream?: unknown; mine?: unknown; myStream?: unknown; suggestions?: unknown; publicStream?: unknown };
+  /** Verein, Hafen, Reaktionen (Konzept 12): Hafenseite, Hafen-Stream, Heimat, Reaktionen eines Törns */
+  social?: { harbor?: Record<string, unknown>; harborStream?: unknown; home?: Record<string, unknown>; reactions?: Record<string, unknown> };
 }
 
 let server: Server;
@@ -124,6 +126,19 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
   if (url.startsWith('/api/') && server.backend === 'html') return new Response('<!doctype html><html></html>', { headers: { 'Content-Type': 'text/html' } });
   if (url.startsWith('/api/discover')) return server.discover ? json(server.discover) : json({ error: 'internal', message: 'Interner Fehler' }, 500);
   if (url === '/api/config') return json({ turnstileSiteKey: '', sharing: true, support: server.support ? { tiers: SUPPORT_TIERS } : null, freeShares: 3 });
+  // ---- Verein, Hafen, Reaktionen (Konzept 12)
+  const so = server.social;
+  if (so) {
+    if (url.startsWith('/api/harbors/slug/')) return so.harbor ? json(so.harbor) : json({ error: 'not_found', message: 'Diesen Hafen gibt es nicht (mehr).' }, 404);
+    if (/^\/api\/harbors\/[A-Za-z0-9]+\/stream/.test(url)) return json(so.harborStream ?? { items: [], cursor: null });
+    if (url === '/api/me/home') return server.user ? json(so.home ?? { club: null, harbor: null, harborExplicit: false, clubs: [] }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
+    if (url.startsWith('/api/reactions/')) {
+      if (method === 'GET') return json(so.reactions ?? { counts: { like: 0, mast: 0, tack: 0 }, mine: null, people: [], others: 0 });
+      if (!server.user) return json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
+      const kind = method === 'PUT' ? (JSON.parse(String(init.body)) as { kind: string }).kind : null;
+      return json({ counts: { like: kind === 'like' ? 7 : 6, mast: 0, tack: 0 }, mine: kind });
+    }
+  }
   // ---- Vereine, Teams, Neuigkeiten (Konzept 11)
   const gr = server.groups;
   if (gr) {
@@ -131,6 +146,7 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     if (/^\/api\/groups\/[A-Za-z0-9]+\/stream/.test(url)) return json(gr.stream ?? { items: [], cursor: null });
     if (/^\/api\/groups\/[A-Za-z0-9]+\/posts$/.test(url) && method === 'POST') return json({ post: { id: 'P1' } }, 201);
     if (url === '/api/groups' && method === 'GET') return server.user ? json(gr.mine ?? { groups: [], requests: [] }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
+    if (url.startsWith('/api/stream/public')) return json(gr.publicStream ?? { items: [], cursor: null, filters: { harbors: [], clubs: [] } });
     if (url.startsWith('/api/stream')) return server.user ? json(gr.myStream ?? { items: [], cursor: null, hasGroups: false }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
     if (url === '/api/me/suggestions') return json(gr.suggestions ?? { people: [] });
     if (url.startsWith('/api/follows/')) return json({ followers: 1, following: 0, isFollowing: method === 'PUT' });
@@ -1215,12 +1231,95 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(server.calls.find((c) => c.url === '/api/follows/user/mats')?.method).toBe('PUT');
   });
 
-  it('[F-163] Startseite ohne Anmeldung: keine Neuigkeiten-Abfrage, Leiste bleibt verborgen', async () => {
-    server.groups = {};
+  it('[F-182] Startseite ohne Anmeldung: öffentlicher Community-Stream statt persönlicher Neuigkeiten', async () => {
+    server.groups = { publicStream: { items: [post], cursor: null, filters: { harbors: [{ slug: 'potsdam', name: 'Potsdam', boats: 3 }], clubs: [] } } };
     await startApp();
-    await vi.waitFor(() => expect(server.calls.some((c) => c.url.startsWith('/api/discover'))).toBe(true));
-    expect(home().hidden).toBe(true);
-    expect(server.calls.some((c) => c.url.startsWith('/api/stream'))).toBe(false);
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    expect(server.calls.some((c) => c.url === '/api/stream')).toBe(false);
+    expect(server.calls.some((c) => c.url === '/api/stream/public')).toBe(true);
+    expect(home().stream?.items).toHaveLength(1);
+    expect(el<{ community: boolean }>('sx-empty-state').community).toBe(true);
+  });
+
+  it('[F-182] Startseite angemeldet: persönlicher Stream als Hauptbereich, Hochladen bleibt erreichbar (Datei, F-75)', async () => {
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { myStream: { items: [post], cursor: null, hasGroups: true, home: { club: null, harbor: null } }, mine: { groups: [], requests: [] } };
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    expect(el<{ community: boolean }>('sx-empty-state').community).toBe(true);
+    expect(el<{ signedIn: boolean }>('sx-home-feed').signedIn).toBe(true);
+    expect(server.calls.some((c) => c.url === '/api/stream')).toBe(true);
+    expect(server.calls.some((c) => c.url.startsWith('/api/stream/public'))).toBe(false);
+    // „Track anlegen“: Datei laden wechselt in die Törn-Ansicht, die Startseite bleibt per Logo erreichbar
+    emit('sx-files', [file('a.gpx', leg('Neu'))]);
+    await vi.waitFor(() => expect(state().tracks).toHaveLength(1));
+    await settled();
+    expect(state().home).toBe(false);
+    expect(el<{ hidden: boolean }>('sx-empty-state').hidden).toBe(true);
+    emit('sx-home');
+    expect(el<{ hidden: boolean }>('sx-empty-state').hidden).toBe(false);
+  });
+
+  it('[F-178] Filter-Chip lädt den öffentlichen Stream gefiltert neu', async () => {
+    server.groups = { publicStream: { items: [], cursor: null, filters: { harbors: [{ slug: 'potsdam', name: 'Potsdam', boats: 3 }], clubs: [] } } };
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    emit('sx-stream-filter', { filter: { kind: 'harbor', slug: 'potsdam' } });
+    await vi.waitFor(() => expect(server.calls.some((c) => c.url === '/api/stream/public?harbor=potsdam')).toBe(true));
+    await vi.waitFor(() => expect(el<{ filter: unknown }>('sx-home-feed').filter).toEqual({ kind: 'harbor', slug: 'potsdam' }));
+  });
+
+  const reactItem = { ...post, id: 'a9', kind: 'voyage', voyage: { id: 'S1', title: 'T', distNm: 1, startedAt: T, hasImage: false, boat: null }, post: undefined, reactions: { subject: 'share', id: 'S1', counts: { like: 6, mast: 0, tack: 0 }, mine: null } };
+  const previous = { counts: { like: 6, mast: 0, tack: 0 }, mine: null };
+
+  it('[F-179] Reaktion ohne Anmeldung: Anmeldedialog, nichts gespeichert, Anzeige zurück', async () => {
+    server.social = {};
+    server.groups = { publicStream: { items: [reactItem], cursor: null } };
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    emit('sx-react', { subject: 'share', id: 'S1', kind: 'like', previous });
+    expect(el<{ open: boolean }>('sx-login-dialog').open).toBe(true);
+    expect(server.calls.some((c) => c.url.startsWith('/api/reactions/'))).toBe(false);
+    expect((home().stream?.items[0] as { reactions: { mine: unknown } }).reactions.mine).toBeNull();
+  });
+
+  it('[F-179] Reaktion im Stream: gespeichert und mit der Antwort des Servers nachgeführt', async () => {
+    server.social = {};
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { myStream: { items: [reactItem], cursor: null, hasGroups: false }, mine: { groups: [], requests: [] } };
+    await startApp();
+    await vi.waitFor(() => expect(home().stream?.items).toHaveLength(1));
+    emit('sx-react', { subject: 'share', id: 'S1', kind: 'like', previous });
+    await vi.waitFor(() => expect((home().stream?.items[0] as { reactions: { mine: string } }).reactions.mine).toBe('like'));
+    const call = server.calls.find((c) => c.url === '/api/reactions/share/S1' && c.method === 'PUT');
+    expect(JSON.parse(String(call?.body))).toEqual({ kind: 'like' });
+    expect((home().stream?.items[0] as { reactions: { counts: { like: number } } }).reactions.counts.like).toBe(7);
+  });
+
+  it('[F-173] /h/<slug> öffnet die Hafenseite mit Neuigkeiten des Hafens', async () => {
+    server.social = {
+      harbor: { harbor: { id: 'H1', slug: 'potsdam', name: 'Potsdam', lat: null, lon: null, canEdit: false, createdAt: T }, club: null, stats: { boats: 0, voyages: 0, distNm: 0, seasonNm: 0 }, boats: [], voyages: [], social: { followers: 0, isFollowing: false }, clubChoices: [], canClearClub: false },
+      harborStream: { items: [post], cursor: null },
+    };
+    await startApp('/h/potsdam');
+    const page = el<{ hidden: boolean; data: { kind: string; stream: { items: unknown[] } } | null }>('sx-profile-page');
+    await vi.waitFor(() => expect(page.data?.kind).toBe('harbor'));
+    expect(page.hidden).toBe(false);
+    expect(page.data?.stream.items).toHaveLength(1);
+    expect(document.title).toBe('Hafen Potsdam · Sail Explorer');
+    expect(document.querySelector('.app')?.hasAttribute('data-page')).toBe(true);
+  });
+
+  it('[F-183] /impressum und /datenschutz funktionieren ohne Backend', async () => {
+    server.backend = 'html';
+    await startApp('/impressum');
+    const legal = el<{ hidden: boolean; page: string }>('sx-legal-page');
+    expect(legal.hidden).toBe(false);
+    expect(legal.page).toBe('impressum');
+    expect(document.title).toBe('Impressum · Sail Explorer');
+    expect(document.querySelector('.app')?.hasAttribute('data-page')).toBe(true);
+    await startApp('/datenschutz');
+    expect(el<{ page: string }>('sx-legal-page').page).toBe('datenschutz');
   });
 
   it('[F-161] Beitrag veröffentlichen lädt die Gruppe neu', async () => {

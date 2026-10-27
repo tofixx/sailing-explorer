@@ -5,6 +5,7 @@ import { GROUP_KIND_LABEL, streamHeadline } from '../domain/groups';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
 import { base, emit } from './shared';
+import './sx-reactions';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
   voyage: 'map',
@@ -13,6 +14,7 @@ const KIND_ICON: Record<StreamItem['kind'], IconName> = {
   boat: 'sail',
   post: 'comment',
   milestone: 'pennant',
+  harbor: 'anchor',
 };
 
 /**
@@ -33,7 +35,8 @@ export class SxStream extends LitElement {
   declare items: StreamItem[];
   declare cursor: string | null;
   declare loading: boolean;
-  declare scope: 'home' | 'group';
+  /** wer „Mehr laden“ bedient: Startseite (persönlich bzw. öffentlich), Gruppen- oder Hafenseite */
+  declare scope: 'home' | 'group' | 'harbor' | 'public';
   declare emptyText: string;
   declare inGroup: boolean;
 
@@ -145,6 +148,9 @@ export class SxStream extends LitElement {
       .tools {
         margin-left: auto;
       }
+      .reactions {
+        margin-top: var(--s-2);
+      }
       .more {
         margin-top: var(--s-3);
         display: flex;
@@ -212,6 +218,8 @@ export class SxStream extends LitElement {
         const m = i.milestone!;
         return html`<div class="head"><span class="what"><a href=${m.path}>${m.name}</a> hat ${fmtNum(m.nm, 0)} Seemeilen in der Saison ${m.year} erreicht</span></div>`;
       }
+      case 'harbor':
+        return html`<div class="head"><span class="what">Neues Boot im Hafen <a href="/h/${i.harbor!.slug}">${i.harbor!.name}</a>: <a href="/b/${i.boat!.id}">${i.boat!.name}</a></span></div>`;
     }
   }
 
@@ -221,6 +229,7 @@ export class SxStream extends LitElement {
       <div>
         ${this.content(i)}
         <time datetime=${new Date(i.createdAt).toISOString()}>${fmtDateTime(i.createdAt)}</time>
+        ${i.reactions ? html`<sx-reactions class="reactions" .value=${i.reactions}></sx-reactions>` : ''}
       </div>
     </li>`;
   }

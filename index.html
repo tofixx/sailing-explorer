@@ -20,7 +20,7 @@
         <main class="map-area" aria-label="Karte">
           <div id="map"></div>
           <sx-empty-state>
-            <sx-home-feed slot="discover" hidden></sx-home-feed>
+            <sx-home-feed slot="feed" hidden></sx-home-feed>
             <sx-discover slot="discover" variant="strip" hidden></sx-discover>
           </sx-empty-state>
         </main>
@@ -40,6 +40,9 @@
           </sx-panel>
           <sx-panel heading="Crew" id="crew-panel" hidden>
             <sx-crew></sx-crew>
+          </sx-panel>
+          <sx-panel heading="Reaktionen" id="reactions-panel" hidden>
+            <sx-reactions id="share-reactions"></sx-reactions>
           </sx-panel>
           <sx-panel heading="Kommentare" id="comments-panel" hidden>
             <sx-comments></sx-comments>
@@ -63,6 +66,7 @@
       <sx-profile-page hidden></sx-profile-page>
       <sx-discover id="discover-page" variant="page" hidden></sx-discover>
       <sx-group-page hidden></sx-group-page>
+      <sx-legal-page hidden></sx-legal-page>
     </div>
     <sx-toast></sx-toast>
     <sx-login-dialog></sx-login-dialog>

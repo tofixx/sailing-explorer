@@ -1,5 +1,7 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, Linkable, Profile, ShareMeta, SupportStatus, User } from '../services/api';
+import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, HomeInfo, Linkable, Profile, ShareMeta, SupportStatus, User } from '../services/api';
+import type { SxHarborPicker } from './sx-harbor-picker';
+import './sx-harbor-picker';
 import { WARN_MS, type SupportTier } from '../domain/support';
 import { boatLimitText, usageText } from '../domain/limits';
 import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from '../domain/visibility';
@@ -48,7 +50,10 @@ export class SxAccountDialog extends LitElement {
     profileVis: { state: true },
     settings: { attribute: false },
     reports: { attribute: false },
+    home: { attribute: false },
   };
+  /** „Mein Verein“ und Heimathafen (Konzept 12.1/12.2); null = lädt bzw. nicht verfügbar */
+  declare home: HomeInfo | null;
   declare open: boolean;
   declare tab: AccountTab;
   declare user: User | null;
@@ -113,6 +118,7 @@ export class SxAccountDialog extends LitElement {
     this.profileVis = null;
     this.settings = null;
     this.reports = null;
+    this.home = null;
   }
 
   static styles = [
@@ -379,6 +385,20 @@ export class SxAccountDialog extends LitElement {
         flex: 1;
         min-width: 12rem;
       }
+      .legal {
+        margin: 0;
+        font-size: var(--fs-xs);
+        color: var(--text-3);
+        text-align: center;
+      }
+      .legal a {
+        color: var(--text-2);
+      }
+      form.home {
+        margin-top: var(--s-4);
+        padding-top: var(--s-4);
+        border-top: 1px solid var(--border-soft);
+      }
       .foot {
         display: flex;
         justify-content: space-between;
@@ -530,6 +550,44 @@ export class SxAccountDialog extends LitElement {
         ${this.profileExists ? html`<a class="btn" href=${p.link || `/u/${p.handle}`}>${icon('open')} Ansehen</a>` : ''}
         <button class="btn primary" type="submit" ?disabled=${this.busy}>${icon('check')} ${this.profileExists ? 'Speichern' : 'Profil anlegen'}</button>
       </div>
+    </form>
+    ${this.homeForm()}`;
+  }
+
+  // ------------------------------------------------------------ Mein Verein und Heimathafen (Konzept 12.1/12.2)
+
+  private saveHome(e: Event) {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const clubId = String(new FormData(form).get('clubId') || '') || null;
+    const picker = form.querySelector('sx-harbor-picker') as SxHarborPicker | null;
+    emit(this, 'sx-home-save', { clubId, harbor: picker?.choice ?? { harborId: null } });
+  }
+
+  private homeForm() {
+    const h = this.home;
+    if (!h) return '';
+    const clubs = h.clubs ?? [];
+    return html`<form class="grid home" @submit=${this.saveHome} aria-labelledby="home-h">
+      <div class="full"><div class="label" id="home-h">Mein Verein und Heimathafen</div>
+        <p class="hint">Daraus stellt die Startseite deine Neuigkeiten zusammen. Auf deinem Profil erscheinen sie nur, wenn Profil und Verein öffentlich sind bzw. du den Hafen hier wählst.</p></div>
+      <div>
+        <label class="label" for="hc">Mein Verein</label>
+        ${clubs.length
+          ? html`<select id="hc" name="clubId">
+              <option value="">– keiner –</option>
+              ${clubs.map((c) => html`<option value=${c.id} ?selected=${h.club?.id === c.id}>${c.name}</option>`)}
+            </select>`
+          : html`<p class="hint">Du bist noch in keinem Verein. <a href="/entdecken#vereine">Vereine entdecken</a></p>`}
+      </div>
+      <div>
+        <label class="label" for="hh">Heimathafen</label>
+        <sx-harbor-picker input-id="hh" label="Heimathafen" .value=${h.harborExplicit ? h.harbor : null}></sx-harbor-picker>
+        ${!h.harborExplicit && h.harbor ? html`<p class="hint">Ohne Wahl: ${h.harbor.name} (Hafen deiner Boote)</p>` : ''}
+      </div>
+      <div class="full actions">
+        <button class="btn primary" type="submit" ?disabled=${this.busy}>${icon('check')} Verein und Hafen speichern</button>
+      </div>
     </form>`;
   }
 
@@ -539,12 +597,14 @@ export class SxAccountDialog extends LitElement {
     e.preventDefault();
     const d = new FormData(e.target as HTMLFormElement);
     const len = String(d.get('lengthM') || '').replace(',', '.');
+    // Hafen (Konzept 12.2): vorhandener per ID, neuer per Name (der Server erkennt Dubletten), sonst keiner
+    const harbor = ((e.target as HTMLFormElement).querySelector('sx-harbor-picker') as SxHarborPicker | null)?.choice ?? { harborId: null };
     const input: BoatInput = {
       name: String(d.get('name') || ''),
       boatType: String(d.get('boatType') || ''),
       lengthM: len ? Number(len) : null,
       sailNumber: String(d.get('sailNumber') || ''),
-      homePort: String(d.get('homePort') || ''),
+      ...('name' in harbor ? { homePort: harbor.name } : { harborId: harbor.harborId }),
       description: String(d.get('description') || ''),
       visibility: this.boatVis,
     };
@@ -579,7 +639,7 @@ export class SxAccountDialog extends LitElement {
       </div>
       <div class="full">
         <label class="label" for="bh">Heimathafen <span class="faint">(optional – erscheint öffentlich)</span></label>
-        <input id="bh" name="homePort" type="text" maxlength="80" .value=${b?.homePort ?? ''} />
+        <sx-harbor-picker input-id="bh" label="Heimathafen des Boots" .value=${b?.harbor ?? null}></sx-harbor-picker>
       </div>
       <div class="full">
         <label class="label" for="bd">Beschreibung</label>
@@ -916,6 +976,7 @@ export class SxAccountDialog extends LitElement {
             : html`<button class="btn small ghost danger" @click=${() => (this.confirm = 'account')}>${icon('trash')} Konto löschen</button>
                 <button class="btn small" @click=${() => emit(this, 'sx-logout')}>${icon('logout')} Abmelden</button>`}
         </div>
+        <p class="legal"><a href="/impressum">Impressum</a> · <a href="/datenschutz">Datenschutz</a></p>
       </div>
     </dialog>`;
   }
