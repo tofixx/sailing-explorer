@@ -43,6 +43,10 @@ body {
 .app[data-empty] .sidebar {
   display: none;
 }
+/* Startseite: die Karte ist nur Hintergrund – Zoom und Ebenen würden den Stream überdecken (Konzept 12.6) */
+.app[data-empty] .leaflet-control-container .leaflet-top {
+  display: none;
+}
 
 .map-area {
   position: relative;
