@@ -12,6 +12,7 @@ import { visibleActivity } from './stream';
 import { SHARE_ID_RE } from './validate';
 import { canManageGroup } from '../src/domain/groups';
 import { REACTION_LIMITS, isReactionKind, isReactionSubject, summarizeReactions, type ReactionSubject } from '../src/domain/reactions';
+import { notifyReaction } from './notifications';
 
 const DAY = 86_400_000;
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Das gibt es nicht (mehr) oder du kannst es nicht sehen.');
@@ -93,6 +94,7 @@ export async function putReaction(request: Request, env: Env, rawSubject: string
     ).bind(subject, id, user.id, kind, now),
     env.DB.prepare('INSERT INTO reaction_log (user_id, created_at) VALUES (?, ?)').bind(user.id, now),
   ]);
+  await notifyReaction(env, subject, id, user.id);
   return json(await reactionSummary(env, subject, id, user.id));
 }
 

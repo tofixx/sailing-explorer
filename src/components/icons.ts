@@ -73,6 +73,7 @@ const paths = {
   // Plus (FAB „Track anlegen“)
   plus: svg`<path d="M12 5v14M5 12h14"/>`,
   // Waage/Paragraf für Rechtliches
+  bell: svg`<path class="f" d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 21h4"/>`,
   scale: svg`<path d="M12 4v16M7 20h10M5 7h14M5 7l-2.5 6a2.5 2.5 0 0 0 5 0zM19 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/>`,
 };
 

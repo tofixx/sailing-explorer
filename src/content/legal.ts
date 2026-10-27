@@ -147,7 +147,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
         id: 'inhalte',
         title: '5. Was du teilst und wer es sieht',
         blocks: [
-          p('Wenn du einen Törn teilst, speichern wir die Track-Daten (GPS-Positionen mit Zeitstempeln, daraus berechnete Geschwindigkeiten), Titel, Kurzbeschreibung, die beim Einstellen geladenen Wetterdaten und optional ein Übersichtsbild. Dazu kommen, was du selbst anlegst: Profil (Anzeigename, Profiladresse, Text), Boote, gewählter Heimathafen und Verein, Häfen, Vereine und Teams, Beiträge, Kommentare, Reaktionen, Folgen, Titelbilder und – als Unterstützer:in – Fotos. Fotos und Titelbilder werden vor dem Hochladen in deinem Browser verkleinert und ohne Metadaten (EXIF) gespeichert; eine Position aus dem Foto übernehmen wir nur, wenn sie zum Track passt.'),
+          p('Wenn du einen Törn teilst, speichern wir die Track-Daten (GPS-Positionen mit Zeitstempeln, daraus berechnete Geschwindigkeiten), Titel, Kurzbeschreibung, die beim Einstellen geladenen Wetterdaten und optional ein Übersichtsbild. Für dich speichern wir außerdem Benachrichtigungen (z. B. „Anna hat deinen Törn kommentiert“) mit Art, Bezug und Lesestatus. Dazu kommen, was du selbst anlegst: Profil (Anzeigename, Profiladresse, Text), Boote, gewählter Heimathafen und Verein, Häfen, Vereine und Teams, Beiträge, Kommentare, Reaktionen, Folgen, Titelbilder und – als Unterstützer:in – Fotos. Fotos und Titelbilder werden vor dem Hochladen in deinem Browser verkleinert und ohne Metadaten (EXIF) gespeichert; eine Position aus dem Foto übernehmen wir nur, wenn sie zum Track passt.'),
           h3('Sichtbarkeit'),
           ul(
             '„Öffentlich“: für alle sichtbar, in der Community („Entdecken“, Startseite, Hafen- und Vereinsseiten) gelistet und von Suchmaschinen auffindbar – bei Törns einschließlich aller Positionen und Zeitpunkte.',
@@ -201,7 +201,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
             'Titelbilder von Profil, Boot, Verein oder Team: solange es das jeweilige Profil, Boot bzw. die Gruppe gibt; ein ersetztes Bild löschen wir sofort.',
             'Passkeys (öffentlicher Schlüssel, Gerätename, letzte Nutzung): bis du sie entfernst oder dein Konto löschst.',
             'Konten ohne Törns, die 12 Monate nicht angemeldet waren (und keine laufende Unterstützung haben), löschen wir automatisch.',
-            'Neuigkeiten (Aktivitäts-Log): 12 Monate. Anmeldelinks und -codes: 15 Minuten gültig, gespeichert bis 24 Stunden nach Ablauf (Schutz vor Durchprobieren). Sitzungen: 180 Tage. Einladungen: 14 Tage. Beitrittsanfragen: 90 Tage.',
+            'Neuigkeiten (Aktivitäts-Log): 12 Monate. Benachrichtigungen: gelesene 30 Tage, alle spätestens 90 Tage. Anmeldelinks und -codes: 15 Minuten gültig, gespeichert bis 24 Stunden nach Ablauf (Schutz vor Durchprobieren). Sitzungen: 180 Tage. Einladungen: 14 Tage. Beitrittsanfragen: 90 Tage.',
             'Zähler gegen Spam (Kommentare, Beiträge, Reaktionen): 24 Stunden. Meldungen: ohne Bezug zur meldenden Person nach der Entscheidung bzw. spätestens nach 180 Tagen, entschiedene gelöscht nach weiteren 180 Tagen.',
             'Server-Logs bei Cloudflare: wenige Tage. Zahlungsbelege: 10 Jahre nach Ablauf der Unterstützung (siehe Abschnitt 7).',
           ),
@@ -211,7 +211,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
         id: 'loeschen',
         title: '10. Konto löschen',
         blocks: [
-          p('Im Konto („Konto & Freigaben“ → „Konto löschen“) löschst du sofort und endgültig: Konto, Profil, Boote, alle Törns mit Dateien und Fotos, Kommentare (auch fremde auf deinen Törns), Reaktionen (auch fremde auf deinen Inhalten), Beiträge, Mitgliedschaften, Folgen und Neuigkeiten. Gruppen, deren Eigner:in du bist, gehen an die dienstälteste Admin-Person über, ohne Admin an das dienstälteste Mitglied; nur Gruppen ohne weitere Mitglieder werden gelöscht. Passkeys und Titelbilder von Profil und Booten löschen wir mit. Häfen, die du angelegt hast, bleiben ohne Bezug zu dir bestehen. Einzelne Inhalte löschst du jederzeit selbst.'),
+          p('Im Konto („Konto & Freigaben“ → „Konto löschen“) löschst du sofort und endgültig: Konto, Profil, Boote, alle Törns mit Dateien und Fotos, Kommentare (auch fremde auf deinen Törns), Reaktionen (auch fremde auf deinen Inhalten), Beiträge, Mitgliedschaften, Folgen, Neuigkeiten und Benachrichtigungen (bei anderen erscheinst du danach nur noch als „Jemand“). Gruppen, deren Eigner:in du bist, gehen an die dienstälteste Admin-Person über, ohne Admin an das dienstälteste Mitglied; nur Gruppen ohne weitere Mitglieder werden gelöscht. Passkeys und Titelbilder von Profil und Booten löschen wir mit. Häfen, die du angelegt hast, bleiben ohne Bezug zu dir bestehen. Einzelne Inhalte löschst du jederzeit selbst.'),
         ],
       },
       {

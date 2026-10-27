@@ -22,6 +22,7 @@ import {
   type Approvers, type GroupKind, type GroupRole, type JoinMode,
 } from '../src/domain/groups';
 import { funnyName } from '../src/domain/names';
+import { notifyRequest } from './notifications';
 
 const DAY = 86_400_000;
 
@@ -567,6 +568,7 @@ export async function insertRequest(env: Env, groupId: string, userId: string, m
   const open = (await env.DB.prepare('SELECT COUNT(*) AS n FROM group_requests WHERE group_id = ?').bind(groupId).first<{ n: number }>())?.n ?? 0;
   if (open >= GROUP_LIMITS.openRequests) throw new HttpError(409, 'quota', 'Diese Gruppe hat gerade zu viele offene Anfragen. Bitte später erneut versuchen.');
   const res = await env.DB.prepare('INSERT OR IGNORE INTO group_requests (group_id, user_id, message, created_at) VALUES (?, ?, ?, ?)').bind(groupId, userId, message, now).run();
+  if (res.meta.changes) await notifyRequest(env, groupId, userId);
   return !!res.meta.changes;
 }
 

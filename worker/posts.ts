@@ -7,6 +7,7 @@ import { HttpError, json, readJson } from './http';
 import { assertActive } from './moderation';
 import { recordPost } from './activity';
 import { deletePostReactions } from './reaction-cleanup';
+import { deletePostNotifications } from './notification-cleanup';
 import { GROUP_NOT_FOUND, canViewGroup, loadGroup, roleIn } from './groups';
 import { SHARE_ID_RE } from './validate';
 import { GROUP_LIMITS } from '../src/domain/limits';
@@ -52,6 +53,7 @@ export async function removePost(env: Env, id: string): Promise<void> {
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'post' AND target_id = ?`).bind(id),
     deletePostReactions(env, id),
+    deletePostNotifications(env, id),
     env.DB.prepare(`DELETE FROM reactions WHERE subject_kind = 'activity' AND subject_id IN (SELECT id FROM activity WHERE subject_kind = 'post' AND subject_id = ?)`).bind(id),
     env.DB.prepare(`DELETE FROM activity WHERE subject_kind = 'post' AND subject_id = ?`).bind(id),
     env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(id),

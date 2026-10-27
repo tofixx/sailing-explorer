@@ -6,6 +6,7 @@ import type { Env } from './env';
 import { randomId } from './crypto';
 import { crossedMilestones, dayKey, seasonOf, type ActivityKind } from '../src/domain/groups';
 import { deleteBoatReactions, deleteGroupReactions, nightlyReactionCleanup, userReactionCleanup } from './reaction-cleanup';
+import { groupNotificationCleanup, nightlyNotificationCleanup, userNotificationCleanup } from './notification-cleanup';
 
 type TargetKind = 'group' | 'boat' | 'user' | 'harbor';
 
@@ -233,6 +234,7 @@ export const boatCleanup = (env: Env, boatId: string): D1PreparedStatement[] => 
 /** Gruppe gelöscht: Aktivitäten der Gruppe, Ziele `group`, Folgen, Beitragszähler. */
 export const groupActivityCleanup = (env: Env, groupId: string): D1PreparedStatement[] => [
   deleteGroupReactions(env, groupId),
+  groupNotificationCleanup(env, groupId),
   env.DB.prepare(`DELETE FROM activity WHERE group_id = ?1 OR (subject_kind = 'group' AND subject_id = ?1)`).bind(groupId),
   env.DB.prepare(`DELETE FROM activity_target WHERE target_kind = 'group' AND target_id = ?`).bind(groupId),
   env.DB.prepare(`DELETE FROM follows WHERE target_kind = 'group' AND target_id = ?`).bind(groupId),
@@ -253,6 +255,8 @@ export const harborActivityCleanup = (env: Env, harborId: string): D1PreparedSta
 export const userActivityCleanup = (env: Env, userId: string): D1PreparedStatement[] => [
   // Reaktionen zuerst – sie verweisen auf Törns, Fotos, Beiträge und Aktivitäten des Kontos (Konzept 12.5).
   ...userReactionCleanup(env, userId),
+  // Benachrichtigungen ebenso vor Beiträgen und Einladungen (Konzept 17.5)
+  ...userNotificationCleanup(env, userId),
   env.DB.prepare(
     `DELETE FROM activity WHERE actor_id = ?1 OR (subject_kind = 'user' AND subject_id = ?1)
        OR (subject_kind = 'share' AND subject_id IN (SELECT id FROM shares WHERE user_id = ?1))
@@ -297,7 +301,8 @@ export function nightlyActivityCleanup(env: Env, now: number): D1PreparedStateme
     ),
     env.DB.prepare('DELETE FROM group_requests WHERE created_at < ?').bind(now - 90 * DAY),
     env.DB.prepare('DELETE FROM post_log WHERE created_at < ?').bind(now - DAY),
-    // zuletzt: Reaktionen, deren Gegenstand eben (oder früher) verschwand
+    // zuletzt: Reaktionen und Benachrichtigungen, deren Gegenstand eben (oder früher) verschwand
     ...nightlyReactionCleanup(env, now),
+    ...nightlyNotificationCleanup(env, now),
   ];
 }

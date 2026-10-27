@@ -11,6 +11,7 @@ import { COMMENT_ID_RE, parseNotifyMode } from './validate';
 import { COMMENT_MAX, COMMENT_MAX_LINKS, cleanComment, commentProblem, type CommentsMode } from '../src/domain/comment-text';
 import { sharePath, type Visibility } from '../src/domain/visibility';
 import { isGroupNotifyMode } from '../src/domain/groups';
+import { notifyComment } from './notifications';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -158,6 +159,7 @@ export async function createComment(request: Request, env: Env, id: string): Pro
     env.DB.prepare('INSERT INTO comments (id, share_id, photo_id, user_id, body, created_at) VALUES (?, ?, NULL, ?, ?, ?)').bind(commentId, row.id, user.id, body, now),
     env.DB.prepare('INSERT INTO comment_log (user_id, body_hash, created_at) VALUES (?, ?, ?)').bind(user.id, hash, now),
   ]);
+  await notifyComment(env, row.id, user.id);
   const saved = await env.DB.prepare(`${COMMENT_SELECT} WHERE c.id = ?`).bind(commentId).first<CommentRow>();
   return json({ comment: shape(saved!, user.id, isOwner, isAdmin(env, user.id)) }, { status: 201 });
 }
@@ -264,6 +266,9 @@ export async function sendCommentDigests(env: Env, origin: string, now = Date.no
        AND COALESCE(u.comments_mailed_at, 0) < ?1
        AND c.created_at > COALESCE(u.comments_mailed_at, 0) AND c.created_at <= ?2
        AND c.user_id <> u.id AND c.hidden_at IS NULL
+       -- schon auf der Seite gelesen (Glocke, Törn geöffnet) → nicht noch einmal per Mail (Konzept 17.4, F-254)
+       AND EXISTS (SELECT 1 FROM notifications n WHERE n.user_id = u.id AND n.kind = 'comment' AND n.subject_kind = 'share'
+                   AND n.subject_id = s.id AND n.read_at IS NULL)
      GROUP BY u.id, s.id
      ORDER BY u.id, n DESC
      LIMIT 1000`,

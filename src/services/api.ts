@@ -9,6 +9,7 @@ import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../doma
 import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
 import type { HarborRef } from '../domain/harbors';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
+import type { NotificationItem, NotificationKind } from '../domain/notifications';
 
 export type { Visibility };
 
@@ -915,4 +916,17 @@ export const passkeyApi = {
   registerOptions: () => call<{ options: PublicKeyCredentialCreationOptionsJSON; challengeId: string }>('/api/passkeys/options', jsonInit('POST', {})),
   register: (challengeId: string, response: unknown, name: string) => call<{ passkey: PasskeyInfo }>('/api/passkeys', jsonInit('POST', { challengeId, response, name })),
   remove: (id: string) => call<void>(`/api/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+// ================================================================ Benachrichtigungen (Konzept 17)
+
+export type { NotificationItem };
+
+/** Was als gelesen gilt: bestimmte Einträge, eine Art, ein Gegenstand (Törn, Gruppe) oder alles. */
+export type NotificationRead = { ids: string[] } | { kind: NotificationKind } | { subjectKind: 'share' | 'group'; subjectId: string } | { all: true };
+
+export const notificationApi = {
+  list: () => call<{ items: NotificationItem[]; unread: number }>('/api/notifications'),
+  unread: () => call<{ unread: number }>('/api/notifications/count'),
+  read: (what: NotificationRead) => call<{ unread: number }>('/api/notifications/read', jsonInit('POST', what)),
 };

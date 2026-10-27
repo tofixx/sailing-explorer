@@ -26,6 +26,8 @@ import { groupFeed } from './feed';
 import { GROUP_KIND_LABEL } from '../src/domain/groups';
 // ---- Häfen (Konzept 12.2) ----
 import { harborVisible, loadHarborBySlug } from './harbors';
+// ---- Benachrichtigungen (Konzept 17) ----
+import { getUnread, listNotifications, markRead } from './notifications';
 
 const WEBHOOK_PATH = '/api/webhooks/stripe';
 
@@ -62,6 +64,9 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/me\/invites$/, (r, env) => listMyInvites(r, env)],
   ['POST', /^\/api\/me\/invites\/([A-Za-z0-9]+)\/accept$/, (r, env, [id]) => acceptMyInvite(r, env, id)],
   ['DELETE', /^\/api\/me\/invites\/([A-Za-z0-9]+)$/, (r, env, [id]) => declineMyInvite(r, env, id)],
+  ['GET', /^\/api\/notifications$/, (r, env) => listNotifications(r, env)],
+  ['GET', /^\/api\/notifications\/count$/, (r, env) => getUnread(r, env)],
+  ['POST', /^\/api\/notifications\/read$/, (r, env) => markRead(r, env)],
   ['POST', /^\/api\/support\/checkout$/, (r, env) => createCheckout(r, env)],
   ['POST', /^\/api\/webhooks\/stripe$/, (r, env) => stripeWebhook(r, env)],
   ['GET', /^\/api\/profiles\/([A-Za-z0-9-]+)$/, (r, env, [h]) => getProfile(r, env, h)],
