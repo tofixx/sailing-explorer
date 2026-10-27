@@ -69,7 +69,7 @@ export function isMapStyleId(v: unknown): v is MapStyleId {
 
 /**
  * Welcher Stil gilt: die erste gültige Angabe in Vorrang-Reihenfolge, sonst „Klassisch“.
- * Die App übergibt: Wahl „Nur jetzt“ dieser Sitzung, Profil-Standard, Wahl auf diesem Gerät (Gast).
+ * Die App übergibt: Auswahl im Menü (nur diese Ansicht), dann den Profil-Standard.
  */
 export function resolveMapStyle(...candidates: unknown[]): MapStyleId {
   return candidates.find(isMapStyleId) ?? DEFAULT_MAP_STYLE;

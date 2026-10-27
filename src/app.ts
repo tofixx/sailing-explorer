@@ -420,8 +420,6 @@ export class App {
     const s = this.session;
 
     // Tracks & Karte
-    on<{ id: MapStyleId }>('sx-map-style-preview', (d) => this.mapStyle.preview(d.id));
-    on('sx-map-style-cancel', () => this.mapStyle.cancel());
     on<{ id: MapStyleId; scope: MapStyleScope }>('sx-map-style-apply', (d) => void this.mapStyle.choose(d.id, d.scope));
     on<FileList>('sx-files', (files) => this.addFiles(files));
     on<string>('sx-sample', (file) => this.loadSample(file));

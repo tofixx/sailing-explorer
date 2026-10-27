@@ -1,18 +1,17 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
-import { unsafeHTML } from 'lit/directives/unsafe-html.js';
-import { MAP_STYLES, MAP_STYLE_IDS, type MapStyle, type MapStyleId } from '../domain/map-style';
+import { MAP_STYLES, MAP_STYLE_IDS, type MapStyleId } from '../domain/map-style';
 import { rampCss } from '../domain/metrics';
-import { waveChevron, windBadge } from '../map/glyphs';
 import { icon } from './icons';
-import { base, dialogStyles, emit } from './shared';
+import { base, emit } from './shared';
 
-export type MapStyleScope = 'now' | 'profile';
+/** now: für diese Ansicht (weg nach dem Neuladen), profile: als Standard im Profil, reset: Profil-Standard entfernen */
+export type MapStyleScope = 'now' | 'profile' | 'reset';
 
 /**
- * „Ansicht konfigurieren“: Knopf unten rechts über der Karte, öffnet ein Popover mit den Kartenstilen (Vorschau je Set).
- * Nicht modal, damit die Karte die Auswahl sofort zeigt. Reine Darstellung – Events: `sx-map-style-preview` { id },
- * `sx-map-style-apply` { id, scope } (angemeldet: „Nur jetzt“ oder „Als Standard im Profil“, Gast: nur „now“),
- * `sx-map-style-cancel` (Vorschau verwerfen).
+ * Kartenstil: Zahnrad unten rechts über der Karte, klappt ein Menü mit den Stilen auf (Knöpfe mit aria-pressed).
+ * Ein Klick wendet den Stil sofort an (bis zum Neuladen); angemeldet lässt sich der geltende Stil als Standard setzen
+ * oder der Standard entfernen.
+ * Reine Darstellung – Event `sx-map-style-apply` { id, scope }.
  */
 export class SxMapStyle extends LitElement {
   static properties = {
@@ -22,7 +21,6 @@ export class SxMapStyle extends LitElement {
     signedIn: { type: Boolean },
     busy: { type: Boolean },
     error: { type: String },
-    selected: { state: true },
   };
   declare open: boolean;
   /** gerade geltender Stil */
@@ -32,7 +30,6 @@ export class SxMapStyle extends LitElement {
   declare signedIn: boolean;
   declare busy: boolean;
   declare error: string;
-  declare selected: MapStyleId;
 
   constructor() {
     super();
@@ -42,138 +39,112 @@ export class SxMapStyle extends LitElement {
     this.signedIn = false;
     this.busy = false;
     this.error = '';
-    this.selected = 'classic';
   }
 
   static styles = [
     base,
-    dialogStyles,
     css`
       :host {
         display: block;
+        position: relative;
       }
       .toggle {
         box-shadow: var(--shadow-1);
       }
-      dialog {
+      .menu {
         position: absolute;
-        inset: auto 0 calc(100% + var(--s-2)) auto;
-        margin: 0;
-        width: min(360px, calc(100vw - 24px));
-        max-height: min(70dvh, 560px);
-        overflow-y: auto;
-        z-index: 1;
+        right: 0;
+        bottom: calc(100% + var(--s-2));
+        width: min(280px, calc(100vw - 24px));
+        padding: var(--s-1);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-l);
+        background: var(--surface);
+        box-shadow: var(--shadow-2);
+        display: grid;
+        gap: 2px;
       }
-      /* Mobil ist die Karte über dem Bottom-Sheet zu niedrig: das Popover wird selbst zum Sheet am unteren Rand. */
+      /* Mobil ist die Karte über dem Bottom-Sheet niedrig: das Menü kommt als Sheet vom unteren Rand. */
       @media (max-width: 760px) {
-        dialog {
+        .menu {
           position: fixed;
           inset: auto 0 0 0;
           width: 100%;
-          max-height: 80dvh;
           border-radius: var(--radius-l) var(--radius-l) 0 0;
+          padding-bottom: var(--s-3);
         }
       }
-      header {
-        padding: var(--s-3) var(--s-3) var(--s-1) var(--s-4);
-      }
-      header h2 {
-        font-size: var(--fs-m);
-      }
-      .body {
-        padding: var(--s-1) var(--s-3) var(--s-3);
-        gap: var(--s-3);
-      }
-      fieldset {
-        border: 0;
-        margin: 0;
-        padding: 0;
-        display: grid;
-        gap: var(--s-1);
-      }
-      .opt {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: var(--s-1) var(--s-2);
-        align-items: center;
-        padding: var(--s-2);
-        border: 1px solid transparent;
-        border-radius: var(--radius);
-        cursor: pointer;
-      }
-      .opt:hover {
-        background: var(--surface-hover);
-      }
-      .opt:has(input:checked) {
-        border-color: var(--accent);
-        background: var(--surface-2);
-      }
-      .opt input {
-        accent-color: var(--accent);
-        width: 18px;
-        height: 18px;
-        margin: 0;
-      }
-      .opt .name {
+      .title {
+        margin: var(--s-2) var(--s-2) var(--s-1);
+        font-size: var(--fs-s);
+        color: var(--text-2);
         font-weight: 600;
       }
-      .opt .name small {
+      .item {
+        display: grid;
+        grid-template-columns: 18px 1fr;
+        gap: 2px var(--s-2);
+        align-items: center;
+        width: 100%;
+        min-height: 44px;
+        padding: var(--s-1) var(--s-2);
+        border: 0;
+        border-radius: var(--radius);
+        background: none;
+        color: var(--text);
+        font: 500 var(--fs-m) / 1.3 var(--font);
+        text-align: left;
+        cursor: pointer;
+      }
+      .item:hover:not([disabled]) {
+        background: var(--surface-hover);
+      }
+      .item[aria-pressed='true'] {
+        background: var(--surface-2);
+        font-weight: 650;
+      }
+      .item .mark {
+        color: var(--accent);
+        display: flex;
+      }
+      .item small {
         font-weight: 500;
         color: var(--text-2);
         margin-left: var(--s-1);
       }
-      .preview,
-      .desc {
+      .bar {
         grid-column: 2;
+        height: 6px;
+        border-radius: 999px;
       }
-      .desc {
+      hr {
+        border: 0;
+        border-top: 1px solid var(--border-soft);
+        margin: var(--s-1) 0;
+      }
+      .hint,
+      .error {
+        margin: var(--s-1) var(--s-2);
         font-size: var(--fs-s);
-        color: var(--text-2);
         line-height: 1.4;
       }
-      .preview {
-        display: flex;
-        align-items: center;
-        gap: var(--s-2);
-        padding: var(--s-1) var(--s-2);
-        border-radius: var(--radius);
-        background: var(--map-bg);
-      }
-      .bar {
-        flex: 1;
-        border-radius: 999px;
-        box-shadow: 0 0 0 2px var(--map-halo);
-      }
-      .glyph {
-        display: flex;
-        flex: none;
-      }
-      .ask {
-        font-size: var(--fs-s);
+      .hint {
         color: var(--text-2);
+      }
+      .error {
+        color: var(--err);
+      }
+      .action {
+        justify-content: flex-start;
       }
     `,
   ];
 
-  willUpdate(changed: PropertyValues<this>) {
-    // Beim Öffnen steht die Auswahl auf dem geltenden Stil.
-    if (changed.has('open') && this.open) {
-      this.selected = this.current;
-      this.error = '';
-    }
-  }
-
   updated(changed: PropertyValues<this>) {
-    const dlg = this.renderRoot.querySelector('dialog')!;
-    if (changed.has('open')) {
-      if (this.open && !dlg.open) dlg.show();
-      else if (!this.open && dlg.open) {
-        // Fokus aus dem Popover zurück auf den Knopf (nicht modale Dialoge geben ihn nicht zurück)
-        const focusInside = dlg.contains(this.shadowRoot?.activeElement ?? null);
-        dlg.close();
-        if (focusInside) this.renderRoot.querySelector<HTMLButtonElement>('.toggle')?.focus();
-      }
-    }
+    // Fokus beim Öffnen ins Menü, beim Schließen zurück aufs Zahnrad
+    if (!changed.has('open') || changed.get('open') === undefined) return;
+    if (this.open) this.renderRoot.querySelector<HTMLButtonElement>('.item[aria-pressed="true"]')?.focus();
+    else if (this.shadowRoot?.activeElement) this.renderRoot.querySelector<HTMLButtonElement>('.toggle')?.focus();
   }
 
   connectedCallback() {
@@ -186,89 +157,68 @@ export class SxMapStyle extends LitElement {
     document.removeEventListener('pointerdown', this.onOutside);
   }
 
-  /** Klick neben das Popover verwirft die Vorschau. */
+  /** Während gespeichert wird, bleibt das Menü offen – sonst ginge ein Fehler unbemerkt verloren. */
+  private close() {
+    if (!this.busy) this.open = false;
+  }
+
   private onOutside = (e: PointerEvent) => {
-    if (this.open && !e.composedPath().includes(this)) this.cancel();
+    if (this.open && !e.composedPath().includes(this)) this.close();
   };
 
-  private toggle = () => {
-    if (this.open) this.cancel();
-    else this.open = true;
-  };
-
-  /** Während gespeichert wird, bleibt das Popover offen – sonst ginge ein Fehler oder Erfolg unbemerkt verloren. */
-  private cancel = () => {
-    if (this.busy) return;
-    this.open = false;
-    emit(this, 'sx-map-style-cancel');
+  /** Fokus wandert per Tab aus dem Bauteil: Menü schließen */
+  private onFocusOut = (e: FocusEvent) => {
+    const next = e.relatedTarget as Node | null;
+    if (this.open && next && !this.shadowRoot!.contains(next)) this.close();
   };
 
   private onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape') return;
+    if (e.key !== 'Escape' || !this.open) return;
     e.preventDefault();
-    this.cancel();
+    this.close();
   };
 
-  private pick(id: MapStyleId) {
-    this.selected = id;
-    emit(this, 'sx-map-style-preview', { id });
+  private apply(id: MapStyleId, scope: MapStyleScope) {
+    this.error = '';
+    emit(this, 'sx-map-style-apply', { id, scope });
   }
 
-  private apply(scope: MapStyleScope) {
-    emit(this, 'sx-map-style-apply', { id: this.selected, scope });
-  }
-
-  private preview(s: MapStyle) {
-    // Beispielwerte: schwacher und kräftiger Wind, kleine und hohe Welle
-    const g = (svg: string) => html`<span class="glyph">${unsafeHTML(svg)}</span>`;
-    return html`<div class="preview" aria-hidden="true">
-      <div class="bar" style="height:${s.lineWeight + 3}px;background:${rampCss(s.ramp)}"></div>
-      ${g(windBadge(225, 8, s))}${g(windBadge(250, 24, s))}${g(waveChevron(225, 0.4, s))}${g(waveChevron(250, 2.4, s))}
-    </div>`;
-  }
-
-  private actions() {
-    if (!this.signedIn) {
-      return html`<p class="ask">Gilt auf diesem Gerät. Angemeldet kannst du ihn als Standard im Profil speichern – dann auf allen Geräten.</p>
-        <div class="actions">
-          <button class="btn" type="button" @click=${this.cancel}>Abbrechen</button>
-          <button class="btn primary" type="button" ?disabled=${this.selected === this.current} @click=${() => this.apply('now')}>${icon('check')} Übernehmen</button>
-        </div>`;
-    }
-    return html`<p class="ask">Übernehmen – nur jetzt (bis du den Tab schließt) oder als Standard im Profil für alle Geräte?</p>
-      <div class="actions">
-        <button class="btn" type="button" ?disabled=${this.busy || this.selected === this.current} @click=${() => this.apply('now')}>Nur jetzt</button>
-        <button class="btn primary" type="button" ?disabled=${this.busy || (this.selected === this.profileStyle && this.current === this.profileStyle)} @click=${() => this.apply('profile')}>${icon('check')} Als Standard speichern</button>
-      </div>`;
+  private profileActions() {
+    if (!this.signedIn) return html`<p class="hint">Gilt bis zum Neuladen. Angemeldet kannst du einen Stil als Standard setzen.</p>`;
+    const isDefault = this.current === this.profileStyle;
+    return html`<button class="btn ghost small action" type="button" ?disabled=${this.busy || isDefault} @click=${() => this.apply(this.current, 'profile')}>
+        ${icon('check')} ${isDefault ? `„${MAP_STYLES[this.current].label}“ ist dein Standard` : `„${MAP_STYLES[this.current].label}“ als Standard setzen`}
+      </button>
+      ${this.profileStyle
+        ? html`<button class="btn ghost small action" type="button" ?disabled=${this.busy} @click=${() => this.apply(this.current, 'reset')}>
+            ${icon('x')} Standard entfernen
+          </button>`
+        : ''}`;
   }
 
   render() {
-    const prof = this.signedIn && this.profileStyle ? MAP_STYLES[this.profileStyle].label : '';
-    return html`<button class="btn small toggle" type="button" aria-expanded=${this.open} aria-controls="ms" @click=${this.toggle}>
-        ${icon('map')} Ansicht konfigurieren
+    return html`<div @keydown=${this.onKey} @focusout=${this.onFocusOut}>
+      <button class="btn icon toggle" type="button" aria-label="Ansicht konfigurieren" title="Ansicht konfigurieren"
+        aria-expanded=${this.open} aria-controls="ms" @click=${() => (this.open ? this.close() : (this.open = true))}>
+        ${icon('gear')}
       </button>
-      <dialog id="ms" aria-labelledby="ms-h" @keydown=${this.onKey}>
-        <header>
-          <h2 id="ms-h">Kartenansicht</h2>
-          <button class="btn ghost icon small" aria-label="Schließen" ?disabled=${this.busy} @click=${this.cancel}>${icon('x')}</button>
-        </header>
-        <div class="body">
-          <fieldset>
-            <legend class="ask">Farbverlauf der Track-Einfärbung und Wind-/Wellen-Symbole</legend>
-            ${MAP_STYLE_IDS.map((id) => {
-              const s = MAP_STYLES[id];
-              return html`<label class="opt">
-                <input type="radio" name="style" value=${id} .checked=${this.selected === id} @change=${() => this.pick(id)} />
-                <span class="name">${s.label}${prof && id === this.profileStyle ? html`<small>Profil-Standard</small>` : ''}</span>
-                ${this.preview(s)}
-                <span class="desc">${s.description}</span>
-              </label>`;
-            })}
-          </fieldset>
-          ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
-          ${this.actions()}
-        </div>
-      </dialog>`;
+      <div class="menu" id="ms" role="group" aria-labelledby="ms-h" ?hidden=${!this.open}>
+        <p class="title" id="ms-h">Kartenstil</p>
+        ${MAP_STYLE_IDS.map((id) => {
+          const s = MAP_STYLES[id];
+          const on = id === this.current;
+          return html`<button class="item" type="button" aria-pressed=${on} ?disabled=${this.busy} title=${s.description}
+            @click=${() => (on ? this.close() : this.apply(id, 'now'))}>
+            <span class="mark">${on ? icon('check') : ''}</span>
+            <span>${s.label}${this.signedIn && id === this.profileStyle ? html`<small>Standard</small>` : ''}</span>
+            <span class="bar" style="background:${rampCss(s.ramp)}" aria-hidden="true"></span>
+          </button>`;
+        })}
+        <hr />
+        ${this.profileActions()}
+        ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
+      </div>
+    </div>`;
   }
 }
 customElements.define('sx-map-style', SxMapStyle);

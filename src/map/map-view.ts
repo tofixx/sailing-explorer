@@ -1,6 +1,7 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { METRICS, rampColor, smoothedMetric, type Range } from '../domain/metrics';
+import { BASE_MAPS, MAP_LANG, defaultBaseMap } from '../domain/basemaps';
 import { compassName } from '../domain/geo';
 import { MAP_STYLES, type MapStyle } from '../domain/map-style';
 import type { MetricKey, Track, TrackPoint } from '../domain/types';
@@ -43,29 +44,21 @@ export class MapView {
     this.map = L.map(el, { zoomControl: false, preferCanvas: true, attributionControl: true }).setView([54.4, 12.7], 8);
     L.control.zoom({ position: 'topleft', zoomInTitle: 'Hineinzoomen', zoomOutTitle: 'Herauszoomen' }).addTo(this.map);
 
-    // Grundkarten. Standard folgt dem Farbschema: ruhige Tageskarte bzw. Nachtkarte,
-    // damit die Daten (Track, Wind, Wellen) im Vordergrund stehen.
-    const esri = (service: string, maxNativeZoom: number) =>
-      L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/{z}/{y}/{x}`, {
-        maxZoom: 19,
-        maxNativeZoom,
-        attribution: 'Kacheln © Esri, GEBCO, NOAA, Garmin, HERE',
-      });
-    const bases: Record<string, L.TileLayer> = {
-      'Tag (Seekarte)': esri('Ocean/World_Ocean_Base', 13),
-      'Nacht': esri('Canvas/World_Dark_Gray_Base', 16),
-      OpenStreetMap: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }),
-      'OSM Deutschland': L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap DE' }),
-    };
+    // Grundkarten (src/domain/basemaps.ts). Standard folgt dem Farbschema und der Sprache der Beschriftung (MAP_LANG):
+    // tagsüber deutsch beschriftet, nachts ohne Beschriftung – die Daten (Track, Wind, Wellen) bleiben im Vordergrund.
+    const layers = new Map(
+      BASE_MAPS.map((m) => [m.key, L.tileLayer(m.url, { maxZoom: m.maxZoom, maxNativeZoom: m.maxNativeZoom, attribution: m.attribution })]),
+    );
+    const bases = Object.fromEntries(BASE_MAPS.map((m) => [m.label, layers.get(m.key)!]));
+    const auto = (isDark: boolean) => layers.get(defaultBaseMap(MAP_LANG, isDark).key)!;
     const dark = matchMedia('(prefers-color-scheme: dark)');
-    let current = bases[dark.matches ? 'Nacht' : 'Tag (Seekarte)'].addTo(this.map);
+    let current = auto(dark.matches).addTo(this.map);
     this.map.on('baselayerchange', (e: L.LayersControlEvent) => (current = e.layer as L.TileLayer));
     // Folgt dem Systemschema, solange der Nutzer keine eigene Wahl getroffen hat.
     dark.addEventListener('change', () => {
-      const auto = [bases['Tag (Seekarte)'], bases['Nacht']];
-      if (!auto.includes(current)) return;
+      if (current !== auto(true) && current !== auto(false)) return;
       current.remove();
-      current = bases[dark.matches ? 'Nacht' : 'Tag (Seekarte)'].addTo(this.map);
+      current = auto(dark.matches).addTo(this.map);
     });
     L.control.layers(bases, undefined, { position: 'topright' }).addTo(this.map);
     L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(this.map);

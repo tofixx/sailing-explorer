@@ -1475,19 +1475,23 @@ Zahl eine Einheit behält; eigene Farben je Nutzer; Verläufe je Hell/Dunkel (di
 den Kontrast auf beiden Grundkarten). Die Verlaufsfarben sind Daten des Sets (wie bisher `RAMP`), keine Tokens.
 Diagramme und die Bedeutungsfarben (`--c-speed` usw.) ändern sich nicht.
 
-**Bedienung:** „Ansicht konfigurieren“ unten rechts über der Karte (nur in der Törn-Ansicht) öffnet ein nicht modales
-Popover (mobil als Sheet am unteren Rand): je Set Name, Kurzbeschreibung und Vorschau; die Karte zeigt die Auswahl
-sofort. Abbrechen, Escape, ein Klick daneben oder ein Wechsel der Törn-Ansicht verwerfen die Vorschau. In Einbettungen
-fehlt der Knopf (kein Konto-Bezug im fremden iframe, wie beim Passkey). Übernehmen fragt angemeldet
-„Nur jetzt“ oder „Als Standard speichern“; ohne Anmeldung gibt es nur „Übernehmen“ mit dem Hinweis auf das Profil.
+**Bedienung (Entscheidung des Betreibers):** ein Zahnrad („Ansicht konfigurieren“) unten rechts über der Karte (nur in
+der Törn-Ansicht, nicht in Einbettungen) öffnet ein kleines Menü mit den Stilen (Name, Farbverlauf, Haken am geltenden).
+Ein Klick wendet den Stil sofort an – kein „Übernehmen“, kein „Nur jetzt“. Angemeldet stehen darunter „… als Standard
+setzen“ (für den geltenden Stil) und „Standard entfernen“. Mobil kommt das Menü als Sheet vom unteren Rand.
 
-**Speicherung und Vorrang:** „Nur jetzt“ (angemeldet) liegt im sessionStorage und gilt bis zum Schließen des Tabs;
-ohne Anmeldung merkt sich das Gerät die Wahl im localStorage (es gibt kein Profil). Der Profil-Standard liegt in
-`users.map_style` (Migration 0019, NULL = keiner) und kommt über `GET /api/me/settings` nach jeder Anmeldung – so gilt
-er auf allen Geräten. Vorrang: „Nur jetzt“ → Profil → Gerät → „Klassisch“. Speichern als Standard hebt „Nur jetzt“ auf.
-Die Gast-Wahl liegt nur im localStorage, damit nach einer Anmeldung im selben Tab der Profil-Standard gilt. Den
-Standard ganz entfernen (`mapStyle: null`) kann vorerst nur die API; in der Oberfläche ist „Klassisch“ als Standard
-gleichwertig. Die Symbol-Erzeuger (`src/map/glyphs.ts`, reine SVG-Strings ohne Leaflet) nutzt auch die Vorschau.
+**Speicherung und Vorrang:** Die Auswahl gilt sofort und bis die Seite neu geladen bzw. neu geöffnet wird (auch über
+Törn-Wechsel hinweg); sie liegt nur im Speicher der Seite. Der Profil-Standard liegt in `users.map_style` (Migration 0019, NULL = keiner) und
+kommt über `GET /api/me/settings` nach jeder Anmeldung – so gilt er auf allen Geräten. Vorrang: Auswahl → Profil →
+„Klassisch“. „Standard entfernen“ setzt NULL, die Ansicht bleibt. Im Browser wird nichts gespeichert.
 Gültige Werte prüft der Worker mit derselben Domain-Regel (kein SQL-`CHECK`); ein unbekannter Wert in der Datenbank
 gilt als „kein Standard“. Löschen: die Spalte liegt in der Konto-Zeile und verschwindet mit dem Konto (alle Löschpfade
 des Kontos), sonst wird nichts gespeichert.
+
+**Beschriftung auf Deutsch (F-243):** Die App ist durchgehend deutsch, Mehrsprachigkeit ist vorerst nicht geplant.
+Rasterkacheln bringen ihre Beschriftung fertig mit – Esri beschriftet englisch („Baltic Sea“), OpenStreetMap mit dem
+Ortsnamen („Östersjön“). Deshalb wählt eine einzige Einstellung `MAP_LANG = 'de'` (`src/domain/basemaps.ts`) die
+Standard-Grundkarte: tagsüber OSM Deutschland (`name:de`, sonst `name`), nachts Esri Dark Gray ohne Beschriftung; das
+Teilen-Bild nimmt dieselbe Tageskarte. Die ruhigere Esri-Seekarte bleibt als „Seekarte (Esri, englisch)“ wählbar. Ein
+späterer Sprachwechsel ändert nur `MAP_LANG` (dann ggf. weitere Kachelquellen). Echte Sprachwahl je Beschriftung ginge
+nur mit Vektorkacheln (MapLibre) – bewusst nicht jetzt.

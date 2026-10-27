@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// „Ansicht konfigurieren“ (F-218): Popover mit Vorschau je Set, Übernehmen fragt angemeldet „Nur jetzt“ oder „Als Standard
-// im Profil“, Gäste nur lokal. Controller (F-219): Vorrang Sitzung > Profil > Gerät, Speichern im Profil, Vorschau verwerfen.
+// Kartenstil-Menü (F-218): Zahnrad über der Karte, Menü mit den Stilen, ein Klick wendet sofort an; angemeldet
+// „als Standard setzen“ und „Standard entfernen“. Controller (F-219): Vorrang Ansicht > Profil, nichts lokal gespeichert.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../src/components/sx-map-style';
 import type { SxMapStyle } from '../../src/components/sx-map-style';
@@ -10,10 +10,6 @@ import { MAP_STYLE_IDS } from '../../src/domain/map-style';
 
 type LitEl = SxMapStyle & { shadowRoot: ShadowRoot };
 
-HTMLDialogElement.prototype.show ??= function (this: HTMLDialogElement) {
-  this.setAttribute('open', '');
-};
-
 async function mount(props: Partial<SxMapStyle> = {}): Promise<LitEl> {
   const el = document.createElement('sx-map-style') as LitEl;
   Object.assign(el, props);
@@ -22,14 +18,13 @@ async function mount(props: Partial<SxMapStyle> = {}): Promise<LitEl> {
   return el;
 }
 
-const buttons = (el: LitEl) => [...el.shadowRoot.querySelectorAll('button')];
-const byText = (el: LitEl, t: string) => buttons(el).find((b) => b.textContent!.includes(t));
+const items = (el: LitEl) => [...el.shadowRoot.querySelectorAll<HTMLButtonElement>('.item')];
+const byText = (el: LitEl, t: string) => [...el.shadowRoot.querySelectorAll('button')].find((b) => b.textContent!.includes(t));
+const menu = (el: LitEl) => el.shadowRoot.querySelector<HTMLElement>('#ms')!;
 
-function events(el: LitEl) {
-  const got: Array<[string, unknown]> = [];
-  for (const name of ['sx-map-style-preview', 'sx-map-style-apply', 'sx-map-style-cancel']) {
-    el.addEventListener(name, (e) => got.push([name, (e as CustomEvent).detail]));
-  }
+function applied(el: LitEl) {
+  const got: unknown[] = [];
+  el.addEventListener('sx-map-style-apply', (e) => got.push((e as CustomEvent).detail));
   return got;
 }
 
@@ -38,102 +33,91 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('F-218 Ansicht konfigurieren', () => {
-  it('[F-218] Knopf öffnet ein Popover mit allen Sets, je mit Vorschau (Verlauf, Wind- und Wellen-Symbole)', async () => {
+describe('F-218 Kartenstil-Menü', () => {
+  it('[F-218] Zahnrad öffnet ein Menü mit allen Stilen, der geltende ist markiert, je mit Farbverlauf', async () => {
     const el = await mount({ current: 'contrast' });
-    const toggle = byText(el, 'Ansicht konfigurieren')!;
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    toggle.click();
+    const gear = el.shadowRoot.querySelector<HTMLButtonElement>('.toggle')!;
+    expect(gear.getAttribute('aria-label')).toBe('Ansicht konfigurieren');
+    expect(menu(el).hidden).toBe(true);
+    gear.click();
     await el.updateComplete;
     expect(el.open).toBe(true);
-    expect(el.shadowRoot.querySelector('dialog')!.hasAttribute('open')).toBe(true);
-    const opts = [...el.shadowRoot.querySelectorAll<HTMLInputElement>('input[type=radio]')];
-    expect(opts.map((o) => o.value)).toEqual(MAP_STYLE_IDS);
-    expect(opts.find((o) => o.checked)!.value).toBe('contrast');
-    const previews = el.shadowRoot.querySelectorAll('.preview');
-    expect(previews.length).toBe(4);
-    for (const p of previews) {
-      expect(p.querySelector('.bar')!.getAttribute('style')).toContain('linear-gradient');
-      expect(p.querySelectorAll('svg').length).toBe(4);
-    }
-    expect(el.shadowRoot.textContent).toContain('Farbenblind-freundlich');
+    expect(gear.getAttribute('aria-expanded')).toBe('true');
+    expect(menu(el).hidden).toBe(false);
+    expect(items(el).map((b) => b.textContent!.trim().split(/\s/)[0])).toEqual(['Klassisch', 'Kontrast', 'Farbenblind-freundlich', 'Dezent']);
+    expect(items(el).length).toBe(MAP_STYLE_IDS.length);
+    expect(items(el).filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent!.trim())).toEqual(['Kontrast']);
+    for (const b of items(el)) expect(b.querySelector('.bar')!.getAttribute('style')).toContain('linear-gradient');
   });
 
-  it('[F-218] Auswahl meldet eine Vorschau; Abbrechen und Escape verwerfen sie', async () => {
-    const el = await mount();
-    const got = events(el);
-    el.open = true;
-    await el.updateComplete;
-    const cb = el.shadowRoot.querySelector<HTMLInputElement>('input[value=colorblind]')!;
-    cb.checked = true;
-    cb.dispatchEvent(new Event('change'));
-    await el.updateComplete;
-    expect(got).toEqual([['sx-map-style-preview', { id: 'colorblind' }]]);
-    byText(el, 'Abbrechen')!.click();
-    expect(got.at(-1)![0]).toBe('sx-map-style-cancel');
+  it('[F-218] ein Klick auf einen Stil wendet ihn sofort an (ohne weiteren Knopf); der geltende schließt nur', async () => {
+    const el = await mount({ current: 'classic', open: true });
+    const got = applied(el);
+    items(el)[2].click();
+    expect(got).toEqual([{ id: 'colorblind', scope: 'now' }]);
+    items(el)[0].click();
+    expect(got.length).toBe(1);
     expect(el.open).toBe(false);
+    expect(byText(el, 'Nur jetzt')).toBeUndefined();
+  });
 
+  it('[F-218] Fokus: beim Öffnen auf den geltenden Stil, beim Schließen zurück aufs Zahnrad; Tab hinaus schließt', async () => {
+    const el = await mount({ current: 'subtle' });
+    const gear = el.shadowRoot.querySelector<HTMLButtonElement>('.toggle')!;
+    gear.click();
+    await el.updateComplete;
+    expect(el.shadowRoot.activeElement).toBe(items(el)[3]);
+    menu(el).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+    await el.updateComplete;
+    expect(el.shadowRoot.activeElement).toBe(gear);
     el.open = true;
     await el.updateComplete;
-    el.shadowRoot.querySelector('dialog')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(got.at(-1)![0]).toBe('sx-map-style-cancel');
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    items(el)[3].dispatchEvent(new FocusEvent('focusout', { bubbles: true, composed: true, relatedTarget: outside }));
     expect(el.open).toBe(false);
   });
 
-  it('[F-218] Klick neben das Popover verwirft die Vorschau; während des Speicherns bleibt es offen', async () => {
-    const el = await mount({ signedIn: true });
-    const got = events(el);
-    el.open = true;
-    await el.updateComplete;
-    el.shadowRoot.querySelector('dialog')!.dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
-    expect(el.open).toBe(true); // im Popover
+  it('[F-218] während gespeichert wird, sind die Stile gesperrt', async () => {
+    const el = await mount({ open: true, busy: true });
+    expect(items(el).every((b) => b.disabled)).toBe(true);
+  });
+
+  it('[F-218] Escape oder ein Klick daneben schließt; während gespeichert wird, bleibt es offen', async () => {
+    const el = await mount({ open: true });
+    menu(el).dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+    expect(el.open).toBe(true);
     el.busy = true;
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(el.open).toBe(true);
     el.busy = false;
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(el.open).toBe(false);
-    expect(got.at(-1)![0]).toBe('sx-map-style-cancel');
-  });
-
-  it('[F-218] Gast: nur „Übernehmen“ (gilt auf diesem Gerät), mit Hinweis auf das Profil', async () => {
-    const el = await mount({ signedIn: false });
-    const got = events(el);
     el.open = true;
     await el.updateComplete;
-    expect(byText(el, 'Als Standard')).toBeUndefined();
-    expect(byText(el, 'Übernehmen')!.disabled).toBe(true); // unverändert
-    el.shadowRoot.querySelector<HTMLInputElement>('input[value=subtle]')!.dispatchEvent(new Event('change'));
-    await el.updateComplete;
-    expect(el.shadowRoot.textContent).toContain('Gilt auf diesem Gerät');
-    byText(el, 'Übernehmen')!.click();
-    expect(got.at(-1)).toEqual(['sx-map-style-apply', { id: 'subtle', scope: 'now' }]);
+    menu(el).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+    expect(el.open).toBe(false);
   });
 
-  it('[F-218] angemeldet: „Nur jetzt“ oder „Als Standard speichern“; der Profil-Standard ist markiert', async () => {
-    const el = await mount({ signedIn: true, current: 'classic', profileStyle: 'contrast' });
-    const got = events(el);
-    el.open = true;
+  it('[F-218] Gast: kein „als Standard“, Hinweis auf die Anmeldung', async () => {
+    const el = await mount({ open: true, signedIn: false });
+    expect(byText(el, 'Standard')).toBeUndefined();
+    expect(menu(el).textContent).toContain('Gilt bis zum Neuladen');
+  });
+
+  it('[F-218] angemeldet: den geltenden Stil als Standard setzen; Standard markiert und entfernbar', async () => {
+    const el = await mount({ open: true, signedIn: true, current: 'subtle', profileStyle: null });
+    const got = applied(el);
+    expect(byText(el, 'Standard entfernen')).toBeUndefined();
+    byText(el, '„Dezent“ als Standard setzen')!.click();
+    expect(got.at(-1)).toEqual({ id: 'subtle', scope: 'profile' });
+
+    Object.assign(el, { profileStyle: 'subtle' });
     await el.updateComplete;
-    expect(el.shadowRoot.querySelector('input[value=contrast]')!.closest('label')!.textContent).toContain('Profil-Standard');
-    expect(byText(el, 'Nur jetzt')!.disabled).toBe(true);
-    expect(byText(el, 'Als Standard speichern')!.disabled).toBe(false);
-    el.shadowRoot.querySelector<HTMLInputElement>('input[value=contrast]')!.dispatchEvent(new Event('change'));
-    await el.updateComplete;
-    expect(byText(el, 'Nur jetzt')!.disabled).toBe(false);
-    // Standard ist es schon – „Als Standard“ holt ihn aber zurück, solange „Nur jetzt“ etwas anderes zeigt
-    expect(byText(el, 'Als Standard speichern')!.disabled).toBe(false);
-    el.current = 'contrast';
-    await el.updateComplete;
-    expect(byText(el, 'Als Standard speichern')!.disabled).toBe(true);
-    el.current = 'classic';
-    await el.updateComplete;
-    byText(el, 'Nur jetzt')!.click();
-    expect(got.at(-1)).toEqual(['sx-map-style-apply', { id: 'contrast', scope: 'now' }]);
-    el.shadowRoot.querySelector<HTMLInputElement>('input[value=colorblind]')!.dispatchEvent(new Event('change'));
-    await el.updateComplete;
-    byText(el, 'Als Standard speichern')!.click();
-    expect(got.at(-1)).toEqual(['sx-map-style-apply', { id: 'colorblind', scope: 'profile' }]);
+    expect(byText(el, '„Dezent“ ist dein Standard')!.disabled).toBe(true);
+    expect(items(el)[3].textContent).toContain('Standard');
+    byText(el, 'Standard entfernen')!.click();
+    expect(got.at(-1)).toEqual({ id: 'subtle', scope: 'reset' });
   });
 });
 
@@ -169,111 +153,115 @@ function setup() {
   return { store, picker, toast, c };
 }
 
-describe('F-219 Kartenstil: Vorrang und Speichern', () => {
+async function signIn(store: Store) {
+  store.set({ user: USER });
+  await flush();
+  await flush();
+}
+
+describe('F-219 Kartenstil: Vorrang und Standard', () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
   });
 
-  it('[F-219] Gast: „Nur jetzt“ merkt sich das Gerät (localStorage) und gilt nach dem Neuladen weiter', async () => {
+  it('[F-219] Auswahl gilt sofort und nur für diese Ansicht: nichts lokal gespeichert, neu geöffnet wieder der Standard', async () => {
     server(null);
-    const { store, c } = setup();
+    const { store, picker, c } = setup();
     expect(store.get().mapStyle).toBe('classic');
+    picker.open = true;
     await c.choose('colorblind', 'now');
     expect(store.get().mapStyle).toBe('colorblind');
-    expect(localStorage.getItem('sx-map-style')).toBe('colorblind');
-    expect(sessionStorage.getItem('sx-map-style')).toBeNull();
-    sessionStorage.clear(); // neuer Tab
-    expect(setup().store.get().mapStyle).toBe('colorblind');
+    expect(picker.open).toBe(false);
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+    expect(setup().store.get().mapStyle).toBe('classic');
   });
 
-  it('[F-219] angemeldet: Profil-Standard gilt nach der Anmeldung (auch vor der Gerätewahl), „Nur jetzt“ nur in diesem Tab', async () => {
-    localStorage.setItem('sx-map-style', 'subtle');
+  it('[F-219] angemeldet: Profil-Standard gilt nach der Anmeldung; eine Auswahl schreibt nicht ins Profil und ist neu geöffnet weg', async () => {
     const srv = server('contrast');
     const { store, picker, c } = setup();
-    expect(store.get().mapStyle).toBe('subtle');
-    store.set({ user: USER });
-    await flush();
-    await flush();
+    await signIn(store);
     expect(store.get().mapStyle).toBe('contrast');
     expect(picker.profileStyle).toBe('contrast');
     expect(picker.signedIn).toBe(true);
-
     await c.choose('colorblind', 'now');
     expect(store.get().mapStyle).toBe('colorblind');
     expect(srv.patches).toEqual([]);
-    expect(localStorage.getItem('sx-map-style')).toBe('subtle'); // Gerätewahl bleibt unberührt
 
-    sessionStorage.clear(); // neuer Tab: wieder der Profil-Standard
     const again = setup();
-    again.store.set({ user: USER });
-    await flush();
-    await flush();
+    await signIn(again.store);
     expect(again.store.get().mapStyle).toBe('contrast');
   });
 
-  it('[F-219] Gast wählt, meldet sich im selben Tab an: dann gilt der Profil-Standard', async () => {
-    server('subtle');
-    const { store, c } = setup();
-    await c.choose('colorblind', 'now');
-    expect(store.get().mapStyle).toBe('colorblind');
-    store.set({ user: USER });
-    await flush();
-    await flush();
-    expect(store.get().mapStyle).toBe('subtle');
-  });
-
-  it('[F-219] offenes Popover: das Laden des Profils überschreibt die Vorschau nicht; Wechsel der Törn-Ansicht verwirft sie', async () => {
-    server('subtle');
-    const { store, picker, c } = setup();
-    picker.open = true;
-    c.preview('contrast');
-    store.set({ user: USER });
-    await flush();
-    await flush();
-    expect(store.get().mapStyle).toBe('contrast');
-    expect(picker.current).toBe('subtle');
-    store.set({ home: true });
-    expect(picker.open).toBe(false);
-    expect(store.get().mapStyle).toBe('subtle');
-  });
-
-  it('[F-219] „Als Standard speichern“ schreibt ins Profil, hebt „Nur jetzt“ auf und schließt das Popover', async () => {
+  it('[F-219] als Standard setzen schreibt ins Profil und gilt nach dem neuen Öffnen', async () => {
     const srv = server(null);
     const { store, picker, toast, c } = setup();
-    store.set({ user: USER });
-    await flush();
-    await c.choose('contrast', 'now');
+    await signIn(store);
+    await c.choose('subtle', 'now');
     picker.open = true;
-    await c.choose('colorblind', 'profile');
-    expect(srv.patches).toEqual([{ mapStyle: 'colorblind' }]);
-    expect(sessionStorage.getItem('sx-map-style')).toBeNull();
-    expect(store.get().mapStyle).toBe('colorblind');
+    await c.choose('subtle', 'profile');
+    expect(srv.patches).toEqual([{ mapStyle: 'subtle' }]);
+    expect(store.get().mapStyle).toBe('subtle');
+    expect(picker.profileStyle).toBe('subtle');
     expect(picker.open).toBe(false);
     expect(toast).toHaveBeenCalledWith(expect.stringContaining('allen Geräten'));
+    const again = setup();
+    await signIn(again.store);
+    expect(again.store.get().mapStyle).toBe('subtle');
   });
 
-  it('[F-219] Vorschau ändert nur die Anzeige; Abbrechen stellt den geltenden Stil wieder her; Abmelden vergisst das Profil', async () => {
-    server('subtle');
-    const { store, c } = setup();
-    store.set({ user: USER });
-    await flush();
-    await flush();
-    c.preview('colorblind');
-    expect(store.get().mapStyle).toBe('colorblind');
-    c.cancel();
+  it('[F-219] Standard entfernen: Profil null, die Ansicht bleibt, neu geöffnet gilt „Klassisch“', async () => {
+    const srv = server('subtle');
+    const { store, picker, c } = setup();
+    await signIn(store);
+    await c.choose('subtle', 'reset');
+    expect(srv.patches).toEqual([{ mapStyle: null }]);
+    expect(picker.profileStyle).toBeNull();
     expect(store.get().mapStyle).toBe('subtle');
+    const again = setup();
+    await signIn(again.store);
+    expect(again.store.get().mapStyle).toBe('classic');
+  });
+
+  it('[F-219] Abmelden vergisst das Profil; Wechsel der Törn-Ansicht schließt das Menü', async () => {
+    server('subtle');
+    const { store, picker } = setup();
+    await signIn(store);
+    expect(store.get().mapStyle).toBe('subtle');
+    picker.open = true;
+    store.set({ home: true });
+    expect(picker.open).toBe(false);
     store.set({ user: null });
     await flush();
     expect(store.get().mapStyle).toBe('classic');
   });
 
-  it('[F-219] Fehler beim Speichern bleibt im Popover sichtbar, nichts ändert sich', async () => {
+  it('[F-219] wird während des Speicherns ein anderer Stil gewählt, bleibt er nach der Antwort', async () => {
     server(null);
+    const { store, c } = setup();
+    await signIn(store);
+    const saving = c.choose('subtle', 'reset');
+    await c.choose('contrast', 'now');
+    await saving;
+    expect(store.get().mapStyle).toBe('contrast');
+  });
+
+  it('[F-219] ist beim Start schon jemand angemeldet, lädt der Controller das Profil sofort', async () => {
+    server('colorblind');
+    const store = new Store({ ...initialState, user: USER });
+    const picker = {} as SxMapStyle;
+    new MapStyleController(store, { picker, toast: vi.fn() });
+    expect(picker.signedIn).toBe(true);
+    await flush();
+    await flush();
+    expect(store.get().mapStyle).toBe('colorblind');
+  });
+
+  it('[F-219] Fehler beim Speichern bleibt im Menü sichtbar, nichts ändert sich', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'x', message: 'Kaputt' }), { status: 500, headers: { 'Content-Type': 'application/json' } })));
     const { store, picker, c } = setup();
-    store.set({ user: USER });
-    await flush();
+    await signIn(store);
     picker.open = true;
     await c.choose('contrast', 'profile');
     expect(picker.error).toBeTruthy();

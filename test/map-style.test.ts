@@ -45,7 +45,7 @@ describe('F-216 Kartenstile', () => {
     for (const v of ['', 'Classic', 'toString', '__proto__', 'constructor', null, undefined, 1, {}]) expect(isMapStyleId(v)).toBe(false);
   });
 
-  it('[F-216] Vorrang: Wahl „Nur jetzt“ vor Profil-Standard vor Gerät, sonst Klassisch; Ungültiges wird übersprungen', () => {
+  it('[F-216] Vorrang: Auswahl vor Profil-Standard, sonst Klassisch; Ungültiges wird übersprungen', () => {
     expect(resolveMapStyle('contrast', 'subtle', 'colorblind')).toBe('contrast');
     expect(resolveMapStyle(null, 'subtle', 'colorblind')).toBe('subtle');
     expect(resolveMapStyle(null, null, 'colorblind')).toBe('colorblind');

@@ -1,6 +1,7 @@
 // Übersichtsbild eines Törns – im Browser gezeichnet, der Worker speichert es nur.
 // Die Infos stehen in einem eigenen Randbereich; der Track wird nur in den freien
 // Kartenbereich eingepasst und dadurch nie verdeckt.
+import { MAP_LANG, defaultBaseMap } from '../domain/basemaps';
 import { compassName } from '../domain/geo';
 import { fmtDate, fmtDuration, fmtNum, fmtShort } from '../domain/format';
 import { METRICS, rampColor, smoothedMetric, type Range } from '../domain/metrics';
@@ -40,7 +41,7 @@ export const CONTENT_LABELS: Array<[keyof ImageContent, string]> = [
   ['wind', 'Wind'],
   ['waves', 'Wellen'],
   ['legend', 'Farblegende'],
-  ['map', 'Seekarte'],
+  ['map', 'Karte'],
 ];
 
 export const DEFAULT_CONTENT: ImageContent = {
@@ -77,8 +78,10 @@ const C = {
 };
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
-const TILE_URL = (z: number, x: number, y: number) =>
-  `https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/${z}/${y}/${x}`;
+/** Helle Grundkarte in der Sprache der App (wie die Karte tagsüber) – das Bild ist immer hell. */
+export const SHARE_IMAGE_BASE = defaultBaseMap(MAP_LANG, false);
+export const shareTileUrl = (z: number, x: number, y: number) =>
+  SHARE_IMAGE_BASE.url.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
 
 interface InfoRow {
   label: string;
@@ -189,11 +192,11 @@ async function drawMap(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box,
 
   const b = bounds(tracks);
   if (!b) return ctx.restore();
-  const view = fitBounds(b, { width: box.w, height: box.h, padding: 48 }, 13);
+  const view = fitBounds(b, { width: box.w, height: box.h, padding: 48 }, 13) // höchstens Zoom 13: Übersicht, nicht Hafendetail;
 
   if (content.map) {
     const tiles = tilesFor(view, box.w, box.h);
-    const imgs = await Promise.all(tiles.map((t) => loadTile(TILE_URL(t.z, t.x, t.y))));
+    const imgs = await Promise.all(tiles.map((t) => loadTile(shareTileUrl(t.z, t.x, t.y))));
     tiles.forEach((t, i) => {
       const img = imgs[i];
       if (img) ctx.drawImage(img, box.x + Math.round(t.dx), box.y + Math.round(t.dy), TILE_SIZE, TILE_SIZE);
@@ -274,7 +277,7 @@ async function drawMap(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box,
   // Quellenangabe der Kacheln (Pflicht) – in der Ecke, die vom Infobereich wegzeigt
   if (content.map) {
     ctx.font = `500 11px ${FONT}`;
-    const attr = 'Kacheln © Esri, GEBCO, NOAA';
+    const attr = SHARE_IMAGE_BASE.attributionText;
     const aw = ctx.measureText(attr).width + 12;
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
     ctx.fillRect(box.x, box.y + box.h - 18, aw, 18);
