@@ -1088,3 +1088,148 @@ Das Datenmodell trägt die nächsten Schritte ohne Tabellenneubau:
 3. Offener Beitritt ohne Bestätigung für öffentliche Vereine?
 4. Meilensteine auch für Törn-Anzahl (z. B. 10 Törns) oder längste Etappe?
 5. Eigner-Übertragung ausdrücklich in der Oberfläche (heute nur automatisch bei Kontolöschung)?
+
+## 12. Verein, Hafen, Team und Reaktionen
+
+Stand: Oktober 2026. Modell des Betreibers: *„Personen haben einen Verein, Boote einen Hafen und ggf. Verein, Teams
+aus Personen, und der Stream soll Verein, Heimathafen und die der Teammitglieder zusammenstellen. Reaktionen dazu
+packen. Die Startseite so umstellen, dass Hochladen und Track anlegen in den Hintergrund kommen und der
+Community-Stream hervorgehoben wird.“* Anforderungen: **F-170 ff.** (`REQUIREMENTS.md`). Umsetzung:
+`migrations/0012_social.sql`, `worker/harbors.ts`, `worker/home.ts`, `worker/reactions.ts`, `worker/stream.ts`,
+`src/domain/harbors.ts`, `src/domain/reactions.ts`, `src/content/legal.ts`, `sx-home-feed`, `sx-reactions`,
+`sx-harbor-page`, `sx-legal-page`.
+
+### 12.1 Mein Verein
+
+Eine Person wählt **einen** Heimatverein („Mein Verein“) unter den Vereinen (`groups.kind = 'club'`), in denen sie
+Mitglied ist. Gespeichert am Konto (`users.home_club_id`), nicht am Profil – so geht es auch ohne Profil, und das
+Profil zeigt ihn nur, wenn es öffentlich ist **und** der Verein öffentlich und nicht ausgeblendet ist (sonst verriete
+das Profil eine geschlossene Gruppe). Gesetzt über `PUT /api/me/home { clubId, harborId }` (Konto → Profil);
+leer ist erlaubt. Wer austritt oder entfernt wird, verliert die Wahl (ausdrücklich beim Austritt, beim Löschen des
+Vereins per `ON DELETE SET NULL`); beim Lesen zählt sie ohnehin nur bei bestehender Mitgliedschaft.
+
+### 12.2 Häfen
+
+Der freie Text `boats.home_port` wird zur Entität **`harbors`** (`id`, `slug`, `name`, `name_key`, optional
+`lat`/`lon`, optional `club_id`, `created_by`, `hidden_at`). Seite `/h/<slug>`: Kopf (Name, Position, Verein des
+Hafens), Kennzahlen, öffentliche Boote mit diesem Hafen, deren öffentliche Törns, Neuigkeiten des Hafens, Folgen.
+
+| Punkt | Entscheidung |
+|---|---|
+| Auswahl am Boot | Autovervollständigung aus vorhandenen Häfen (`GET /api/harbors?q=`, höchstens 10, nur nicht ausgeblendete). Neuer Hafen erlaubt: `POST /api/harbors { name }` liefert bei gleichem **normalisiertem Namen** den vorhandenen (200), sonst einen neuen (201). Höchstens **10 neue Häfen pro Konto und Tag**; gesperrte Konten legen keine an |
+| Normalisierung (`harborKey`) | A–Z und Ä/Ö/Ü klein, ä/ö/ü/ß → ae/oe/ue/ss, die Satzzeichen Punkt, Komma, Bindestrich, Unterstrich, Schrägstrich, Klammern, Anführungszeichen, Doppelpunkt, Semikolon, `&` und `+` → Leerzeichen, Leerzeichen zusammengefasst. „Hafen Potsdam-West“ = „hafen potsdam west“. Bewusst so gewählt, dass dieselbe Regel in SQL (Migration) möglich ist |
+| Slug | neue Häfen: aus dem Namen wie Gruppen (`slugFromName`), bei Kollision mit Zufallsendung; migrierte: Schlüssel mit Bindestrichen, bei anderen Zeichen als a–z, 0–9 `hafen-<id>` |
+| Daten | `boats.harbor_id` (Hafen des Boots); `boats.home_port` bleibt als Anzeige-Kopie des Hafennamens (alte Clients, Vorschau, /entdecken). Ein altes `homePort` als Text am Boot wird serverseitig in einen Hafen übersetzt |
+| Bearbeiten | `PATCH /api/harbors/:id`: Name und Position die Anleger:in bzw. die Moderation; `clubId` setzen Eigner/Admins dieses Vereins (nur wenn frei oder schon ihrer), lösen dürfen sie und die Moderation |
+| Sichtbarkeit | Häfen sind immer öffentlich (nur Name und Ort); gelistet werden darin nur öffentliche, nicht ausgeblendete Boote und öffentliche Törns. Melden wie Gruppen (`harbor`), ausgeblendet = wie nicht existent |
+| Heimathafen einer Person | ausdrückliche Wahl (`users.home_harbor_id`), sonst der häufigste Hafen der eigenen Boote. Auf dem Profil nur die ausdrückliche Wahl oder ein Hafen eines **öffentlichen** eigenen Boots |
+| Verein des Boots | bleibt `group_boats` (mehrere möglich); Bootsseite zeigt „Verein“ für öffentliche, nicht ausgeblendete Vereine |
+| Migration | `0012_social.sql` legt je verschiedenem normalisiertem `home_port` einen Hafen an und ordnet die Boote zu – Regel identisch mit `harborKey` (ein Test vergleicht SQL und TypeScript). Es wird nichts vorbefüllt |
+
+### 12.3 Teams
+
+Teams bleiben Gruppen der Art `team` (aus Personen, optional in einem Verein, Abschnitt 11.1). Neu ist nur ihre
+Rolle im Stream: Wer in einem Team ist, sieht die öffentlichen Aktivitäten **aller Teammitglieder** (12.4).
+
+### 12.4 Stream-Zusammensetzung
+
+Persönlicher Stream (`GET /api/stream`) = Aktivitäten mit einem dieser Ziele:
+
+| Quelle | Ziele (`activity_target`) |
+|---|---|
+| ich | `user` = ich |
+| meine Gruppen (inkl. Heimatverein) | `group` = jede Gruppe, in der ich Mitglied bin |
+| Teams meines Heimatvereins | `group` = Teams mit `parent_id` = Heimatverein (Sichtbarkeit beim Lesen) |
+| Heimathafen | `harbor` = Heimathafen (12.2) |
+| Teammitglieder | `user` = alle Mitglieder meiner Teams (höchstens 500) |
+| meine Boote | `boat` = Boote, die ich besitze oder verwalte |
+| Gefolgtes | `user`/`boat`/`group`/`harbor` aus `follows` (Folgen geht jetzt auch für Häfen) |
+
+**Neues Ziel `harbor`:** Törns und Fotos eines Boots mit Hafen bekommen zusätzlich das Ziel `harbor`; wird einem Boot
+ein Hafen zugeordnet, entsteht einmal je Boot und Hafen die Aktivität `harbor` („Neues Boot im Hafen“, Ziele Hafen
+und Boot; sichtbar nur bei öffentlichem Boot und nicht ausgeblendetem Hafen).
+
+**Abfrage:** D1 lehnt zusammengesetzte SELECTs mit mehr als etwa fünf UNION-Gliedern ab. Darum zuerst die Ziele in
+**einem Batch kleiner, indizierter Abfragen** sammeln (Mitgliedschaften, Boote, Folgen, Heimat, Teams des Vereins,
+Teammitglieder), im Worker zu höchstens **1600** eindeutigen Schlüsseln zusammenfassen und dann **eine** Abfrage:
+`json_each(?)` als Schlüsselliste, `JOIN activity_target` über den Index `(target_kind, target_id, created_at)`,
+gruppiert nach Aktivität, neueste zuerst, Cursor, 60 Kandidaten. Danach wie bisher die Prüfung beim Lesen
+(Abschnitt 11.3) – das Log bleibt nur ein Index. Kosten: 1 Batch + 1 Abfrage + 1 Prüf-Batch.
+
+**Öffentlicher Community-Stream** (`GET /api/stream/public`, für alle, auch ohne Anmeldung): neueste Aktivitäten der
+ganzen Plattform (`activity_created`-Index), geprüft **ohne Betrachter** (nur Öffentliches), optional gefiltert nach
+Hafen (`?harbor=<slug>`, Ziel `harbor`) oder Verein (`?club=<slug>`, nur öffentliche Vereine, Ziel `group`).
+Für alle gleich, darum 60 s gecacht (`public, max-age=60`). Die erste Seite liefert Filter-Chips mit: bis zu 8 Häfen
+mit den meisten öffentlichen Booten und bis zu 8 öffentliche Vereine mit den meisten Mitgliedern.
+
+### 12.5 Reaktionen
+
+Kleine feste Auswahl mit eigenen Icons (`REACTIONS` in `src/domain/reactions.ts`): **„Gefällt mir“** (`like`),
+**„Mast- und Schotbruch“** (`mast`), **„Starker Schlag“** (`tack`). Tabelle `reactions (subject_kind, subject_id,
+user_id, kind, created_at)` mit Primärschlüssel `(subject_kind, subject_id, user_id)` – **eine Reaktion pro Person und
+Gegenstand**; eine andere Art ersetzt sie, dieselbe noch einmal nimmt sie zurück (Oberfläche), `DELETE` entfernt.
+
+| Punkt | Entscheidung |
+|---|---|
+| Gegenstände | `share` (Törn, auch im Stream bei `voyage`/`photos`), `post`, `photo`, `activity` (Mitglied, Boot, Hafen, Meilenstein) – dieselbe Reaktion erscheint also im Stream und auf der Törn-Seite |
+| Wer | angemeldet, nicht gesperrt; nur auf Gegenstände, die die Person **jetzt sehen darf** (gleiche Prüfung wie beim Ansehen, inkl. Schlüssel; bei `activity` die Prüfung aus 11.3) – sonst 404 wie „gibt es nicht“ |
+| Zählen | je Art per Index; der Stream liefert Zähler und die eigene Reaktion mit (1 zusätzliche Abfrage je Seite) |
+| „Wer hat reagiert“ | `GET /api/reactions/:art/:id` nur für sichtbare Gegenstände; namentlich nur öffentliche, nicht ausgeblendete Profile nicht gesperrter Konten (höchstens 50), der Rest als „+ n weitere“. Keine Konto-IDs |
+| Grenzen | **300 Reaktionen pro Konto und Tag** (Zähler `reaction_log`, zählt auch Zurücknehmen, 24 h aufbewahrt), sonst 429 |
+| Aufräumen | Konto löschen: eigene Reaktionen und alle auf eigene Törns, Fotos, Beiträge und Aktivitäten; Törn, Foto, Beitrag löschen: Reaktionen darauf; nächtlich: Reaktionen ohne Gegenstand |
+| Melden | nicht nötig (kein Freitext) |
+
+**Benachrichtigungs-Glocke:** nicht gebaut – sie fällt nicht billig ab (eigene Tabelle `notifications` mit Fan-out an
+genau eine Person, Lesestatus, Abfrage-Endpunkt, Badge im Kopf, Aufräumen). Vorbereitet ist sie wie in 11.10
+beschrieben; Reaktionen wären neben neuen Followern, Kommentaren und Einladungen eine Quelle.
+
+### 12.6 Startseite
+
+Der Community-Stream ist der Kern der Startseite – für alle:
+
+| Wer | Hauptbereich |
+|---|---|
+| Gäste und Abgemeldete | „Neues aus der Community“: öffentlicher Stream (12.4) mit Filter-Chips nach Hafen und Verein, dazu deutlich „Anmelden & mitmachen“ |
+| Angemeldete | „Neuigkeiten aus deinem Verein, Hafen und Team“ (persönlicher Stream), eigene Gruppen, Hinweis zum Wählen von Verein und Heimathafen, „Leute, die du kennen könntest“; ohne Gruppen zusätzlich „Tritt deinem Verein bei“ |
+| ohne Backend | wie bisher nur die Einstiegskarte (groß) |
+
+Hochladen tritt zurück: „Track anlegen“ als **zweitrangiger Knopf in der Kopfzeile**, eine **kompakte Karte** in der
+Seitenspalte (mit Beispielen) und Ziehen & Ablegen auf der ganzen Seite (beim Ziehen erscheint eine Ablagefläche). Mobil
+(< 760 px) steht der Stream in voller Breite oben, Hochladen ist ein runder Knopf unten rechts (FAB, 56 px). Die
+Kartenansicht eines geladenen Törns bleibt unverändert, ebenso der Wechsel Startseite ↔ Törn (F-75). Unten eine
+kleine Fußzeile mit „Impressum“ und „Datenschutz“.
+
+### 12.7 Impressum und Datenschutz
+
+`/impressum` und `/datenschutz` sind SPA-Seiten aus **einem** Modul `src/content/legal.ts` (Texte als Daten,
+gerendert durch `sx-legal-page`, alles über Lit escaped). Sie laufen nicht durch den Worker (`run_worker_first`
+enthält sie nicht), bekommen die Header aus `public/_headers` und funktionieren ohne Backend. Betreiberangaben stehen
+in genau einem Objekt `OPERATOR` mit deutlich markierten Platzhaltern (`[NAME]` …); solange einer übrig ist, zeigen
+beide Seiten oben einen Warnhinweis. Verlinkt aus der Startseiten-Fußzeile, dem Konto-Dialog und jeder Mail. Die
+Datenschutzerklärung beschreibt, was der Code tatsächlich tut (Cloudflare Workers/D1/R2/Turnstile/Rate-Limits/Logs,
+Resend, Stripe, Open-Meteo, Kartenkacheln, IndexedDB, Session-Cookie, Öffentliches und Sichtbarkeit, Fristen,
+Löschen, Rechte, Aufsicht Brandenburg, Meldekontakt). Die Texte sind eine Vorlage, keine Rechtsberatung (README).
+
+### 12.8 Grenzen und Kosten
+
+| Grenze | Wert |
+|---|---|
+| neue Häfen je Konto und Tag | 10 |
+| Reaktionen je Konto und Tag | 300 |
+| Ziele im persönlichen Stream | 1600 (Folgen 1000 + Gruppen + Teammitglieder 500 + Rest) |
+| Hafen-Autovervollständigung | 10 Treffer, Suchtext 2–80 Zeichen |
+| „Wer hat reagiert“ | 50 Namen |
+
+Schreiben: ein Törn eines Boots mit Hafen = 1 Ziel mehr. Lesen persönlich: 1 Batch (kleine Abfragen) + 1
+Stream-Abfrage + 1 Prüf-Batch (inkl. Reaktionen). Öffentlich: 60 s gecacht.
+
+### 12.9 Offene Fragen an den Betreiber
+
+1. Häfen zusammenführen (Dubletten trotz Normalisierung, z. B. „Potsdam“ und „Hafen Potsdam“) – reicht die Moderation
+   (ausblenden/löschen) oder braucht es „zusammenführen“?
+2. Soll der Heimathafen einer Gruppe (`groups.home_port`, Freitext) ebenfalls auf `harbors` umgestellt werden?
+   Umgesetzt: nein, nur Boote und Personen.
+3. Wer darf die Position eines Hafens pflegen, wenn die Anleger:in inaktiv ist – Vereins-Admins des Hafens?
+4. Benachrichtigungs-Glocke (12.5) als nächster Schritt?
+5. Betreiberangaben für Impressum und Datenschutz (Name, Anschrift, E-Mail, ggf. Telefon) und ob
+   Auftragsverarbeitungsverträge mit Cloudflare, Resend und Stripe abgeschlossen sind.
