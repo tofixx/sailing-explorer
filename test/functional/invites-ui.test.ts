@@ -103,6 +103,22 @@ describe('sx-invite-dialog', () => {
     expect(boat.shadowRoot.querySelector('a')!.getAttribute('href')).toBe('/b/B1');
   });
 
+  it('[F-203] Freundes-Einladung: eigener Text vor und nach dem Annehmen, Link zum Profil', async () => {
+    const el = await mount('sx-invite-dialog', { open: true, state: 'ready', peek: peek({ kind: 'friend', target: null, bound: false, emailMatches: null }), signedIn: true, userEmail: 'b@example.org' });
+    expect(text(el)).toContain('Anna lädt dich zu Sail Explorer ein.');
+    expect(text(el)).toContain('folgt ihr einander');
+    expect(text(el)).not.toContain('Boot');
+    const done = await mount('sx-invite-dialog', { open: true, state: 'done', peek: peek({ kind: 'friend' }), result: { kind: 'friend', path: '/u/anna', target: 'Anna', already: false } });
+    expect(text(done)).toContain('Ihr folgt euch jetzt: Anna');
+    expect(done.shadowRoot.querySelector('a[href="/u/anna"]')!.textContent).toContain('Profil ansehen');
+  });
+
+  it('[F-201] Gruppeneinladung, die zur Anfrage wurde: „Beitrittsanfrage gestellt“ statt „Mitglied“', async () => {
+    const el = await mount('sx-invite-dialog', { open: true, state: 'done', peek: peek({ kind: 'group', groupKind: 'team' }), result: { kind: 'group', path: '/g/crew', target: 'Crew', already: false, requested: true } });
+    expect(text(el)).toContain('Deine Beitrittsanfrage an „Crew“ ist gestellt');
+    expect(text(el)).not.toContain('Mitglied von');
+  });
+
   it('[F-138] Fremdtext (Namen) wird escaped dargestellt', async () => {
     const el = await mount('sx-invite-dialog', { open: true, state: 'ready', peek: peek({ inviter: '<img src=x onerror=alert(1)>', target: '<b>X</b>' }), signedIn: true });
     expect(el.shadowRoot.querySelector('img')).toBeNull();

@@ -123,6 +123,56 @@ describe('Einladen durch Mitglieder und wer bestätigt (Konzept 14.1)', () => {
   });
 });
 
+describe('Review-Befunde: „Offen“, Eigner-Regeln, Grenzen (Konzept 14.1)', () => {
+  it('F-200: „Offen“ wirkt nur bei öffentlichen Gruppen – geschlossen bzw. „Nur mit Link“ wird zur Anfrage, auch per Mitglieds-Einladung', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const member = await s.person({ profile: 'public' });
+    const guest = await s.person();
+    const g = await s.group(owner, { joinMode: 'open', visibility: 'unlisted' });
+    await s.join(owner, g, member);
+    const p = (await (await s.send('GET', `/api/groups/${g.id}`, guest.cookie, undefined, { 'X-Share-Key': g.shareKey! })).json()) as Page;
+    expect(p.membership).toMatchObject({ canJoin: false, canRequest: true });
+    const r = await s.send('POST', `/api/groups/${g.id}/requests`, guest.cookie, { message: '' }, { 'X-Share-Key': g.shareKey! });
+    expect(await r.json()).toMatchObject({ requested: true });
+    expect(await role(g.id, guest.user.id)).toBeNull();
+    const other = await s.person();
+    const a = await inviteAndAccept(g.id, member, other);
+    expect(a.needsApproval).toBe(true);
+    expect(a.result.requested).toBe(true);
+    expect(await role(g.id, other.user.id)).toBeNull();
+  });
+
+  it('F-200: Beitrittsstufe ändert nur der Eigner; Mitglieds-Einladung in „Nur auf Einladung“ wird zur Anfrage', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const admin = await s.person({ profile: 'public' });
+    const member = await s.person({ profile: 'public' });
+    const g = await s.group(owner, { joinMode: 'invite' });
+    await s.join(owner, g, admin);
+    await s.join(owner, g, member);
+    await s.send('PATCH', `/api/groups/${g.id}/members/${admin.user.id}`, owner.cookie, { role: 'admin' });
+    expect((await s.send('PATCH', `/api/groups/${g.id}`, admin.cookie, { joinMode: 'open' })).status).toBe(403);
+    expect((await s.send('PATCH', `/api/groups/${g.id}`, admin.cookie, { description: 'Admins dürfen das' })).status).toBe(200);
+    const guest = await s.person();
+    const a = await inviteAndAccept(g.id, member, guest);
+    expect(a.result.requested).toBe(true);
+    expect(await role(g.id, guest.user.id)).toBeNull();
+  });
+
+  it('F-201: besteht schon eine Anfrage, verbraucht die Einladung keine Nutzung', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const member = await s.person({ profile: 'public' });
+    const guest = await s.person();
+    const g = await s.group(owner, { joinMode: 'request' });
+    await s.join(owner, g, member);
+    await s.send('POST', `/api/groups/${g.id}/requests`, guest.cookie, { message: 'Hallo' });
+    const inv = (await (await s.send('POST', `/api/groups/${g.id}/invites`, member.cookie, {})).json()) as { link: string; invite: { id: string } };
+    const acc = await s.send('POST', '/api/invites/accept', guest.cookie, { token: tokenOf(inv.link) });
+    expect(await acc.json()).toMatchObject({ requested: true, already: true });
+    const uses = await (await s.db()).prepare('SELECT uses FROM invites WHERE id = ?').bind(inv.invite.id).first<{ uses: number }>();
+    expect(uses?.uses).toBe(0);
+  });
+});
+
 describe('Freunde einladen (Konzept 14.2)', () => {
   it('F-203: Einladungslink ohne Ziel – wer annimmt, folgt und wird gefolgt; eigene Einladung nicht; zweimal ist „already“', async () => {
     const a = await s.person({ profile: 'public' });
@@ -148,18 +198,17 @@ describe('Freunde einladen (Konzept 14.2)', () => {
     expect(await (await s.send('POST', '/api/invites/accept', b.cookie, { token })).json()).toMatchObject({ already: true });
   });
 
-  it('F-204: per Adresse gebunden, keine Doppel-Einladung; eigene Liste und Zurückziehen', async () => {
+  it('F-204: per Adresse gebunden, keine Doppel-Einladung; Zurückziehen nur durch die einladende Person', async () => {
     const a = await s.person({ profile: 'public' });
     const mail = s.email('friend');
     expect((await s.send('POST', '/api/invites', a.cookie, { email: mail })).status).toBe(201);
     expect((await s.send('POST', '/api/invites', a.cookie, { email: mail })).status).toBe(409);
     expect((await s.send('POST', '/api/invites', a.cookie, { email: a.email })).status).toBe(409);
-    const list = (await (await s.send('GET', '/api/invites', a.cookie)).json()) as { invites: Array<{ id: string; email: string }> };
-    expect(list.invites.map((i) => i.email)).toEqual([mail]);
+    const row = await (await s.db()).prepare(`SELECT id FROM invites WHERE kind = 'friend' AND inviter_id = ? AND email = ?`).bind(a.user.id, mail).first<{ id: string }>();
     const other = await s.person();
-    expect((await s.send('DELETE', `/api/invites/${list.invites[0].id}`, other.cookie)).status).toBe(404);
-    expect((await s.send('DELETE', `/api/invites/${list.invites[0].id}`, a.cookie)).status).toBe(204);
-    expect((await (await s.send('GET', '/api/invites', a.cookie)).json()) as { invites: unknown[] }).toEqual({ invites: [] });
+    expect((await s.send('DELETE', `/api/invites/${row!.id}`, other.cookie)).status).toBe(404);
+    expect((await s.send('DELETE', `/api/invites/${row!.id}`, a.cookie)).status).toBe(204);
+    expect((await s.send('POST', '/api/invites', a.cookie, { email: mail })).status).toBe(201);
     expect((await s.send('POST', '/api/invites', undefined, {})).status).toBe(401);
   });
 

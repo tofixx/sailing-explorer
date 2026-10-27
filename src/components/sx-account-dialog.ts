@@ -1,3 +1,4 @@
+import { inviteWhat } from '../domain/invite-text';
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, HomeInfo, Linkable, MyInvite, Profile, ShareMeta, SupportStatus, User } from '../services/api';
 import type { SxHarborPicker } from './sx-harbor-picker';
@@ -940,11 +941,7 @@ export class SxAccountDialog extends LitElement {
         ${this.myInvites.map(
           (i) => html`<li>
             <div class="meta">
-              <div class="title">${i.inviter} lädt dich ein, ${i.kind === 'boat_admin'
-                ? html`das Boot „${i.target ?? ''}“ mitzuverwalten`
-                : i.kind === 'group'
-                  ? html`${i.groupKind === 'team' ? 'in das Team' : 'in den Verein'} „${i.target ?? ''}“`
-                  : html`in die Crew des Törns „${i.target ?? ''}“`}</div>
+              <div class="title">${i.inviter} lädt dich ${inviteWhat(i)}</div>
               <div class="sub">gültig bis ${fmtDate(i.expiresAt)}</div>
             </div>
             <button class="btn small" ?disabled=${this.busy} aria-label="Ablehnen: ${i.target ?? ''}" @click=${() => emit(this, 'sx-my-invite-decline', i.id)}>Ablehnen</button>

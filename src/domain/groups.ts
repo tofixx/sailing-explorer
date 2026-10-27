@@ -26,11 +26,18 @@ export const JOIN_MODE_LABEL: Record<JoinMode, string> = {
 export const JOIN_MODE_SHORT: Record<JoinMode, string> = { open: 'Offen', request: 'Auf Anfrage', invite: 'Nur auf Einladung' };
 
 /**
- * Wird eine angenommene Einladung sofort zur Mitgliedschaft? Ja, wenn Eigner oder Admins eingeladen haben oder die
- * Gruppe offen ist; sonst (einfaches Mitglied lädt in eine Gruppe auf Anfrage bzw. nur auf Einladung) entsteht eine
- * Beitrittsanfrage, die Admins bestätigen.
+ * Beitrittsstufe, die tatsächlich gilt: „Offen“ nur für öffentliche, nicht ausgeblendete Gruppen – sonst wie
+ * „Auf Anfrage“ (eine geschlossene Gruppe lässt niemanden ungefragt herein).
  */
-export const inviteJoinsDirectly = (inviterRole: GroupRole | null, mode: JoinMode, approveBy: Approvers = 'admins'): boolean =>
+export function effectiveJoinMode(g: { join_mode: JoinMode; visibility: string; hidden_at?: number | null }): JoinMode {
+  return g.join_mode === 'open' && (g.visibility !== 'public' || g.hidden_at) ? 'request' : g.join_mode;
+}
+
+/**
+ * Wird eine angenommene Einladung sofort zur Mitgliedschaft? Ja, wenn die Gruppe (effektiv) offen ist oder die
+ * einladende Person Anfragen bestätigen darf; sonst entsteht eine Beitrittsanfrage. `mode` = effectiveJoinMode.
+ */
+export const inviteJoinsDirectly = (inviterRole: GroupRole | null, mode: JoinMode, approveBy: Approvers): boolean =>
   mode === 'open' || canApprove(inviterRole, approveBy);
 
 /** Wer Beitrittsanfragen bestätigt (Konzept 14.1) – legt der Eigner fest. */

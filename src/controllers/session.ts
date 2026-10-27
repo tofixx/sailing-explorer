@@ -1,4 +1,5 @@
 import { metricRange } from '../domain/metrics';
+import { inviteAcceptedText } from '../domain/invite-text';
 import { shareSummary } from '../domain/summary';
 import { needsSupport, type SupportTier } from '../domain/support';
 import {
@@ -356,7 +357,7 @@ export class SessionController {
       const r = await api.acceptMyInvite(id);
       this.ui.account.myInvites = this.ui.account.myInvites.filter((i) => i.id !== id);
       if (r.kind === 'boat_admin') this.ui.account.boats = (await api.myBoats()).boats;
-      this.ui.toast(r.kind === 'boat_admin' ? `Du bist jetzt Admin von „${r.target ?? ''}“` : `Du bist jetzt in der Crew von „${r.target ?? ''}“`);
+      this.ui.toast(inviteAcceptedText(r));
     });
   }
 

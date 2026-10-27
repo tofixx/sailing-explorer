@@ -1,4 +1,4 @@
-import { ApiError, api, friendApi, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamFilter, type StreamPage } from '../services/api';
+import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamFilter, type StreamPage } from '../services/api';
 import type { Store } from '../services/store';
 import type { SxGroupPage } from '../components/sx-group-page';
 import type { SxHomeFeed } from '../components/sx-home-feed';
@@ -130,32 +130,23 @@ export class GroupsController {
     }, undefined, false);
   }
 
-  join(id: string) {
+  /**
+   * Beitreten bzw. anfragen – auf der Gruppenseite oder (mit `fromHome`) aus der Willkommens-Karte der Startseite
+   * (Konzept 14.3); dort merkt sich die Karte gestellte Anfragen und lädt die Startseite neu.
+   */
+  async join(id: string, fromHome?: { name: string }) {
     if (!this.signedIn()) return this.ui.openLogin('Zum Beitreten bitte anmelden.');
-    return this.act(async () => {
-      const res = await groupApi.request(id, '', this.current?.key);
-      this.ui.toast(res.joined ? 'Willkommen in der Gruppe!' : 'Anfrage gestellt – ein Admin entscheidet.');
-    });
-  }
-
-  /** Beitreten bzw. anfragen aus der Willkommens-Karte der Startseite (Konzept 14.3). */
-  async joinFromHome(d: { id: string; name: string }): Promise<void> {
-    try {
-      const res = await groupApi.request(d.id, '');
-      this.ui.toast(res.joined ? `Willkommen in „${d.name}“!` : `Anfrage an „${d.name}“ gestellt – ein Admin entscheidet.`);
+    const run = async () => {
+      const res = await groupApi.request(id, '', fromHome ? null : this.current?.key);
+      const where = fromHome ? `„${fromHome.name}“` : 'der Gruppe';
+      this.ui.toast(res.joined ? `Willkommen in ${where}!` : 'Anfrage gestellt – sie wird noch bestätigt.');
+      if (!fromHome) return;
+      if (!res.joined) this.ui.home.requested = [...this.ui.home.requested, id];
       await this.loadHome(true);
-    } catch (e) {
-      this.ui.toast(errorText(e), 6000);
-    }
-  }
-
-  /** Freunde einladen (Konzept 14.2): per Adresse oder als Link (einmal zeigen). */
-  async inviteFriend(email: string | null): Promise<void> {
-    const home = this.ui.home;
+    };
+    if (!fromHome) return this.act(run);
     try {
-      const res = await friendApi.invite(email ? { email } : {});
-      if (email) this.ui.toast('Einladung verschickt');
-      else home.inviteLink = res.link ?? null;
+      await run();
     } catch (e) {
       this.ui.toast(errorText(e), 6000);
     }

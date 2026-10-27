@@ -6,7 +6,7 @@ import { canViewShare, createShare, deleteShare, getShareData, getShareImage, ge
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
 import { getDiscover } from './discover';
-import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteCrew, inviteFriend, listBoatAdmins, listFriendInvites, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
+import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteCrew, inviteFriend, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
 import { withPageHeaders } from './security';
 import { createCheckout, freeShares, getSupport, stripeWebhook, supportConfig } from './supporter';
 import { runRetention } from './retention';
@@ -64,7 +64,6 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/boats\/([A-Za-z0-9]+)\/admins$/, (r, env, [id]) => listBoatAdmins(r, env, id)],
   ['POST', /^\/api\/boats\/([A-Za-z0-9]+)\/invites$/, (r, env, [id]) => inviteBoatAdmin(r, env, id)],
   ['DELETE', /^\/api\/boats\/([A-Za-z0-9]+)\/admins\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => removeBoatAdmin(r, env, id, who)],
-  ['GET', /^\/api\/invites$/, (r, env) => listFriendInvites(r, env)],
   ['POST', /^\/api\/invites$/, (r, env) => inviteFriend(r, env)],
   ['POST', /^\/api\/invites\/peek$/, (r, env) => peekInvite(r, env)],
   ['POST', /^\/api\/invites\/accept$/, (r, env) => acceptInvite(r, env)],

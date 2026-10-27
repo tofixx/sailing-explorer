@@ -162,7 +162,7 @@ export interface Crew {
   invites: PendingInvite[];
 }
 
-export type InviteKind = 'boat_admin' | 'crew' | 'group';
+export type InviteKind = 'boat_admin' | 'crew' | 'group' | 'friend';
 
 export interface InvitePeek {
   kind: InviteKind;
@@ -185,6 +185,9 @@ export interface InviteAccepted {
   path: string | null;
   target: string | null;
   already: boolean;
+  /** Gruppe: Annahme wurde zur Beitrittsanfrage (Konzept 14.1) */
+  requested?: boolean;
+  groupKind?: GroupKind;
 }
 
 /** Empfänger einer Einladung: Adresse (neue wie bestehende Konten) oder Profilname eines bestehenden Kontos. */
@@ -884,5 +887,4 @@ export const coverApi = {
 export const friendApi = {
   /** ohne Adresse: Einladungslink (nur in dieser Antwort) */
   invite: (to: { email?: string; handle?: string }) => call<InviteCreated>('/api/invites', jsonInit('POST', to)),
-  list: () => call<{ invites: PendingInvite[] }>('/api/invites'),
 };

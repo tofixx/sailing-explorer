@@ -8,9 +8,10 @@ import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { inviteMail, sendMail } from './mail';
 import { assertActive } from './moderation';
 import { getShareRow, ownedShare, visibleShare } from './shares';
-import { GROUP_FULL, addMember, loadGroup, roleIn } from './groups';
+import { GROUP_FULL, addMember, insertRequest, loadGroup, roleIn } from './groups';
+import { addFollow } from './follows';
 import { GROUP_LIMITS } from '../src/domain/limits';
-import { canManageGroup, inviteJoinsDirectly, isApprovers, isJoinMode } from '../src/domain/groups';
+import { canManageGroup, effectiveJoinMode, inviteJoinsDirectly, type Approvers, type JoinMode } from '../src/domain/groups';
 import { BOAT_ID_RE, TOKEN_RE, normalizeEmail, normalizeHandle, parseInviteKind, type InviteKind } from './validate';
 import { funnyName } from '../src/domain/names';
 
@@ -378,7 +379,7 @@ export async function inviteGroup(request: Request, env: Env, id: string): Promi
     kind: 'group', groupId: g.id, groupKind: g.kind, to, maxUses: to ? 1 : Math.min(GROUP_LIMITS.linkUses, GROUP_LIMITS.members - members),
     days: GROUP_LIMITS.inviteDays, targetName: g.name,
   });
-  const needsApproval = !inviteJoinsDirectly(role, isJoinMode(g.join_mode) ? g.join_mode : 'request', g.approve_by ?? 'admins');
+  const needsApproval = !inviteJoinsDirectly(role, effectiveJoinMode(g), g.approve_by);
   return json({ invite, link: to ? undefined : link, devLink: to ? devLink(request, env, link) : undefined, needsApproval }, { status: 201 });
 }
 
@@ -398,19 +399,6 @@ export async function inviteFriend(request: Request, env: Env): Promise<Response
   return json({ invite, link: to ? undefined : link, devLink: to ? devLink(request, env, link) : undefined }, { status: 201 });
 }
 
-/** GET /api/invites – eigene offene Einladungen ohne Ziel (zum Zurückziehen). */
-export async function listFriendInvites(request: Request, env: Env): Promise<Response> {
-  const user = await requireUser(request, env);
-  const { results } = await env.DB.prepare(
-    `SELECT i.id, i.email, i.max_uses, i.uses, i.created_at, i.expires_at, p.display_name AS invitee_name, p.handle AS invitee_handle
-     FROM invites i LEFT JOIN profiles p ON p.user_id = i.invitee_id
-     WHERE i.kind = 'friend' AND i.inviter_id = ? AND i.expires_at > ? AND i.uses < i.max_uses ORDER BY i.created_at`,
-  )
-    .bind(user.id, Date.now())
-    .all<PendingRow>();
-  return json({ invites: results.map(inviteShape) });
-}
-
 // ---------------------------------------------------------------- Einlösen, Zurückziehen
 
 interface LoadedInvite extends InviteRow {
@@ -418,8 +406,10 @@ interface LoadedInvite extends InviteRow {
   group_owner: string | null;
   group_slug: string | null;
   group_kind: string | null;
-  group_join_mode: string | null;
-  group_approve_by: string | null;
+  group_join_mode: JoinMode | null;
+  group_approve_by: Approvers | null;
+  group_visibility: string | null;
+  group_hidden_at: number | null;
   boat_name: string | null;
   boat_owner: string | null;
   share_title: string | null;
@@ -428,7 +418,8 @@ interface LoadedInvite extends InviteRow {
 }
 
 const LOADED_SELECT = `SELECT i.*, b.name AS boat_name, b.owner_id AS boat_owner, s.title AS share_title, s.user_id AS share_owner, s.visibility AS share_visibility,
-    g.name AS group_name, g.owner_id AS group_owner, g.slug AS group_slug, g.kind AS group_kind, g.join_mode AS group_join_mode, g.approve_by AS group_approve_by
+    g.name AS group_name, g.owner_id AS group_owner, g.slug AS group_slug, g.kind AS group_kind, g.join_mode AS group_join_mode, g.approve_by AS group_approve_by,
+    g.visibility AS group_visibility, g.hidden_at AS group_hidden_at
   FROM invites i LEFT JOIN boats b ON b.id = i.boat_id LEFT JOIN shares s ON s.id = i.share_id LEFT JOIN groups g ON g.id = i.group_id`;
 
 const usable = (row: LoadedInvite | null): row is LoadedInvite =>
@@ -520,16 +511,17 @@ async function acceptLoaded(env: Env, user: User, inv: LoadedInvite) {
       throw new HttpError(409, 'quota', 'Die Crew dieses Törns ist voll.');
     }
   }
+  if (!(await claim(env, inv.id))) throw INVALID();
   const now = Date.now();
-  // Atomar zählen – bei gleichzeitigem Einlösen gewinnt nur, wer noch eine Nutzung bekommt.
-  const claimed = await env.DB.prepare('UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND expires_at > ? RETURNING id')
-    .bind(inv.id, now)
-    .first();
-  if (!claimed) throw INVALID();
   await env.DB.prepare(boat ? 'INSERT OR IGNORE INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)' : 'INSERT OR IGNORE INTO share_crew (share_id, user_id, created_at) VALUES (?, ?, ?)')
     .bind(targetId, user.id, now)
     .run();
   return { ...result, already: false };
+}
+
+/** Eine Nutzung der Einladung verbrauchen – atomar, bei gleichzeitigem Einlösen gewinnt nur, wer noch eine bekommt. */
+async function claim(env: Env, id: string): Promise<boolean> {
+  return !!(await env.DB.prepare('UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND expires_at > ? RETURNING id').bind(id, Date.now()).first());
 }
 
 /**
@@ -541,19 +533,20 @@ async function acceptGroupInvite(env: Env, inv: LoadedInvite, user: User) {
   if (user.id === inv.group_owner) throw new HttpError(409, 'own_object', 'Das ist deine eigene Gruppe.');
   if (await isMember(env, inv, user.id)) return { ...result, already: true };
   if ((await count(env, 'SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?', inv.group_id)) >= GROUP_LIMITS.members) throw GROUP_FULL();
-  const mode = inv.group_join_mode && isJoinMode(inv.group_join_mode) ? inv.group_join_mode : 'request';
-  const approvers = inv.group_approve_by && isApprovers(inv.group_approve_by) ? inv.group_approve_by : 'admins';
-  const direct = inviteJoinsDirectly(await roleIn(env, inv.inviter_id, inv.group_id!), mode, approvers);
-  const now = Date.now();
-  const claimed = await env.DB.prepare('UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND expires_at > ? RETURNING id')
-    .bind(inv.id, now)
-    .first();
-  if (!claimed) throw INVALID();
+  const mode = effectiveJoinMode({ join_mode: inv.group_join_mode!, visibility: inv.group_visibility!, hidden_at: inv.group_hidden_at });
+  const direct = inviteJoinsDirectly(await roleIn(env, inv.inviter_id, inv.group_id!), mode, inv.group_approve_by!);
   if (!direct) {
-    const message = `Eingeladen von ${await displayName(env, inv.inviter_id)}`;
-    await env.DB.prepare('INSERT OR IGNORE INTO group_requests (group_id, user_id, message, created_at) VALUES (?, ?, ?, ?)').bind(inv.group_id, user.id, message, now).run();
+    // Anfrage mit denselben Grenzen wie direkt gestellte; eine schon bestehende verbraucht keine Nutzung.
+    if (!(await insertRequest(env, inv.group_id!, user.id, `Eingeladen von ${await displayName(env, inv.inviter_id)}`))) {
+      return { ...result, already: true, requested: true };
+    }
+    if (!(await claim(env, inv.id))) {
+      await env.DB.prepare('DELETE FROM group_requests WHERE group_id = ? AND user_id = ?').bind(inv.group_id, user.id).run();
+      throw INVALID();
+    }
     return { ...result, already: false, requested: true };
   }
+  if (!(await claim(env, inv.id))) throw INVALID();
   await addMember(env, inv.group_id!, user.id);
   return { ...result, already: false };
 }
@@ -566,15 +559,10 @@ async function acceptFriendInvite(env: Env, inv: LoadedInvite, user: User) {
     .first<{ handle: string; display_name: string }>();
   const result = { kind: inv.kind, path: p ? `/u/${p.handle}` : '/', target: p?.display_name ?? (await displayName(env, inv.inviter_id)) };
   if (await isMember(env, inv, user.id)) return { ...result, already: true };
-  const now = Date.now();
-  const claimed = await env.DB.prepare('UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND expires_at > ? RETURNING id')
-    .bind(inv.id, now)
-    .first();
-  if (!claimed) throw INVALID();
-  await env.DB.batch([
-    env.DB.prepare(`INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) VALUES (?, 'user', ?, ?)`).bind(user.id, inv.inviter_id, now),
-    env.DB.prepare(`INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) VALUES (?, 'user', ?, ?)`).bind(inv.inviter_id, user.id, now),
-  ]);
+  if (!(await claim(env, inv.id))) throw INVALID();
+  // Folgen mit derselben Grenze wie per Knopf – wer schon am Limit ist, folgt eben nicht zusätzlich.
+  await addFollow(env, user.id, 'user', inv.inviter_id);
+  await addFollow(env, inv.inviter_id, 'user', user.id);
   return { ...result, already: false };
 }
 
@@ -635,9 +623,7 @@ export async function declineMyInvite(request: Request, env: Env, id: string): P
   return new Response(null, { status: 204 });
 }
 
-const isInviter = async (env: Env, id: string, userId: string) => !!(await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE id = ? AND inviter_id = ?', id, userId));
-
-/** DELETE /api/invites/:id – nur der Eigentümer des Ziels (Eigner des Boots bzw. des Törns, bei Gruppen Eigner und Admins) zieht zurück. */
+/** DELETE /api/invites/:id – Eigentümer des Ziels (Eigner des Boots bzw. Törns, bei Gruppen Eigner und Admins), ohne Ziel die einladende Person. */
 export async function revokeInvite(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   const row = await env.DB.prepare(
@@ -646,9 +632,7 @@ export async function revokeInvite(request: Request, env: Env, id: string): Prom
   )
     .bind(id)
     .first<{ id: string; group_id: string | null; owner: string | null }>();
-  // Gruppen: Eigner und Admins – und wer die Einladung selbst verschickt hat
-  const allowed =
-    !!row && (row.group_id ? canManageGroup(await roleIn(env, user.id, row.group_id)) || (await isInviter(env, row.id, user.id)) : row.owner === user.id);
+  const allowed = !!row && (row.group_id ? canManageGroup(await roleIn(env, user.id, row.group_id)) : row.owner === user.id);
   if (!row || !allowed) throw new HttpError(404, 'not_found', 'Diese Einladung gibt es nicht (mehr).');
   await env.DB.prepare('DELETE FROM invites WHERE id = ?').bind(id).run();
   return new Response(null, { status: 204 });

@@ -397,13 +397,13 @@ export class SxGroupPage extends LitElement {
           (m) => html`<label class="opt"><input type="radio" name="join" .checked=${d.joinMode === m} @change=${() => this.set({ joinMode: m })} /><span><b>${JOIN_MODE_LABEL[m]}</b></span></label>`,
         )}
       </fieldset>
-      ${owner && d.joinMode !== 'open'
+      ${owner
         ? html`<fieldset class="opts" style="border:0;padding:0;margin:0">
             <legend class="label">Wer bestätigt Anfragen?</legend>
             ${(APPROVERS as readonly Approvers[]).map(
               (a) => html`<label class="opt"><input type="radio" name="approve" .checked=${(d.approveBy ?? 'admins') === a} @change=${() => this.set({ approveBy: a })} /><span><b>${APPROVERS_LABEL[a]}</b></span></label>`,
             )}
-            <p class="hint">Wer bestätigen darf, nimmt mit eigenen Einladungen auch direkt auf.</p>
+            <p class="hint">Wer bestätigen darf, nimmt mit eigenen Einladungen auch direkt auf. „Offen“ gilt nur für öffentliche Gruppen – sonst wird jeder Beitritt zur Anfrage.</p>
           </fieldset>`
         : ''}
       ${this.formError ? html`<p class="error" role="alert">${this.formError}</p>` : ''}
@@ -479,7 +479,7 @@ export class SxGroupPage extends LitElement {
   private joinActions(d: GroupPageData) {
     const g = d.group;
     const m = d.membership;
-    if (!this.signedIn) return g.joinMode === 'request' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : '';
+    if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : '';
     if (m.role) return m.role === 'owner' ? '' : html`<button class="btn ghost" @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id })}>${icon('logout')} Austreten</button>`;
     if (m.requested) return html`<span class="faint">Anfrage gestellt</span><button class="btn ghost" @click=${() => emit(this, 'sx-group-withdraw', { id: g.id })}>Anfrage zurückziehen</button>`;
     if (m.canJoin) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitreten</button>`;
@@ -542,7 +542,7 @@ export class SxGroupPage extends LitElement {
 
   private invites(g: GroupInfo, list: PendingInvite[]) {
     let email = '';
-    const approval = !canApprove(g.role, g.approveBy ?? 'admins') && g.joinMode !== 'open';
+    const approval = !canApprove(g.role, g.approveBy ?? 'admins') && !(g.joinMode === 'open' && g.visibility === 'public');
     return html`<div class="box" aria-label="Einladen">
       <h3 class="eyebrow">Leute einladen</h3>
       ${approval ? html`<p class="hint">Wer deine Einladung annimmt, stellt eine Beitrittsanfrage, die in dieser Gruppe andere bestätigen.</p>` : ''}

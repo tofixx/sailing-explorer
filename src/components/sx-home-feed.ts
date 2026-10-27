@@ -17,7 +17,7 @@ import './sx-stream';
  * - Nach der Anmeldung (ohne Gruppe oder ohne Heimathafen) eine Willkommens-Karte (Konzept 14.3): Heimathafen wählen,
  *   Verein oder Team beitreten bzw. gründen, Freunde einladen.
  * Rein präsentational; meldet `sx-stream-more`, `sx-stream-filter`, `sx-follow`, `sx-login`, `sx-account`,
- * `sx-home-harbor` { harbor }, `sx-home-join` { id, name }, `sx-friend-invite` { email | null }, `sx-link-copy`.
+ * `sx-home-harbor` { harbor }, `sx-home-join` { id, name }, `sx-friend-invite` { email | null }, `sx-invite-copy`.
  */
 const WELCOME_KEY = 'sx-welcome-dismissed';
 function readDismissed(): boolean {
@@ -40,6 +40,7 @@ export class SxHomeFeed extends LitElement {
     loading: { type: Boolean },
     followBusy: { attribute: false },
     inviteLink: { attribute: false },
+    requested: { attribute: false },
     dismissed: { state: true },
   };
   declare signedIn: boolean;
@@ -57,6 +58,8 @@ export class SxHomeFeed extends LitElement {
   declare followBusy: string[];
   /** frisch erzeugter Einladungslink (nur einmal sichtbar) */
   declare inviteLink: string | null;
+  /** Gruppen-IDs, an die aus der Karte eine Anfrage ging (Knopf „Angefragt“) */
+  declare requested: string[];
   /** Willkommens-Karte ausgeblendet („Später“, pro Gerät) */
   declare dismissed: boolean;
 
@@ -72,6 +75,7 @@ export class SxHomeFeed extends LitElement {
     this.loading = false;
     this.followBusy = [];
     this.inviteLink = null;
+    this.requested = [];
     this.dismissed = readDismissed();
   }
 
@@ -291,6 +295,7 @@ export class SxHomeFeed extends LitElement {
   /** Beitreten-Knopf je nach Beitrittsstufe (offen: direkt, auf Anfrage: anfragen, nur Einladung: ansehen). */
   private joinButton(g: DiscoverGroup) {
     if (!g.id || g.joinMode === 'invite') return html`<a class="btn small ghost" href="/g/${g.slug}">Ansehen</a>`;
+    if (this.requested.includes(g.id)) return html`<button class="btn small" disabled>${icon('check')} Angefragt</button>`;
     const label = g.joinMode === 'open' ? 'Beitreten' : 'Anfragen';
     return html`<button class="btn small" @click=${() => emit(this, 'sx-home-join', { id: g.id, name: g.name })}>${icon('user')} ${label}</button>`;
   }

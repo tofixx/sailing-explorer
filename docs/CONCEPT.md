@@ -1363,7 +1363,7 @@ Kontos (nur wenn öffentlich).
 | Auf Anfrage (`request`, Standard) | Anfrage, bestätigt von den Bestätigenden | wird beim Annehmen zur Anfrage („Eingeladen von …“) |
 | Nur auf Einladung (`invite`) | nur mit Einladung | wird beim Annehmen zur Anfrage |
 
-**Wer bestätigt** (`approve_by`, Migration 0015) legt **der Eigner** fest: alle Mitglieder, Eigner und Admins
+**Beitrittsstufe und wer bestätigt** (`approve_by`, Migration 0015) legt **der Eigner** fest (Admins könnten sonst „Nur der Eigner“ per „Offen“ umgehen). „Offen“ wirkt nur bei öffentlichen, nicht ausgeblendeten Gruppen (`effectiveJoinMode`), sonst wie „Auf Anfrage“. Anfragen aus angenommenen Einladungen unterliegen denselben Grenzen wie direkt gestellte. Wer bestätigt: alle Mitglieder, Eigner und Admins
 (Standard) oder nur der Eigner. Wer bestätigen darf, sieht die Anfragen und nimmt mit eigenen Einladungen direkt auf.
 **Einladen dürfen alle Mitglieder** (Link, E-Mail, Profilname). Die Sichtbarkeit der Gruppe (Öffentlich, Nur mit
 Link, Geschlossen; E1) bleibt davon getrennt. Wer eine Gruppe gründet, ist ihr Eigner.
@@ -1372,7 +1372,7 @@ Link, Geschlossen; E1) bleibt davon getrennt. Wer eine Gruppe gründet, ist ihr 
 
 Einladung ohne Boot, Törn oder Gruppe (`kind = 'friend'`, `POST /api/invites`): per E-Mail, Profilname oder als
 Link (bis 20 Personen, 14 Tage). Wer annimmt, folgt der einladenden Person und umgekehrt – so landen die beiden
-sofort in den Neuigkeiten des anderen. Grenzen wie bei allen Einladungen (20 pro Konto und Tag, Mail-Budget).
+sofort in den Neuigkeiten des anderen. Grenzen wie bei allen Einladungen (20 pro Konto und Tag, Mail-Budget); das gegenseitige Folgen beachtet die Folge-Grenze (wer am Limit ist, folgt nicht zusätzlich). Zurückziehen kann die einladende Person per API; eine eigene Liste gibt es (noch) nicht – Links werden nur einmal angezeigt.
 
 ### 14.3 Willkommens-Karte nach der Anmeldung
 
