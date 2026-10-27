@@ -26,3 +26,16 @@ Prüfpunkte:
    stimmen geänderte alte Anforderungen noch mit dem Code überein?
 
 `npm run check` (Typecheck, Tests, Build) muss vorher grün sein.
+
+## Deploy nur bei Bedarf
+
+Nicht jedes fertige Feature sofort pushen: Push nach `main` (Produktion) und Branch-Pushes (Vorschau) nur, wenn es
+nötig ist oder gewünscht wird. Sonst lokal committen, Review laufen lassen und Bescheid geben, dass es bereit ist.
+
+## Lokale Arbeit
+
+Jede Sitzung arbeitet in einem eigenen `git worktree` (eigener Ordner, eigener Branch, gemeinsames `.git`) – kein
+Branch-Wechsel im selben Ordner. Für schnelle Runden gezielt testen (`npx vitest run <datei> -t "F-…"`), das volle
+`npm run check` erst vor dem Commit.
+Neue F-IDs vor der Vergabe in allen Branches suchen (`git grep -n "F-2.." $(git branch --format="%(refname:short)") -- docs/REQUIREMENTS.md`),
+parallele Sitzungen kollidieren sonst.
