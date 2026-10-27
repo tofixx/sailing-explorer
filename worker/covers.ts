@@ -163,6 +163,8 @@ export async function putCover(request: Request, env: Env, kind: string, publicI
   }
   const { format, width, height } = check.info;
   if (width > COVER_WIDTH || height > COVER_HEIGHT) throw new HttpError(400, 'too_large', `Titelbild höchstens ${COVER_WIDTH} × ${COVER_HEIGHT} px.`);
+  // Querformat (der Browser liefert 3:1 … 3:2): ein Hochformat zeigte im Banner nur einen schmalen Streifen
+  if (height > width) throw new HttpError(400, 'invalid_image', 'Titelbild bitte im Querformat.');
 
   const old = await loadCover(env, k, t.objectId);
   const c: CoverRow = { kind: k, object_id: t.objectId, ver: randomId(10), format, bytes: bytes.length, focus_y: COVER_FOCUS_DEFAULT, user_id: user.id, created_at: Date.now() };

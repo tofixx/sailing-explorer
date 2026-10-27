@@ -4,6 +4,8 @@
 
 /** Seitenverhältnis des Banners (Breite : Höhe). */
 export const COVER_BANNER_RATIO = 3;
+/** Höchstes gespeichertes Seitenverhältnis (3:2) – der Überstand über das Banner ist der Spielraum für den Ausschnitt. */
+export const COVER_MIN_RATIO = 1.5;
 /** Fokus ohne Angabe: mittig (auch für ältere Titelbilder). */
 export const COVER_FOCUS_DEFAULT = 50;
 

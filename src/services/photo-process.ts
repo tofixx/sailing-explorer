@@ -4,7 +4,7 @@
 //
 // Dekodieren und Skalieren übernimmt createImageBitmap (in den Browsern außerhalb des Haupt-Threads), Kodieren
 // OffscreenCanvas.convertToBlob bzw. canvas.toBlob – beides asynchron, ein eigener Web Worker ist dafür nicht nötig.
-import { COVER_BANNER_RATIO } from '../domain/cover';
+import { COVER_BANNER_RATIO, COVER_MIN_RATIO } from '../domain/cover';
 import { EXIF_SCAN_BYTES, readExif, type ExifData } from '../domain/exif';
 import { COVER_BYTES, COVER_HEIGHT, COVER_WIDTH, PHOTO_FULL_BYTES, PHOTO_FULL_PX, PHOTO_THUMB_BYTES, PHOTO_THUMB_PX } from '../domain/limits';
 
@@ -128,12 +128,12 @@ export async function processPhoto(file: File): Promise<ProcessedPhoto> {
 // ---------------------------------------------------------------- Titelbilder (Konzept 13.2)
 
 /**
- * Ausschnitt für ein Titelbild: Seitenverhältnis auf 3:1 (Banner) … `outW:outH` begrenzt – breitere Bilder links und
+ * Ausschnitt für ein Titelbild: Seitenverhältnis auf 3:1 (Banner) … 3:2 begrenzt – breitere Bilder links und
  * rechts, höhere oben und unten mittig beschnitten. Dazwischen bleibt das Bild ganz; den sichtbaren Streifen wählt
  * später die Fokus-Position. Ausgabe nie größer als die Quelle (kleine Bilder werden nicht hochskaliert).
  */
 export function coverCrop(width: number, height: number, outW = COVER_WIDTH, outH = COVER_HEIGHT) {
-  const ratio = Math.min(COVER_BANNER_RATIO, Math.max(outW / outH, width / height));
+  const ratio = Math.min(COVER_BANNER_RATIO, Math.max(COVER_MIN_RATIO, width / height));
   const sw = Math.min(width, Math.round(height * ratio));
   const sh = Math.min(height, Math.round(sw / ratio));
   const scale = Math.min(1, outW / sw, outH / sh);

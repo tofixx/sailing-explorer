@@ -1,4 +1,4 @@
-import { LitElement, css, html } from 'lit';
+import { LitElement, css, html, type PropertyValues } from 'lit';
 import type { CoverKind, GalleryPhoto } from '../services/api';
 import { COVER_BANNER_RATIO, COVER_FOCUS_DEFAULT, focusAfterDrag, focusSlack } from '../domain/cover';
 import { fmtShort } from '../util/html';
@@ -66,6 +66,7 @@ export class SxCover extends LitElement {
       }
       .frame {
         position: relative;
+        /* COVER_BANNER_RATIO (src/domain/cover.ts) */
         aspect-ratio: 3 / 1;
         border-radius: var(--radius-l);
         overflow: hidden;
@@ -136,6 +137,25 @@ export class SxCover extends LitElement {
     `,
   ];
 
+  connectedCallback() {
+    super.connectedCallback();
+    this.addEventListener('keydown', this.key);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this.removeEventListener('keydown', this.key);
+  }
+
+  /** Anderes Bild oder anderes Objekt (Lit verwendet das Element beim Navigieren weiter): Bearbeitung verwerfen. */
+  willUpdate(changed: PropertyValues<this>) {
+    if (!changed.has('src') && !changed.has('targetId') && !changed.has('kind')) return;
+    if (changed.has('targetId') || changed.has('kind')) this.adjustOnLoad = false;
+    this.editing = false;
+    this.drag = null;
+    this.movable = false;
+  }
+
   /** Nach einem Upload: in den Ausschnitt-Modus, sobald das neue Bild geladen ist – sofern es Spielraum hat. */
   adjust() {
     this.adjustOnLoad = true;
@@ -170,16 +190,20 @@ export class SxCover extends LitElement {
   private start() {
     this.draft = this.focusY;
     this.editing = true;
+    void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>('input[type=range]')?.focus());
   }
 
-  private cancel() {
+  /** Modus verlassen; Fokus zurück auf „Ausschnitt“, sofern er im Modus war (sonst ginge er verloren). */
+  private close() {
+    const hadFocus = !!this.shadowRoot?.activeElement;
     this.editing = false;
     this.drag = null;
+    if (hadFocus) void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>('.tools button')?.focus());
   }
 
   private save() {
     const previous = this.focusY;
-    this.cancel();
+    this.close();
     if (this.draft === previous) return;
     this.focusY = this.draft;
     emit(this, 'sx-cover-focus', { kind: this.kind, id: this.targetId, focusY: this.draft, previous });
@@ -202,11 +226,11 @@ export class SxCover extends LitElement {
     if (this.drag?.pointer === e.pointerId) this.drag = null;
   }
 
-  private key(e: KeyboardEvent) {
+  private key = (e: KeyboardEvent) => {
     if (e.key !== 'Escape' || !this.editing) return;
     e.stopPropagation();
-    this.cancel();
-  }
+    this.close();
+  };
 
   render() {
     if (!this.src && !this.canEdit) return '';
@@ -225,6 +249,7 @@ export class SxCover extends LitElement {
           draggable="false"
           style="object-position: 50% ${y}%"
           @load=${this.loaded}
+          @error=${() => (this.adjustOnLoad = false)}
           @pointerdown=${this.down}
           @pointermove=${this.move}
           @pointerup=${this.up}
@@ -240,7 +265,7 @@ export class SxCover extends LitElement {
           : ''}
       </div>
       ${this.editing
-        ? html`<div class="adjust" @keydown=${this.key}>
+        ? html`<div class="adjust">
             <label class="hint"
               >Bild hoch- oder runterziehen oder hier einstellen
               <input
@@ -253,7 +278,7 @@ export class SxCover extends LitElement {
                 .value=${String(y)}
                 @input=${(e: Event) => (this.draft = Number((e.target as HTMLInputElement).value))}
             /></label>
-            <button class="btn small" @click=${this.cancel}>Abbrechen</button>
+            <button class="btn small" @click=${this.close}>Abbrechen</button>
             <button class="btn small primary" @click=${this.save}>${icon('check')} Speichern</button>
           </div>`
         : ''}`;

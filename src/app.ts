@@ -799,12 +799,15 @@ export class App {
   /** Ausschnitt des Titelbilds speichern; schlägt es fehl, zeigt das Banner wieder den alten. */
   private async moveCover(d: { kind: CoverKind; id: string; focusY: number; previous: number }, e: Event) {
     const el = e.composedPath()[0] as SxCover;
+    el.busy = true;
     try {
       this.patchCover(d.kind, await coverApi.focus(d.kind, d.id, d.focusY));
       this.toast('Ausschnitt gespeichert');
     } catch (err) {
       el.focusY = d.previous;
       this.toast(errorText(err), 6000);
+    } finally {
+      el.busy = false;
     }
   }
 

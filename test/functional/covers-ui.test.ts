@@ -116,6 +116,34 @@ describe('sx-cover: Ausschnitt (F-211)', () => {
     expect(got).toEqual([]);
   });
 
+  it('F-211: Escape am Banner bricht ab, Fokus wandert zum Regler und zurück zu „Ausschnitt“', async () => {
+    const el = await mount({ focusY: 40 });
+    await load(el, [1500, 1000]);
+    button(el, /Ausschnitt/)!.click();
+    await el.updateComplete;
+    await el.updateComplete;
+    expect(el.shadowRoot.activeElement).toBe(slider(el));
+    img(el).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+    await el.updateComplete;
+    await el.updateComplete;
+    expect(slider(el)).toBeNull();
+    expect(el.shadowRoot.activeElement).toBe(button(el, /Ausschnitt/));
+  });
+
+  it('F-211: wechselt das Objekt (Navigation), wird eine offene Bearbeitung verworfen', async () => {
+    const got = listen('sx-cover-focus');
+    const el = await mount({ focusY: 40 });
+    await load(el, [1500, 1000]);
+    button(el, /Ausschnitt/)!.click();
+    await el.updateComplete;
+    Object.assign(el, { targetId: 'Boot2', src: '/api/covers/b/Boot2/def456', focusY: 50 });
+    await el.updateComplete;
+    expect(slider(el)).toBeNull();
+    expect(position(el)).toBe('50% 50%');
+    expect(button(el, /Ausschnitt/)).toBeUndefined(); // erst nach dem Laden des neuen Bilds
+    expect(got).toEqual([]);
+  });
+
   it('F-211: nach einem Upload öffnet sich der Ausschnitt-Modus, sobald das neue Bild geladen ist – nur mit Spielraum', async () => {
     const el = await mount({});
     (el as unknown as { adjust(): void }).adjust();

@@ -165,6 +165,10 @@ describe('Titelbilder (Konzept 13.2)', () => {
     const tall = await putCover('u', me.handle!, me.cookie, webp(1500, 1001));
     expect(tall.status).toBe(400);
     expect(await s.errorOf(tall)).toBe('too_large');
+    // Hochformat zeigte im Banner nur einen Streifen
+    const portrait = await putCover('u', me.handle!, me.cookie, webp(600, 900));
+    expect(portrait.status).toBe(400);
+    expect(await s.errorOf(portrait)).toBe('invalid_image');
   });
 
   it('F-210: Ausschnitt per PATCH ändern – ohne neues Bild, nur Verwalter; ein neues Bild beginnt wieder mittig', async () => {
