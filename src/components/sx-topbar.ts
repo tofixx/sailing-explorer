@@ -164,10 +164,14 @@ export class SxTopbar extends LitElement {
           box-shadow: var(--shadow-1);
         }
       }
-      /* Törn-Ansicht mit Seitenleiste: mittig über der Karte statt über der ganzen Breite */
+      /* Törn-Ansicht mit Seitenleiste: mittig über der Karte statt über der ganzen Breite; auf der Community-Ansicht
+         läge sie über dem Stream – dort genügt der Reiter „Törn“ */
       @media (max-width: 1150px) and (min-width: 761px) {
         :host(:not([home])) .chip.status {
           left: calc((100% - var(--sidebar-w)) / 2);
+        }
+        :host([home]) .chip.status {
+          display: none;
         }
       }
       @media (max-width: 900px) and (min-width: 761px) {
@@ -260,7 +264,7 @@ export class SxTopbar extends LitElement {
         }
         .tab {
           flex: 1;
-          min-height: 40px;
+          min-height: 44px;
           border-radius: 0;
           font-size: var(--fs-s);
         }
@@ -327,7 +331,7 @@ export class SxTopbar extends LitElement {
           </button>`
         : nothing}
       <a class="tab" href=${COMMUNITY_HREF} aria-current=${current('community')} @click=${this.onCommunity}
-        title=${badge ? `Community – ${badge} neue Einträge` : 'Community – Neuigkeiten aus Verein, Hafen und Team'}
+        title=${badge ? `Community – ${badge} neue Einträge${this.section === 'community' ? ' (klicken zum Neuladen)' : ''}` : 'Community – Neuigkeiten aus Verein, Hafen und Team'}
         aria-label=${badge ? `Community, ${badge} neue Einträge` : 'Community'}>
         ${icon('community')}<span>Community</span>${badge ? html`<span class="badge" aria-hidden="true">${badge}</span>` : nothing}
       </a>

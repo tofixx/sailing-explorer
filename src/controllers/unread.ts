@@ -5,6 +5,8 @@ import { UNREAD_MAX, UNREAD_POLL_MS, UNREAD_REFRESH_MS, unreadLabel } from '../d
 export interface UnreadUi {
   /** Badge-Text an „Community“ (leer = keins) */
   show: (label: string) => void;
+  /** Tab wieder sichtbar (z. B. für „gelesen“, das im Hintergrund nicht gesetzt wurde) */
+  visible?: () => void;
 }
 
 /**
@@ -18,13 +20,19 @@ export class UnreadController {
   private running: Promise<void> | null = null;
   /** zählt „gelesen“ hoch – eine Zählung, die davor begann, ist dann überholt */
   private gen = 0;
+  /** laufendes Gelesen-Setzen – eine Zählung wartet darauf, sonst käme das alte Badge zurück */
+  private saving: Promise<unknown> = Promise.resolve();
+  /** zuletzt gesendeter Gelesen-Stand – derselbe Stand wird nicht noch einmal geschrieben */
+  private lastSeen = 0;
 
   constructor(
     private store: Store,
     private ui: UnreadUi,
   ) {
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') void this.refresh();
+      if (document.visibilityState !== 'visible') return;
+      this.ui.visible?.();
+      void this.refresh();
     });
     setInterval(() => {
       if (document.visibilityState === 'visible') void this.refresh(true);
@@ -44,8 +52,8 @@ export class UnreadController {
     if (!force && Date.now() - this.last < UNREAD_REFRESH_MS) return Promise.resolve();
     this.last = Date.now();
     const gen = this.gen;
-    this.running = groupApi
-      .unread()
+    this.running = this.saving
+      .then(() => groupApi.unread())
       .then((r) => {
         if (gen === this.gen) this.set(r.more ? UNREAD_MAX + 1 : r.count);
       })
@@ -58,7 +66,9 @@ export class UnreadController {
   seen(at: number | undefined): void {
     this.gen++;
     this.set(0);
-    void groupApi.seen(at).catch(() => undefined);
+    if (at != null && at <= this.lastSeen) return;
+    if (at != null) this.lastSeen = at;
+    this.saving = groupApi.seen(at).catch(() => undefined);
   }
 
   private set(n: number) {

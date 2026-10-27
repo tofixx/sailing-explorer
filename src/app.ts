@@ -199,7 +199,7 @@ export class App {
       toast: (msg, ms) => this.toast(msg, ms),
       openLogin: (reason) => this.session.openLogin(reason),
     });
-    this.unread = new UnreadController(this.store, { show: (label) => (this.ui.topbar.unread = label) });
+    this.unread = new UnreadController(this.store, { show: (label) => (this.ui.topbar.unread = label), visible: () => this.markSeen() });
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
     this.store.subscribe((s, prev) => this.render(s, prev));
@@ -767,10 +767,13 @@ export class App {
     return this.pageSection ?? (home ? 'community' : 'track');
   }
 
-  /** Community ist sichtbar und der persönliche Stream geladen: gelesen bis zu seinem Stand (F-222). */
+  /**
+   * Community ist sichtbar und der persönliche Stream geladen: gelesen bis zu seinem Stand (F-222). Im Hintergrund-Tab
+   * (z. B. per Strg-Klick geöffnet) erst, wenn er sichtbar wird.
+   */
   private markSeen() {
     const s = this.store.get();
-    if (!this.started || !this.pendingSeen || this.section(!s.tracks.length || s.home) !== 'community') return;
+    if (!this.started || !this.pendingSeen || document.visibilityState === 'hidden' || this.section(!s.tracks.length || s.home) !== 'community') return;
     this.unread.seen(this.pendingSeen.at);
     this.pendingSeen = null;
   }

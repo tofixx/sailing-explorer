@@ -1350,6 +1350,23 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(topbar().unread).toBe('');
   });
 
+  it('[F-222] im verdeckten Tab (Strg-Klick) erst gelesen, wenn er sichtbar wird', async () => {
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { unread: { count: 2, more: false }, myStream: { items: [post], cursor: null, hasGroups: true, at: 1_700_000_000_000 }, mine: { groups: [], requests: [] } };
+    const vis = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      await startApp('/?community');
+      await vi.waitFor(() => expect(home().stream).not.toBeNull());
+      await new Promise((r) => setTimeout(r, 0));
+      expect(seenCalls()).toHaveLength(0);
+      vis.mockReturnValue('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.waitFor(() => expect(seenCalls()).toHaveLength(1));
+    } finally {
+      vis.mockRestore();
+    }
+  });
+
   it('[F-222] ohne Tracks ist die Community die Startseite: sofort gelesen', async () => {
     server.user = { id: 'U1', email: 'a@example.org' };
     server.groups = { unread: { count: 2, more: false }, myStream: { items: [post], cursor: null, hasGroups: true, at: 1_700_000_000_000 }, mine: { groups: [], requests: [] } };

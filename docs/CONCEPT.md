@@ -1296,10 +1296,11 @@ letzten Lesen dazugekommen sind:
 | Frage | Entscheidung |
 |---|---|
 | Was ist „gelesen“? | Ein Zeitpunkt je Konto, `users.stream_seen_at` (ms) – serverseitig, damit es auf allen Geräten stimmt. Keine Markierung je Eintrag. |
-| Wann wird er gesetzt? | Wenn die Community wirklich angezeigt wird und der persönliche Stream geladen ist: auf den Stand dieser Stream-Antwort (`at`), nicht „jetzt“ – Neues, das der angezeigte Stream nicht enthält, bleibt ungelesen. Nur vorwärts (`MAX` in SQL), nie in der Zukunft. Mit Ungelesenem lädt „Community“ den Stream vorher neu. |
+| Wann wird er gesetzt? | Wenn die Community wirklich angezeigt wird und der persönliche Stream geladen ist: auf den Ladezeitpunkt dieser Stream-Antwort (`at`), nicht „jetzt“ – was danach dazukommt, bleibt ungelesen (auch Einträge, die erst auf einer weiteren Seite stünden, gelten damit als gelesen). Im Hintergrund-Tab erst, wenn er sichtbar wird. Klick auf den aktiven Reiter mit Badge lädt den Stream neu. Nur vorwärts (`MAX` in SQL), nie in der Zukunft. Mit Ungelesenem lädt „Community“ den Stream vorher neu. |
 | Was zählt? | Kandidaten aus `activity_target` für dieselbe Zielliste wie der Stream mit `created_at` > Gelesen-Zeitpunkt (höchstens 150), dann dieselbe Prüfung beim Lesen (`shapeItem`). Eigene Aktivitäten zählen nicht. Anzeige höchstens „99+“. |
 | Erstes Mal? | `NULL` → beim ersten Zählen auf „jetzt“; kein Rückstau-Badge nach dem Deploy. |
 | Gäste | kein Badge, keine Abfrage. |
+| Migration | `0020_stream_seen.sql` (0019 belegt `feature/kartenstil`). |
 | Kosten | eine Zählung = Ziel-Batch + eine Index-Abfrage + ein Prüf-Batch (wie eine Stream-Seite ohne Reaktionen). Gezählt beim Start/Anmelden, beim Zurückkehren in den Tab (≥ 2 min Abstand) und alle 10 min bei sichtbarem Tab – kein Polling im Hintergrund-Tab. |
 | Löschen | Der Wert liegt in der Konto-Zeile und verschwindet mit ihr (Konto löschen, inaktive Konten); er sagt nur, wann der Stream zuletzt angesehen wurde, und wird sonst nirgends gespeichert oder protokolliert. |
 
