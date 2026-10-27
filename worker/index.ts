@@ -231,7 +231,10 @@ export default {
         const key = page[3] === undefined ? undefined : isShareKey(page[3]) ? page[3] : null;
         return await metaPage(request, env, page[1], page[1] === 'u' || page[1] === 'g' ? page[2].toLowerCase() : page[2], key);
       }
-      return env.ASSETS.fetch(request);
+      // Übrige Seiten (Startseite, /impressum, /datenschutz, SPA-Routen) aus den Assets – HTML mit den Seiten-Headern,
+      // weil _headers für Antworten über den Worker nicht greift.
+      const asset = await env.ASSETS.fetch(request);
+      return (asset.headers.get('Content-Type') ?? '').startsWith('text/html') ? withPageHeaders(new Response(asset.body, asset)) : asset;
     } catch (err) {
       return url.pathname.startsWith('/api/') ? noindex(errorResponse(err)) : errorResponse(err);
     }

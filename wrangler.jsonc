@@ -7,9 +7,11 @@
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // API sowie Törn-, Profil-, Boots-, Gruppen- (inkl. RSS), Hafen- und Entdecken-Seite (Link-Vorschau-Metadaten) laufen durch den
-    // Worker. /impressum und /datenschutz bewusst nicht: statische SPA-Routen mit den Headern aus public/_headers, ohne Backend.
-    "run_worker_first": ["/api/*", "/s/*", "/u/*", "/b/*", "/g/*", "/h/*", "/entdecken"]
+    // Alle Seitenaufrufe laufen zuerst durch den Worker: nur so greift die Weiterleitung von www., Subdomains und der alten
+    // Domain auch für „/“ und statische Routen (worker/canonical.ts), und Törn-/Profil-/Boots-/Gruppen-/Hafen-Seiten bekommen
+    // ihre Link-Vorschau. Gehashte Bundles, Beispiel-Tracks und das Favicon kommen direkt aus den Assets (keine Worker-Aufrufe).
+    // HTML aus dem Asset-Fallback bekommt im Worker dieselben Sicherheits-Header wie in public/_headers (withPageHeaders).
+    "run_worker_first": ["/*", "!/assets/*", "!/tracks/*", "!/favicon.svg"]
   },
   // Hauptdomain segeln-potsdam.de; www., alle nicht anders belegten Subdomains (*, proxied) und die alte
   // Domain sailing.wollow.ski leiten per 301 dorthin weiter (worker/canonical.ts). Daten (D1/R2) bleiben dieselben.
