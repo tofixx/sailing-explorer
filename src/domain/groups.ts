@@ -14,9 +14,42 @@ export type GroupRole = (typeof GROUP_ROLES)[number];
 export const GROUP_ROLE_LABEL: Record<GroupRole, string> = { owner: 'Eigner', admin: 'Admin', member: 'Mitglied' };
 
 /** Beitritt: per Einladung oder Anfrage (Standard) bzw. nur per Einladung. */
-export const JOIN_MODES = ['request', 'invite'] as const;
+/** Beitritt in drei Stufen (Konzept 14.1): offen (sofort Mitglied), auf Anfrage (Admins bestätigen), nur auf Einladung. */
+export const JOIN_MODES = ['open', 'request', 'invite'] as const;
 export type JoinMode = (typeof JOIN_MODES)[number];
-export const JOIN_MODE_LABEL: Record<JoinMode, string> = { request: 'Auf Anfrage oder Einladung', invite: 'Nur auf Einladung' };
+export const JOIN_MODE_LABEL: Record<JoinMode, string> = {
+  open: 'Offen – jede:r kann direkt beitreten',
+  request: 'Auf Anfrage – Admins bestätigen',
+  invite: 'Nur auf Einladung',
+};
+/** Kurzform für die Gruppenseite */
+export const JOIN_MODE_SHORT: Record<JoinMode, string> = { open: 'Offen', request: 'Auf Anfrage', invite: 'Nur auf Einladung' };
+
+/**
+ * Wird eine angenommene Einladung sofort zur Mitgliedschaft? Ja, wenn Eigner oder Admins eingeladen haben oder die
+ * Gruppe offen ist; sonst (einfaches Mitglied lädt in eine Gruppe auf Anfrage bzw. nur auf Einladung) entsteht eine
+ * Beitrittsanfrage, die Admins bestätigen.
+ */
+export const inviteJoinsDirectly = (inviterRole: GroupRole | null, mode: JoinMode, approveBy: Approvers = 'admins'): boolean =>
+  mode === 'open' || canApprove(inviterRole, approveBy);
+
+/** Wer Beitrittsanfragen bestätigt (Konzept 14.1) – legt der Eigner fest. */
+export const APPROVERS = ['members', 'admins', 'owner'] as const;
+export type Approvers = (typeof APPROVERS)[number];
+export const APPROVERS_LABEL: Record<Approvers, string> = {
+  members: 'Alle Mitglieder',
+  admins: 'Eigner und Admins',
+  owner: 'Nur der Eigner',
+};
+export const isApprovers = (v: unknown): v is Approvers => typeof v === 'string' && (APPROVERS as readonly string[]).includes(v);
+
+/** Darf diese Rolle Anfragen bestätigen (und mit ihrer Einladung direkt aufnehmen)? */
+export function canApprove(role: GroupRole | null, approveBy: Approvers): boolean {
+  if (!role) return false;
+  if (approveBy === 'members') return true;
+  if (approveBy === 'owner') return role === 'owner';
+  return role === 'owner' || role === 'admin';
+}
 
 /** Sichtbarkeit einer Gruppe: „Nur ich“ heißt hier „Geschlossen“ – nur Mitglieder sehen sie. */
 export const GROUP_VISIBILITY_LABEL = { public: 'Öffentlich', unlisted: 'Nur mit Link', private: 'Geschlossen' } as const;

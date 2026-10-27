@@ -10,7 +10,7 @@ import { assertActive } from './moderation';
 import { getShareRow, ownedShare, visibleShare } from './shares';
 import { GROUP_FULL, addMember, loadGroup, roleIn } from './groups';
 import { GROUP_LIMITS } from '../src/domain/limits';
-import { canManageGroup } from '../src/domain/groups';
+import { canManageGroup, inviteJoinsDirectly, isApprovers, isJoinMode } from '../src/domain/groups';
 import { BOAT_ID_RE, TOKEN_RE, normalizeEmail, normalizeHandle, parseInviteKind, type InviteKind } from './validate';
 import { funnyName } from '../src/domain/names';
 
@@ -26,6 +26,9 @@ export const INVITE_LIMITS = {
   mailsPerDay: 50,
   adminDays: 7,
   crewDays: 14,
+  /** Einladungen ohne Ziel („Freunde einladen“, Konzept 14.2) */
+  friendDays: 14,
+  friendLinkUses: 20,
 } as const;
 
 const BOAT_NOT_FOUND = () => new HttpError(404, 'not_found', 'Dieses Boot gibt es nicht (mehr).');
@@ -158,9 +161,13 @@ async function createInvite(request: Request, env: Env, user: User, o: NewInvite
   const to = o.to;
   let mailTo: string | null = null;
   if (to) {
-    const col = o.boatId ? 'boat_id' : o.groupId ? 'group_id' : 'share_id';
+    const col = o.boatId ? 'boat_id' : o.groupId ? 'group_id' : o.shareId ? 'share_id' : 'inviter_id';
     const [field, value] = 'email' in to ? ['email', to.email] : ['invitee_id', to.userId];
-    const dup = await count(env, `SELECT COUNT(*) AS n FROM invites WHERE ${col} = ? AND ${field} = ? AND expires_at > ? AND uses < max_uses`, o.boatId ?? o.groupId ?? o.shareId, value, now);
+    const dup = await count(
+      env,
+      `SELECT COUNT(*) AS n FROM invites WHERE kind = ? AND ${col} = ? AND ${field} = ? AND expires_at > ? AND uses < max_uses`,
+      o.kind, o.boatId ?? o.groupId ?? o.shareId ?? user.id, value, now,
+    );
     if (dup) throw new HttpError(409, 'already_invited', 'An diese Person ist schon eine Einladung unterwegs. Zieh sie zurück, um neu einzuladen.');
     if ((await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE (email IS NOT NULL OR invitee_id IS NOT NULL) AND created_at > ?', now - DAY)) >= INVITE_LIMITS.mailsPerDay) {
       throw new HttpError(429, 'mail_budget', 'Heute wurden schon sehr viele Einladungen verschickt. Bitte morgen erneut versuchen.');
@@ -353,15 +360,15 @@ export async function removeCrew(request: Request, env: Env, id: string, who: st
 // ---------------------------------------------------------------- Gruppen (Konzept 11.1)
 
 /**
- * POST /api/groups/:id/invites – Eigner und Admins. `{ email }` oder `{ handle }`: Einladung per Mail (gebunden, einmalig);
- * ohne Adresse: Einladungslink (bis 100 Nutzungen). Der Link steht nur in dieser Antwort.
+ * POST /api/groups/:id/invites – alle Mitglieder (Konzept 14.1). `{ email }` oder `{ handle }`: Einladung per Mail
+ * (gebunden, einmalig); ohne Adresse: Einladungslink (bis 100 Nutzungen). Der Link steht nur in dieser Antwort. Lädt
+ * ein einfaches Mitglied in eine nicht offene Gruppe ein, wird die Annahme zur Beitrittsanfrage (`needsApproval`).
  */
 export async function inviteGroup(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   const g = await loadGroup(env, id);
   const role = g ? await roleIn(env, user.id, g.id) : null;
   if (!g || !role || (g.hidden_at && !canManageGroup(role))) throw new HttpError(404, 'not_found', 'Diese Gruppe gibt es nicht oder sie ist geschlossen.');
-  if (!canManageGroup(role)) throw new HttpError(403, 'forbidden', 'Einladen dürfen Eigner und Admins der Gruppe.');
   const to = await readRecipient(env, await readJson<{ email?: unknown; handle?: unknown }>(request), true);
   if (isSelf(to, user)) throw new HttpError(409, 'own_object', 'Du bist schon Mitglied dieser Gruppe.');
   await checkNotMember(env, to, 'group_members', g.id);
@@ -371,7 +378,37 @@ export async function inviteGroup(request: Request, env: Env, id: string): Promi
     kind: 'group', groupId: g.id, groupKind: g.kind, to, maxUses: to ? 1 : Math.min(GROUP_LIMITS.linkUses, GROUP_LIMITS.members - members),
     days: GROUP_LIMITS.inviteDays, targetName: g.name,
   });
+  const needsApproval = !inviteJoinsDirectly(role, isJoinMode(g.join_mode) ? g.join_mode : 'request', g.approve_by ?? 'admins');
+  return json({ invite, link: to ? undefined : link, devLink: to ? devLink(request, env, link) : undefined, needsApproval }, { status: 201 });
+}
+
+// ---------------------------------------------------------------- Freunde einladen (ohne Ziel)
+
+/**
+ * POST /api/invites – Einladung zu Sail Explorer ohne Boot, Törn oder Gruppe (Konzept 14.2): `{ email }`, `{ handle }`
+ * oder ohne beides ein Einladungslink (bis 20 Nutzungen). Wer annimmt, folgt der einladenden Person und umgekehrt.
+ */
+export async function inviteFriend(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const to = await readRecipient(env, await readJson<{ email?: unknown; handle?: unknown }>(request), true);
+  if (isSelf(to, user)) throw new HttpError(409, 'own_object', 'Dich selbst musst du nicht einladen.');
+  const { invite, link } = await createInvite(request, env, user, {
+    kind: 'friend', to, maxUses: to ? 1 : INVITE_LIMITS.friendLinkUses, days: INVITE_LIMITS.friendDays, targetName: '',
+  });
   return json({ invite, link: to ? undefined : link, devLink: to ? devLink(request, env, link) : undefined }, { status: 201 });
+}
+
+/** GET /api/invites – eigene offene Einladungen ohne Ziel (zum Zurückziehen). */
+export async function listFriendInvites(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const { results } = await env.DB.prepare(
+    `SELECT i.id, i.email, i.max_uses, i.uses, i.created_at, i.expires_at, p.display_name AS invitee_name, p.handle AS invitee_handle
+     FROM invites i LEFT JOIN profiles p ON p.user_id = i.invitee_id
+     WHERE i.kind = 'friend' AND i.inviter_id = ? AND i.expires_at > ? AND i.uses < i.max_uses ORDER BY i.created_at`,
+  )
+    .bind(user.id, Date.now())
+    .all<PendingRow>();
+  return json({ invites: results.map(inviteShape) });
 }
 
 // ---------------------------------------------------------------- Einlösen, Zurückziehen
@@ -381,6 +418,8 @@ interface LoadedInvite extends InviteRow {
   group_owner: string | null;
   group_slug: string | null;
   group_kind: string | null;
+  group_join_mode: string | null;
+  group_approve_by: string | null;
   boat_name: string | null;
   boat_owner: string | null;
   share_title: string | null;
@@ -389,14 +428,16 @@ interface LoadedInvite extends InviteRow {
 }
 
 const LOADED_SELECT = `SELECT i.*, b.name AS boat_name, b.owner_id AS boat_owner, s.title AS share_title, s.user_id AS share_owner, s.visibility AS share_visibility,
-    g.name AS group_name, g.owner_id AS group_owner, g.slug AS group_slug, g.kind AS group_kind
+    g.name AS group_name, g.owner_id AS group_owner, g.slug AS group_slug, g.kind AS group_kind, g.join_mode AS group_join_mode, g.approve_by AS group_approve_by
   FROM invites i LEFT JOIN boats b ON b.id = i.boat_id LEFT JOIN shares s ON s.id = i.share_id LEFT JOIN groups g ON g.id = i.group_id`;
 
 const usable = (row: LoadedInvite | null): row is LoadedInvite =>
-  !!row && !!parseInviteKind(row.kind) && !!(row.boat_owner || row.share_owner || row.group_owner);
+  !!row && !!parseInviteKind(row.kind) && (row.kind === 'friend' || !!(row.boat_owner || row.share_owner || row.group_owner));
 
-const ownerOf = (inv: LoadedInvite) => inv.boat_owner ?? inv.share_owner ?? inv.group_owner;
-const targetOf = (inv: LoadedInvite) => (inv.kind === 'boat_admin' ? inv.boat_name : inv.kind === 'group' ? inv.group_name : inv.share_title);
+/** Eigentümer des Ziels – bei Einladungen ohne Ziel die einladende Person. */
+const ownerOf = (inv: LoadedInvite) => (inv.kind === 'friend' ? inv.inviter_id : (inv.boat_owner ?? inv.share_owner ?? inv.group_owner));
+const targetOf = (inv: LoadedInvite) =>
+  inv.kind === 'boat_admin' ? inv.boat_name : inv.kind === 'group' ? inv.group_name : inv.kind === 'friend' ? null : inv.share_title;
 
 /** Gültige Einladung zum Token – ungültige Form, unbekannt, abgelaufen oder aufgebraucht: 400 und Fehlversuch (pro IP). */
 async function loadInvite(request: Request, env: Env, token: unknown): Promise<LoadedInvite> {
@@ -415,6 +456,7 @@ async function loadInvite(request: Request, env: Env, token: unknown): Promise<L
 
 async function isMember(env: Env, inv: LoadedInvite, userId: string): Promise<boolean> {
   if (inv.kind === 'group') return !!(await count(env, 'SELECT COUNT(*) AS n FROM group_members WHERE group_id = ? AND user_id = ?', inv.group_id, userId));
+  if (inv.kind === 'friend') return !!(await count(env, `SELECT COUNT(*) AS n FROM follows WHERE user_id = ? AND target_kind = 'user' AND target_id = ?`, userId, inv.inviter_id));
   return inv.kind === 'boat_admin'
     ? !!(await count(env, 'SELECT COUNT(*) AS n FROM boat_admins WHERE boat_id = ? AND user_id = ?', inv.boat_id, userId))
     : !!(await count(env, 'SELECT COUNT(*) AS n FROM share_crew WHERE share_id = ? AND user_id = ?', inv.share_id, userId));
@@ -454,6 +496,7 @@ async function acceptLoaded(env: Env, user: User, inv: LoadedInvite) {
     throw new HttpError(403, 'invite_wrong_account', 'Diese Einladung gilt für ein anderes Konto. Bitte mit der eingeladenen E-Mail-Adresse anmelden.');
   }
   if (inv.kind === 'group') return acceptGroupInvite(env, inv, user);
+  if (inv.kind === 'friend') return acceptFriendInvite(env, inv, user);
   const boat = inv.kind === 'boat_admin';
   const targetId = (boat ? inv.boat_id : inv.share_id)!;
   const result = {
@@ -489,17 +532,49 @@ async function acceptLoaded(env: Env, user: User, inv: LoadedInvite) {
   return { ...result, already: false };
 }
 
-/** Gruppeneinladung einlösen: Mitglied werden (höchstens 500), offene Anfrage erledigen, Beitritt protokollieren. */
+/**
+ * Gruppeneinladung einlösen: Mitglied werden (höchstens 500), offene Anfrage erledigen, Beitritt protokollieren. Hat
+ * ein einfaches Mitglied in eine nicht offene Gruppe eingeladen, entsteht stattdessen eine Beitrittsanfrage (Konzept 14.1).
+ */
 async function acceptGroupInvite(env: Env, inv: LoadedInvite, user: User) {
-  const result = { kind: inv.kind, path: `/g/${inv.group_slug}`, target: inv.group_name, groupKind: inv.group_kind };
+  const result = { kind: inv.kind, path: `/g/${inv.group_slug}`, target: inv.group_name, groupKind: inv.group_kind, requested: false };
   if (user.id === inv.group_owner) throw new HttpError(409, 'own_object', 'Das ist deine eigene Gruppe.');
   if (await isMember(env, inv, user.id)) return { ...result, already: true };
   if ((await count(env, 'SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?', inv.group_id)) >= GROUP_LIMITS.members) throw GROUP_FULL();
+  const mode = inv.group_join_mode && isJoinMode(inv.group_join_mode) ? inv.group_join_mode : 'request';
+  const approvers = inv.group_approve_by && isApprovers(inv.group_approve_by) ? inv.group_approve_by : 'admins';
+  const direct = inviteJoinsDirectly(await roleIn(env, inv.inviter_id, inv.group_id!), mode, approvers);
+  const now = Date.now();
   const claimed = await env.DB.prepare('UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND expires_at > ? RETURNING id')
-    .bind(inv.id, Date.now())
+    .bind(inv.id, now)
     .first();
   if (!claimed) throw INVALID();
+  if (!direct) {
+    const message = `Eingeladen von ${await displayName(env, inv.inviter_id)}`;
+    await env.DB.prepare('INSERT OR IGNORE INTO group_requests (group_id, user_id, message, created_at) VALUES (?, ?, ?, ?)').bind(inv.group_id, user.id, message, now).run();
+    return { ...result, already: false, requested: true };
+  }
   await addMember(env, inv.group_id!, user.id);
+  return { ...result, already: false };
+}
+
+/** Einladung ohne Ziel einlösen: beide folgen einander (Konzept 14.2). Pfad: Profil der einladenden Person, falls öffentlich. */
+async function acceptFriendInvite(env: Env, inv: LoadedInvite, user: User) {
+  if (user.id === inv.inviter_id) throw new HttpError(409, 'own_object', 'Das ist deine eigene Einladung.');
+  const p = await env.DB.prepare(`SELECT handle, display_name FROM profiles WHERE user_id = ? AND visibility = 'public' AND hidden_at IS NULL`)
+    .bind(inv.inviter_id)
+    .first<{ handle: string; display_name: string }>();
+  const result = { kind: inv.kind, path: p ? `/u/${p.handle}` : '/', target: p?.display_name ?? (await displayName(env, inv.inviter_id)) };
+  if (await isMember(env, inv, user.id)) return { ...result, already: true };
+  const now = Date.now();
+  const claimed = await env.DB.prepare('UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND expires_at > ? RETURNING id')
+    .bind(inv.id, now)
+    .first();
+  if (!claimed) throw INVALID();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) VALUES (?, 'user', ?, ?)`).bind(user.id, inv.inviter_id, now),
+    env.DB.prepare(`INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) VALUES (?, 'user', ?, ?)`).bind(inv.inviter_id, user.id, now),
+  ]);
   return { ...result, already: false };
 }
 
@@ -560,16 +635,20 @@ export async function declineMyInvite(request: Request, env: Env, id: string): P
   return new Response(null, { status: 204 });
 }
 
+const isInviter = async (env: Env, id: string, userId: string) => !!(await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE id = ? AND inviter_id = ?', id, userId));
+
 /** DELETE /api/invites/:id – nur der Eigentümer des Ziels (Eigner des Boots bzw. des Törns, bei Gruppen Eigner und Admins) zieht zurück. */
 export async function revokeInvite(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   const row = await env.DB.prepare(
-    `SELECT i.id, i.group_id, COALESCE(b.owner_id, s.user_id) AS owner FROM invites i
+    `SELECT i.id, i.group_id, CASE WHEN i.kind = 'friend' THEN i.inviter_id ELSE COALESCE(b.owner_id, s.user_id) END AS owner FROM invites i
      LEFT JOIN boats b ON b.id = i.boat_id LEFT JOIN shares s ON s.id = i.share_id WHERE i.id = ?`,
   )
     .bind(id)
     .first<{ id: string; group_id: string | null; owner: string | null }>();
-  const allowed = !!row && (row.group_id ? canManageGroup(await roleIn(env, user.id, row.group_id)) : row.owner === user.id);
+  // Gruppen: Eigner und Admins – und wer die Einladung selbst verschickt hat
+  const allowed =
+    !!row && (row.group_id ? canManageGroup(await roleIn(env, user.id, row.group_id)) || (await isInviter(env, row.id, user.id)) : row.owner === user.id);
   if (!row || !allowed) throw new HttpError(404, 'not_found', 'Diese Einladung gibt es nicht (mehr).');
   await env.DB.prepare('DELETE FROM invites WHERE id = ?').bind(id).run();
   return new Response(null, { status: 204 });

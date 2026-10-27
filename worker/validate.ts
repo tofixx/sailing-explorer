@@ -87,7 +87,7 @@ export const BOAT_ID_RE = SHARE_ID_RE;
 // ---------------------------------------------------------------- Einladungen
 
 /** Arten von Einladungen (Konzept 10, 11): Boots-Admin, Crew auf einem Törn oder Mitglied einer Gruppe. */
-export const INVITE_KINDS = ['boat_admin', 'crew', 'group'] as const;
+export const INVITE_KINDS = ['boat_admin', 'crew', 'group', 'friend'] as const;
 export type InviteKind = (typeof INVITE_KINDS)[number];
 
 export function parseInviteKind(input: unknown): InviteKind | null {

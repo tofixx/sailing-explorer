@@ -18,8 +18,8 @@ import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, parseVisibility } from './v
 import { GROUP_LIMITS, groupLimitMessage, groupVerdict } from '../src/domain/limits';
 import { canChooseVisibility, DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 import {
-  canManageGroup, canRemoveMember, isGroupKind, isGroupRole, isJoinMode, normalizeSlug,
-  type GroupKind, type GroupRole, type JoinMode,
+  canApprove, canManageGroup, canRemoveMember, isApprovers, isGroupKind, isGroupRole, isJoinMode, normalizeSlug,
+  type Approvers, type GroupKind, type GroupRole, type JoinMode,
 } from '../src/domain/groups';
 import { funnyName } from '../src/domain/names';
 
@@ -42,6 +42,8 @@ export interface GroupRow {
   visibility: Visibility;
   share_key: string | null;
   join_mode: JoinMode;
+  /** wer Anfragen bestätigt (0015) */
+  approve_by?: Approvers;
   owner_id: string;
   hidden_at: number | null;
   created_at: number;
@@ -122,6 +124,7 @@ export function groupShape(g: GroupRow, role: GroupRole | null) {
     harbor: g.harbor_id && g.harbor_slug ? harborRef({ id: g.harbor_id, slug: g.harbor_slug, name: g.harbor_name ?? '' }) : null,
     visibility: g.visibility,
     joinMode: g.join_mode,
+    approveBy: g.approve_by ?? 'admins',
     // Schlüssel und Link nur für Eigner und Admins (Konzept 2.4).
     shareKey: manager ? g.share_key : null,
     link: manager ? sharePath('g', g.slug, g.visibility, g.share_key) : null,
@@ -145,6 +148,8 @@ interface GroupInput {
   harborId?: unknown;
   visibility?: unknown;
   joinMode?: unknown;
+  /** wer Anfragen bestätigt – nur der Eigner */
+  approveBy?: unknown;
   parentId?: unknown;
   rotateKey?: unknown;
 }
@@ -161,6 +166,10 @@ function applyInput(g: GroupRow, input: GroupInput): Visibility | null {
     g.slug = slug;
   }
   if (input.description !== undefined) g.description = cleanText(input.description, 1000);
+  if (input.approveBy !== undefined) {
+    if (!isApprovers(input.approveBy)) throw new HttpError(400, 'invalid_approvers', 'Unbekannte Regel, wer Anfragen bestätigt.');
+    g.approve_by = input.approveBy;
+  }
   if (input.joinMode !== undefined) {
     if (!isJoinMode(input.joinMode)) throw new HttpError(400, 'invalid_join_mode', 'Unbekannte Beitrittsregel.');
     g.join_mode = input.joinMode;
@@ -189,7 +198,7 @@ export async function createGroup(request: Request, env: Env): Promise<Response>
   const now = Date.now();
   const g: GroupRow = {
     id: randomId(), kind: input.kind, parent_id: null, slug: '', name: '', description: '', home_port: '', visibility: DEFAULT_VISIBILITY,
-    share_key: null, join_mode: 'request', owner_id: user.id, hidden_at: null, created_at: now, updated_at: now,
+    share_key: null, join_mode: 'request', approve_by: 'admins', owner_id: user.id, hidden_at: null, created_at: now, updated_at: now,
   };
   const requested = applyInput(g, { name: '', ...input, slug: input.slug ?? '' }) ?? DEFAULT_VISIBILITY;
 
@@ -215,9 +224,9 @@ export async function createGroup(request: Request, env: Env): Promise<Response>
   try {
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO groups (id, kind, parent_id, slug, name, description, home_port, harbor_id, visibility, share_key, join_mode, owner_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(g.id, g.kind, g.parent_id, g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.owner_id, now, now),
+        `INSERT INTO groups (id, kind, parent_id, slug, name, description, home_port, harbor_id, visibility, share_key, join_mode, approve_by, owner_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(g.id, g.kind, g.parent_id, g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by ?? 'admins', g.owner_id, now, now),
       env.DB.prepare(`INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)`).bind(g.id, user.id, now),
     ]);
   } catch (err) {
@@ -236,7 +245,9 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   const { user, group: g, role } = await memberGroup(request, env, id, 'manager');
   const input = await readJson<GroupInput>(request);
   const previous = g.visibility;
+  const previousApprovers = g.approve_by ?? 'admins';
   const next = applyInput(g, input);
+  if ((g.approve_by ?? 'admins') !== previousApprovers && role !== 'owner') throw FORBIDDEN('Wer Anfragen bestätigt, legt der Eigner fest.');
   await applyHarbor(env, user, g, input);
   if (next && next !== previous) {
     if (role !== 'owner') throw FORBIDDEN('Die Sichtbarkeit ändert nur der Eigner.');
@@ -247,9 +258,9 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   if (await slugTaken(env, g.slug, g.id)) throw SLUG_TAKEN();
   g.updated_at = Date.now();
   await env.DB.prepare(
-    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, updated_at = ? WHERE id = ?',
+    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, approve_by = ?, updated_at = ? WHERE id = ?',
   )
-    .bind(g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.updated_at, g.id)
+    .bind(g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by ?? 'admins', g.updated_at, g.id)
     .run();
   return json({ group: groupShape(g, role) });
 }
@@ -417,7 +428,8 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     .all<{ slug: string; name: string; kind: GroupKind }>();
 
   const requested = !!user && !role && !!(await env.DB.prepare('SELECT 1 AS x FROM group_requests WHERE group_id = ? AND user_id = ?').bind(group.id, user.id).first());
-  const admin = manager ? await adminData(env, group.id) : null;
+  const approver = canApprove(role, group.approve_by ?? 'admins');
+  const admin = manager || approver ? await adminData(env, group.id) : null;
   return json({
     group: groupShape(group, role),
     parent,
@@ -430,8 +442,18 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     // Titelbild und neueste öffentliche Fotos aus Törns der Boote und Mitglieder (Konzept 13)
     cover: coverUrl('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request)),
     photos: await galleryPhotos(env, 'group', group.id),
-    membership: { role, requested, canRequest: !!user && !role && group.join_mode === 'request' && !requested },
-    ...(admin ?? {}),
+    membership: {
+      role,
+      requested,
+      canRequest: !!user && !role && group.join_mode === 'request' && !requested,
+      /** offen: direkt beitreten (Konzept 14.1) */
+      canJoin: !!user && !role && group.join_mode === 'open' && group.visibility === 'public',
+      /** einladen dürfen alle Mitglieder; bei einfachen Mitgliedern bestätigen Admins (außer in offenen Gruppen) */
+      canInvite: !!role,
+      /** darf Anfragen bestätigen (Eigner-Einstellung approveBy) */
+      canApprove: canApprove(role, group.approve_by ?? 'admins'),
+    },
+    ...(admin ? { requests: approver ? admin.requests : [], ...(manager ? { invites: admin.invites } : {}) } : {}),
   });
 }
 
@@ -514,7 +536,12 @@ export async function requestJoin(request: Request, env: Env, id: string): Promi
   await assertActive(env, user);
   const { group, role } = await visibleGroup(request, env, await loadGroup(env, id));
   if (role) throw new HttpError(409, 'already_member', 'Du bist schon Mitglied.');
-  if (group.join_mode !== 'request') throw new HttpError(403, 'invite_only', 'Dieser Gruppe trittst du nur auf Einladung bei.');
+  if (group.join_mode === 'invite') throw new HttpError(403, 'invite_only', 'Dieser Gruppe trittst du nur auf Einladung bei.');
+  // Offen (Konzept 14.1): sofort Mitglied – aber nur in sichtbaren, öffentlichen Gruppen.
+  if (group.join_mode === 'open' && group.visibility === 'public' && !group.hidden_at) {
+    await addMember(env, group.id, user.id);
+    return json({ joined: true, requested: false }, { status: 201 });
+  }
   const body = await readJson<{ message?: unknown }>(request).catch(() => ({ message: '' }));
   const message = cleanText(body.message, 300);
   const now = Date.now();
@@ -536,7 +563,8 @@ export async function withdrawRequest(request: Request, env: Env, id: string): P
 
 /** POST /api/groups/:id/requests/:userId – `{ approve }`: Eigner und Admins nehmen an oder lehnen ab. */
 export async function decideRequest(request: Request, env: Env, id: string, who: string): Promise<Response> {
-  const { group } = await memberGroup(request, env, id, 'manager');
+  const { group, role } = await memberGroup(request, env, id, 'member');
+  if (!canApprove(role, group.approve_by ?? 'admins')) throw FORBIDDEN('Anfragen bestätigen in dieser Gruppe andere.');
   const { approve } = await readJson<{ approve?: unknown }>(request);
   if (typeof approve !== 'boolean') throw new HttpError(400, 'invalid_body', 'approve: true oder false.');
   const req = await env.DB.prepare('SELECT user_id FROM group_requests WHERE group_id = ? AND user_id = ?').bind(group.id, who).first<{ user_id: string }>();
@@ -580,14 +608,16 @@ export async function removeGroupBoat(request: Request, env: Env, id: string, bo
 /** Öffentliche Vereine und Teams (nicht ausgeblendet, Eigner nicht gesperrt), neueste zuerst. */
 export async function publicGroups(env: Env, limit: number) {
   const { results } = await env.DB.prepare(
-    `SELECT g.slug, g.name, g.kind, g.home_port, g.description, g.created_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members
+    `SELECT g.id, g.slug, g.name, g.kind, g.home_port, g.description, g.join_mode, g.created_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members
      FROM groups g WHERE g.visibility = 'public' AND g.hidden_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL)
      ORDER BY g.created_at DESC, g.id LIMIT ?`,
   )
     .bind(limit)
-    .all<{ slug: string; name: string; kind: GroupKind; home_port: string; description: string; created_at: number; members: number }>();
-  return results.map((g) => ({ slug: g.slug, name: g.name, kind: g.kind, homePort: g.home_port, description: g.description, createdAt: g.created_at, members: g.members }));
+    .all<{ id: string; slug: string; name: string; kind: GroupKind; home_port: string; description: string; join_mode: JoinMode; created_at: number; members: number }>();
+  return results.map((g) => ({
+    id: g.id, slug: g.slug, name: g.name, kind: g.kind, homePort: g.home_port, description: g.description, joinMode: g.join_mode, createdAt: g.created_at, members: g.members,
+  }));
 }
 
 export type { User };

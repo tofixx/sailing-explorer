@@ -100,10 +100,15 @@ describe('sx-stream', () => {
 describe('sx-home-feed', () => {
   const clubs = [{ slug: 'sc-kiel', name: 'SC Kiel', kind: 'club', homePort: 'Kiel', description: '', createdAt: T, members: 12 }];
 
-  it('[F-163] ohne Gruppen: „Tritt deinem Verein bei“ mit öffentlichen Vereinen und „gründen“', async () => {
+  it('[F-163] ohne Gruppen: Willkommens-Karte (Konzept 14.3) mit Heimathafen, öffentlichen Vereinen, „gründen“ und Freunde einladen', async () => {
     const el = await mount('sx-home-feed', { signedIn: true, stream: { items: [], cursor: null, hasGroups: false }, groups: [], publicGroups: clubs });
-    expect(text(el.shadowRoot)).toContain('Tritt deinem Verein bei');
-    expect(el.shadowRoot.querySelector('a[href="/g/sc-kiel"]')!.textContent).toContain('12 Mitglieder');
+    const t = text(el.shadowRoot);
+    expect(t).toContain('Willkommen an Bord!');
+    expect(t).toContain('Dein Heimathafen');
+    expect(t).toContain('12 Mitglieder');
+    expect(t).toContain('Freunde einladen');
+    expect(el.shadowRoot.querySelector('sx-harbor-picker')).not.toBeNull();
+    expect(el.shadowRoot.querySelector('a[href="/g/sc-kiel"]')).not.toBeNull();
     expect(el.shadowRoot.querySelector('a[href="/g/neu"]')).not.toBeNull();
     // Konzept 12.6: der Stream steht immer da (Hafen und Teams liefern auch ohne Verein Neuigkeiten)
     expect(el.shadowRoot.querySelector('sx-stream')).not.toBeNull();
@@ -116,11 +121,32 @@ describe('sx-home-feed', () => {
       groups: [{ id: 'G1', slug: 'sc-kiel', name: 'SC Kiel', kind: 'club', role: 'member', members: 3 }],
     });
     await settle(el);
-    expect(text(el.shadowRoot)).not.toContain('Tritt deinem Verein bei');
+    expect(text(el.shadowRoot)).not.toContain('Dein Verein oder Team');
     expect(el.shadowRoot.querySelector('a[href="/g/sc-kiel"]')).not.toBeNull();
     const stream = inner(el, 'sx-stream');
     expect((stream.items as unknown[]).length).toBe(items.length);
     expect(stream.cursor).toBe('c');
+  });
+
+  it('[F-205] Willkommens-Karte: Beitreten je nach Stufe, Freunde einladen, „Später“ blendet aus', async () => {
+    const joins = listen('sx-home-join');
+    const invites = listen('sx-friend-invite');
+    const groups = [
+      { id: 'GOPEN', slug: 'offen', name: 'Offen', kind: 'team', homePort: '', description: '', createdAt: T, members: 2, joinMode: 'open' },
+      { id: 'GREQ', slug: 'anfrage', name: 'Anfrage', kind: 'club', homePort: '', description: '', createdAt: T, members: 2, joinMode: 'request' },
+      { id: 'GINV', slug: 'einladung', name: 'Einladung', kind: 'club', homePort: '', description: '', createdAt: T, members: 2, joinMode: 'invite' },
+    ];
+    const el = await mount('sx-home-feed', { signedIn: true, stream: { items: [], cursor: null, hasGroups: false, home: { club: null, harbor: { slug: 'potsdam', name: 'Potsdam' } } }, groups: [], publicGroups: groups });
+    expect(text(el.shadowRoot)).not.toContain('Dein Heimathafen');
+    button(el.shadowRoot, /Beitreten/)!.click();
+    button(el.shadowRoot, /Anfragen/)!.click();
+    expect(joins.map((d) => (d as { id: string }).id)).toEqual(['GOPEN', 'GREQ']);
+    expect(el.shadowRoot.querySelector('a[href="/g/einladung"].btn')).not.toBeNull();
+    button(el.shadowRoot, /Link erzeugen/)!.click();
+    expect(invites).toEqual([{ email: null }]);
+    button(el.shadowRoot, /Später/)!.click();
+    await settle(el);
+    expect(text(el.shadowRoot)).not.toContain('Willkommen an Bord!');
   });
 
   it('[F-164] Vorschläge mit Grund und „Folgen“', async () => {

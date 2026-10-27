@@ -1,4 +1,4 @@
-import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamFilter, type StreamPage } from '../services/api';
+import { ApiError, api, friendApi, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamFilter, type StreamPage } from '../services/api';
 import type { Store } from '../services/store';
 import type { SxGroupPage } from '../components/sx-group-page';
 import type { SxHomeFeed } from '../components/sx-home-feed';
@@ -132,7 +132,33 @@ export class GroupsController {
 
   join(id: string) {
     if (!this.signedIn()) return this.ui.openLogin('Zum Beitreten bitte anmelden.');
-    return this.act(() => groupApi.request(id, '', this.current?.key), 'Anfrage gestellt – ein Admin entscheidet.');
+    return this.act(async () => {
+      const res = await groupApi.request(id, '', this.current?.key);
+      this.ui.toast(res.joined ? 'Willkommen in der Gruppe!' : 'Anfrage gestellt – ein Admin entscheidet.');
+    });
+  }
+
+  /** Beitreten bzw. anfragen aus der Willkommens-Karte der Startseite (Konzept 14.3). */
+  async joinFromHome(d: { id: string; name: string }): Promise<void> {
+    try {
+      const res = await groupApi.request(d.id, '');
+      this.ui.toast(res.joined ? `Willkommen in „${d.name}“!` : `Anfrage an „${d.name}“ gestellt – ein Admin entscheidet.`);
+      await this.loadHome(true);
+    } catch (e) {
+      this.ui.toast(errorText(e), 6000);
+    }
+  }
+
+  /** Freunde einladen (Konzept 14.2): per Adresse oder als Link (einmal zeigen). */
+  async inviteFriend(email: string | null): Promise<void> {
+    const home = this.ui.home;
+    try {
+      const res = await friendApi.invite(email ? { email } : {});
+      if (email) this.ui.toast('Einladung verschickt');
+      else home.inviteLink = res.link ?? null;
+    } catch (e) {
+      this.ui.toast(errorText(e), 6000);
+    }
   }
 
   withdraw(id: string) {
@@ -281,9 +307,9 @@ export class GroupsController {
     await this.loadHome(true);
   }
 
-  /** Öffentliche Vereine aus /api/discover für „Tritt deinem Verein bei“. */
+  /** Öffentliche Vereine und Teams aus /api/discover für die Willkommens-Karte (Vereine zuerst). */
   setPublicGroups(groups: DiscoverGroup[] | undefined): void {
-    this.ui.home.publicGroups = (groups ?? []).filter((g) => g.kind === 'club');
+    this.ui.home.publicGroups = [...(groups ?? [])].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'club' ? -1 : 1));
   }
 
   // ---------------------------------------------------------------- Folgen
