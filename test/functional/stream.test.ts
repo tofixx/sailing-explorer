@@ -589,4 +589,23 @@ describe('F-228 Törn: von wem, in welcher Gruppe', () => {
     const res = await h.fetch(`/api/shares/${share.id}`, { cookie: sailor.cookie });
     expect(((await res.json()) as { share: Meta }).share.groups).toEqual([]);
   });
+
+  it('[F-228] öffentlich → „Nur mit Link“ per PATCH: keine Gruppen mehr (auch in der PATCH-Antwort); gesperrtes Konto nennt nichts', async () => {
+    const sailor = await s.person({ profile: 'public', supporter: true });
+    await s.group(sailor, { name: 'Club Wechsel' });
+    const share = await s.share(sailor);
+    expect((await meta(share.id)).groups.map((g) => g.name)).toEqual(['Club Wechsel']);
+    const res = await s.send('PATCH', `/api/shares/${share.id}`, sailor.cookie, { visibility: 'unlisted' });
+    expect(res.status, await res.clone().text()).toBe(200);
+    const patched = ((await res.json()) as { share: Meta }).share;
+    expect(patched.groups).toEqual([]);
+    expect(patched.sailor?.handle).toBe(sailor.handle);
+    expect((await meta(share.id, sailor)).groups).toEqual([]);
+
+    const other = await s.person({ profile: 'public' });
+    await s.group(other, { name: 'Club Gesperrt' });
+    const pub = await s.share(other);
+    await (await s.db()).prepare('UPDATE users SET suspended_at = 1 WHERE id = ?').bind(other.user.id).run();
+    expect(await meta(pub.id)).toMatchObject({ sailor: null, groups: [] });
+  });
 });

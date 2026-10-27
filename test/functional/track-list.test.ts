@@ -33,6 +33,10 @@ describe('Trackliste', () => {
     rows(el)[0].dispatchEvent(new Event('mouseleave'));
     expect(got).toEqual(['a', null]);
 
+    // ausgeblendete Tracks werden nicht hervorgehoben; mit nur einem sichtbaren Track gar nicht
+    const hid = await mount([a, { ...b, hidden: true }], 'b');
+    expect(rows(hid).some((r) => r.classList.contains('focus'))).toBe(false);
+
     const single = await mount([a], 'a');
     expect(rows(single)[0].classList.contains('focus')).toBe(false);
   });
@@ -53,6 +57,7 @@ describe('Trackliste', () => {
     expect(await created[0].text()).toBe('<gpx>a</gpx>');
     expect(rows(el)[1].querySelector('.dl')).toBeNull(); // ohne Original-GPX kein Export
     expect(gpxFileName('  /?  ')).toBe('track.gpx');
+    expect(gpxFileName('..')).toBe('track.gpx');
     url.mockRestore();
     click.mockRestore();
   });

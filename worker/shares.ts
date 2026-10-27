@@ -251,10 +251,16 @@ export async function listShares(request: Request, env: Env): Promise<Response> 
   return json({ shares: results.map((r) => shareShape(r, true)) });
 }
 
-/** GET /api/shares/:id – Metadaten, dazu Eigentümer-Profil und Gruppen, soweit sichtbar (F-228). */
+/** Metadaten der Einzelansicht: dazu Eigentümer-Profil und Gruppen, soweit sichtbar (F-228). */
+const shareDetail = async (env: Env, row: ShareRow, isOwner: boolean, viewerId: string | null) => ({
+  ...shareShape(row, isOwner),
+  ...(await shareContext(env, row, viewerId)),
+});
+
+/** GET /api/shares/:id – Metadaten. */
 export async function getShareMeta(request: Request, env: Env, id: string): Promise<Response> {
   const { row, isOwner, user } = await visibleShare(request, env, id);
-  return json({ share: { ...shareShape(row, isOwner), ...(await shareContext(env, row, user?.id ?? null)) } });
+  return json({ share: await shareDetail(env, row, isOwner, user?.id ?? null) });
 }
 
 /** GET /api/shares/:id/data – gzip-Payload, der Browser entpackt selbst. */
@@ -306,7 +312,8 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
   const saved = await getShareRow(env, row.id);
   // Erst öffentlich geschaltet: jetzt (einmal je Törn) in die Neuigkeiten.
   if (previous !== 'public' && row.visibility === 'public') await recordVoyage(env, row, row.updated_at);
-  return json({ share: shareShape(saved ?? row, true) });
+  // mit Kontext wie GET: die Törn-Ansicht übernimmt die Antwort (Gruppen folgen der neuen Sichtbarkeit)
+  return json({ share: await shareDetail(env, saved ?? row, true, user.id) });
 }
 
 export async function deleteShare(request: Request, env: Env, id: string): Promise<Response> {

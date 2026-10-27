@@ -436,7 +436,10 @@ export class App {
       this.map.focus(t);
       this.ui.trackList.focused = t?.id ?? null;
     });
-    on<string>('sx-track-toggle', (id) => this.updateTracks(this.store.get().tracks.map((t) => (t.id === id ? { ...t, hidden: !t.hidden } : t))));
+    on<string>('sx-track-toggle', (id) => {
+      this.ui.trackList.focused = null;
+      this.updateTracks(this.store.get().tracks.map((t) => (t.id === id ? { ...t, hidden: !t.hidden } : t)));
+    });
     on<string>('sx-track-remove', (id) => this.updateTracks(this.store.get().tracks.filter((t) => t.id !== id)));
     this.ui.tracksAside.addEventListener('click', () => this.clearAll());
     this.wireDragDrop();
@@ -649,7 +652,13 @@ export class App {
     const files = [...list].filter((f) => /\.gpx$/i.test(f.name) || /xml/.test(f.type));
     if (!files.length) return this.toast('Keine GPX-Dateien gefunden');
     this.setLoading('Lese Dateien …');
-    const items = await Promise.all(files.map(async (f) => ({ name: f.name.replace(/\.gpx$/i, ''), text: await f.text() })));
+    let items: RawItem[];
+    try {
+      items = await Promise.all(files.map(async (f) => ({ name: f.name.replace(/\.gpx$/i, ''), text: await f.text() })));
+    } catch (e) {
+      this.setLoading(null);
+      return this.toast(`Datei konnte nicht gelesen werden: ${errorText(e)}`);
+    }
     await this.addItems(items);
   }
 
@@ -689,8 +698,11 @@ export class App {
     }
     this.setLoading('Lade Wetterdaten …');
     const { data, status } = await loadWeather(tracks);
-    // Inzwischen geänderte Trackliste? Dann gilt das Ergebnis nicht mehr.
-    if (this.store.get().tracks !== tracks) return;
+    // Inzwischen geänderte Trackliste? Dann gilt das Ergebnis nicht mehr – die Ladeanzeige aber auch nicht.
+    if (this.store.get().tracks !== tracks) {
+      if (this.store.get().loading === 'Lade Wetterdaten …') this.setLoading(null);
+      return;
+    }
     attachConditions(tracks, data);
     this.store.set({ weather: data, status, loading: null, tracks: [...tracks] });
     this.persist(); // jetzt mit Wetter
@@ -707,7 +719,7 @@ export class App {
 
   private clearAll() {
     const wasLocal = this.store.get().mode.kind === 'local';
-    this.store.set({ tracks: [], weather: null, hover: null, saved: false, status: initialState.status, mode: { kind: 'local' } });
+    this.store.set({ tracks: [], weather: null, hover: null, saved: false, status: initialState.status, mode: { kind: 'local' }, loading: null });
     if (wasLocal) return this.persist();
     history.pushState(null, '', '/');
     this.restoreWorkspace();

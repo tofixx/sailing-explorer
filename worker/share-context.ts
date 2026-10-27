@@ -5,22 +5,30 @@ import type { Env } from './env';
  * darf: das Profil nur, wenn es öffentlich und nicht ausgeblendet ist (wie „sailor“ in Entdecken, F-82) – der
  * Eigentümer sieht sein eigenes immer; Gruppen nur öffentliche bzw. solche, in denen der Betrachter Mitglied ist
  * (canViewGroup ohne Schlüssel), ausgeblendete nie. Die Gruppen kommen aus dem Publikum der Törn-Aktivität
- * (worker/activity.ts: Gruppen des Seglers und des Boots beim Veröffentlichen).
+ * (worker/activity.ts: Gruppen des Seglers und des Boots beim Veröffentlichen) – wie im Gruppen-Stream nur, solange der
+ * Törn öffentlich und nicht ausgeblendet ist. Gesperrte Konten nennen weder Profil noch Gruppen (wie Entdecken).
  */
-export async function shareContext(env: Env, share: { id: string; user_id: string }, viewerId: string | null) {
+export async function shareContext(
+  env: Env,
+  share: { id: string; user_id: string; visibility: string; hidden_at?: number | null },
+  viewerId: string | null,
+) {
   const isOwner = viewerId === share.user_id;
+  const listed = share.visibility === 'public' && !share.hidden_at ? 1 : 0;
   const [sailor, groups] = await env.DB.batch([
     env.DB.prepare(
-      `SELECT handle, display_name FROM profiles WHERE user_id = ?1 AND (?2 OR (visibility = 'public' AND hidden_at IS NULL))`,
+      `SELECT p.handle, p.display_name FROM profiles p JOIN users u ON u.id = p.user_id AND u.suspended_at IS NULL
+       WHERE p.user_id = ?1 AND (?2 OR (p.visibility = 'public' AND p.hidden_at IS NULL))`,
     ).bind(share.user_id, isOwner ? 1 : 0),
     env.DB.prepare(
       `SELECT DISTINCT g.slug, g.name, g.kind FROM activity a
        JOIN activity_target t ON t.activity_id = a.id AND t.target_kind = 'group'
        JOIN groups g ON g.id = t.target_id AND g.hidden_at IS NULL
        LEFT JOIN group_members m ON m.group_id = g.id AND m.user_id = ?2
-       WHERE a.bucket = 'voyage:' || ?1 AND (g.visibility = 'public' OR m.user_id IS NOT NULL)
+       JOIN users u ON u.id = a.actor_id AND u.suspended_at IS NULL
+       WHERE ?3 AND a.bucket = 'voyage:' || ?1 AND (g.visibility = 'public' OR m.user_id IS NOT NULL)
        ORDER BY g.kind, g.name LIMIT 10`,
-    ).bind(share.id, viewerId),
+    ).bind(share.id, viewerId, listed),
   ]);
   const p = (sailor.results as { handle: string; display_name: string }[])[0];
   return {

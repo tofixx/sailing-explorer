@@ -6,7 +6,7 @@ import { base, emit } from './shared';
 
 /** Datei-Name für den GPX-Export: Track-Name ohne Sonderzeichen. */
 export function gpxFileName(name: string): string {
-  const base = name.replace(/\.gpx$/i, '').replace(/[^\p{L}\p{N}._ -]+/gu, '').trim().replace(/\s+/g, '-');
+  const base = name.replace(/\.gpx$/i, '').replace(/[^\p{L}\p{N}._ -]+/gu, '').replace(/^[.\s]+/, '').trim().replace(/\s+/g, '-');
   return `${base || 'track'}.gpx`;
 }
 
@@ -100,9 +100,9 @@ export class SxTrackList extends LitElement {
       ${this.tracks.map((t) => {
         const s = t.stats;
         const dur = s.start != null && s.end != null ? `${fmtDuration((s.end - s.start) / 3_600_000)} h` : null;
-        const multi = this.tracks.length > 1;
+        const multi = this.tracks.filter((x) => !x.hidden).length > 1;
         return html`<li
-          class="${t.hidden ? 'hidden' : ''} ${multi && t.id === this.focused ? 'focus' : ''}"
+          class="${t.hidden ? 'hidden' : ''} ${multi && !t.hidden && t.id === this.focused ? 'focus' : ''}"
           @mouseenter=${() => multi && !t.hidden && emit(this, 'sx-track-focus', t.id)}
           @mouseleave=${() => multi && emit(this, 'sx-track-focus', null)}
         >
