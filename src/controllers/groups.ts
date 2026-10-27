@@ -130,9 +130,26 @@ export class GroupsController {
     }, undefined, false);
   }
 
-  join(id: string) {
+  /**
+   * Beitreten bzw. anfragen – auf der Gruppenseite oder (mit `fromHome`) aus der Willkommens-Karte der Startseite
+   * (Konzept 14.3); dort merkt sich die Karte gestellte Anfragen und lädt die Startseite neu.
+   */
+  async join(id: string, fromHome?: { name: string }) {
     if (!this.signedIn()) return this.ui.openLogin('Zum Beitreten bitte anmelden.');
-    return this.act(() => groupApi.request(id, '', this.current?.key), 'Anfrage gestellt – ein Admin entscheidet.');
+    const run = async () => {
+      const res = await groupApi.request(id, '', fromHome ? null : this.current?.key);
+      const where = fromHome ? `„${fromHome.name}“` : 'der Gruppe';
+      this.ui.toast(res.joined ? `Willkommen in ${where}!` : 'Anfrage gestellt – sie wird noch bestätigt.');
+      if (!fromHome) return;
+      if (!res.joined) this.ui.home.requested = [...this.ui.home.requested, id];
+      await this.loadHome(true);
+    };
+    if (!fromHome) return this.act(run);
+    try {
+      await run();
+    } catch (e) {
+      this.ui.toast(errorText(e), 6000);
+    }
   }
 
   withdraw(id: string) {
@@ -281,9 +298,9 @@ export class GroupsController {
     await this.loadHome(true);
   }
 
-  /** Öffentliche Vereine aus /api/discover für „Tritt deinem Verein bei“. */
+  /** Öffentliche Vereine und Teams aus /api/discover für die Willkommens-Karte (Vereine zuerst). */
   setPublicGroups(groups: DiscoverGroup[] | undefined): void {
-    this.ui.home.publicGroups = (groups ?? []).filter((g) => g.kind === 'club');
+    this.ui.home.publicGroups = [...(groups ?? [])].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'club' ? -1 : 1));
   }
 
   // ---------------------------------------------------------------- Folgen

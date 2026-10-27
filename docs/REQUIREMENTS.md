@@ -176,6 +176,15 @@ Konzept: `docs/CONCEPT.md` Abschnitt 12. Umsetzung: `migrations/0013_social.sql`
 - **F-197** Migration 0014: vorhandene Freitext-Heimathäfen von Gruppen werden Häfen zugeordnet (vorhandene wiederverwendet, sonst je normalisiertem Namen einer).
 - **F-198** Eigner frei wählbar: Eigner und Boots-Admins setzen am Boot einen freien Eigner-Text (`ownerLabel`, bis 80 Zeichen, öffentlich); er ersetzt in der Anzeige das Eigner-Konto, leer zeigt wieder das Profil.
 
+## Beitreten und Einladen (Konzept 14)
+
+- **F-200** Drei Beitrittsstufen, festgelegt vom Eigner (Admins 403): offen (nur öffentliche Gruppen: sofort Mitglied; sonst wie auf Anfrage), auf Anfrage (Standard), nur auf Einladung (Anfrage → 403 `invite_only`).
+- **F-201** Alle Mitglieder laden ein. Nimmt jemand die Einladung einer Person an, die nicht bestätigen darf, entsteht in nicht offenen Gruppen eine Beitrittsanfrage („Eingeladen von …“); die Antwort beim Einladen meldet `needsApproval`. Diese Anfragen zählen gegen dieselben Grenzen; besteht schon eine, wird keine Nutzung verbraucht.
+- **F-202** Wer Anfragen bestätigt, legt der Eigner fest (`approveBy`: alle Mitglieder, Eigner und Admins, nur Eigner); andere Rollen dürfen die Regel nicht ändern (403) und nicht bestätigen (403).
+- **F-203** Freunde einladen: `POST /api/invites` ohne Ziel; wer annimmt, folgt der einladenden Person und umgekehrt; die eigene Einladung lässt sich nicht annehmen.
+- **F-204** Per Adresse gebundene Freundes-Einladungen nur einmal gleichzeitig; Zurückziehen (`DELETE /api/invites/:id`) nur durch die einladende Person. Das gegenseitige Folgen beachtet die Folge-Grenze.
+- **F-205** Willkommens-Karte nach der Anmeldung: Heimathafen, Verein/Team (Beitreten je nach Stufe), Freunde einladen; „Später“ blendet aus. Öffentliche Gruppen in `/api/discover` tragen ID und Beitrittsstufe.
+
 ## Community (Entdecken)
 
 - **F-70** Entdecken: Auf der Startseite zeigt – solange keine eigenen Tracks geladen sind – neben (breite Bildschirme) bzw. unter der Einstiegskarte eine Community-Leiste „Zuletzt gesegelt“ mit neuen Booten und Seglern; ohne öffentliche Törns lädt sie zum ersten Teilen ein, nur ohne Backend bleibt sie ausgeblendet die neuesten öffentlichen Törns (Übersichtsbild oder Platzhalter, Titel, Distanz, Datum, Segler, Boot) mit Link „Alle entdecken“. Die Seite `/entdecken` zeigt drei Abschnitte: Törns, Boote, Segler, jeweils neueste zuerst. Die Leiste verdeckt die Karte nicht und ist mobil seitlich scrollbar; ohne Backend, bei Fehlern oder ohne öffentliche Törns bleibt sie unsichtbar.

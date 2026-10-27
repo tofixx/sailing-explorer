@@ -1,6 +1,8 @@
 import { LitElement, css, html } from 'lit';
 import type { DiscoverGroup, MyGroup, StreamFilter, StreamFilters, StreamPage, Suggestion } from '../services/api';
 import { GROUP_KIND_LABEL } from '../domain/groups';
+import type { SxHarborPicker } from './sx-harbor-picker';
+import './sx-harbor-picker';
 import { plural } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
@@ -12,8 +14,20 @@ import './sx-stream';
  *   mitmachen“.
  * - Angemeldete: „Neuigkeiten aus deinem Verein, Hafen und Team“, Heimat (Verein, Hafen), eigene Gruppen,
  *   „Leute, die du kennen könntest“; ohne Gruppen „Tritt deinem Verein bei“.
- * Rein präsentational; meldet `sx-stream-more`, `sx-stream-filter`, `sx-follow`, `sx-login`, `sx-account`.
+ * - Nach der Anmeldung (ohne Gruppe oder ohne Heimathafen) eine Willkommens-Karte (Konzept 14.3): Heimathafen wählen,
+ *   Verein oder Team beitreten bzw. gründen, Freunde einladen.
+ * Rein präsentational; meldet `sx-stream-more`, `sx-stream-filter`, `sx-follow`, `sx-login`, `sx-account`,
+ * `sx-home-harbor` { harbor }, `sx-home-join` { id, name }, `sx-friend-invite` { email | null }, `sx-invite-copy`.
  */
+const WELCOME_KEY = 'sx-welcome-dismissed';
+function readDismissed(): boolean {
+  try {
+    return localStorage.getItem(WELCOME_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export class SxHomeFeed extends LitElement {
   static properties = {
     signedIn: { type: Boolean, attribute: 'signed-in' },
@@ -25,6 +39,9 @@ export class SxHomeFeed extends LitElement {
     publicGroups: { attribute: false },
     loading: { type: Boolean },
     followBusy: { attribute: false },
+    inviteLink: { attribute: false },
+    requested: { attribute: false },
+    dismissed: { state: true },
   };
   declare signedIn: boolean;
   /** persönlicher (angemeldet) bzw. öffentlicher Stream (Gäste) */
@@ -39,6 +56,12 @@ export class SxHomeFeed extends LitElement {
   declare loading: boolean;
   /** Profilnamen, für die gerade ein Folgen läuft */
   declare followBusy: string[];
+  /** frisch erzeugter Einladungslink (nur einmal sichtbar) */
+  declare inviteLink: string | null;
+  /** Gruppen-IDs, an die aus der Karte eine Anfrage ging (Knopf „Angefragt“) */
+  declare requested: string[];
+  /** Willkommens-Karte ausgeblendet („Später“, pro Gerät) */
+  declare dismissed: boolean;
 
   constructor() {
     super();
@@ -51,6 +74,9 @@ export class SxHomeFeed extends LitElement {
     this.publicGroups = [];
     this.loading = false;
     this.followBusy = [];
+    this.inviteLink = null;
+    this.requested = [];
+    this.dismissed = readDismissed();
   }
 
   static styles = [
@@ -165,6 +191,18 @@ export class SxHomeFeed extends LitElement {
         border-radius: var(--radius);
         background: var(--accent-soft);
       }
+      .cta .step {
+        display: grid;
+        gap: var(--s-2);
+        padding-top: var(--s-2);
+        border-top: 1px solid var(--border-soft);
+      }
+      code.link {
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        font-size: var(--fs-xs);
+      }
       .cta h3 {
         margin: 0;
         font-size: var(--fs-l);
@@ -245,19 +283,84 @@ export class SxHomeFeed extends LitElement {
     `,
   ];
 
-  private cta() {
-    const clubs = this.publicGroups.slice(0, 4);
+  private dismiss() {
+    this.dismissed = true;
+    try {
+      localStorage.setItem(WELCOME_KEY, '1');
+    } catch {
+      // ohne Speicher bleibt es für diese Sitzung ausgeblendet
+    }
+  }
+
+  /** Beitreten-Knopf je nach Beitrittsstufe (offen: direkt, auf Anfrage: anfragen, nur Einladung: ansehen). */
+  private joinButton(g: DiscoverGroup) {
+    if (!g.id || g.joinMode === 'invite') return html`<a class="btn small ghost" href="/g/${g.slug}">Ansehen</a>`;
+    if (this.requested.includes(g.id)) return html`<button class="btn small" disabled>${icon('check')} Angefragt</button>`;
+    const label = g.joinMode === 'open' ? 'Beitreten' : 'Anfragen';
+    return html`<button class="btn small" @click=${() => emit(this, 'sx-home-join', { id: g.id, name: g.name })}>${icon('user')} ${label}</button>`;
+  }
+
+  /**
+   * Willkommens-Karte nach der Anmeldung (Konzept 14.3): drei kleine Schritte – Heimathafen, Verein oder Team,
+   * Freunde einladen. Erledigte Schritte verschwinden; „Später“ blendet die Karte auf diesem Gerät aus.
+   */
+  private welcome(hasGroups: boolean) {
+    const needHarbor = !this.stream?.home?.harbor;
+    if (this.dismissed || (hasGroups && !needHarbor)) return '';
+    const groups = this.publicGroups.slice(0, 6);
+    let email = '';
     return html`<div class="cta" role="region" aria-labelledby="cta-t">
-      <h3 id="cta-t">Tritt deinem Verein bei</h3>
-      <p>Mit Verein oder Team siehst du hier, was deine Leute segeln – neue Törns, Fotos, Neuigkeiten und Meilensteine.</p>
-      ${clubs.length
-        ? html`<div class="chips">
-            ${clubs.map((g) => html`<a class="chip" href="/g/${g.slug}">${icon('anchor')} ${g.name}<span class="faint">· ${plural(g.members, 'Mitglied', 'Mitglieder')}</span></a>`)}
-          </div>`
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h3 id="cta-t">Willkommen an Bord!</h3>
+        <button class="btn small ghost" @click=${() => this.dismiss()}>Später</button>
+      </div>
+      <p>Drei kleine Schritte, dann siehst du hier, was in deinem Hafen, Verein und Team los ist.</p>
+      ${needHarbor
+        ? html`<form class="step" @submit=${(e: Event) => {
+            e.preventDefault();
+            const picker = (e.target as HTMLFormElement).querySelector<SxHarborPicker>('sx-harbor-picker');
+            if (picker) emit(this, 'sx-home-harbor', { harbor: picker.choice });
+          }}>
+            <label class="label" for="wh">${icon('anchor')} Dein Heimathafen</label>
+            <div class="row"><sx-harbor-picker input-id="wh" label="Heimathafen" style="flex:1;min-width:180px"></sx-harbor-picker>
+              <button class="btn small primary" type="submit">Speichern</button></div>
+          </form>`
         : ''}
-      <div class="row">
-        <a class="btn primary" href="/g/neu">${icon('pennant')} Verein oder Team gründen</a>
-        <a class="btn" href="/entdecken#vereine">Alle Vereine</a>
+      ${hasGroups
+        ? ''
+        : html`<div class="step">
+            <div class="label">${icon('pennant')} Dein Verein oder Team</div>
+            ${groups.length
+              ? html`<ul class="people">
+                  ${groups.map(
+                    (g) => html`<li>
+                      <span class="avatar" aria-hidden="true">${icon(g.kind === 'club' ? 'anchor' : 'sail')}</span>
+                      <span class="txt"><a href="/g/${g.slug}">${g.name}</a><span class="why">${[GROUP_KIND_LABEL[g.kind], g.homePort, plural(g.members, 'Mitglied', 'Mitglieder')].filter(Boolean).join(' · ')}</span></span>
+                      ${this.joinButton(g)}
+                    </li>`,
+                  )}
+                </ul>`
+              : ''}
+            <div class="row">
+              <a class="btn small primary" href="/g/neu">${icon('pennant')} Verein oder Team gründen</a>
+              <a class="btn small" href="/entdecken#vereine">Alle Vereine</a>
+            </div>
+          </div>`}
+      <div class="step">
+        <div class="label">${icon('mail')} Freunde einladen</div>
+        <form class="row" @submit=${(e: Event) => {
+            e.preventDefault();
+            if (email) emit(this, 'sx-friend-invite', { email });
+          }}>
+          <input type="email" placeholder="E-Mail-Adresse" aria-label="Freund:in per E-Mail einladen" style="flex:1;min-width:180px" @input=${(e: Event) => (email = (e.target as HTMLInputElement).value)} />
+          <button class="btn small" type="submit">Einladen</button>
+          <button class="btn small ghost" type="button" @click=${() => emit(this, 'sx-friend-invite', { email: null })}>${icon('link')} Link erzeugen</button>
+        </form>
+        ${this.inviteLink
+          ? html`<div class="row"><code class="link">${this.inviteLink}</code>
+              <button class="btn small" @click=${() => emit(this, 'sx-invite-copy', this.inviteLink)}>${icon('copy')} Kopieren</button></div>
+              <span class="why">Nur jetzt sichtbar · 14 Tage gültig · bis zu 20 Personen. Wer annimmt, folgt dir – und du ihm.</span>`
+          : ''}
       </div>
     </div>`;
   }
@@ -336,7 +439,8 @@ export class SxHomeFeed extends LitElement {
         ? html`<div class="chips" aria-label="Deine Gruppen">
             ${this.groups.map((g) => html`<a class="chip" href="/g/${g.slug}" title=${GROUP_KIND_LABEL[g.kind]}>${icon(g.kind === 'club' ? 'anchor' : 'sail')} ${g.name}</a>`)}
           </div>`
-        : this.cta()}
+        : ''}
+      ${this.welcome(hasGroups)}
       <sx-stream scope="home" .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.loading}
         empty-text="Noch nichts Neues. Sobald jemand aus deinem Verein, Hafen oder Team segelt oder postet, steht es hier."></sx-stream>
       ${this.people()}

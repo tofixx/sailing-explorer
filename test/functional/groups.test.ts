@@ -246,12 +246,14 @@ describe('F-153 Einladungen in Gruppen', () => {
     expect(own.status).toBe(409);
   });
 
-  it('[F-153] nur Eigner und Admins laden ein und ziehen zurück; Mitglieder 403, Fremde 404; zurückgezogen ist ungültig', async () => {
+  it('[F-153] Mitglieder laden ein (Annahme wird zur Anfrage, Konzept 14.1), Eigner und Admins ziehen zurück; Fremde 404; zurückgezogen ist ungültig', async () => {
     const owner = await s.person();
     const g = await s.group(owner);
     const member = await s.person();
     await s.join(owner, g, member);
-    expect((await s.send('POST', `/api/groups/${g.id}/invites`, member.cookie, {})).status).toBe(403);
+    const byMember = await s.send('POST', `/api/groups/${g.id}/invites`, member.cookie, {});
+    expect(byMember.status).toBe(201);
+    expect(((await byMember.json()) as { needsApproval: boolean }).needsApproval).toBe(true);
     expect((await s.send('POST', `/api/groups/${g.id}/invites`, (await s.person()).cookie, {})).status).toBe(404);
     await s.send('PATCH', `/api/groups/${g.id}/members/${member.user.id}`, owner.cookie, { role: 'admin' });
     const res = await s.send('POST', `/api/groups/${g.id}/invites`, member.cookie, {});

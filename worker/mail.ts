@@ -77,7 +77,7 @@ Frohe Weihnachten und immer eine Handbreit Wasser unterm Kiel!
 }
 
 export interface InviteMailInput {
-  kind: 'boat_admin' | 'crew' | 'group';
+  kind: 'boat_admin' | 'crew' | 'group' | 'friend';
   /** nur bei Gruppen: Verein oder Team */
   groupKind?: 'club' | 'team';
   /** Anzeigename des Einladenden (selbst gewählt oder Spaßname) – nie die E-Mail-Adresse */
@@ -96,16 +96,22 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
   const group = m.groupKind === 'team' ? 'das Team' : 'den Verein';
   const target = short(m.target.trim() || (m.kind === 'crew' ? 'Törn' : m.kind === 'group' ? 'Gruppe' : 'Boot'), 80);
   const what =
-    m.kind === 'boat_admin' ? `das Boot „${target}“ bei ${app} mitzuverwalten` : m.kind === 'group' ? `in ${group} „${target}“ bei ${app}` : `in die Crew des Törns „${target}“ bei ${app}`;
+    m.kind === 'friend'
+      ? `zu ${app} ein – Törns teilen, Boote, Vereine und Teams rund ums Segeln`
+      : m.kind === 'boat_admin' ? `das Boot „${target}“ bei ${app} mitzuverwalten` : m.kind === 'group' ? `in ${group} „${target}“ bei ${app}` : `in die Crew des Törns „${target}“ bei ${app}`;
   const whatHtml =
-    m.kind === 'boat_admin'
+    m.kind === 'friend'
+      ? `zu <b>${app}</b> ein – Törns teilen, Boote, Vereine und Teams rund ums Segeln`
+      : m.kind === 'boat_admin'
       ? `das Boot <b>„${escapeHtml(target)}“</b> bei <b>${app}</b> mitzuverwalten`
       : m.kind === 'group'
         ? `in ${group} <b>„${escapeHtml(target)}“</b> bei <b>${app}</b>`
         : `in die Crew des Törns <b>„${escapeHtml(target)}“</b> bei <b>${app}</b>`;
-  const verb = m.kind === 'boat_admin' ? 'lädt dich ein,' : 'lädt dich ein';
+  const verb = m.kind === 'boat_admin' ? 'lädt dich ein,' : m.kind === 'friend' ? 'lädt dich' : 'lädt dich ein';
   const after =
-    m.kind === 'boat_admin'
+    m.kind === 'friend'
+      ? 'Nimmst du an, folgt ihr einander und seht eure Neuigkeiten.'
+      : m.kind === 'boat_admin'
       ? 'Als Admin kannst du die Bootsseite bearbeiten und deine Törns dem Boot zuordnen.'
       : m.kind === 'group'
         ? 'Als Mitglied siehst du die Neuigkeiten der Gruppe und kannst deine Boote zuordnen.'
@@ -119,7 +125,9 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
 <p style="color:#5b6b7b;font-size:13px">${foot}</p>
 </body></html>`;
   const subject =
-    m.kind === 'boat_admin'
+    m.kind === 'friend'
+      ? `${who} lädt dich zu ${app} ein`
+      : m.kind === 'boat_admin'
       ? `${app}: Einladung als Admin für „${target}“`
       : m.kind === 'group'
         ? `${app}: Einladung in „${target}“`

@@ -1,8 +1,8 @@
 import { LitElement, css, html } from 'lit';
 import type { Boat, GroupInfo, GroupInput, GroupPageData, MyGroup, PendingInvite, StreamPage } from '../services/api';
 import {
-  GROUP_KIND_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODE_LABEL, POST_LINK_MAX, POST_MAX,
-  canManageGroup, slugFromName, type GroupKind, type JoinMode,
+  APPROVERS, APPROVERS_LABEL, GROUP_KIND_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODES, JOIN_MODE_LABEL, JOIN_MODE_SHORT, POST_LINK_MAX, POST_MAX,
+  canApprove, canManageGroup, slugFromName, type Approvers, type GroupKind, type JoinMode,
 } from '../domain/groups';
 import { commentLength } from '../domain/comment-text';
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
@@ -393,10 +393,19 @@ export class SxGroupPage extends LitElement {
       ${!owner ? html`<p class="hint">Die Sichtbarkeit ändert nur der Eigner.</p>` : ''}
       <fieldset class="opts" style="border:0;padding:0;margin:0">
         <legend class="label">Beitreten</legend>
-        ${(['request', 'invite'] as JoinMode[]).map(
+        ${(JOIN_MODES as readonly JoinMode[]).map(
           (m) => html`<label class="opt"><input type="radio" name="join" .checked=${d.joinMode === m} @change=${() => this.set({ joinMode: m })} /><span><b>${JOIN_MODE_LABEL[m]}</b></span></label>`,
         )}
       </fieldset>
+      ${owner
+        ? html`<fieldset class="opts" style="border:0;padding:0;margin:0">
+            <legend class="label">Wer bestätigt Anfragen?</legend>
+            ${(APPROVERS as readonly Approvers[]).map(
+              (a) => html`<label class="opt"><input type="radio" name="approve" .checked=${(d.approveBy ?? 'admins') === a} @change=${() => this.set({ approveBy: a })} /><span><b>${APPROVERS_LABEL[a]}</b></span></label>`,
+            )}
+            <p class="hint">Wer bestätigen darf, nimmt mit eigenen Einladungen auch direkt auf. „Offen“ gilt nur für öffentliche Gruppen – sonst wird jeder Beitritt zur Anfrage.</p>
+          </fieldset>`
+        : ''}
       ${this.formError ? html`<p class="error" role="alert">${this.formError}</p>` : ''}
     `;
   }
@@ -430,7 +439,7 @@ export class SxGroupPage extends LitElement {
 
   /** Bearbeiten öffnen: Entwurf aus der aktuellen Gruppe. */
   private startEdit(g: GroupInfo) {
-    this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode };
+    this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode, approveBy: g.approveBy ?? 'admins' };
     this.editing = true;
   }
 
@@ -439,6 +448,7 @@ export class SxGroupPage extends LitElement {
         e.preventDefault();
         const patch: GroupInput = { ...this.draft, ...this.harborInput() };
         if (g.role !== 'owner' || patch.visibility === g.visibility) delete patch.visibility;
+        if (g.role !== 'owner') delete patch.approveBy;
         emit(this, 'sx-group-save', { id: g.id, patch });
       }}>
       ${this.fields(false, g)}
@@ -469,9 +479,10 @@ export class SxGroupPage extends LitElement {
   private joinActions(d: GroupPageData) {
     const g = d.group;
     const m = d.membership;
-    if (!this.signedIn) return g.joinMode === 'request' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : '';
+    if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : '';
     if (m.role) return m.role === 'owner' ? '' : html`<button class="btn ghost" @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id })}>${icon('logout')} Austreten</button>`;
     if (m.requested) return html`<span class="faint">Anfrage gestellt</span><button class="btn ghost" @click=${() => emit(this, 'sx-group-withdraw', { id: g.id })}>Anfrage zurückziehen</button>`;
+    if (m.canJoin) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitreten</button>`;
     if (m.canRequest) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitritt anfragen</button>`;
     return html`<span class="faint">Beitritt nur auf Einladung</span>`;
   }
@@ -488,6 +499,7 @@ export class SxGroupPage extends LitElement {
         ${g.description ? html`<div class="lead">${g.description}</div>` : ''}
         <div class="facts">
           <span>${GROUP_KIND_LABEL[g.kind]}</span>
+          <span>${JOIN_MODE_SHORT[g.joinMode] ?? ''}</span>
           ${g.harbor ? html`<span>Heimathafen <a href="/h/${g.harbor.slug}">${g.harbor.name}</a></span>` : g.homePort ? html`<span>Heimathafen ${g.homePort}</span>` : ''}
           ${d.parent ? html`<span>im Verein <a href="/g/${d.parent.slug}">${d.parent.name}</a></span>` : ''}
           ${manager ? html`<span class="vis">${icon(VISIBILITY_ICON[v] ?? 'lock')} ${GROUP_VISIBILITY_LABEL[v]}</span>` : ''}
@@ -530,8 +542,10 @@ export class SxGroupPage extends LitElement {
 
   private invites(g: GroupInfo, list: PendingInvite[]) {
     let email = '';
+    const approval = !canApprove(g.role, g.approveBy ?? 'admins') && !(g.joinMode === 'open' && g.visibility === 'public');
     return html`<div class="box" aria-label="Einladen">
-      <h3 class="eyebrow">Einladen</h3>
+      <h3 class="eyebrow">Leute einladen</h3>
+      ${approval ? html`<p class="hint">Wer deine Einladung annimmt, stellt eine Beitrittsanfrage, die in dieser Gruppe andere bestätigen.</p>` : ''}
       <div class="row">
         <button class="btn" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-invite', { id: g.id, email: null })}>${icon('link')} Einladungslink erzeugen</button>
       </div>
@@ -637,7 +651,8 @@ export class SxGroupPage extends LitElement {
       ${manager && g.hiddenAt ? html`<p class="note" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.editing && manager ? this.editForm(g) : ''}
       ${this.stats(d)}
-      ${manager ? html`${this.requests(g, d)}${this.invites(g, d.invites ?? [])}` : ''}
+      ${d.membership.canApprove ?? manager ? this.requests(g, d) : ''}
+      ${g.role ? this.invites(g, manager ? (d.invites ?? []) : []) : ''}
       ${d.teams.length
         ? html`<section aria-labelledby="teams-t"><h2 class="eyebrow" id="teams-t">Teams</h2>
             <div class="cards">${d.teams.map((t) => html`<div class="card">${icon('sail')}<a href="/g/${t.slug}">${t.name}</a></div>`)}</div></section>`

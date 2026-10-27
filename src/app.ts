@@ -523,6 +523,12 @@ export class App {
     on<{ id: string; patch: GroupInput }>('sx-group-save', (d) => g.save(d.id, d.patch));
     on<{ id: string }>('sx-group-delete', (d) => g.remove(d.id));
     on<{ id: string }>('sx-group-join', (d) => g.join(d.id));
+    // Willkommens-Karte der Startseite (Konzept 14.3)
+    on<{ id: string; name: string }>('sx-home-join', (d) => g.join(d.id, { name: d.name }));
+    on<{ email: string | null }>('sx-friend-invite', (d) => this.social.inviteFriend(d.email));
+    on<{ harbor: HarborChoice }>('sx-home-harbor', async (d) => {
+      if (await so.saveHomeHarbor(d.harbor)) await g.loadHome(true);
+    });
     on<{ id: string }>('sx-group-withdraw', (d) => g.withdraw(d.id));
     on<{ id: string }>('sx-group-leave', (d) => g.leave(d.id));
     on<{ id: string; userId: string; approve: boolean }>('sx-group-request', (d) => g.decide(d));

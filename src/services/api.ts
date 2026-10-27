@@ -5,7 +5,7 @@ import type { Placement } from '../domain/photo-place';
 import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
-import type { GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
+import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
 import type { HarborRef } from '../domain/harbors';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 
@@ -162,7 +162,7 @@ export interface Crew {
   invites: PendingInvite[];
 }
 
-export type InviteKind = 'boat_admin' | 'crew' | 'group';
+export type InviteKind = 'boat_admin' | 'crew' | 'group' | 'friend';
 
 export interface InvitePeek {
   kind: InviteKind;
@@ -185,6 +185,9 @@ export interface InviteAccepted {
   path: string | null;
   target: string | null;
   already: boolean;
+  /** Gruppe: Annahme wurde zur Beitrittsanfrage (Konzept 14.1) */
+  requested?: boolean;
+  groupKind?: GroupKind;
 }
 
 /** Empfänger einer Einladung: Adresse (neue wie bestehende Konten) oder Profilname eines bestehenden Kontos. */
@@ -615,6 +618,8 @@ export interface GroupInfo extends Linkable {
   /** Hafen (Konzept 13.3) – fehlt bei älteren Servern */
   harbor?: HarborRef | null;
   joinMode: JoinMode;
+  /** wer Anfragen bestätigt (Konzept 14.1) – fehlt bei älteren Servern */
+  approveBy?: Approvers;
   role: GroupRole | null;
   /** nur für Eigner und Admins: bis zur Prüfung ausgeblendet */
   hiddenAt?: number | null;
@@ -671,7 +676,7 @@ export interface GroupPageData {
   others: number;
   boats: GroupBoat[];
   social: FollowStats;
-  membership: { role: GroupRole | null; requested: boolean; canRequest: boolean };
+  membership: { role: GroupRole | null; requested: boolean; canRequest: boolean; canJoin?: boolean; canInvite?: boolean; canApprove?: boolean };
   /** Titelbild und Galerie (Konzept 13) – fehlen bei älteren Servern */
   cover?: string | null;
   photos?: GalleryPhoto[];
@@ -700,6 +705,10 @@ export interface Suggestion {
 }
 
 export interface DiscoverGroup {
+  /** fehlt bei älteren Servern */
+  id?: string;
+  /** Beitritt (Konzept 14.1) – fehlt bei älteren Servern */
+  joinMode?: JoinMode;
   slug: string;
   name: string;
   kind: GroupKind;
@@ -714,7 +723,7 @@ export interface DiscoverData {
   groups?: DiscoverGroup[];
 }
 
-export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode'>> & {
+export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy'>> & {
   kind?: GroupKind;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
@@ -738,7 +747,7 @@ export const groupApi = {
   removeMember: (id: string, userId: string) => call<void>(`/api/groups/${gid(id)}/members/${gid(userId)}`, { method: 'DELETE' }),
   invite: (id: string, email: string | null) => call<InviteCreated>(`/api/groups/${gid(id)}/invites`, jsonInit('POST', email ? { email } : {})),
   request: (id: string, message: string, key?: string | null) =>
-    call<{ requested: boolean; already: boolean }>(`/api/groups/${gid(id)}/requests`, {
+    call<{ requested: boolean; already?: boolean; joined?: boolean }>(`/api/groups/${gid(id)}/requests`, {
       ...jsonInit('POST', { message }),
       headers: { 'Content-Type': 'application/json', ...(key ? { 'X-Share-Key': key } : {}) },
     }),
@@ -871,4 +880,11 @@ export const coverApi = {
       body: image,
     }),
   remove: (kind: CoverKind, id: string) => call<void>(`/api/covers/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+// ================================================================ Freunde einladen (Konzept 14.2)
+
+export const friendApi = {
+  /** ohne Adresse: Einladungslink (nur in dieser Antwort) */
+  invite: (to: { email?: string; handle?: string }) => call<InviteCreated>('/api/invites', jsonInit('POST', to)),
 };

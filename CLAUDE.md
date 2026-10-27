@@ -1,0 +1,21 @@
+# Sail Explorer – Hinweise für Agenten
+
+Grundlagen: `docs/PRINCIPLES.md`, `docs/CONCEPT.md`, `docs/REQUIREMENTS.md` (Tests nach F-IDs benannt).
+Ein Push auf `main` deployt die Produktion (segeln-potsdam.de) samt D1-Migrationen; andere Branches landen als
+öffentliche Vorschau unter `dev-<branch>.segeln-potsdam.de`.
+
+## Vor jedem Deploy: Review durch einen eigenen Agenten
+
+Bevor etwas nach `main` gemergt oder gepusht wird, prüft ein separater Agent den Diff (`main...<branch>`) – nicht
+der Agent, der es gebaut hat. Seine Befunde werden bewertet und die echten behoben, erst dann wird deployt.
+
+Prüfpunkte:
+1. **Komplexität** – ist etwas komplizierter als nötig? Gibt es einen einfacheren Weg?
+2. **Konflikte** – mit anderen Branches oder Sitzungen, mit bestehenden Regeln, Konzept-Entscheidungen,
+   Migrationen; widersprüchliches Verhalten.
+3. **Wiederverwendung vor Neuentwicklung** – vorhandene Helfer, Komponenten und Muster genutzt statt dupliziert?
+4. **Modularisierung** – klare Modulgrenzen, reine Regeln in `src/domain`, keine Gottdateien.
+5. **Architekturprinzipien** – `docs/PRINCIPLES.md`, fail closed, ein Löschpfad je Objekt, Sichtbarkeit beim Lesen
+   prüfen, Tests je F-ID.
+
+`npm run check` (Typecheck, Tests, Build) muss vorher grün sein.

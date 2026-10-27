@@ -1,4 +1,4 @@
-import { ApiError, socialApi, type HarborPatch, type ShareMeta, type StreamPage } from '../services/api';
+import { ApiError, friendApi, socialApi, type HarborPatch, type ShareMeta, type StreamPage } from '../services/api';
 import type { Store } from '../services/store';
 import type { SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxGroupPage } from '../components/sx-group-page';
@@ -115,6 +115,33 @@ export class SocialController {
       this.ui.account.home = await socialApi.home();
     } catch {
       this.ui.account.home = null;
+    }
+  }
+
+  /** Freunde einladen (Konzept 14.2): per Adresse (Mail) oder als Link, der nur einmal angezeigt wird. */
+  async inviteFriend(email: string | null): Promise<void> {
+    try {
+      const res = await friendApi.invite(email ? { email } : {});
+      // Ohne Adresse der Link; lokal im Log-Modus auch bei Adressen (devLink, wie bei Gruppen)
+      const link = res.link ?? res.devLink ?? null;
+      if (link) this.ui.home.inviteLink = link;
+      if (email) this.ui.toast('Einladung verschickt');
+    } catch (e) {
+      this.ui.toast(errorText(e), 6000);
+    }
+  }
+
+  /** Nur den Heimathafen setzen (Willkommens-Karte, Konzept 14.3); true bei Erfolg. */
+  async saveHomeHarbor(choice: HarborChoice): Promise<boolean> {
+    try {
+      const harborId = 'name' in choice ? (await socialApi.createHarbor(choice.name)).harbor.id : choice.harborId;
+      if (!harborId) return false;
+      await socialApi.saveHome({ harborId });
+      this.ui.toast('Heimathafen gespeichert');
+      return true;
+    } catch (e) {
+      this.ui.toast(errorText(e), 6000);
+      return false;
     }
   }
 

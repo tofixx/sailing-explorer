@@ -66,11 +66,20 @@ export async function follow(request: Request, env: Env, rawKind: string, raw: s
   const t = await resolveTarget(env, kind, raw, true);
   if (!t) throw NOT_FOUND();
   if (kind === 'user' && t.id === user.id) throw new HttpError(400, 'own_object', 'Dir selbst kannst du nicht folgen.');
-  const n = (await env.DB.prepare('SELECT COUNT(*) AS n FROM follows WHERE user_id = ?').bind(user.id).first<{ n: number }>())?.n ?? 0;
-  const exists = await env.DB.prepare('SELECT 1 AS x FROM follows WHERE user_id = ? AND target_kind = ? AND target_id = ?').bind(user.id, kind, t.id).first();
-  if (!exists && n >= GROUP_LIMITS.follows) throw new HttpError(409, 'quota', `Du folgst schon ${GROUP_LIMITS.follows} Profilen, Booten, Gruppen und Häfen – entfolge zuerst anderen.`);
-  await env.DB.prepare('INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) VALUES (?, ?, ?, ?)').bind(user.id, kind, t.id, Date.now()).run();
+  if (!(await addFollow(env, user.id, kind, t.id))) {
+    throw new HttpError(409, 'quota', `Du folgst schon ${GROUP_LIMITS.follows} Profilen, Booten, Gruppen und Häfen – entfolge zuerst anderen.`);
+  }
   return json(await followStats(env, kind, t.id, user.id));
+}
+
+/** Folgen eintragen – höchstens GROUP_LIMITS.follows pro Konto. false, wenn die Grenze erreicht ist (schon Gefolgtes zählt als Erfolg). */
+export async function addFollow(env: Env, userId: string, kind: FollowKind, targetId: string): Promise<boolean> {
+  const exists = await env.DB.prepare('SELECT 1 AS x FROM follows WHERE user_id = ? AND target_kind = ? AND target_id = ?').bind(userId, kind, targetId).first();
+  if (exists) return true;
+  const n = (await env.DB.prepare('SELECT COUNT(*) AS n FROM follows WHERE user_id = ?').bind(userId).first<{ n: number }>())?.n ?? 0;
+  if (n >= GROUP_LIMITS.follows) return false;
+  await env.DB.prepare('INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) VALUES (?, ?, ?, ?)').bind(userId, kind, targetId, Date.now()).run();
+  return true;
 }
 
 /** DELETE /api/follows/:kind/:id – entfolgen (geht immer, auch wenn das Ziel nicht mehr öffentlich ist). */

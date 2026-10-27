@@ -1,3 +1,4 @@
+import { inviteAcceptedText, inviteExplain, inviteTargetLabel, inviteWhat } from '../domain/invite-text';
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import type { InviteAccepted, InvitePeek } from '../services/api';
 import { fmtDate } from '../util/html';
@@ -88,26 +89,15 @@ export class SxInviteDialog extends LitElement {
 
   private close = () => emit(this, 'sx-close', 'invite');
 
-  private what(p: InvitePeek) {
-    const target = html`<span class="target">„${p.target || (p.kind === 'crew' ? 'Törn' : p.kind === 'group' ? 'Gruppe' : 'Boot')}“</span>`;
-    if (p.kind === 'group') return html`${p.groupKind === 'team' ? 'ins Team' : 'in den Verein'} ${target} ein`;
-    return p.kind === 'boat_admin' ? html`das Boot ${target} mitzuverwalten` : html`in die Crew des Törns ${target}`;
-  }
-
-  private explain(p: InvitePeek) {
-    if (p.kind === 'group') {
-      return 'Als Mitglied siehst du die Neuigkeiten der Gruppe und kannst deine Boote zuordnen. Mitgliedschaft öffnet keine nicht öffentlichen Törns anderer. Mit öffentlichem Profil erscheinst du namentlich, sonst nur als Anzahl. Du kannst jederzeit austreten.';
-    }
-    return p.kind === 'boat_admin'
-      ? 'Als Admin bearbeitest du die Bootsseite und ordnest deine Törns dem Boot zu. Löschen und weitere Admins einladen kann nur der Eigner. Du kannst das Boot jederzeit wieder verlassen.'
-      : 'Solange der Törn öffentlich ist, erscheinst du dort – mit öffentlichem Profil namentlich und auf deiner Profilseite unter „Mitgesegelt“, sonst nur als Anzahl. Deine E-Mail-Adresse sieht niemand. Du kannst dich jederzeit wieder entfernen.';
-  }
-
   /** Was als Nächstes zu tun ist: anmelden, andere Adresse, Profil anlegen oder annehmen. */
   private next(p: InvitePeek) {
     const cancel = html`<button class="btn" @click=${this.close}>Später</button>`;
     if (p.isOwner) {
-      const own = p.kind === 'crew' ? 'Das ist dein eigener Törn. Teile den Link mit deiner Crew.' : p.kind === 'group' ? 'Das ist deine eigene Gruppe. Teile den Link mit deinen Leuten.' : 'Du bist der Eigner dieses Boots. Die Einladung gilt nur für die eingeladene Adresse.';
+      const own =
+        p.kind === 'crew' ? 'Das ist dein eigener Törn. Teile den Link mit deiner Crew.'
+        : p.kind === 'group' ? 'Das ist deine eigene Gruppe. Teile den Link mit deinen Leuten.'
+        : p.kind === 'friend' ? 'Das ist deine eigene Einladung. Teile den Link mit deinen Freunden.'
+        : 'Du bist der Eigner dieses Boots. Die Einladung gilt nur für die eingeladene Adresse.';
       return html`<div class="note">${icon('info')}<span>${own}</span></div>
         <div class="actions"><button class="btn" @click=${this.close}>Schließen</button></div>`;
     }
@@ -145,21 +135,21 @@ export class SxInviteDialog extends LitElement {
       return html`<div class="body">
         <div class="center">
           <div class="badge">${icon(r.kind === 'crew' ? 'anchor' : 'sail')}</div>
-          <p>${r.kind === 'crew' ? html`Du bist jetzt in der Crew von` : r.kind === 'group' ? html`Du bist jetzt Mitglied von` : html`Du bist jetzt Admin von`}<br /><span class="target">„${r.target || ''}“</span></p>
+          <p>${inviteAcceptedText(r)}</p>
         </div>
         ${r.kind === 'crew' && !r.path ? html`<div class="note">${icon('lock')}<span>Der Törn ist gerade nicht öffentlich. Du erscheinst dort, sobald der Eigentümer ihn öffentlich schaltet.</span></div>` : ''}
         <div class="actions">
           <button class="btn" @click=${this.close}>Schließen</button>
-          ${r.path ? html`<a class="btn primary" href=${r.path}>${icon('open')} ${r.kind === 'crew' ? 'Törn ansehen' : r.kind === 'group' ? 'Zur Gruppe' : 'Bootsseite ansehen'}</a>` : ''}
+          ${r.path ? html`<a class="btn primary" href=${r.path}>${icon('open')} ${inviteTargetLabel(r.kind)}</a>` : ''}
         </div>
       </div>`;
     }
     return html`<div class="body">
       <div class="center">
         <div class="badge">${icon(p.kind === 'crew' ? 'anchor' : 'sail')}</div>
-        <p><b>${p.inviter || 'Ein Segler oder eine Seglerin'}</b> lädt dich ${p.kind === 'group' ? '' : 'ein, '}${this.what(p)}.</p>
+        <p><b>${p.inviter || 'Ein Segler oder eine Seglerin'}</b> lädt dich ${inviteWhat(p)}.</p>
       </div>
-      <p class="muted">${this.explain(p)}</p>
+      <p class="muted">${inviteExplain(p)}</p>
       <p class="hint">Gültig bis ${fmtDate(p.expiresAt)}${p.bound ? ' · gilt nur für die eingeladene E-Mail-Adresse' : ''}</p>
       ${this.next(p)}
     </div>`;
