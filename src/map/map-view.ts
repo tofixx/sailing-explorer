@@ -2,10 +2,11 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { METRICS, rampColor, smoothedMetric, type Range } from '../domain/metrics';
 import { compassName } from '../domain/geo';
+import { MAP_STYLES, type MapStyle } from '../domain/map-style';
 import type { MetricKey, Track, TrackPoint } from '../domain/types';
 import type { Layers } from '../services/store';
 import { cssVar, escapeHtml, fmtDateTime, fmtNum } from '../util/html';
-import { endpointPin, waveChevron, windBadge } from './glyphs';
+import { endpointPin, waveChevron, waveChevronSize, windBadge, windBadgeSize } from './glyphs';
 import { PhotoLayer } from './photo-layer';
 
 export interface MapCallbacks {
@@ -30,6 +31,7 @@ export class MapView {
   private hoverMarker: L.CircleMarker | null = null;
   private projected: Array<{ p: TrackPoint; x: number; y: number }> = [];
   private tracks: Track[] = [];
+  private style: MapStyle = MAP_STYLES.classic;
   private raf = 0;
   /** Ebene „Fotos“ (Phase C) – Callbacks setzt die Verdrahtung */
   readonly photos: PhotoLayer;
@@ -104,8 +106,10 @@ export class MapView {
     if (!on && this.map.hasLayer(layer)) layer.remove();
   }
 
-  render(tracks: Track[], metric: MetricKey, range: Range | null): void {
+  render(tracks: Track[], metric: MetricKey, range: Range | null, style: MapStyle = MAP_STYLES.classic): void {
     this.tracks = tracks;
+    this.style = style;
+    const weight = style.lineWeight;
     this.trackLayer.clearLayers();
     const noData = cssVar(this.el, '--text-3');
     const halo = cssVar(this.el, '--map-halo');
@@ -121,24 +125,24 @@ export class MapView {
         const v = a != null && b != null ? (a + b) / 2 : (b ?? a);
         if (v == null) return noData;
         const step = Math.round(((v - range.lo) / (range.hi - range.lo)) * (COLOR_STEPS - 1));
-        return rampColor(Math.max(0, Math.min(COLOR_STEPS - 1, step)) / (COLOR_STEPS - 1));
+        return rampColor(Math.max(0, Math.min(COLOR_STEPS - 1, step)) / (COLOR_STEPS - 1), style.ramp);
       };
 
       // Halo unter der Linie für Kontrast auf jeder Grundkarte
-      L.polyline(pts.map((p) => [p.lat, p.lon] as L.LatLngTuple), { color: halo, weight: 7, opacity: 0.7, interactive: false }).addTo(this.trackLayer);
+      L.polyline(pts.map((p) => [p.lat, p.lon] as L.LatLngTuple), { color: halo, weight: weight + 3, opacity: 0.7, interactive: false }).addTo(this.trackLayer);
 
       let run: L.LatLngTuple[] = [[pts[0].lat, pts[0].lon]];
       let runColor = pts.length > 1 ? colorAt(1) : trackColor;
       for (let i = 1; i < pts.length; i++) {
         const c = colorAt(i);
         if (c !== runColor) {
-          L.polyline(run, { color: runColor, weight: 4, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(this.trackLayer);
+          L.polyline(run, { color: runColor, weight, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(this.trackLayer);
           run = [run[run.length - 1]];
           runColor = c;
         }
         run.push([pts[i].lat, pts[i].lon]);
       }
-      L.polyline(run, { color: runColor, weight: 4, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(this.trackLayer);
+      L.polyline(run, { color: runColor, weight, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(this.trackLayer);
 
       const name = escapeHtml(t.name);
       const s = pts[0];
@@ -178,11 +182,18 @@ export class MapView {
         }
       }
     };
-    place(this.windLayer, 90, 0, (p) =>
-      p.wx?.wind != null && p.wx.dir != null ? L.divIcon({ className: 'sx-marker', html: windBadge(p.wx.dir, p.wx.wind), iconSize: [44, 44], iconAnchor: [22, 22] }) : null,
+    const style = this.style;
+    const wind = windBadgeSize(style);
+    const wave = waveChevronSize(style);
+    place(this.windLayer, 90 * style.symbolScale, 0, (p) =>
+      p.wx?.wind != null && p.wx.dir != null
+        ? L.divIcon({ className: 'sx-marker', html: windBadge(p.wx.dir, p.wx.wind, style), iconSize: [wind, wind], iconAnchor: [wind / 2, wind / 2] })
+        : null,
     );
-    place(this.waveLayer, 60, 0.5, (p) =>
-      p.wx?.wave != null && p.wx.wdir != null ? L.divIcon({ className: 'sx-marker', html: waveChevron(p.wx.wdir, p.wx.wave), iconSize: [30, 30], iconAnchor: [15, 15] }) : null,
+    place(this.waveLayer, 60 * style.symbolScale, 0.5, (p) =>
+      p.wx?.wave != null && p.wx.wdir != null
+        ? L.divIcon({ className: 'sx-marker', html: waveChevron(p.wx.wdir, p.wx.wave, style), iconSize: [wave, wave], iconAnchor: [wave / 2, wave / 2] })
+        : null,
     );
   }
 

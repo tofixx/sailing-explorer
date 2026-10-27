@@ -4,6 +4,7 @@ import './components/sx-empty-state';
 import './components/sx-panel';
 import './components/sx-conditions';
 import './components/sx-metric-picker';
+import './components/sx-map-style';
 import './components/sx-kpis';
 import './components/sx-time-chart';
 import './components/sx-track-list';

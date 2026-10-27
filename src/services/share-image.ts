@@ -54,6 +54,8 @@ export interface ShareImageOptions {
   range: Range | null;
   format?: ImageFormat;
   content?: Partial<ImageContent>;
+  /** Farbverlauf des Kartenstils (Standard: Klassisch) */
+  ramp?: readonly string[];
 }
 
 /** Feste Farben: Das Bild sieht in jedem Messenger gleich aus, unabhängig vom Farbschema. */
@@ -225,7 +227,7 @@ async function drawMap(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box,
       const v = values?.[i];
       if (v == null || !opts.range) return C.accent;
       const step = Math.round(((v - opts.range.lo) / (opts.range.hi - opts.range.lo)) * (STEPS - 1));
-      return rampColor(Math.max(0, Math.min(STEPS - 1, step)) / (STEPS - 1));
+      return rampColor(Math.max(0, Math.min(STEPS - 1, step)) / (STEPS - 1), opts.ramp);
     };
     ctx.lineWidth = 5;
     ctx.lineCap = 'butt';
@@ -354,7 +356,7 @@ function drawInfo(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box, opts
     const m = METRICS[opts.metric];
     const lw = format === 'square' ? 260 : innerW;
     const grad = ctx.createLinearGradient(x, 0, x + lw, 0);
-    for (let i = 0; i <= 10; i++) grad.addColorStop(i / 10, rampColor(i / 10));
+    for (let i = 0; i <= 10; i++) grad.addColorStop(i / 10, rampColor(i / 10, opts.ramp));
     roundRect(ctx, x, footY - 46, lw, 10, 5);
     ctx.fillStyle = grad;
     ctx.fill();

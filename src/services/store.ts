@@ -1,3 +1,4 @@
+import { DEFAULT_MAP_STYLE, type MapStyleId } from '../domain/map-style';
 import type { MetricKey, Track, TrackPoint } from '../domain/types';
 import type { WeatherData } from '../domain/weather';
 import type { ShareMeta, User } from './api';
@@ -25,6 +26,8 @@ export interface State {
   status: Status;
   metric: MetricKey;
   layers: Layers;
+  /** geltender Kartenstil (Farbverlauf, Wind-/Wellen-Symbole) – setzt der MapStyleController */
+  mapStyle: MapStyleId;
   hover: { point: TrackPoint; source: HoverSource } | null;
   loading: string | null;
   mode: Mode;
@@ -43,6 +46,7 @@ export const initialState: State = {
   status: { level: 'idle', text: 'Noch kein Track geladen.' },
   metric: 'speed',
   layers: { seamarks: true, depth: false, windArrows: true, waveArrows: true },
+  mapStyle: DEFAULT_MAP_STYLE,
   hover: null,
   loading: null,
   mode: { kind: 'local' },

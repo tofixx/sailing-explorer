@@ -1,5 +1,5 @@
 import { LitElement, css, html } from 'lit';
-import { METRICS, METRIC_KEYS, RAMP_CSS, type Range } from '../domain/metrics';
+import { RAMP, METRICS, METRIC_KEYS, rampCss, type Range } from '../domain/metrics';
 import type { MetricKey } from '../domain/types';
 import type { Layers } from '../services/store';
 import { fmtNum } from '../util/html';
@@ -22,11 +22,14 @@ export class SxMetricPicker extends LitElement {
     range: { attribute: false },
     layers: { attribute: false },
     available: { attribute: false },
+    ramp: { attribute: false },
   };
   declare metric: MetricKey;
   declare range: Range | null;
   declare layers: Layers;
   declare available: Record<MetricKey, boolean>;
+  /** Farbverlauf des gewählten Kartenstils */
+  declare ramp: readonly string[];
 
   constructor() {
     super();
@@ -34,6 +37,7 @@ export class SxMetricPicker extends LitElement {
     this.range = null;
     this.layers = { seamarks: true, depth: false, windArrows: true, waveArrows: true };
     this.available = { speed: true, wind: false, gust: false, wave: false };
+    this.ramp = RAMP;
   }
 
   static styles = [
@@ -201,7 +205,7 @@ export class SxMetricPicker extends LitElement {
         })}
       </div>
       <div class="legend" role="img" aria-label="Farblegende ${m.label}: ${this.range ? `${f(this.range.lo)} bis ${f(this.range.hi)} ${m.unit}` : 'keine Daten'}">
-        <div class="bar" style="background:${RAMP_CSS}"></div>
+        <div class="bar" style="background:${rampCss(this.ramp)}"></div>
         <div class="scale">
           <span>${this.range ? f(this.range.lo) : '–'}</span>
           <span>${m.label} (${m.unit})</span>

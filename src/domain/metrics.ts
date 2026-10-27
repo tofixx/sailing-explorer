@@ -76,15 +76,16 @@ export function smoothedMetric(points: TrackPoint[], metric: MetricKey): Array<n
   return out;
 }
 
-/** Sequentielle Rampe (kühl → warm), identisch in Karte und Legende. */
-export const RAMP = ['#3b6fb5', '#3aa0c4', '#46c4a8', '#7ed957', '#f2d544', '#f0a93b', '#e8682f', '#d62f2f'];
+/** Sequentielle Rampe (kühl → warm), identisch in Karte und Legende – Kartenstil „Klassisch“ (siehe map-style.ts). */
+export const RAMP: readonly string[] = ['#3b6fb5', '#3aa0c4', '#46c4a8', '#7ed957', '#f2d544', '#f0a93b', '#e8682f', '#d62f2f'];
 
-export function rampColor(t: number): string {
-  const x = Math.max(0, Math.min(1, t)) * (RAMP.length - 1);
-  const i = Math.min(RAMP.length - 2, Math.floor(x));
+/** Farbe an Position t (0…1) einer Rampe, linear zwischen den Stützfarben. */
+export function rampColor(t: number, ramp: readonly string[] = RAMP): string {
+  const x = Math.max(0, Math.min(1, t)) * (ramp.length - 1);
+  const i = Math.min(ramp.length - 2, Math.floor(x));
   const f = x - i;
-  const a = hex(RAMP[i]);
-  const b = hex(RAMP[i + 1]);
+  const a = hex(ramp[i]);
+  const b = hex(ramp[i + 1]);
   const c = (k: number) => Math.round(a[k] + (b[k] - a[k]) * f);
   return `rgb(${c(0)},${c(1)},${c(2)})`;
 }
@@ -93,4 +94,4 @@ function hex(c: string): [number, number, number] {
   return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
 }
 
-export const RAMP_CSS = `linear-gradient(90deg, ${RAMP.join(', ')})`;
+export const rampCss = (ramp: readonly string[] = RAMP) => `linear-gradient(90deg, ${ramp.join(', ')})`;

@@ -269,3 +269,20 @@ body {
     text-overflow: ellipsis;
   }
 }
+
+/* „Ansicht konfigurieren“ (Kartenstil) unten rechts über der Karte, oberhalb der Quellenangabe */
+sx-map-style {
+  position: absolute;
+  right: var(--s-3);
+  bottom: 28px;
+  z-index: 1000; /* wie Leaflets Control-Ecken, steht im DOM danach */
+}
+.app[data-empty] sx-map-style {
+  display: none;
+}
+@media (max-width: 760px) {
+  /* das Bottom-Sheet überlappt die Karte um --s-4 */
+  sx-map-style {
+    bottom: calc(28px + var(--s-4));
+  }
+}

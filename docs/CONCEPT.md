@@ -1427,3 +1427,34 @@ Sitzung einen dauerhaften Zugang hinterlegt. Höchstens 10 Passkeys pro Konto (a
 sie ausdrücklich, abgelaufene Challenges räumt der Cron weg. Anmelden unterliegt dem IP-Limit der Anmeldung und geht
 auch für gesperrte Konten (wie Link und Code), Anlegen nicht. Bibliothek und Optionen werden beim Öffnen des Dialogs
 vorgeladen, weil Safari den WebAuthn-Aufruf direkt aus dem Klick verlangt; in Einbettungen gibt es keinen Passkey-Knopf.
+
+## 15. Kartenstil (Farbverlauf, Wind- und Wellen-Symbole)
+
+Nutzer passen die Kartenansicht über feste **Sets** an statt über einzelne Regler – das hält die Bedienung klein,
+die Legende ehrlich (jedes Set ist ein durchgehender, getesteter Verlauf) und die Einstellung als einen einzigen Wert
+speicherbar. Reine Regeln in `src/domain/map-style.ts`; Karte, Legende und Teilen-Bild lesen den geltenden Stil aus
+dem Store (`mapStyle`).
+
+| Set | Verlauf (Track, Legende, Teilen-Bild) | Wind-/Wellen-Symbole | Linie |
+|---|---|---|---|
+| Klassisch (Standard) | kühl → warm, wie bisher | Stärkefarbe aus dem Verlauf | 4 px |
+| Kontrast | kräftig, großer Helligkeitsabstand | Stärkefarbe, 125 % groß | 5 px |
+| Farbenblind-freundlich | Viridis (Violett → Gelb, stetig heller) | Stärkefarbe | 4 px |
+| Dezent | Hellgrau → Rostrot (stetig dunkler) | feste Bedeutungsfarbe (`--c-wind`, `--c-wave`), Zahl trägt die Stärke | 4 px |
+
+Bewusst nicht: andere Symbolformen (Windfiedern o. Ä.) – Badge mit Knotenzahl und Wellen-Chevron bleiben, damit jede
+Zahl eine Einheit behält; eigene Farben je Nutzer; Verläufe je Hell/Dunkel (die Halos unter Linie und Symbolen tragen
+den Kontrast auf beiden Grundkarten). Die Verlaufsfarben sind Daten des Sets (wie bisher `RAMP`), keine Tokens.
+Diagramme und die Bedeutungsfarben (`--c-speed` usw.) ändern sich nicht.
+
+**Bedienung:** „Ansicht konfigurieren“ unten rechts über der Karte (nur in der Törn-Ansicht) öffnet ein nicht modales
+Popover: je Set Name, Kurzbeschreibung und Vorschau; die Karte zeigt die Auswahl sofort. Übernehmen fragt angemeldet
+„Nur jetzt“ oder „Als Standard speichern“; ohne Anmeldung gibt es nur „Übernehmen“ mit dem Hinweis auf das Profil.
+
+**Speicherung und Vorrang:** „Nur jetzt“ (angemeldet) liegt im sessionStorage und gilt bis zum Schließen des Tabs;
+ohne Anmeldung merkt sich das Gerät die Wahl im localStorage (es gibt kein Profil). Der Profil-Standard liegt in
+`users.map_style` (Migration 0019, NULL = keiner) und kommt über `GET /api/me/settings` nach jeder Anmeldung – so gilt
+er auf allen Geräten. Vorrang: „Nur jetzt“ → Profil → Gerät → „Klassisch“. Speichern als Standard hebt „Nur jetzt“ auf.
+Gültige Werte prüft der Worker mit derselben Domain-Regel (kein SQL-`CHECK`); ein unbekannter Wert in der Datenbank
+gilt als „kein Standard“. Löschen: die Spalte liegt in der Konto-Zeile und verschwindet mit dem Konto (alle Löschpfade
+des Kontos), sonst wird nichts gespeichert.

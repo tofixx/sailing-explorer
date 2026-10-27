@@ -1,3 +1,4 @@
+import { MAP_STYLES } from '../domain/map-style';
 import { metricRange } from '../domain/metrics';
 import { PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
 import { deviceName } from '../domain/device';
@@ -639,6 +640,7 @@ export class SessionController {
       range: metricRange(tracks, s.metric),
       format: opts.format,
       content: opts.content,
+      ramp: MAP_STYLES[s.mapStyle].ramp,
     });
   }
 

@@ -1,24 +1,34 @@
 // Eigene Kartensymbole. Eingaben sind ausschließlich Zahlen bzw. Token-Namen – keine Fremdtexte.
-// Farben: Intensität aus derselben Rampe wie die Track-Einfärbung, Flächen aus den Tokens
-// (die Symbole liegen im Light DOM, CSS-Variablen greifen also).
+// Farben: Intensität aus derselben Rampe wie die Track-Einfärbung (bzw. die Bedeutungsfarbe, je nach Kartenstil),
+// Flächen aus den Tokens (die Symbole liegen im Light DOM, CSS-Variablen greifen also).
+import { MAP_STYLES, type MapStyle } from '../domain/map-style';
 import { rampColor } from '../domain/metrics';
 
 /** Skalen für die Intensitätsfarbe – identisch zur Legende bei typischen Bereichen. */
 export const WIND_SCALE_KN = 30;
 export const WAVE_SCALE_M = 3;
 
-export const windColor = (kn: number) => rampColor(kn / WIND_SCALE_KN);
-export const waveColor = (m: number) => rampColor(m / WAVE_SCALE_M);
+const CLASSIC = MAP_STYLES.classic;
+
+export const windColor = (kn: number, style: MapStyle = CLASSIC) =>
+  style.symbols === 'semantic' ? 'var(--c-wind)' : rampColor(kn / WIND_SCALE_KN, style.ramp);
+export const waveColor = (m: number, style: MapStyle = CLASSIC) =>
+  style.symbols === 'semantic' ? 'var(--c-wave)' : rampColor(m / WAVE_SCALE_M, style.ramp);
+
+/** Kantenlänge der Symbole in px – Leaflet braucht sie für Größe und Anker. */
+export const windBadgeSize = (style: MapStyle = CLASSIC) => Math.round(44 * style.symbolScale);
+export const waveChevronSize = (style: MapStyle = CLASSIC) => Math.round(30 * style.symbolScale);
 
 /**
  * Wind-Badge: Knotenzahl im Ring, Pfeilspitze zeigt in Strömungsrichtung (Lee),
  * der Strich gegenüber markiert, woher der Wind kommt.
  */
-export function windBadge(dirFrom: number, kn: number): string {
-  const col = windColor(kn);
+export function windBadge(dirFrom: number, kn: number, style: MapStyle = CLASSIC): string {
+  const col = windColor(kn, style);
   const rot = (dirFrom + 180) % 360;
   const label = Math.round(kn);
-  return `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+  const size = windBadgeSize(style);
+  return `<svg width="${size}" height="${size}" viewBox="0 0 44 44" aria-hidden="true">
 <g transform="rotate(${rot} 22 22)">
   <path d="M22 1.5 28 9.5H16Z" fill="${col}" stroke="var(--map-halo)" stroke-width="1.5" stroke-linejoin="round"/>
   <path d="M22 35v7" stroke="var(--map-halo)" stroke-width="5" stroke-linecap="round"/>
@@ -30,11 +40,12 @@ export function windBadge(dirFrom: number, kn: number): string {
 }
 
 /** Wellen: Doppel-Chevron in Laufrichtung (Open-Meteo liefert „woher“ → +180°). */
-export function waveChevron(dirFrom: number, h: number): string {
-  const col = waveColor(h);
+export function waveChevron(dirFrom: number, h: number, style: MapStyle = CLASSIC): string {
+  const col = waveColor(h, style);
   const rot = (dirFrom + 180) % 360;
   const d = 'M9 14 15 8l6 6M9 21l6-6 6 6';
-  return `<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true" style="transform:rotate(${rot}deg)">
+  const size = waveChevronSize(style);
+  return `<svg width="${size}" height="${size}" viewBox="0 0 30 30" aria-hidden="true" style="transform:rotate(${rot}deg)">
 <path d="${d}" fill="none" stroke="var(--map-halo)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="${d}" fill="none" stroke="${col}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;

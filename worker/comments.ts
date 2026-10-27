@@ -10,6 +10,7 @@ import { visibleShare } from './shares';
 import { COMMENT_ID_RE, parseNotifyMode } from './validate';
 import { COMMENT_MAX, COMMENT_MAX_LINKS, cleanComment, commentProblem, type CommentsMode } from '../src/domain/comment-text';
 import { sharePath, type Visibility } from '../src/domain/visibility';
+import { isMapStyleId } from '../src/domain/map-style';
 import { isGroupNotifyMode } from '../src/domain/groups';
 
 const HOUR = 3_600_000;
@@ -182,14 +183,16 @@ export async function deleteComment(request: Request, env: Env, id: string): Pro
 
 async function settingsOf(env: Env, userId: string) {
   const u = await env.DB.prepare(
-    'SELECT notify_comments, notify_groups, suspended_at, (SELECT COUNT(*) FROM profiles WHERE user_id = users.id) AS has_profile FROM users WHERE id = ?',
+    'SELECT notify_comments, notify_groups, map_style, suspended_at, (SELECT COUNT(*) FROM profiles WHERE user_id = users.id) AS has_profile FROM users WHERE id = ?',
   )
     .bind(userId)
-    .first<{ notify_comments: string; notify_groups: string; suspended_at: number | null; has_profile: number }>();
+    .first<{ notify_comments: string; notify_groups: string; map_style: string | null; suspended_at: number | null; has_profile: number }>();
   return {
     notifyComments: parseNotifyMode(u?.notify_comments) ?? 'off',
     /** wöchentliche Sammelmail aus Vereinen und Teams (Konzept 11.7) */
     notifyGroups: isGroupNotifyMode(u?.notify_groups) ? u.notify_groups : 'off',
+    /** Kartenstil als Profil-Standard, null = keiner */
+    mapStyle: isMapStyleId(u?.map_style) ? u.map_style : null,
     suspended: !u || u.suspended_at !== null,
     hasProfile: !!u?.has_profile,
     isAdmin: isAdmin(env, userId),
@@ -203,12 +206,17 @@ export async function getSettings(request: Request, env: Env): Promise<Response>
 }
 
 /**
- * PATCH /api/me/settings – `{ notifyComments: 'off' | 'daily' }`. Beim Einschalten zählen erst Kommentare ab jetzt
- * (keine Sammelmail über alte Kommentare). Auch gesperrte Konten dürfen abschalten.
+ * PATCH /api/me/settings – `{ notifyComments: 'off' | 'daily' }`, `{ notifyGroups }`, `{ mapStyle: <Stil> | null }`.
+ * Beim Einschalten zählen erst Kommentare ab jetzt (keine Sammelmail über alte Kommentare). Auch gesperrte Konten
+ * dürfen abschalten. Der Kartenstil (Konzept 15) ist reine Darstellung und gilt auf allen Geräten des Kontos.
  */
 export async function patchSettings(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const body = await readJson<{ notifyComments?: unknown; notifyGroups?: unknown }>(request);
+  const body = await readJson<{ notifyComments?: unknown; notifyGroups?: unknown; mapStyle?: unknown }>(request);
+  if (body.mapStyle !== undefined) {
+    if (body.mapStyle !== null && !isMapStyleId(body.mapStyle)) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
+    await env.DB.prepare('UPDATE users SET map_style = ? WHERE id = ?').bind(body.mapStyle, user.id).run();
+  }
   if (body.notifyGroups !== undefined) {
     if (!isGroupNotifyMode(body.notifyGroups)) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
     // Einschalten zählt erst ab jetzt – die erste Sammelmail kommt am nächsten Sonntag.
