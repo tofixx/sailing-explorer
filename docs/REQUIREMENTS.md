@@ -174,6 +174,7 @@ Konzept: `docs/CONCEPT.md` Abschnitt 12. Umsetzung: `migrations/0013_social.sql`
 - **F-195** Galerien: Profil-, Boots- und Gruppenseite zeigen die 12 neuesten effektiv öffentlichen Fotos ihrer Törns (Person: eigene und als Crew; Boot: mit dem Boot; Gruppe: Boote und Mitglieder). Ein Klick öffnet den Törn mit dem Foto (`?foto=`).
 - **F-196** Vereine und Teams wählen den Heimathafen per Autovervollständigung (`harborId`) oder Name (findet den vorhandenen Hafen unabhängig von Schreibweise); die Hafenseite listet öffentliche Vereine und Teams.
 - **F-197** Migration 0014: vorhandene Freitext-Heimathäfen von Gruppen werden Häfen zugeordnet (vorhandene wiederverwendet, sonst je normalisiertem Namen einer).
+- **F-198** Eigner frei wählbar: Eigner und Boots-Admins setzen am Boot einen freien Eigner-Text (`ownerLabel`, bis 80 Zeichen, öffentlich); er ersetzt in der Anzeige das Eigner-Konto, leer zeigt wieder das Profil.
 
 ## Community (Entdecken)
 

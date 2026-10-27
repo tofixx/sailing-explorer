@@ -349,7 +349,7 @@ export class SxProfilePage extends LitElement {
             ${facts.map((f) => html`<span>${f}</span>`)}
             ${b.harbor ? html`<span>Heimathafen <a href="/h/${b.harbor.slug}">${b.harbor.name}</a></span>` : ''}
             ${d.clubs?.length ? html`<span>${d.clubs.length === 1 ? 'Verein' : 'Vereine'} ${d.clubs.map((c, i) => html`${i ? ', ' : ''}<a href="/g/${c.slug}">${c.name}</a>`)}</span>` : ''}
-            ${b.owner ? html`<span>Eigner: <a href="/u/${b.owner.handle}">${b.owner.displayName}</a></span>` : ''}
+            ${b.ownerLabel ? html`<span>Eigner: ${b.ownerLabel}</span>` : b.owner ? html`<span>Eigner: <a href="/u/${b.owner.handle}">${b.owner.displayName}</a></span>` : ''}
             ${b.role ? this.ownerFacts(b) : ''}
           </div>
         </div>

@@ -1345,3 +1345,10 @@ entfernt), geht die Gruppe an den dienstältesten Admin, ohne Admin an das diens
 Beiträgen anderer, Booten und Neuigkeiten. Nur eine Gruppe ohne weitere Mitglieder wird gelöscht. **Häfen bleiben
 immer** (auch ohne Boote, Anleger:in oder Verein); löschen kann sie nur die Moderation. Leere Häfen tauchen in der
 Autovervollständigung weiter auf (sonst entstünden Dubletten), rutschen dort aber nach hinten (Sortierung nach Booten).
+
+### 13.5 Eigner frei wählbar
+
+Das Konto, das ein Boot angelegt hat, bleibt technisch der Eigner (Kontingent, Löschen, E1). Angezeigt wird
+„Eigner“ aber frei: Eigner **und Boots-Admins** können einen Text setzen (`boats.owner_label`, bis 80 Zeichen,
+öffentlich), z. B. „Familie Schmidt“, „Charter Müller“ oder „SC Möwe e. V.“. Leer zeigt wieder das Profil des
+Kontos (nur wenn öffentlich).

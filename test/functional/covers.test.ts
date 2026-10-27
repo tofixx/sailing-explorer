@@ -1,4 +1,4 @@
-// Funktionale Tests: Titelbilder, Galerien und Heimathafen von Vereinen/Teams (Konzept 13, F-190 … F-196).
+// Funktionale Tests: Titelbilder, Galerien und Heimathafen von Vereinen/Teams (Konzept 13, F-190 … F-198).
 // Echter Worker in workerd (Miniflare) mit lokalen D1-/R2-Bindings – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startWorker, type Harness } from './worker-harness';
@@ -110,7 +110,17 @@ describe('Titelbilder (Konzept 13.2)', () => {
     expect(await s.errorOf(big)).toBe('too_large');
     const png = await putCover('u', me.handle!, me.cookie, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]));
     expect(await s.errorOf(png)).toBe('invalid_image');
-    const huge = await putCover('u', me.handle!, me.cookie, new Uint8Array(COVER_BYTES + 1));
+    // als Stream ohne Content-Length – sonst bricht der Worker sofort ab und die Verbindung setzt beim Senden zurück
+    const big2 = new Uint8Array(COVER_BYTES + 1);
+    let at = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (at >= big2.length) return c.close();
+        c.enqueue(big2.slice(at, at + 64 * 1024));
+        at += 64 * 1024;
+      },
+    });
+    const huge = await h.fetch(`/api/covers/u/${me.handle}`, { method: 'PUT', cookie: me.cookie, headers: { 'Content-Type': 'application/octet-stream' }, body, duplex: 'half' } as unknown as RequestInit & { cookie?: string });
     expect(huge.status).toBe(413);
   });
 
@@ -226,5 +236,27 @@ describe('Heimathafen für Vereine und Teams (Konzept 13.3)', () => {
     expect(cleared.status).toBe(200);
     expect(((await cleared.json()) as { group: { harbor: unknown; homePort: string } }).group).toMatchObject({ harbor: null, homePort: '' });
     expect((await s.send('PATCH', `/api/groups/${g.id}`, owner.cookie, { harborId: 'GibtEsNichtAAAAAAA' })).status).toBe(400);
+  });
+});
+
+describe('Eigner frei wählbar (Konzept 13.5)', () => {
+  it('F-198: Boots-Admins setzen den Eigner als freien Text; Fremde nicht; leer zeigt wieder das Konto', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const admin = await s.person({ profile: 'public' });
+    const other = await s.person({ profile: 'public' });
+    const b = await s.boat(owner);
+    await (await h.db()).prepare('INSERT INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)').bind(b.id, admin.user.id, Date.now()).run();
+
+    const set = await s.send('PATCH', `/api/boats/${b.id}`, admin.cookie, { ownerLabel: '  Segelclub Möwe e. V.  ' });
+    expect(set.status, await set.clone().text()).toBe(200);
+    type Page = { boat: { ownerLabel: string; owner: { handle: string } | null } };
+    const page = (await (await s.send('GET', `/api/boats/${b.id}`, undefined)).json()) as Page;
+    expect(page.boat.ownerLabel).toBe('Segelclub Möwe e. V.');
+    expect(page.boat.owner?.handle).toBe(owner.handle);
+
+    expect((await s.send('PATCH', `/api/boats/${b.id}`, other.cookie, { ownerLabel: 'Ich' })).status).toBe(404);
+    expect((await s.send('PATCH', `/api/boats/${b.id}`, owner.cookie, { ownerLabel: '' })).status).toBe(200);
+    const after = (await (await s.send('GET', `/api/boats/${b.id}`, undefined)).json()) as Page;
+    expect(after.boat.ownerLabel).toBe('');
   });
 });

@@ -100,13 +100,15 @@ export interface Boat extends Linkable {
   /** Hafen (Konzept 12.2) – fehlt bei älteren Servern */
   harbor?: HarborRef | null;
   description: string;
+  /** frei gewählter Eigner (Konzept 13.5); leer = Konto des Eigners – fehlt bei älteren Servern */
+  ownerLabel?: string;
   createdAt: number;
   updatedAt: number;
   owner: { handle: string; displayName: string } | null;
   role: 'owner' | 'admin' | null;
 }
 
-export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'lengthM' | 'sailNumber' | 'homePort' | 'description' | 'visibility'>> & {
+export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'lengthM' | 'sailNumber' | 'homePort' | 'description' | 'ownerLabel' | 'visibility'>> & {
   /** Hafen (Konzept 12.2): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
   /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */

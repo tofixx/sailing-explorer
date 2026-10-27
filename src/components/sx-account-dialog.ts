@@ -617,6 +617,7 @@ export class SxAccountDialog extends LitElement {
       sailNumber: String(d.get('sailNumber') || ''),
       ...('name' in harbor ? { homePort: harbor.name } : { harborId: harbor.harborId }),
       description: String(d.get('description') || ''),
+      ownerLabel: String(d.get('ownerLabel') || ''),
       visibility: this.boatVis,
     };
     emit(this, 'sx-boat-save', { id: id === 'new' ? null : id, input });
@@ -647,6 +648,10 @@ export class SxAccountDialog extends LitElement {
       <div>
         <label class="label" for="bs">Segelnummer</label>
         <input id="bs" name="sailNumber" type="text" maxlength="20" .value=${b?.sailNumber ?? ''} placeholder="GER 1234" />
+      </div>
+      <div class="full">
+        <label class="label" for="bo">Eigner <span class="faint">(optional, frei wählbar – z. B. „Familie Schmidt“ oder ein Verein; erscheint öffentlich)</span></label>
+        <input id="bo" name="ownerLabel" type="text" maxlength="80" .value=${b?.ownerLabel ?? ''} placeholder="leer = dein Profil" />
       </div>
       <div class="full">
         <label class="label" for="bh">Heimathafen <span class="faint">(optional – erscheint öffentlich)</span></label>

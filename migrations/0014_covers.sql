@@ -56,3 +56,6 @@ DROP TABLE harbor_import;
 
 -- Saison-Erinnerung (Konzept 5.5): Jahr der zuletzt verschickten Dezember-Mail.
 ALTER TABLE users ADD COLUMN season_mail_year INTEGER;
+
+-- Frei gewählter Eigner eines Boots (Konzept 13.5): Eigner und Boots-Admins setzen ihn; leer = Konto des Eigners.
+ALTER TABLE boats ADD COLUMN owner_label TEXT NOT NULL DEFAULT '';
