@@ -171,27 +171,38 @@ export async function verifyCode(request: Request, env: Env): Promise<Response> 
   const wrong = () => new HttpError(400, 'invalid_code', 'Der Code stimmt nicht oder ist abgelaufen. Bitte prüfen oder einen neuen anfordern.');
   if (!email || !CODE_RE.test(code)) throw wrong();
   const now = Date.now();
-  const failures = await env.DB.prepare('SELECT COALESCE(SUM(code_attempts), 0) AS n FROM login_tokens WHERE email = ? AND created_at > ?')
-    .bind(email, now - 86_400_000)
-    .first<{ n: number }>();
-  if ((failures?.n ?? 0) >= MAX_CODE_FAILURES) {
-    throw new HttpError(429, 'code_locked', 'Zu viele falsche Codes. Bitte den Link aus der Mail nutzen oder morgen erneut versuchen.');
-  }
   const { results } = await env.DB.prepare(
     'SELECT token_hash, code_hash FROM login_tokens WHERE email = ? AND used_at IS NULL AND expires_at > ? AND code_hash IS NOT NULL ORDER BY created_at DESC LIMIT 5',
   )
     .bind(email, now)
     .all<{ token_hash: string; code_hash: string }>();
+  // Ohne offenen Code gibt es nichts zu raten – gleiche Antwort wie ein falscher Code.
+  if (!results.length) throw wrong();
+  // Den Versuch VOR dem Vergleich atomar reservieren (eine Anweisung, D1 schreibt nacheinander): parallele Anfragen
+  // können die Grenze so nicht überholen. Gezählt wird am neuesten offenen Link.
+  const newest = results[0].token_hash;
+  const reserved = await env.DB.prepare(
+    `UPDATE login_tokens SET code_attempts = code_attempts + 1
+     WHERE token_hash = ?1 AND (SELECT COALESCE(SUM(code_attempts), 0) FROM login_tokens WHERE email = ?2 AND created_at > ?3) < ?4
+     RETURNING 1 AS ok`,
+  )
+    .bind(newest, email, now - 86_400_000, MAX_CODE_FAILURES)
+    .first();
+  if (!reserved) {
+    // Grenze erreicht: offene Codes der Adresse verwerfen – es gilt nur noch der Link.
+    await env.DB.prepare('UPDATE login_tokens SET code_hash = NULL WHERE email = ? AND used_at IS NULL').bind(email).run();
+    throw new HttpError(429, 'code_locked', 'Zu viele falsche Codes. Bitte den Link aus der Mail nutzen oder morgen erneut versuchen.');
+  }
   for (const r of results) {
     if (!timingSafeEqual(await codeHash(r.token_hash, code), r.code_hash)) continue;
     const claimed = await env.DB.prepare('UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ? RETURNING email')
       .bind(now, r.token_hash, now)
       .first<{ email: string }>();
     if (!claimed) break;
+    // Erfolg zählt nicht als Fehlversuch
+    await env.DB.prepare('UPDATE login_tokens SET code_attempts = MAX(0, code_attempts - 1) WHERE token_hash = ?').bind(newest).run();
     return signIn(request, env, claimed.email, now);
   }
-  // Fehlversuch am neuesten offenen Link zählen (auch ohne offenen Link bleibt die Antwort gleich)
-  if (results[0]) await env.DB.prepare('UPDATE login_tokens SET code_attempts = code_attempts + 1 WHERE token_hash = ?').bind(results[0].token_hash).run();
   throw wrong();
 }
 

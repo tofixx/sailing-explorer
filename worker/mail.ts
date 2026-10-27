@@ -20,7 +20,8 @@ export function magicLinkMail(env: Env, to: string, link: string, code: string):
 <p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,monospace">${spaced}</p>
 <p style="color:#5b6b7b;font-size:13px">Link und Code sind 15 Minuten gültig und funktionieren nur einmal. Wenn du das nicht angefordert hast, ignoriere diese Mail einfach.</p>
 </body></html>`;
-  return { to, subject: `Dein Anmeldelink für ${app} (Code ${spaced})`, text, html };
+  // Code bewusst nicht im Betreff (Sperrbildschirm, Mitteilungen) – iOS füllt ihn trotzdem aus der Mail vor.
+  return { to, subject: `Dein Anmeldelink für ${app}`, text, html };
 }
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);

@@ -25,7 +25,7 @@ async function request(mail: string): Promise<{ code: string; token: string }> {
 }
 
 describe('Anmeldung per Code (Konzept 14.6)', () => {
-  it('[F-207] Code ist 6-stellig und gleichverteilt erzeugt', () => {
+  it('[F-207] Code hat immer 6 Ziffern', () => {
     for (let i = 0; i < 200; i++) expect(randomCode()).toMatch(/^\d{6}$/);
   });
 
@@ -34,6 +34,7 @@ describe('Anmeldung per Code (Konzept 14.6)', () => {
     const { code, token } = await request(mail);
     const log = h.logs.filter((l) => l.includes(`[mail:log] an ${mail}:`)).join('\n');
     expect(log).toContain(`${code.slice(0, 3)} ${code.slice(3)}`);
+    expect(log.split('\n')[0]).not.toContain(`${code.slice(0, 3)} ${code.slice(3)}`); // nicht im Betreff
     const res = await post('/api/auth/code', { email: mail.toUpperCase(), code: `${code.slice(0, 3)} ${code.slice(3)}` });
     expect(res.status, await res.clone().text()).toBe(200);
     expect(res.headers.get('Set-Cookie')).toMatch(/sx_session/);
@@ -69,5 +70,30 @@ describe('Anmeldung per Code (Konzept 14.6)', () => {
     const { code } = await request(mail);
     await (await h.db()).prepare('UPDATE login_tokens SET expires_at = ? WHERE email = ?').bind(Date.now() - 1, mail).run();
     expect((await post('/api/auth/code', { email: mail, code })).status).toBe(400);
+  });
+
+  it('[F-207] parallele Fehlversuche überholen die Grenze nicht; danach sind die offenen Codes verworfen', async () => {
+    const mail = email();
+    const { code, token } = await request(mail);
+    const wrong = code === '000000' ? '000001' : '000000';
+    const res = await Promise.all(Array.from({ length: 25 }, () => post('/api/auth/code', { email: mail, code: wrong })));
+    const statuses = res.map((r) => r.status);
+    // nie angemeldet; mindestens eine Anfrage stößt an die Grenze (danach sind die Codes weg → nur noch „ungültig“)
+    expect(statuses).not.toContain(200);
+    expect(statuses).toContain(429);
+    const row = await (await h.db()).prepare('SELECT SUM(code_attempts) AS n, MAX(code_hash IS NULL) AS dropped FROM login_tokens WHERE email = ?').bind(mail).first<{ n: number; dropped: number }>();
+    expect(row?.n).toBeLessThanOrEqual(10);
+    expect(row?.dropped).toBe(1);
+    expect((await post('/api/auth/code', { email: mail, code })).status).not.toBe(200);
+    expect((await post('/api/auth/verify', { token })).status).toBe(200);
+  });
+
+  it('[F-207] Fehlversuche überdauern den nächtlichen Cron bis 24 h nach Ablauf', async () => {
+    const mail = email();
+    await request(mail);
+    await (await h.db()).prepare('UPDATE login_tokens SET code_attempts = 3, expires_at = ? WHERE email = ?').bind(Date.now() - 60_000, mail).run();
+    await h.scheduled();
+    const kept = await (await h.db()).prepare('SELECT SUM(code_attempts) AS n FROM login_tokens WHERE email = ?').bind(mail).first<{ n: number }>();
+    expect(kept?.n).toBe(3);
   });
 });

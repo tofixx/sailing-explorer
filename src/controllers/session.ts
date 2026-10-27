@@ -12,6 +12,7 @@ import {
   type ShareMeta,
   type SharePatch,
   type SupportStatus,
+  type User,
 } from '../services/api';
 import { deflateToBase64Url, gzipString } from '../services/compress';
 import { DEFAULT_CONTENT, imageFileName, renderShareImage, type ImageContent, type ImageFormat } from '../services/share-image';
@@ -154,11 +155,7 @@ export class SessionController {
     if (!email) return;
     Object.assign(this.ui.login, { busy: true, error: '' });
     try {
-      const { user } = await api.verifyCode(email, code);
-      this.store.set({ user });
-      this.channel?.postMessage('login');
-      this.ui.toast(`Angemeldet als ${user.email}`);
-      this.afterLogin();
+      this.loggedIn((await api.verifyCode(email, code)).user);
     } catch (e) {
       this.ui.login.error = errorText(e);
     } finally {
@@ -172,15 +169,20 @@ export class SessionController {
     try {
       const { user } = await api.verify(this.pendingToken);
       this.pendingToken = null;
-      this.store.set({ user });
-      this.channel?.postMessage('login');
-      this.ui.toast(`Angemeldet als ${user.email}`);
-      this.afterLogin();
+      this.loggedIn(user);
     } catch (e) {
       Object.assign(this.ui.login, { confirmEmail: '', error: errorText(e) });
     } finally {
       this.ui.login.busy = false;
     }
+  }
+
+  /** Nach eingelöstem Link oder Code: Konto setzen, andere Tabs informieren, weiter mit dem Vorhaben. */
+  private loggedIn(user: User) {
+    this.store.set({ user });
+    this.channel?.postMessage('login');
+    this.ui.toast(`Angemeldet als ${user.email}`);
+    this.afterLogin();
   }
 
   private afterLogin() {
