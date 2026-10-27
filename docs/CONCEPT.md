@@ -925,8 +925,10 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
 - **Crew erscheint nur auf öffentlichen Törns** – auf der Törn-Ansicht und auf
   dem eigenen Profil („Mitgesegelt“). Für „Nur mit Link“ und „Nur ich“ sehen
   Besucher keine Crew; der Eigentümer sieht sie immer.
-- Namentlich (mit Link zum Profil) nur Mitglieder mit **öffentlichem Profil**;
-  alle anderen zählen nur als „+ n weitere“ (wie der Autor in F-82).
+- Mit Link zum Profil nur Mitglieder mit **öffentlichem Profil**; alle anderen
+  erscheinen unter ihrem Spaßnamen ohne Link – ein Klick zeigt, dass das Profil
+  nicht öffentlich ist (Oktober 2026, vorher nur „+ n weitere“). Anzeige- und
+  Profilname nicht öffentlicher Profile bleiben verborgen.
 - **Crew-Sein öffnet nichts**: Mitgliedschaft gibt keinen Zugriff auf nicht
   öffentliche Törns (ein Schlüssel öffnet genau ein Objekt, 1.2). Admin-Sein
   gibt die Verwalter-Rechte aus `canManageBoat` (bearbeiten, Törns zuordnen,

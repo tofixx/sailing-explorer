@@ -18,6 +18,7 @@ export class SxCrew extends LitElement {
     error: { type: String },
     newLink: { type: String },
     confirm: { state: true },
+    info: { state: true },
   };
   declare crew: Crew | null;
   declare isOwner: boolean;
@@ -29,6 +30,8 @@ export class SxCrew extends LitElement {
   declare newLink: string;
   /** Bestätigung offen: Nutzer-ID (entfernen) oder "me" (selbst entfernen) */
   declare confirm: string | null;
+  /** Name, zu dem der Hinweis „Profil nicht öffentlich“ offen ist (F-134) */
+  declare info: string | null;
 
   constructor() {
     super();
@@ -39,6 +42,7 @@ export class SxCrew extends LitElement {
     this.error = '';
     this.newLink = '';
     this.confirm = null;
+    this.info = null;
   }
 
   static styles = [
@@ -61,6 +65,20 @@ export class SxCrew extends LitElement {
         gap: var(--s-2);
         min-height: var(--control-h-s);
         flex-wrap: wrap;
+      }
+      .linkish {
+        all: unset;
+        cursor: pointer;
+        color: var(--accent);
+        text-decoration: underline dotted;
+      }
+      .linkish:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      li .info {
+        flex-basis: 100%;
+        margin: 0;
       }
       li .name {
         flex: 1;
@@ -150,7 +168,12 @@ export class SxCrew extends LitElement {
     return html`<ul>
       ${c.members.map(
         (m) => html`<li>
-          <span class="name">${icon('user')}${m.handle ? html`<a href="/u/${m.handle}">${m.displayName}</a>` : html`<span>${m.displayName || 'Segler:in'}</span>`}</span>
+          <span class="name">${icon('user')}${m.handle
+            ? html`<a href="/u/${m.handle}">${m.displayName}</a>`
+            : this.isOwner
+              ? html`<span>${m.displayName || 'Segler:in'}</span>`
+              : html`<button class="linkish" type="button" aria-expanded=${this.info === m.displayName} @click=${() => (this.info = this.info === m.displayName ? null : m.displayName)}>${m.displayName || 'Segler:in'}</button>`}</span>
+          ${!m.handle && this.info === m.displayName ? html`<p class="sub info" role="status">${icon('lock')} Das Profil ist nicht öffentlich – mehr ist hier nicht zu sehen.</p>` : ''}
           ${this.isOwner && m.id
             ? this.confirm === m.id
               ? this.confirmRow(`${m.displayName || 'Diese Person'} aus der Crew entfernen?`, () => emit(this, 'sx-crew-remove', { userId: m.id }))

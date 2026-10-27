@@ -295,7 +295,8 @@ async function crewRows(env: Env, shareId: string): Promise<CrewRow[]> {
 
 /**
  * GET /api/shares/:id/crew – wer den Törn sehen darf (gleiche Prüfung wie die Freigabe). Besucher sehen Crew nur bei
- * öffentlichen Törns, namentlich nur mit öffentlichem Profil, sonst als Anzahl (Konzept 10.6). Der Eigentümer sieht alle,
+ * öffentlichen Törns: mit öffentlichem Profil Name und Profil-Link, sonst nur den Spaßnamen ohne Link (F-134; nie den
+ * gewählten Anzeigenamen oder Profilnamen eines nicht öffentlichen Profils, Konzept 10.6). Der Eigentümer sieht alle,
  * mit IDs zum Entfernen und offenen Einladungen.
  */
 export async function getCrew(request: Request, env: Env, id: string): Promise<Response> {
@@ -313,10 +314,13 @@ export async function getCrew(request: Request, env: Env, id: string): Promise<R
     });
   }
   const shown = row.visibility === 'public' ? rows : [];
-  const named = shown.filter((r) => r.visibility === 'public' && r.handle);
   return json({
-    members: named.map((r) => ({ id: null, handle: r.handle, displayName: r.display_name ?? '' })),
-    others: shown.length - named.length,
+    members: shown.map((r) =>
+      r.visibility === 'public' && r.handle
+        ? { id: null, handle: r.handle, displayName: r.display_name ?? '' }
+        : { id: null, handle: null, displayName: funnyName(r.user_id) },
+    ),
+    others: 0,
     isOwner: false,
     isCrew,
     invites: [],
