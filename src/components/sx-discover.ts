@@ -296,6 +296,9 @@ export class SxDiscover extends LitElement {
         flex-wrap: wrap;
         overflow: hidden;
       }
+      a.card.has-cover .txt {
+        flex: 1 1 0;
+      }
       a.card .cv {
         flex: 0 0 calc(100% + 2 * var(--s-4));
         margin: calc(-1 * var(--s-3)) calc(-1 * var(--s-4)) 0;

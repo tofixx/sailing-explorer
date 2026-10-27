@@ -131,6 +131,12 @@ describe('[F-212] shapeItem – Titelbilder nur öffentlicher Objekte', () => {
     expect(closed.cover).toBeUndefined();
   });
 
+  it('Eigner gesperrt: Boot erscheint nicht, Gruppe ohne Titelbild', () => {
+    expect(shapeItem(boatRow({ b_owner_suspended: 1 }), viewer)).toBeNull();
+    const milestone = groupRow({ kind: 'milestone', subject_kind: 'group', subject_id: 'Grp000000000000001', p_id: null, data: '{"nm":100,"year":2026}', cg_ver: 'g1abcd', g_owner_suspended: 1 });
+    expect(shapeItem(milestone, viewer)!.cover).toBeUndefined();
+  });
+
   it('Törns und Beiträge tragen kein Titelbild', () => {
     expect(shapeItem(row({ cb_ver: 'v1abcd', cu_ver: 'u1abcd' }), viewer)!.cover).toBeUndefined();
     expect(shapeItem(groupRow({ cg_ver: 'g1abcd' }), viewer)!.cover).toBeUndefined();

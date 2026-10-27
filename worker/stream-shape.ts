@@ -28,6 +28,8 @@ export interface ActivityRow {
   b_name: string | null;
   b_vis: string | null;
   b_hidden: number | null;
+  /** Eigner des Boots gesperrt – Boot erscheint dann nicht (wie auf /entdecken) */
+  b_owner_suspended?: number | null;
   g_id: string | null;
   g_slug: string | null;
   g_name: string | null;
@@ -35,6 +37,8 @@ export interface ActivityRow {
   g_vis: string | null;
   g_hidden: number | null;
   g_role: string | null;
+  /** Eigner der Gruppe gesperrt – dann ohne Titelbild (wie auf /entdecken nicht gelistet) */
+  g_owner_suspended?: number | null;
   p_id: string | null;
   p_body: string | null;
   p_link: string | null;
@@ -57,11 +61,11 @@ export interface Viewer {
   id: string | null;
 }
 
-const publicBoat = (r: ActivityRow) => (r.b_id && r.b_vis === 'public' && !r.b_hidden ? { id: r.b_id, name: r.b_name ?? '' } : null);
+const publicBoat = (r: ActivityRow) => (r.b_id && r.b_vis === 'public' && !r.b_hidden && !r.b_owner_suspended ? { id: r.b_id, name: r.b_name ?? '' } : null);
 
 /** Titelbilder nur öffentlicher Objekte – die Adresse kommt ohne Schlüssel aus und ist cachebar. */
 const boatCover = (r: ActivityRow) => (publicBoat(r) ? coverRef('b', r.b_id!, r.cb_ver, r.cb_y) : null);
-const groupCover = (r: ActivityRow) => (r.g_id && r.g_vis === 'public' && !r.g_hidden ? coverRef('g', r.g_id, r.cg_ver, r.cg_y) : null);
+const groupCover = (r: ActivityRow) => (r.g_id && r.g_vis === 'public' && !r.g_hidden && !r.g_owner_suspended ? coverRef('g', r.g_id, r.cg_ver, r.cg_y) : null);
 /** `cover` nur setzen, wenn es eins gibt (kein `cover: null` in der Antwort). */
 const withCover = <T extends StreamItem>(item: T, cover: StreamItem['cover'] | null): T => (cover ? { ...item, cover } : item);
 
