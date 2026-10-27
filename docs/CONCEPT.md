@@ -1598,11 +1598,22 @@ wie immer, Reste fallen mit).
 `DELETE /api/admin/:art/:id { confirm }` (`confirm` = ID) löscht über den Löschpfad des Objekts; Konten über
 `purgeUser` (nicht für Admin-Konten). Eine bestehende Sperre endet damit.
 
+### 15.9a Unterstützer-Gutschein
+
+Admins können einem Konto Unterstützer-Status schenken (z. B. für Vereinsvorstände, Tester, Ersatz bei Problemen):
+`POST /api/admin/users/:id/support { seasons, note }` mit 1 – 3 Saisons. Er wirkt genau wie eine Zahlung (Fotos,
+„Nur mit Link“/„Nur ich“, höhere Kontingente, späterer Ablauf der Törns) und wird wie eine Zahlung an eine laufende
+Unterstützung angehängt (`extendSupport`). Gespeichert als Zeile in `supports` mit `provider = 'admin'`, Betrag 0 –
+so bleibt der Status weiter aus den Zeilen abgeleitet (Konzept 5) und nachvollziehbar, woher er kommt.
+`DELETE /api/admin/users/:id/support` entzieht alle Gutscheine des Kontos; bezahlte Unterstützung bleibt. Beides steht
+im Protokoll (`grant_support`, `revoke_support`). Frist: Gutscheine sind keine Buchungen (keine steuerliche
+Aufbewahrung) und werden **2 Jahre nach ihrem Ablauf** gelöscht; Konto löschen löst den Bezug wie bei Zahlungen.
+
 ### 15.10 Admin-Protokoll
 
 Tabelle `admin_log (id, admin_id, action, target_kind, target_id, detail, created_at)`; `admin_id` NULL = nächtlicher
 Lauf. Aktionen: `list`, `view`, `lock`, `extend`, `unlock`, `lock_expired`, `rename`, `owner`, `merge_harbor`,
-`merge_user`, `delete`, dazu die Meldungs-Entscheidungen (`report_keep`, `report_hide`, `report_delete`) und
+`merge_user`, `delete`, `grant_support`, `revoke_support`, dazu die Meldungs-Entscheidungen (`report_keep`, `report_hide`, `report_delete`) und
 `suspend`/`unsuspend`. `detail` ist ein kurzer Text (höchstens 500 Zeichen: Begründung, alter → neuer Name,
 Zahlen) – **keine Mail-Adressen**. Lesen: `GET /api/admin/log?q=&page=` (Suche nach Ziel-ID, Admin oder Aktion).
 

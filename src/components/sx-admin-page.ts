@@ -12,7 +12,7 @@ import { base } from './shared';
 
 type Tab = AdminKind | 'log';
 /** offene Aktion in der Detailansicht */
-type Form = 'lock' | 'rename' | 'owner' | 'merge' | 'delete' | null;
+type Form = 'lock' | 'rename' | 'owner' | 'merge' | 'delete' | 'support' | null;
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : 'Unbekannter Fehler');
 
@@ -436,6 +436,21 @@ export class SxAdminPage extends LitElement {
                     </div>`
                 : nothing}
             </div>`;
+      case 'support':
+        return html`<div class="form">
+          <label class="label" for="seasons">Unterstützer-Gutschein: Saisons</label>
+          <select id="seasons" name="seasons">
+            <option value="1">1 Saison</option><option value="2">2 Saisons</option><option value="3">3 Saisons</option>
+          </select>
+          <label class="label" for="note">Anlass (steht im Protokoll)</label>
+          <input type="text" id="note" name="note" />
+          <p class="hint">Wirkt wie eine Zahlung: Fotos, „Nur mit Link“/„Nur ich“ und die höheren Kontingente, angehängt an eine laufende Unterstützung.</p>
+          <div class="row-actions">
+            <button class="btn primary" ?disabled=${this.busy} @click=${() =>
+              this.act(() => adminApi.grantSupport(i.id, Number(this.value('seasons')), this.value('note')), 'Gutschein zugewiesen')}>Zuweisen</button>
+            <button class="btn ghost" ?disabled=${this.busy} @click=${() => this.act(() => adminApi.revokeSupport(i.id), 'Gutschein entzogen')}>Gutscheine entziehen</button>
+          </div>
+        </div>`;
       case 'delete':
         return html`<div class="form">
           <label class="label" for="confirm">Endgültig löschen – zur Bestätigung die ID eingeben: ${i.id}</label>
@@ -481,12 +496,13 @@ export class SxAdminPage extends LitElement {
                 : nothing}
               ${!locked && kind !== 'shares' ? button('rename', 'Umbenennen') : nothing}
               ${!locked && canOwner ? button('owner', 'Eigner ändern') : nothing}
+              ${!locked && kind === 'users' ? button('support', 'Unterstützer-Gutschein') : nothing}
               ${!locked && (kind === 'harbors' || kind === 'users') ? button('merge', kind === 'users' ? 'Konto verbinden' : 'Zusammenführen') : nothing}
               ${button('delete', 'Endgültig löschen', 'btn small ghost danger')}
             `}
       </div>
       ${this.renderForm(kind, d)}
-      ${this.note ? html`<p class=${this.note.match(/^(Gesperrt|Sperre|Entsperrt|Umbenannt|Eigner|Häfen|Konten|Gelöscht)/) ? 'ok' : 'error'} role="status">${this.note}</p>` : nothing}
+      ${this.note ? html`<p class=${this.note.match(/^(Gesperrt|Sperre|Entsperrt|Umbenannt|Eigner|Häfen|Konten|Gelöscht|Gutschein)/) ? 'ok' : 'error'} role="status">${this.note}</p>` : nothing}
       ${d.log.length
         ? html`<div><strong>Protokoll</strong><ul class="log">${d.log.map((e) => html`<li>${fmtDateTime(e.createdAt)} · ${e.action}${e.detail ? ` · ${e.detail}` : ''} · ${e.adminId ?? 'System'}</li>`)}</ul></div>`
         : nothing}

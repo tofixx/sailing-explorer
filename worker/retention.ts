@@ -220,6 +220,8 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   await step('privacy', env.DB.batch([
     // Offene Meldungen nach 180 Tagen ohne Entscheidung: ohne Meldende und Anmerkung (Datenschutz, Abschnitt 9)
     env.DB.prepare(`UPDATE reports SET reporter_id = NULL, note = '' WHERE resolved_at IS NULL AND created_at < ? AND (reporter_id IS NOT NULL OR note <> '')`).bind(now - OPEN_REPORT_MS),
+    // Gutscheine der Admins (Konzept 15.9a): keine Zahlung, keine Aufbewahrungspflicht – 2 Jahre nach Ablauf gelöscht
+    env.DB.prepare(`DELETE FROM supports WHERE provider = 'admin' AND valid_until < ?`).bind(now - LOG_ACTION_MS),
     // Zahlungen: 10 Jahre nach Ablauf der Unterstützung (steuerliche Aufbewahrung), dann gelöscht
     env.DB.prepare('DELETE FROM supports WHERE valid_until < ? AND created_at < ?').bind(now - SUPPORT_RECORD_MS, now - SUPPORT_RECORD_MS),
   ]), []);

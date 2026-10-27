@@ -202,7 +202,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
             'Passkeys (öffentlicher Schlüssel, Gerätename, letzte Nutzung): bis du sie entfernst oder dein Konto löschst.',
             'Konten ohne Törns, die 12 Monate nicht angemeldet waren (und keine laufende Unterstützung haben), löschen wir automatisch.',
             'Neuigkeiten (Aktivitäts-Log): 12 Monate. Anmeldelinks und -codes: 15 Minuten gültig, gespeichert bis 24 Stunden nach Ablauf (Schutz vor Durchprobieren). Sitzungen: 180 Tage. Einladungen: 14 Tage. Beitrittsanfragen: 90 Tage.',
-            'Zähler gegen Spam (Kommentare, Beiträge, Reaktionen): 24 Stunden. Meldungen: ohne Bezug zur meldenden Person nach der Entscheidung bzw. spätestens nach 180 Tagen, entschiedene gelöscht nach weiteren 180 Tagen. Gesperrte Inhalte und Konten: höchstens 180 Tage je Sperre, dann endgültig gelöscht. Moderationsprotokoll: Einblicke 180 Tage, Entscheidungen 2 Jahre.',
+            'Zähler gegen Spam (Kommentare, Beiträge, Reaktionen): 24 Stunden. Meldungen: ohne Bezug zur meldenden Person nach der Entscheidung bzw. spätestens nach 180 Tagen, entschiedene gelöscht nach weiteren 180 Tagen. Gesperrte Inhalte und Konten: höchstens 180 Tage je Sperre, dann endgültig gelöscht. Moderationsprotokoll: Einblicke 180 Tage, Entscheidungen 2 Jahre. Geschenkter Unterstützer-Status (Gutschein): 2 Jahre nach Ablauf.',
             'Server-Logs bei Cloudflare: wenige Tage. Zahlungsbelege: 10 Jahre nach Ablauf der Unterstützung (siehe Abschnitt 7).',
           ),
         ],

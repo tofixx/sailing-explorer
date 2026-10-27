@@ -1,7 +1,7 @@
 // Routen des Admin-Bereichs (Konzept 15) – als eigener Block, damit worker/index.ts nur eine Zeile braucht.
 // Jeder Handler prüft selbst requireAdmin (404 für alle anderen).
 import type { Env } from './env';
-import { adminDelete, adminDetail, adminList, adminLock, adminLogList, adminOwner, adminRename, adminUnlock } from './admin';
+import { adminDelete, adminDetail, adminGrantSupport, adminList, adminLock, adminLogList, adminOwner, adminRename, adminRevokeSupport, adminUnlock } from './admin';
 import { mergeHarbor, mergeUserPreview, mergeUsers } from './admin-merge';
 
 type Handler = (request: Request, env: Env, params: string[]) => Promise<Response>;
@@ -15,6 +15,8 @@ export const adminRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['POST', new RegExp(`^/api/admin/harbors/${ID}/merge$`), (r, env, [id]) => mergeHarbor(r, env, id)],
   ['GET', new RegExp(`^/api/admin/users/${ID}/merge$`), (r, env, [id]) => mergeUserPreview(r, env, id)],
   ['POST', new RegExp(`^/api/admin/users/${ID}/merge$`), (r, env, [id]) => mergeUsers(r, env, id)],
+  ['POST', new RegExp(`^/api/admin/users/${ID}/support$`), (r, env, [id]) => adminGrantSupport(r, env, id)],
+  ['DELETE', new RegExp(`^/api/admin/users/${ID}/support$`), (r, env, [id]) => adminRevokeSupport(r, env, id)],
   ['PUT', new RegExp(`^/api/admin/${KIND}/${ID}/lock$`), (r, env, [k, id]) => adminLock(r, env, k, id)],
   ['DELETE', new RegExp(`^/api/admin/${KIND}/${ID}/lock$`), (r, env, [k, id]) => adminUnlock(r, env, k, id)],
   ['POST', new RegExp(`^/api/admin/${KIND}/${ID}/owner$`), (r, env, [k, id]) => adminOwner(r, env, k, id)],

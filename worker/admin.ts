@@ -9,6 +9,8 @@ import { LIMITS, SHARE_ID_RE, cleanText, normalizeHandle } from './validate';
 import { HARBOR_LIMITS, harborKey } from '../src/domain/harbors';
 import { normalizeSlug } from '../src/domain/groups';
 import { funnyName } from '../src/domain/names';
+import { extendSupport } from '../src/domain/support';
+import { randomId } from './crypto';
 import { sharePath, type Visibility } from '../src/domain/visibility';
 import {
   ADMIN_LIMITS, LOCK_KIND, isAdminKind, parseAdminFilter, parsePage,
@@ -383,6 +385,44 @@ export async function adminDelete(request: Request, env: Env, rawKind: string, i
   await removeTarget(env, lk, id);
   await adminLogStmt(env, admin.id, 'delete', lk, id, row?.name ?? '').run();
   return new Response(null, { status: 204 });
+}
+
+/**
+ * POST /api/admin/users/:id/support { seasons, note } – Unterstützer-Gutschein (Konzept 15.9a): 1 – 3 Saisons wie eine
+ * Zahlung (an eine laufende Unterstützung angehängt), als Zeile in `supports` mit provider 'admin' und Betrag 0.
+ */
+export async function adminGrantSupport(request: Request, env: Env, id: string): Promise<Response> {
+  const admin = await requireAdmin(request, env);
+  await target(env, 'users', id);
+  const body = await readJson<{ seasons?: unknown; note?: unknown }>(request);
+  const seasons = body.seasons;
+  if (typeof seasons !== 'number' || !Number.isInteger(seasons) || seasons < 1 || seasons > ADMIN_LIMITS.grantSeasonsMax) {
+    throw new HttpError(400, 'invalid_seasons', `Bitte 1 bis ${ADMIN_LIMITS.grantSeasonsMax} Saisons wählen.`);
+  }
+  const note = cleanText(body.note, ADMIN_LIMITS.reasonMax);
+  const now = Date.now();
+  let until = (await env.DB.prepare('SELECT MAX(valid_until) AS u FROM supports WHERE user_id = ?').bind(id).first<{ u: number | null }>())?.u ?? null;
+  for (let i = 0; i < seasons; i++) until = extendSupport(until, now);
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at, valid_until) VALUES (?, ?, 'admin', ?, 0, '', ?, ?)`,
+    ).bind(randomId(), id, `admin:${randomId()}`, now, until),
+    adminLogStmt(env, admin.id, 'grant_support', 'user', id, `${seasons} Saison(s) bis ${new Date(until!).toISOString().slice(0, 10)}${note ? ` – ${note}` : ''}`, now),
+  ]);
+  return json({ supporterUntil: until });
+}
+
+/** DELETE /api/admin/users/:id/support – alle Gutscheine des Kontos entziehen; bezahlte Unterstützung bleibt. */
+export async function adminRevokeSupport(request: Request, env: Env, id: string): Promise<Response> {
+  const admin = await requireAdmin(request, env);
+  await target(env, 'users', id);
+  const [res] = await env.DB.batch([
+    env.DB.prepare(`DELETE FROM supports WHERE user_id = ? AND provider = 'admin'`).bind(id),
+    adminLogStmt(env, admin.id, 'revoke_support', 'user', id),
+  ]);
+  if (!res.meta.changes) throw new HttpError(404, 'no_grant', 'Dieses Konto hat keinen Gutschein.');
+  const u = await env.DB.prepare('SELECT MAX(valid_until) AS u FROM supports WHERE user_id = ?').bind(id).first<{ u: number | null }>();
+  return json({ supporterUntil: u?.u ?? null });
 }
 
 /** GET /api/admin/log?q=&page= – Protokoll, neueste zuerst; q = Ziel-ID, Admin-ID oder Aktion (F-242). */

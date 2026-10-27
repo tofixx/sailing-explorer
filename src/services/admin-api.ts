@@ -60,5 +60,8 @@ export const adminApi = {
   mergeHarbor: (id: string, into: string) => call<{ moved: Record<string, number> }>(`/api/admin/harbors/${enc(id)}/merge`, jsonInit('POST', { into })),
   mergePreview: (id: string, into: string) => call<MergePreview>(`/api/admin/users/${enc(id)}/merge?into=${enc(into)}`),
   mergeUsers: (id: string, into: string, confirm: string) => call<{ ok: true }>(`/api/admin/users/${enc(id)}/merge`, jsonInit('POST', { into, confirm })),
+  grantSupport: (id: string, seasons: number, note: string) =>
+    call<{ supporterUntil: number }>(`/api/admin/users/${enc(id)}/support`, jsonInit('POST', { seasons, note })),
+  revokeSupport: (id: string) => call<{ supporterUntil: number | null }>(`/api/admin/users/${enc(id)}/support`, { method: 'DELETE' }),
   log: (q: string, page: number) => call<{ entries: AdminLogEntry[]; page: number; more: boolean }>(`/api/admin/log?${new URLSearchParams({ q, page: String(page) })}`),
 };

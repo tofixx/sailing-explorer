@@ -48,6 +48,8 @@ export const ADMIN_LIMITS = {
   detailMax: 500,
   /** endgültige Löschungen abgelaufener Sperren je Nacht (Free-Tier-Budget) */
   expirePerNight: 20,
+  /** Saisons je Unterstützer-Gutschein (Konzept 15.9a) */
+  grantSeasonsMax: 3,
 } as const;
 
 /** Sperrfrist (Konzept 15.4): 180 Tage, jede Verlängerung wieder 180 Tage ab dann. */

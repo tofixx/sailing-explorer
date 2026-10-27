@@ -362,6 +362,30 @@ describe('Admin-Bereich (Konzept 15)', () => {
     expect(await one('SELECT id FROM users WHERE id = ?', q.user.id)).toBeNull();
   });
 
+  it('[F-243] Unterstützer-Gutschein: wirkt wie eine Zahlung, entziehen lässt bezahlte Unterstützung stehen', async () => {
+    const p = await s.person({ profile: 'public' });
+    type Support = { supporter: boolean; supporterUntil: number | null };
+    expect((await json<Support>(await s.send('GET', '/api/me/support', p.cookie))).supporter).toBe(false);
+    expect(await s.errorOf(await A('POST', `/api/admin/users/${p.user.id}/support`, { seasons: 4 }))).toBe('invalid_seasons');
+    expect((await s.send('POST', `/api/admin/users/${p.user.id}/support`, p.cookie, { seasons: 1 })).status).toBe(404);
+    const one1 = await json<{ supporterUntil: number }>(await A('POST', `/api/admin/users/${p.user.id}/support`, { seasons: 1, note: 'Vereinsvorstand' }));
+    expect(one1.supporterUntil).toBeGreaterThan(Date.now());
+    expect((await json<Support>(await s.send('GET', '/api/me/support', p.cookie))).supporter).toBe(true);
+    // zweiter Gutschein wird angehängt (eine Saison später)
+    const two = await json<{ supporterUntil: number }>(await A('POST', `/api/admin/users/${p.user.id}/support`, { seasons: 1 }));
+    expect(new Date(two.supporterUntil).getUTCFullYear()).toBe(new Date(one1.supporterUntil).getUTCFullYear() + 1);
+    expect(await one(`SELECT 1 AS x FROM admin_log WHERE action = 'grant_support' AND target_id = ? AND detail LIKE '%Vereinsvorstand%'`, p.user.id)).not.toBeNull();
+    // bezahlte Unterstützung bleibt beim Entziehen
+    await (await s.db()).prepare(`INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at, valid_until) VALUES ('paid-1', ?, 'stripe', 'cs_test_paid1', 500, 'eur', ?, ?)`).bind(p.user.id, Date.now(), Date.now() + 30 * DAY).run();
+    expect((await A('DELETE', `/api/admin/users/${p.user.id}/support`)).status).toBe(200);
+    expect(await one<{ n: number }>(`SELECT COUNT(*) AS n FROM supports WHERE user_id = ?`, p.user.id)).toEqual({ n: 1 });
+    expect((await A('DELETE', `/api/admin/users/${p.user.id}/support`)).status).toBe(404);
+    // Frist: abgelaufene Gutscheine nach 2 Jahren weg
+    await (await s.db()).prepare(`INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at, valid_until) VALUES ('alt-gutschein', ?, 'admin', 'admin:alt', 0, '', ?, ?)`).bind(p.user.id, Date.now() - 900 * DAY, Date.now() - 800 * DAY).run();
+    await h.scheduled();
+    expect(await one(`SELECT 1 AS x FROM supports WHERE id = 'alt-gutschein'`)).toBeNull();
+  });
+
   it('[F-242] Protokoll: Aktionen lesbar, ohne Mail-Adressen; Fristen 180 Tage für Einblicke, 2 Jahre für Aktionen', async () => {
     const p = await s.person({ profile: 'public' });
     await A('PUT', `/api/admin/users/${p.user.id}/lock`, { reason: 'Test' });
