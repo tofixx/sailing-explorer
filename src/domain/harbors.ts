@@ -17,7 +17,7 @@ export const HARBOR_LIMITS = {
 
 const UMLAUTS: Record<string, string> = { Ä: 'ae', ä: 'ae', Ö: 'oe', ö: 'oe', Ü: 'ue', ü: 'ue', ß: 'ss' };
 
-/** Satzzeichen, die beim Vergleich wie Leerzeichen zählen – dieselbe Liste steht in migrations/0012_social.sql. */
+/** Satzzeichen, die beim Vergleich wie Leerzeichen zählen – dieselbe Liste steht in migrations/0013_social.sql. */
 export const HARBOR_PUNCTUATION = ['.', ',', '-', '_', '/', '(', ')', "'", '"', ':', ';', '&', '+'] as const;
 const PUNCT_RE = /[.,\-_/()'":;&+]/g;
 

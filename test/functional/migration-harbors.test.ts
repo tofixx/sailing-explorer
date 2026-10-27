@@ -1,4 +1,4 @@
-// Migrationstest 0012 (F-175): freie Heimathafen-Texte werden zu Häfen – je normalisiertem Namen genau einer, die
+// Migrationstest 0013 (F-175): freie Heimathafen-Texte werden zu Häfen – je normalisiertem Namen genau einer, die
 // Boote werden zugeordnet. Die SQL-Normalisierung muss exakt harborKey (src/domain/harbors.ts) entsprechen.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations, migrationFiles, startWorker, type Harness } from './worker-harness';
@@ -23,7 +23,7 @@ const NAMES: Array<[boat: string, port: string]> = [
 ];
 
 beforeAll(async () => {
-  h = await startWorker({}, { migrateBefore: '0012' });
+  h = await startWorker({}, { migrateBefore: '0013' });
   const db = await h.db();
   await db.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)').bind('MigUserAAAAAAAAAAA', 'mig@example.org', T).run();
   for (const [id, port] of NAMES) {
@@ -32,8 +32,8 @@ beforeAll(async () => {
       .bind(id, port, T, T)
       .run();
   }
-  expect(migrationFiles({ from: '0012' })[0]).toBe('0012_social.sql');
-  await applyMigrations(db, migrationFiles({ from: '0012' }));
+  expect(migrationFiles({ from: '0013' })[0]).toBe('0013_social.sql');
+  await applyMigrations(db, migrationFiles({ from: '0013' }));
 }, 60_000);
 afterAll(async () => {
   await h?.dispose();

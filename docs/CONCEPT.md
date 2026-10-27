@@ -1095,7 +1095,7 @@ Stand: Oktober 2026. Modell des Betreibers: *„Personen haben einen Verein, Boo
 aus Personen, und der Stream soll Verein, Heimathafen und die der Teammitglieder zusammenstellen. Reaktionen dazu
 packen. Die Startseite so umstellen, dass Hochladen und Track anlegen in den Hintergrund kommen und der
 Community-Stream hervorgehoben wird.“* Anforderungen: **F-170 ff.** (`REQUIREMENTS.md`). Umsetzung:
-`migrations/0012_social.sql`, `worker/harbors.ts`, `worker/home.ts`, `worker/reactions.ts`, `worker/stream.ts`,
+`migrations/0013_social.sql`, `worker/harbors.ts`, `worker/home.ts`, `worker/reactions.ts`, `worker/stream.ts`,
 `src/domain/harbors.ts`, `src/domain/reactions.ts`, `src/content/legal.ts`, `sx-home-feed`, `sx-reactions`,
 `sx-harbor-page`, `sx-legal-page`.
 
@@ -1124,7 +1124,7 @@ Hafens), Kennzahlen, öffentliche Boote mit diesem Hafen, deren öffentliche Tö
 | Sichtbarkeit | Häfen sind immer öffentlich (nur Name und Ort); gelistet werden darin nur öffentliche, nicht ausgeblendete Boote und öffentliche Törns. Melden wie Gruppen (`harbor`), ausgeblendet = wie nicht existent |
 | Heimathafen einer Person | ausdrückliche Wahl (`users.home_harbor_id`), sonst der häufigste Hafen der eigenen Boote. Auf dem Profil nur die ausdrückliche Wahl oder ein Hafen eines **öffentlichen** eigenen Boots |
 | Verein des Boots | bleibt `group_boats` (mehrere möglich); Bootsseite zeigt „Verein“ für öffentliche, nicht ausgeblendete Vereine |
-| Migration | `0012_social.sql` legt je verschiedenem normalisiertem `home_port` einen Hafen an und ordnet die Boote zu – Regel identisch mit `harborKey` (ein Test vergleicht SQL und TypeScript). Es wird nichts vorbefüllt |
+| Migration | `0013_social.sql` legt je verschiedenem normalisiertem `home_port` einen Hafen an und ordnet die Boote zu – Regel identisch mit `harborKey` (ein Test vergleicht SQL und TypeScript). Es wird nichts vorbefüllt |
 
 ### 12.3 Teams
 

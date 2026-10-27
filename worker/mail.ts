@@ -160,7 +160,7 @@ export function groupDigestMail(env: Env, to: string, origin: string, groups: Gr
 
 /**
  * Fußzeile jeder Mail mit Impressum und Datenschutz (Konzept 12.7, F-183). Origin aus APP_ORIGIN (Konfiguration,
- * kein Nutzertext); ohne Konfiguration die Hauptadresse.
+ * kein Nutzertext); ohne Konfiguration keine Fußzeile (keine fest eingebaute Domain).
  */
 export function withLegalFooter(mail: Mail, origin: string): Mail {
   const base = origin.replace(/\/+$/, '');
@@ -171,7 +171,8 @@ export function withLegalFooter(mail: Mail, origin: string): Mail {
 }
 
 export async function sendMail(env: Env, plain: Mail): Promise<void> {
-  const mail = withLegalFooter(plain, env.APP_ORIGIN || 'https://sailing.wollow.ski');
+  // Nur mit konfigurierter Adresse (APP_ORIGIN, je Umgebung) – keine fest eingebaute Domain.
+  const mail = env.APP_ORIGIN ? withLegalFooter(plain, env.APP_ORIGIN) : plain;
   switch (env.MAIL_PROVIDER) {
     case 'resend': {
       if (!env.RESEND_API_KEY) throw new HttpError(503, 'mail_unconfigured', 'Mailversand ist nicht eingerichtet.');

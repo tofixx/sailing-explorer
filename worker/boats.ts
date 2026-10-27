@@ -21,7 +21,7 @@ interface BoatRow {
   sail_number: string;
   /** Anzeige-Kopie des Hafennamens (Konzept 12.2) */
   home_port: string;
-  /** Hafen des Boots (0012) */
+  /** Hafen des Boots (0013) */
   harbor_id?: string | null;
   description: string;
   visibility: Visibility;

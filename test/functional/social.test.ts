@@ -14,7 +14,7 @@ const ADMIN_ID = 'AdminUserAAAAAAAAAA';
 let admin: Person;
 
 beforeAll(async () => {
-  h = await startWorker({ ADMIN_USER_IDS: ADMIN_ID });
+  h = await startWorker({ ADMIN_USER_IDS: ADMIN_ID, APP_ORIGIN: 'https://segeln.example' });
   s = social(h);
   await (await h.db()).prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)').bind(ADMIN_ID, 'admin-social@example.org', Date.now() - 10 * DAY).run();
   admin = { ...(await login(h, 'admin-social@example.org')), email: 'admin-social@example.org' };
@@ -496,13 +496,13 @@ describe('F-179/F-180 Reaktionen', () => {
 });
 
 describe('F-183 Rechtliches in Mails', () => {
-  it('[F-183] jede Mail nennt Impressum und Datenschutz', async () => {
+  it('[F-183] jede Mail nennt Impressum und Datenschutz unter der konfigurierten Adresse (APP_ORIGIN)', async () => {
     const before = h.logs.length;
     await s.person();
     const mail = h.logs.slice(before).find((l) => l.includes('[mail:log]'));
     expect(mail).toBeDefined();
-    expect(mail).toContain('Impressum: https://sailing.wollow.ski/impressum');
-    expect(mail).toContain('Datenschutz: https://sailing.wollow.ski/datenschutz');
+    expect(mail).toContain('Impressum: https://segeln.example/impressum');
+    expect(mail).toContain('Datenschutz: https://segeln.example/datenschutz');
   });
 });
 
