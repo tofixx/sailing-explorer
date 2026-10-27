@@ -1,5 +1,5 @@
 import { inviteWhat } from '../domain/invite-text';
-import { passkeysSupported } from './sx-login-dialog';
+import { passkeysSupported } from '../services/passkey';
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, HomeInfo, Linkable, MyInvite, Profile, ShareMeta, SupportStatus, User, PasskeyInfo } from '../services/api';
 import type { SxHarborPicker } from './sx-harbor-picker';

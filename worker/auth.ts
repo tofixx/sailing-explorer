@@ -207,17 +207,20 @@ export async function verifyCode(request: Request, env: Env): Promise<Response> 
 }
 
 /** Konto zur Adresse holen oder anlegen und eine Sitzung setzen – nach eingelöstem Link oder Code. */
-export async function signIn(request: Request, env: Env, email: string, now: number): Promise<Response> {
+async function signIn(request: Request, env: Env, email: string, now: number): Promise<Response> {
   let user = await env.DB.prepare('SELECT id, email FROM users WHERE email = ?').bind(email).first<User>();
   if (!user) {
     user = { id: randomId(), email };
     await env.DB.prepare('INSERT INTO users (id, email, created_at, last_login) VALUES (?, ?, ?, ?)')
       .bind(user.id, user.email, now, now)
       .run();
-  } else {
-    await env.DB.prepare('UPDATE users SET last_login = ? WHERE id = ?').bind(now, user.id).run();
   }
+  return startSession(request, env, user, now);
+}
 
+/** Sitzung für ein bestehendes Konto setzen (Link, Code, Passkey) und die letzte Anmeldung vermerken. */
+export async function startSession(request: Request, env: Env, user: User, now: number): Promise<Response> {
+  await env.DB.prepare('UPDATE users SET last_login = ? WHERE id = ?').bind(now, user.id).run();
   const session = randomToken();
   const maxAge = SESSION_DAYS * 86_400;
   await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
@@ -270,6 +273,9 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
     env.DB.prepare('DELETE FROM shares WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM login_tokens WHERE email = ?').bind(user.email),
+    // Passkeys und offene Challenges ausdrücklich (nicht nur per Fremdschlüssel) – ein Löschpfad je Objekt
+    env.DB.prepare('DELETE FROM passkeys WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM webauthn_challenges WHERE user_id = ?').bind(user.id),
     // Explizit statt nur per ON DELETE CASCADE: Törns anderer Nutzer verlieren nur die Bootszuordnung.
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id),
     env.DB.prepare('DELETE FROM boat_admins WHERE user_id = ? OR boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id, user.id),

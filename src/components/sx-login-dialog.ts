@@ -1,5 +1,4 @@
-/** Kann der Browser Passkeys (WebAuthn)? */
-export const passkeysSupported = () => typeof window !== 'undefined' && 'PublicKeyCredential' in window;
+import { passkeysSupported } from '../services/passkey';
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';

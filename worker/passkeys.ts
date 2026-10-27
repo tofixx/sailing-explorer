@@ -11,7 +11,8 @@ import {
 } from '@simplewebauthn/server';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import type { Env } from './env';
-import { requireUser, signIn } from './auth';
+import { requireUser, startSession } from './auth';
+import { passkeyAddedMail, sendMail } from './mail';
 import { randomId } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { assertActive } from './moderation';
@@ -34,8 +35,14 @@ interface PasskeyRow {
   last_used_at: number | null;
 }
 
-/** Relying Party = der Host der Anfrage (Passkeys gelten nur für genau diese Domain). */
-function rp(request: Request) {
+/**
+ * Relying Party: die Hauptdomain (CANONICAL_HOST) – Alias-Hosts leiten ohnehin dorthin um, und so binden sich Passkeys
+ * nie an einen anderen Host derselben Datenbank (z. B. workers.dev). Ohne Hauptdomain (Vorschau, lokal) der Host der
+ * Anfrage. Die Herkunft wird exakt verglichen – Subdomains anderer Dienste kommen damit nicht durch.
+ */
+function rp(request: Request, env: Env) {
+  const host = env.CANONICAL_HOST?.trim().toLowerCase();
+  if (host) return { id: host, origin: `https://${host}` };
   const url = new URL(request.url);
   return { id: url.hostname, origin: url.origin };
 }
@@ -68,7 +75,7 @@ export async function registerOptions(request: Request, env: Env): Promise<Respo
   await assertActive(env, user);
   const { results } = await env.DB.prepare('SELECT id, transports FROM passkeys WHERE user_id = ?').bind(user.id).all<Pick<PasskeyRow, 'id' | 'transports'>>();
   if (results.length >= MAX_PASSKEYS) throw new HttpError(409, 'quota', `Höchstens ${MAX_PASSKEYS} Passkeys pro Konto – lösche zuerst einen alten.`);
-  const { id: rpID } = rp(request);
+  const { id: rpID } = rp(request, env);
   const options = await generateRegistrationOptions({
     rpName: env.APP_NAME,
     rpID,
@@ -76,7 +83,8 @@ export async function registerOptions(request: Request, env: Env): Promise<Respo
     userID: new Uint8Array(new TextEncoder().encode(user.id)),
     attestationType: 'none',
     excludeCredentials: results.map((p) => ({ id: p.id, transports: p.transports ? p.transports.split(',') : undefined })),
-    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+    // Fingerabdruck, Face ID oder Geräte-PIN sind Pflicht (Konzept 14.7)
+    authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
   });
   return json({ options, challengeId: await newChallenge(env, options.challenge, 'register', user.id) });
 }
@@ -87,7 +95,7 @@ export async function registerVerify(request: Request, env: Env): Promise<Respon
   const body = await readJson<{ challengeId?: unknown; response?: unknown; name?: unknown }>(request);
   const ch = await takeChallenge(env, body.challengeId, 'register');
   if (!ch || ch.user_id !== user.id) throw FAILED();
-  const { id: rpID, origin } = rp(request);
+  const { id: rpID, origin } = rp(request, env);
   let result;
   try {
     result = await verifyRegistrationResponse({
@@ -95,15 +103,13 @@ export async function registerVerify(request: Request, env: Env): Promise<Respon
       expectedChallenge: ch.challenge,
       expectedOrigin: origin,
       expectedRPID: rpID,
-      requireUserVerification: false,
+      requireUserVerification: true,
     });
   } catch {
     throw FAILED();
   }
   if (!result.verified) throw FAILED();
   const c = result.registrationInfo.credential;
-  const count = (await env.DB.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').bind(user.id).first<{ n: number }>())?.n ?? 0;
-  if (count >= MAX_PASSKEYS) throw new HttpError(409, 'quota', `Höchstens ${MAX_PASSKEYS} Passkeys pro Konto – lösche zuerst einen alten.`);
   const row: PasskeyRow = {
     id: c.id,
     user_id: user.id,
@@ -114,12 +120,20 @@ export async function registerVerify(request: Request, env: Env): Promise<Respon
     created_at: Date.now(),
     last_used_at: null,
   };
+  // Atomar: nur unter der Grenze pro Konto und nur mit neuer Credential-ID (fremde IDs lassen sich nicht übernehmen).
   const ins = await env.DB.prepare(
-    'INSERT OR IGNORE INTO passkeys (id, user_id, public_key, counter, transports, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    `INSERT OR IGNORE INTO passkeys (id, user_id, public_key, counter, transports, name, created_at)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE (SELECT COUNT(*) FROM passkeys WHERE user_id = ?2) < ?8`,
   )
-    .bind(row.id, row.user_id, row.public_key, row.counter, row.transports, row.name, row.created_at)
+    .bind(row.id, row.user_id, row.public_key, row.counter, row.transports, row.name, row.created_at, MAX_PASSKEYS)
     .run();
-  if (!ins.meta.changes) throw new HttpError(409, 'passkey_exists', 'Dieser Passkey ist schon angelegt.');
+  if (!ins.meta.changes) throw new HttpError(409, 'passkey_rejected', `Dieser Passkey lässt sich nicht anlegen (schon vorhanden oder schon ${MAX_PASSKEYS} Passkeys).`);
+  // Hinweis per Mail: wer eine fremde Sitzung nutzt, hinterlegt so nicht unbemerkt einen dauerhaften Zugang.
+  try {
+    await sendMail(env, passkeyAddedMail(env, user.email, new URL(request.url).origin, row.name));
+  } catch (err) {
+    console.error('passkey mail failed', err);
+  }
   return json({ passkey: shape(row) }, { status: 201 });
 }
 
@@ -133,7 +147,7 @@ export async function listPasskeys(request: Request, env: Env): Promise<Response
 /** DELETE /api/passkeys/:id – eigenen Passkey entfernen (fremde verhalten sich wie unbekannt). */
 export async function deletePasskey(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
-  const res = await env.DB.prepare('DELETE FROM passkeys WHERE id = ? AND user_id = ?').bind(decodeURIComponent(id), user.id).run();
+  const res = await env.DB.prepare('DELETE FROM passkeys WHERE id = ? AND user_id = ?').bind(id, user.id).run();
   if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Diesen Passkey gibt es nicht (mehr).');
   return new Response(null, { status: 204 });
 }
@@ -143,7 +157,7 @@ export async function deletePasskey(request: Request, env: Env, id: string): Pro
 /** POST /api/auth/passkey/options – Optionen zum Anmelden; der Browser bietet die passenden Passkeys selbst an. */
 export async function loginOptions(request: Request, env: Env): Promise<Response> {
   await rateLimit(env.AUTH_LIMITER, `passkey:${clientIp(request)}`);
-  const options = await generateAuthenticationOptions({ rpID: rp(request).id, userVerification: 'preferred' });
+  const options = await generateAuthenticationOptions({ rpID: rp(request, env).id, userVerification: 'required' });
   return json({ options, challengeId: await newChallenge(env, options.challenge, 'login', null) });
 }
 
@@ -160,7 +174,7 @@ export async function loginVerify(request: Request, env: Env): Promise<Response>
     .bind(response.id)
     .first<PasskeyRow & { email: string }>();
   if (!pk) throw FAILED();
-  const { id: rpID, origin } = rp(request);
+  const { id: rpID, origin } = rp(request, env);
   let result;
   try {
     result = await verifyAuthenticationResponse({
@@ -169,7 +183,7 @@ export async function loginVerify(request: Request, env: Env): Promise<Response>
       expectedOrigin: origin,
       expectedRPID: rpID,
       credential: { id: pk.id, publicKey: isoBase64URL.toBuffer(pk.public_key), counter: pk.counter, transports: pk.transports ? pk.transports.split(',') : undefined },
-      requireUserVerification: false,
+      requireUserVerification: true,
     });
   } catch {
     throw FAILED();
@@ -177,5 +191,6 @@ export async function loginVerify(request: Request, env: Env): Promise<Response>
   if (!result.verified) throw FAILED();
   const now = Date.now();
   await env.DB.prepare('UPDATE passkeys SET counter = ?, last_used_at = ? WHERE id = ?').bind(result.authenticationInfo.newCounter, now, pk.id).run();
-  return signIn(request, env, pk.email, now);
+  // Über die Konto-ID, nicht die Adresse: ein gerade gelöschtes Konto entsteht so nicht neu.
+  return startSession(request, env, { id: pk.user_id, email: pk.email }, now);
 }

@@ -195,6 +195,7 @@ export class App {
   async start(): Promise<void> {
     this.session.checkBackend();
     this.handleSupportParam();
+    void this.handleAccountParam();
     const route = parseRoute(location);
     // Community-Leiste nur auf der Startseite; lädt nebenbei und blockiert nichts.
     this.homeRoute = route.kind === 'home' || route.kind === 'login' || route.kind === 'invite';
@@ -247,6 +248,16 @@ export class App {
     url.searchParams.delete('support');
     history.replaceState(history.state, '', url.pathname + url.search + url.hash);
     if (kind === 'success' || kind === 'cancel' || kind === 'open') void this.session.supportReturn(kind);
+  }
+
+  /** ?konto=einstellungen (Mail „Neuer Passkey“): Konto bei den Einstellungen öffnen, Parameter entfernen. */
+  private async handleAccountParam() {
+    const url = new URL(location.href);
+    if (url.searchParams.get('konto') !== 'einstellungen') return;
+    url.searchParams.delete('konto');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    await this.session.backendReady;
+    void this.session.openAccount('settings');
   }
 
   // ---------------------------------------------------------------- Rendering

@@ -1,4 +1,6 @@
 import { metricRange } from '../domain/metrics';
+import { PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
+import { deviceName } from '../domain/device';
 import { passkeyApi } from '../services/api';
 import { inviteAcceptedText } from '../domain/invite-text';
 import { shareSummary } from '../domain/summary';
@@ -50,24 +52,13 @@ export interface ShareRequest {
 }
 
 /**
- * Alles rund um Konto und Server: Anmelden per Magic Link, Teilen, Profil, Boote, Freigaben.
+ * Alles rund um Konto und Server: Anmelden per Magic Link, Code oder Passkey, Teilen, Profil, Boote, Freigaben.
  * Kennt Store und Dialoge, aber weder Karte noch Track-Darstellung.
  */
-/** Der Nutzer hat den Passkey-Dialog abgebrochen (bzw. der Browser hat ihn abgelehnt) – kein Fehler zum Anzeigen. */
-const isPasskeyCancel = (e: unknown) => e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'AbortError');
-
-/** Name für einen neuen Passkey: grob das Gerät, damit man ihn in der Liste wiedererkennt. */
-function deviceName(ua = navigator.userAgent): string {
-  if (/iPhone/.test(ua)) return 'iPhone';
-  if (/iPad|Macintosh/.test(ua) && navigator.maxTouchPoints > 1) return 'iPad';
-  if (/Android/.test(ua)) return 'Android';
-  if (/Macintosh/.test(ua)) return 'Mac';
-  if (/Windows/.test(ua)) return 'Windows';
-  if (/Linux/.test(ua)) return 'Linux';
-  return 'Passkey';
-}
-
 export class SessionController {
+  /** Passkey-Optionen vorab (Safari: der WebAuthn-Aufruf muss direkt aus dem Klick kommen) */
+  private passkeyLogin = new PreparedOptions(() => passkeyApi.loginOptions());
+  private passkeyRegister = new PreparedOptions(() => passkeyApi.registerOptions());
   private pendingShare = false;
   private lastShare: { key: string; share: ShareMeta } | null = null;
   private pendingToken: string | null = null;
@@ -128,6 +119,14 @@ export class SessionController {
 
   openLogin(reason = ''): void {
     Object.assign(this.ui.login, { open: true, reason, error: '', sentTo: '', devLink: '', devCode: '', confirmEmail: '', busy: false });
+    this.preparePasskeyLogin();
+  }
+
+  /** Bibliothek und Anmelde-Optionen schon beim Öffnen holen (Konzept 14.7). */
+  private preparePasskeyLogin() {
+    if (!passkeysSupported()) return;
+    void passkeyLib().catch(() => undefined);
+    this.passkeyLogin.prefetch();
   }
 
   async requestLink(email: string, turnstile: string | null): Promise<void> {
@@ -184,12 +183,13 @@ export class SessionController {
   async loginWithPasskey(): Promise<void> {
     Object.assign(this.ui.login, { busy: true, error: '' });
     try {
-      const { startAuthentication } = await import('@simplewebauthn/browser');
-      const { options, challengeId } = await passkeyApi.loginOptions();
+      // beide sind beim Öffnen vorgeladen – hier nur noch Mikrotasks bis zum Browser-Dialog
+      const [{ startAuthentication }, { options, challengeId }] = await Promise.all([passkeyLib(), this.passkeyLogin.take()]);
       const response = await startAuthentication({ optionsJSON: options });
       this.loggedIn((await passkeyApi.login(challengeId, response)).user);
     } catch (e) {
       if (!isPasskeyCancel(e)) this.ui.login.error = errorText(e);
+      this.passkeyLogin.prefetch(); // für den nächsten Versuch
     } finally {
       this.ui.login.busy = false;
     }
@@ -198,16 +198,17 @@ export class SessionController {
   /** Passkey für dieses Gerät anlegen (Konto, Einstellungen). */
   addPasskey() {
     return this.act(async () => {
-      const { startRegistration } = await import('@simplewebauthn/browser');
-      const { options, challengeId } = await passkeyApi.registerOptions();
+      const [{ startRegistration }, { options, challengeId }] = await Promise.all([passkeyLib(), this.passkeyRegister.take()]);
       let response;
       try {
         response = await startRegistration({ optionsJSON: options });
       } catch (e) {
+        this.passkeyRegister.prefetch();
         if (isPasskeyCancel(e)) return;
+        if (isPasskeyDuplicate(e)) throw new Error('Auf diesem Gerät gibt es schon einen Passkey für dein Konto.');
         throw e;
       }
-      const { passkey } = await passkeyApi.register(challengeId, response, deviceName());
+      const { passkey } = await passkeyApi.register(challengeId, response, deviceName(navigator.userAgent, navigator.maxTouchPoints));
       this.ui.account.passkeys = [...(this.ui.account.passkeys ?? []), passkey];
       this.ui.toast('Passkey angelegt – nächstes Mal ohne Mail anmelden');
     });
@@ -781,8 +782,12 @@ export class SessionController {
         api.listShares(), api.myBoats(), api.myProfile(), api.myInvites().catch(() => ({ invites: [] })), this.refreshSupport(),
       ]);
       Object.assign(this.ui.account, { shares: shares.shares, boats: boats.boats, profile: me.profile, profileExists: me.exists, myInvites: invites.invites });
-      // Passkeys nebenbei – ohne Server-Unterstützung bleibt der Abschnitt einfach weg
-      passkeyApi.list().then((r) => (this.ui.account.passkeys = r.passkeys), () => (this.ui.account.passkeys = null));
+      // Passkeys nebenbei – ohne Server-Unterstützung bleibt der Abschnitt einfach weg; Optionen schon vorladen (Safari)
+      if (passkeysSupported()) {
+        passkeyApi.list().then((r) => (this.ui.account.passkeys = r.passkeys), () => (this.ui.account.passkeys = null));
+        void passkeyLib().catch(() => undefined);
+        this.passkeyRegister.prefetch();
+      }
     } catch (e) {
       this.ui.account.error = errorText(e);
     } finally {
