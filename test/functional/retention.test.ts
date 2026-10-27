@@ -262,7 +262,7 @@ describe('Saison-Erinnerung im Dezember (Konzept 5.5)', () => {
 
 describe('Löschzeitpunkt: SQL = TypeScript (Konzept 5.5)', () => {
   it('[F-63] EXPIRES_SQL rechnet wie shareExpiry – auch an Monats- und Jahresgrenzen', async () => {
-    const { EXPIRES_SQL } = await import('../../worker/shares');
+    const { EXPIRES_SQL } = await import('../../worker/expiry-sql');
     const { shareExpiry } = await import('../../src/domain/support');
     const db = await h.db();
     const times = [Date.UTC(2026, 0, 1), Date.UTC(2026, 9, 31, 23, 59, 59, 999), Date.UTC(2026, 10, 1), Date.UTC(2027, 11, 31, 23), Date.UTC(2028, 1, 29, 12)];
