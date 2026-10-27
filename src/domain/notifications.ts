@@ -83,6 +83,8 @@ export const NOTIFICATION_LIMITS = {
   pushStaleDays: 365,
   /** Push-Abos (Geräte) je Konto; das älteste fällt heraus */
   pushPerUser: 10,
+  /** höchstens so viele Geräte bekommen je Ereignis einen Weckruf (Subrequests im Free Tier: 50) */
+  pushPerEvent: 20,
   /** offene Live-Verbindungen (Tabs, Geräte) je Konto */
   liveSockets: 10,
   /** Live-Verbindung: nach einem Abbruch frühestens so spät neu verbinden, dann verdoppelt bis maxRetryMs */

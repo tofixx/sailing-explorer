@@ -34,6 +34,8 @@ export async function savePrefs(env: Env, userId: string, patch: unknown): Promi
   )
     .bind(JSON.stringify(after), !digested(before) && digested(after) ? 1 : 0, Date.now(), userId)
     .run();
+  // Keine Art mehr auf Push → alle Geräte abmelden, nicht nur dieses (Datenschutz: „gelöscht, wenn du Push abwählst“)
+  if (!CHOOSABLE.some((k) => after[k] === 'push')) await env.DB.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').bind(userId).run();
 }
 
 /**

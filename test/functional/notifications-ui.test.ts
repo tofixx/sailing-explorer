@@ -238,10 +238,38 @@ describe('NotificationsController', () => {
       sockets[0].dispatchEvent(new Event('close'));
       await vi.advanceTimersByTimeAsync(5_000);
       await vi.waitFor(() => expect(sockets).toHaveLength(2));
-      // Tab im Hintergrund: Verbindung zu
+      // Tab im Hintergrund: Verbindung zu; wieder sichtbar (innerhalb der 2-min-Bremse) → sofort neu verbunden.
+      // (Controller früherer Tests hören auch auf visibilitychange – daher über den Socket dieses Controllers prüfen.)
+      const mine = () => (c as unknown as { socket: FakeSocket | null }).socket;
+      const second = mine()!;
       Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
-      expect(sockets[1].closed).toBe(true);
+      expect(second.closed).toBe(true);
+      expect(mine()).toBeNull();
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      const third = mine()!;
+      expect(third).not.toBe(second);
+      // offline beim Neuverbinden: es geht mit wachsendem Abstand weiter (5 s, dann 10 s)
+      vi.stubGlobal('fetch', async () => {
+        throw new TypeError('offline');
+      });
+      third.dispatchEvent(new Event('open')); // verbunden → Abstand wieder 5 s
+      third.dispatchEvent(new Event('close'));
+      expect(mine()).toBeNull();
+      await vi.advanceTimersByTimeAsync(5_000);
+      const fourth = mine()!;
+      expect(fourth).not.toBeNull();
+      fourth.dispatchEvent(new Event('close'));
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(mine()).toBeNull();
+      await vi.advanceTimersByTimeAsync(1_000);
+      const fifth = mine()!;
+      expect(fifth).not.toBeNull();
+      // 4000 „zu viele Verbindungen“: kein Neuverbinden
+      fifth.dispatchEvent(new CloseEvent('close', { code: 4000 }));
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(mine()).toBeNull();
     } finally {
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       vi.useRealTimers();

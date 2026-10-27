@@ -10,7 +10,7 @@ import { sharePath, type Visibility } from '../src/domain/visibility';
 import { sendPush } from './push';
 import { pingLive } from './live';
 import {
-  NOTIFICATION_LIMITS, isChoosable, isNotificationKind, notificationText, isNotificationSubject, type NotificationItem, type NotificationKind,
+  NOTIFICATION_LIMITS, isChoosable, isNotificationKind, notificationText, parsePrefs, isNotificationSubject, type NotificationItem, type NotificationKind,
   type NotificationSubject,
 } from '../src/domain/notifications';
 
@@ -26,7 +26,8 @@ async function safely(what: string, fn: () => Promise<unknown>): Promise<void> {
 /**
  * Upsert für die Empfänger aus `recipients` (SQL, liefert Spalte `uid`, Parameter ab ?6): neue Zeile oder – solange
  * ungelesen – hochzählen und die handelnde Person ersetzen. Bei Reaktionen und Follower:innen zählt dieselbe Person
- * direkt hintereinander nur einmal (Art wechseln, Entfolgen und wieder Folgen). Nie an sich selbst; ohne handelnde
+ * direkt hintereinander nur einmal und löst auch keinen Push und keinen Live-Hinweis aus (Entfolgen und wieder Folgen
+ * in einer Schleife). Nie an sich selbst; ohne handelnde
  * Person (Hinweise des Betreibers) ist `actorId` null. Danach: Push an die, die es gewählt haben, und Live-Hinweis an
  * offene Seiten (Konzept 17.7/17.8).
  */
@@ -38,8 +39,8 @@ async function deliver(
      SELECT lower(hex(randomblob(12))), r.uid, ?1, ?2, ?3, ?4, 1, ?5, ?5 FROM (${recipients}) r
      WHERE r.uid IS NOT NULL AND r.uid IS NOT ?4
      ON CONFLICT(user_id, kind, subject_kind, subject_id) WHERE read_at IS NULL
-     DO UPDATE SET count = count + CASE WHEN ?1 IN ('reaction', 'follow') AND actor_id IS excluded.actor_id THEN 0 ELSE 1 END,
-       actor_id = excluded.actor_id, updated_at = excluded.updated_at
+     DO UPDATE SET count = count + 1, actor_id = excluded.actor_id, updated_at = excluded.updated_at
+       WHERE NOT (?1 IN ('reaction', 'follow') AND notifications.actor_id IS excluded.actor_id)
      RETURNING user_id`,
   )
     .bind(kind, subjectKind, subjectId, actorId, Date.now(), ...args)
@@ -265,7 +266,12 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
  */
 export async function listNotifications(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const items = await loadNotifications(env, user, NOTIFICATION_LIMITS.list);
+  let items = await loadNotifications(env, user, NOTIFICATION_LIMITS.list);
+  // ?push=1 (Service Worker): nur Arten, für die das Konto Push gewählt hat – sonst zeigte der Weckruf etwas anderes
+  if (new URL(request.url).searchParams.get('push') === '1') {
+    const prefs = parsePrefs((await env.DB.prepare('SELECT notify_prefs FROM users WHERE id = ?').bind(user.id).first<{ notify_prefs: string }>())?.notify_prefs);
+    items = items.filter((n) => isChoosable(n.kind) && prefs[n.kind] === 'push');
+  }
   return json({ items, unread: await unreadCount(env, user.id) }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 

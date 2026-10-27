@@ -44,32 +44,42 @@ export async function vapidAuth(env: Env, endpoint: string, now = Date.now()): P
 }
 
 /**
- * Weckruf an alle Geräte der Empfänger, die für diese Art „Push“ gewählt haben. Abgelaufene Abos (404/410) werden
- * gelöscht. Fehler bleiben im Log – die auslösende Aktion scheitert nie.
+ * Weckruf an die Geräte der Empfänger, die für diese Art „Push“ gewählt haben – parallel, das JWT je Push-Dienst nur
+ * einmal signiert, höchstens NOTIFICATION_LIMITS.pushPerEvent Geräte je Ereignis (Subrequest-Grenze im Free Tier, Latenz
+ * der auslösenden Anfrage). Ungültige Abos (403 nach Schlüsselwechsel, 404, 410) werden gelöscht. Fehler bleiben im
+ * Log – die auslösende Aktion scheitert nie. Die Standard-Kanäle sind nie „push“, daher genügt json_extract.
  */
 export async function sendPush(env: Env, userIds: string[], kind: ChoosableKind): Promise<number> {
   if (!pushKey(env) || !userIds.length) return 0;
   const { results } = await env.DB.prepare(
     `SELECT s.endpoint FROM push_subscriptions s JOIN users u ON u.id = s.user_id
      WHERE s.user_id IN (${userIds.map(() => '?').join(', ')}) AND u.suspended_at IS NULL
-       AND json_extract(u.notify_prefs, '$.' || ?) = 'push'`,
+       AND json_extract(u.notify_prefs, '$.' || ?) = 'push'
+     ORDER BY s.created_at DESC LIMIT ?`,
   )
-    .bind(...userIds, kind)
+    .bind(...userIds, kind, NOTIFICATION_LIMITS.pushPerEvent)
     .all<{ endpoint: string }>();
-  let sent = 0;
-  for (const { endpoint } of results) {
-    try {
-      const res = await fetch(endpoint, { method: 'POST', headers: { Authorization: await vapidAuth(env, endpoint), TTL: '86400', Urgency: 'normal', 'Content-Length': '0' } });
-      if (res.status === 404 || res.status === 410) await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(endpoint).run();
-      else if (res.ok) {
-        sent++;
-        await env.DB.prepare('UPDATE push_subscriptions SET last_ok_at = ? WHERE endpoint = ?').bind(Date.now(), endpoint).run();
-      } else console.error('push failed', res.status);
-    } catch (err) {
-      console.error('push failed', err);
-    }
-  }
-  return sent;
+  const auth = new Map<string, Promise<string>>();
+  const authFor = (endpoint: string) => {
+    const aud = new URL(endpoint).origin;
+    if (!auth.has(aud)) auth.set(aud, vapidAuth(env, endpoint));
+    return auth.get(aud)!;
+  };
+  const outcomes = await Promise.allSettled(
+    results.map(async ({ endpoint }) => {
+      const res = await fetch(endpoint, { method: 'POST', headers: { Authorization: await authFor(endpoint), TTL: '86400', Urgency: 'normal', 'Content-Length': '0' } });
+      if (!res.ok) console.error('push failed', res.status);
+      return { endpoint, gone: [403, 404, 410].includes(res.status), ok: res.ok };
+    }),
+  );
+  const done = outcomes.flatMap((o) => (o.status === 'fulfilled' ? [o.value] : (console.error('push failed', o.reason), [])));
+  const stmts = done.flatMap((d) =>
+    d.gone ? [env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(d.endpoint)]
+    : d.ok ? [env.DB.prepare('UPDATE push_subscriptions SET last_ok_at = ? WHERE endpoint = ?').bind(Date.now(), d.endpoint)]
+    : [],
+  );
+  if (stmts.length) await env.DB.batch(stmts);
+  return done.filter((d) => d.ok).length;
 }
 
 /** GET /api/push/key – öffentlicher VAPID-Schlüssel oder null (Push nicht eingerichtet). */

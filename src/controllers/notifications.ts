@@ -36,14 +36,20 @@ export class NotificationsController {
   private retryMs: number = NOTIFICATION_LIMITS.retryMs;
   private retryTimer = 0;
   private pingTimer = 0;
+  /** Verbindung war getrennt (Hintergrund, Abbruch) – beim Wiederverbinden den Zähler nachladen */
+  private missed = false;
+  /** zählt jedes Laden der Liste hoch – nur die neueste Antwort zählt */
+  private listSeq = 0;
 
   constructor(
     private store: Store,
     private ui: NotificationsUi,
   ) {
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') void this.refresh();
-      else this.disconnect(); // Hintergrund-Tab: keine offene Verbindung
+      if (document.visibilityState !== 'visible') return this.disconnect(); // Hintergrund-Tab: keine offene Verbindung
+      // Zurück: neu verbinden – was in der Zwischenzeit kam, holt das Neuladen beim Öffnen der Verbindung
+      void this.refresh();
+      this.connect();
     });
   }
 
@@ -101,6 +107,11 @@ export class NotificationsController {
     this.socket = ws;
     ws.addEventListener('open', () => {
       this.retryMs = NOTIFICATION_LIMITS.retryMs;
+      // Änderungen während der Trennung (Hintergrund, Abbruch) nachholen
+      if (this.missed) {
+        this.missed = false;
+        void this.refresh(true);
+      }
       // hält die Verbindung über Proxys hinweg offen; das Durable Object antwortet ohne aufzuwachen
       this.pingTimer = window.setInterval(() => ws.readyState === WebSocket.OPEN && ws.send('ping'), 60_000);
     });
@@ -109,15 +120,17 @@ export class NotificationsController {
       void this.refresh(true);
       if (this.ui.panel.open) void this.loadList(this.gen);
     });
-    ws.addEventListener('close', () => {
+    ws.addEventListener('close', (e) => {
       if (this.socket !== ws) return;
       this.socket = null;
+      this.missed = true;
       clearInterval(this.pingTimer);
-      if (!this.active || document.visibilityState !== 'visible') return;
-      // neu verbinden mit wachsendem Abstand; verpasste Änderungen holt das Neuladen danach
+      // 4000: zu viele offene Seiten – diese bleibt ohne Live (sonst verdrängten sich die Seiten reihum)
+      if (!this.active || document.visibilityState !== 'visible' || (e as CloseEvent).code === 4000) return;
+      // neu verbinden mit wachsendem Abstand – unabhängig vom Zähler, auch wenn er gerade nicht lädt (offline)
       this.retryTimer = window.setTimeout(() => {
         this.retryTimer = 0;
-        void this.refresh(true);
+        this.connect();
       }, this.retryMs);
       this.retryMs = Math.min(this.retryMs * 2, NOTIFICATION_LIMITS.maxRetryMs);
     });
@@ -129,6 +142,7 @@ export class NotificationsController {
     clearInterval(this.pingTimer);
     const ws = this.socket;
     this.socket = null;
+    if (ws) this.missed = true;
     ws?.close(1000);
   }
 
@@ -145,18 +159,20 @@ export class NotificationsController {
   /** Liste laden (beim Öffnen und live bei offener Liste). */
   private async loadList(gen: number): Promise<void> {
     const panel = this.ui.panel;
+    const seq = ++this.listSeq;
     try {
       const { items, unread } = await notificationApi.list();
-      if (gen !== this.gen) return; // inzwischen geschlossen – nichts als gesehen werten
+      // inzwischen geschlossen oder von einem neueren Laden überholt – nichts übernehmen, nichts als gesehen werten
+      if (gen !== this.gen || seq !== this.listSeq) return;
       panel.items = items;
       this.set(unread);
       // Nur zur Kenntnis: gesehen = gelesen. Die Liste zeigt sie in diesem Moment noch als neu.
       const seen = items.filter((n) => !n.read && INFORMATIONAL.has(n.kind)).map((n) => n.id);
       if (seen.length) await this.read({ ids: seen });
     } catch (e) {
-      if (gen === this.gen) panel.error = errorText(e);
+      if (gen === this.gen && seq === this.listSeq) panel.error = errorText(e);
     } finally {
-      if (gen === this.gen) panel.loading = false;
+      if (gen === this.gen && seq === this.listSeq) panel.loading = false;
     }
   }
 

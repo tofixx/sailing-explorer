@@ -1,4 +1,5 @@
 import { metricRange } from '../domain/metrics';
+import { disablePush } from '../services/push';
 import { PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
 import { deviceName } from '../domain/device';
 import { passkeyApi } from '../services/api';
@@ -256,6 +257,8 @@ export class SessionController {
   }
 
   async logout(): Promise<void> {
+    // Push-Abo dieses Geräts weg – sonst weckte es weiter für dieses Konto (geteilter Rechner, Konzept 17.7)
+    await disablePush().catch(() => undefined);
     await api.logout().catch(() => {});
     this.signedOut('Abgemeldet');
   }

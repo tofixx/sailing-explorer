@@ -1573,9 +1573,12 @@ Push heißt eine Mitteilung des Betriebssystems, auch wenn die Seite zu ist. Ums
 **Leere Weckrufe:** Der Worker schickt je Gerät ein `POST` ohne Inhalt mit VAPID-Signatur (ES256, 12 h gültig) – keine
 Verschlüsselung nötig, und der Push-Dienst erfährt nichts über Inhalte. Der Service Worker holt dann
 `/api/notifications` mit der Sitzung und zeigt den neuesten ungelesenen Eintrag (`text`, `href`); ohne Sitzung einen
-neutralen Hinweis. 404/410 vom Dienst löschen das Abo. Push geht nur an Arten auf „Push“, nicht an Hinweise des
-Betreibers. Wählt man Push, fragt der Browser nach der Erlaubnis; steht keine Art mehr auf Push, wird das Gerät
-abgemeldet. Ohne VAPID-Schlüssel (Vorschau, lokale Entwicklung) ist „Push“ ausgegraut. iOS: nur als App vom
+neutralen Hinweis; er fragt `?push=1` und sieht so nur Arten auf „Push“. 403/404/410 vom Dienst löschen das Abo.
+Push geht nur an Arten auf „Push“, nicht an Hinweise des Betreibers, und nicht erneut, wenn dieselbe Person direkt
+hintereinander folgt oder reagiert. Gesendet wird parallel, das JWT je Push-Dienst einmal, höchstens 20 Geräte je
+Ereignis (Subrequest-Grenze, Latenz der auslösenden Anfrage – der Worker hat dort kein `waitUntil`). Wählt man Push,
+fragt der Browser nach der Erlaubnis; steht keine Art mehr auf Push, werden **alle** Geräte des Kontos abgemeldet.
+Abmelden meldet dieses Gerät ab (geteilter Rechner). Ohne VAPID-Schlüssel (Vorschau, lokale Entwicklung) ist „Push“ ausgegraut. iOS: nur als App vom
 Home-Bildschirm. Aufräumen: Konto löschen, ein Jahr ohne Zustellung (nächtlich).
 
 ### 17.8 Live per WebSocket
@@ -1587,7 +1590,9 @@ das Objekt des Kontos an; es schickt allen Seiten nur `changed` – den Zähler 
 selbst, mit derselben Prüfung wie immer. Im Socket stehen also nie Inhalte. `GET /api/notifications/live` nur
 angemeldet und nur mit Origin der eigenen Seite (Schutz vor Cross-Site WebSocket Hijacking), höchstens 10 Verbindungen
 je Konto. „ping“ beantwortet die Laufzeit selbst (Auto-Response, ohne Aufwachen). Die Seite verbindet nach dem ersten
-Zähler, schließt im Hintergrund-Tab und verbindet nach einem Abbruch mit wachsendem Abstand (5 s … 5 min) neu.
+Zähler, schließt im Hintergrund-Tab und verbindet beim Zurückkommen sofort wieder; nach einem Abbruch mit wachsendem
+Abstand (5 s … 5 min), auch wenn das Netz gerade fehlt. Beim Wiederverbinden lädt sie den Zähler nach. Eine Seite, die
+wegen zu vieler Verbindungen getrennt wurde (Code 4000), bleibt ohne Live.
 
 **Kosten:** je Benachrichtigung und Empfänger eine Anfrage ans Durable Object (Free: 100 000/Tag), je offene Seite eine
 Verbindung; ohne Binding (andere Installationen) ist Live aus und die Glocke lädt wie in 17.3.
@@ -1597,5 +1602,6 @@ Verbindung; ohne Binding (andere Installationen) ist Live aus und die Glocke lä
 1. Sollen auch Antworten in Törns, auf denen man selbst kommentiert hat, benachrichtigen (heute nur die Eigentümer:in)?
 2. Sollen Bestätigende mit „Alle Mitglieder“ ebenfalls Anfragen gemeldet bekommen (heute nur Eigner und Admins, um den
    Fan-out klein zu halten)?
-3. VAPID-Schlüssel erzeugen und als Secrets setzen (`node scripts/vapid-keys.mjs`, README) – erst dann ist Push in der
+3. Die Löschwarnung in der Glocke bleibt nach einer Unterstützung stehen, bis sie gelesen ist – reicht das?
+4. VAPID-Schlüssel erzeugen und als Secrets setzen (`node scripts/vapid-keys.mjs`, README) – erst dann ist Push in der
    Produktion wählbar.

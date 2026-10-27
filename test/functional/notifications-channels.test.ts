@@ -139,6 +139,15 @@ describe('F-257 Web Push: leere Weckrufe mit VAPID an gewählte Arten', () => {
     const key = await crypto.subtle.importKey('raw', Buffer.from(publicKey, 'base64url'), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
     expect(await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, Buffer.from(m[3], 'base64url'), new TextEncoder().encode(`${m[1]}.${m[2]}`))).toBe(true);
 
+    // dieselbe Person: Entfolgen und wieder Folgen weckt nicht erneut
+    expect((await s.send('DELETE', `/api/follows/user/${owner.handle}`, fan.cookie)).status).toBe(200);
+    await follow(fan, owner.handle!);
+    expect(pushes).toHaveLength(1);
+
+    // der Service Worker sieht nur Arten auf Push (der Kommentar steht auf „keine“)
+    const forSw = (await (await s.send('GET', '/api/notifications?push=1', owner.cookie)).json()) as { items: Array<{ kind: string }> };
+    expect(forSw.items.map((i) => i.kind)).toEqual(['follow']);
+
     pushStatus = 410;
     await follow(await s.person({ profile: 'public' }), owner.handle!);
     pushStatus = 201;
@@ -146,6 +155,9 @@ describe('F-257 Web Push: leere Weckrufe mit VAPID an gewählte Arten', () => {
 
     for (let i = 0; i < 12; i++) await s.send('PUT', '/api/me/push', owner.cookie, { endpoint: `${FCM}dev${i}-${Date.now()}` });
     expect(await (await s.db()).prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?').bind(owner.user.id).first<{ n: number }>().then((r) => r?.n)).toBe(10);
+    // keine Art mehr auf Push → alle Geräte des Kontos abgemeldet
+    await setNotify(owner, { follow: 'none' });
+    expect(await (await s.db()).prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?').bind(owner.user.id).first<{ n: number }>().then((r) => r?.n)).toBe(0);
   });
 
   it('[F-257] Abmelden nur eigene Abos; Konto löschen entfernt sie; nach einem Jahr ohne Zustellung nächtlich weg', async () => {

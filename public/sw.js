@@ -9,7 +9,7 @@ self.addEventListener('push', (event) => {
       let href = '/';
       let tag = 'sx';
       try {
-        const res = await fetch('/api/notifications', { credentials: 'same-origin' });
+        const res = await fetch('/api/notifications?push=1', { credentials: 'same-origin' });
         if (res.ok) {
           const { items } = await res.json();
           const n = items.find((i) => !i.read);
