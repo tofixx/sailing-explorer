@@ -105,8 +105,9 @@ describe('Impressum und Datenschutz (Konzept 12.7)', () => {
   it('Platzhalter werden erkannt; ausgefüllt keine', () => {
     expect(PLACEHOLDER_RE.test('[NAME DES BETREIBERS]')).toBe(true);
     expect(PLACEHOLDER_RE.test('Erika [Muster]')).toBe(false);
-    expect(operatorPlaceholders()).toEqual(expect.arrayContaining(['name', 'street', 'city', 'email', 'editor', 'reportEmail']));
-    expect(operatorPlaceholders()).not.toContain('phone');
+    const open = { ...OPERATOR, name: '[NAME DES BETREIBERS]', street: '[STRASSE UND HAUSNUMMER]', phone: '' };
+    expect(operatorPlaceholders(open)).toEqual(['name', 'street']);
+    expect(operatorPlaceholders()).toEqual([]); // live: alles ausgefüllt
     const filled = { ...OPERATOR, name: 'A', street: 'B 1', city: '14467 Potsdam', email: 'a@b.de', editor: 'A', reportEmail: 'm@b.de' };
     expect(operatorPlaceholders(filled)).toEqual([]);
   });

@@ -202,14 +202,19 @@ describe('Impressum und Datenschutz (F-183)', () => {
   const filled: Operator = { ...OPERATOR, name: 'Erika <Muster>', street: 'Hafenweg 1', city: '14467 Potsdam', email: 'kontakt@example.org', phone: '', editor: 'Erika Muster', reportEmail: 'melden@example.org' };
 
   it('[F-183] Platzhalter in OPERATOR → sichtbarer Warnhinweis auf beiden Seiten', async () => {
-    expect(operatorPlaceholders(OPERATOR).length).toBeGreaterThan(0);
+    const open: Operator = { ...OPERATOR, name: '[NAME DES BETREIBERS]' };
+    expect(operatorPlaceholders(open).length).toBeGreaterThan(0);
     for (const page of ['impressum', 'datenschutz']) {
-      const el = await mount('sx-legal-page', { page });
+      const el = await mount('sx-legal-page', { page, operator: open });
       const warn = el.shadowRoot.querySelector('[role="alert"]');
       expect(warn, page).not.toBeNull();
       expect(text(warn!)).toContain('Platzhalter');
       el.remove();
     }
+  });
+
+  it('[F-183] echte Betreiberangaben sind vollständig – kein Platzhalter live', () => {
+    expect(operatorPlaceholders(OPERATOR)).toEqual([]);
   });
 
   it('[F-183] ausgefüllt: kein Hinweis; Angaben escaped; Telefon nur, wenn angegeben', async () => {

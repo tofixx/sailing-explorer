@@ -9,20 +9,20 @@
  */
 export const OPERATOR = {
   /** Name der verantwortlichen Person bzw. des Vereins */
-  name: '[NAME DES BETREIBERS]',
+  name: 'Tobias Wollowski',
   /** Straße und Hausnummer (ladungsfähige Anschrift, kein Postfach) */
-  street: '[STRASSE UND HAUSNUMMER]',
+  street: 'Baldurstraße 8A',
   /** Postleitzahl und Ort */
-  city: '[PLZ ORT]',
+  city: '14482 Potsdam',
   country: 'Deutschland',
   /** Kontakt-E-Mail */
-  email: '[E-MAIL-ADRESSE]',
+  email: 'tobias@wollow.ski',
   /** optional, z. B. '+49 331 …'; leer lassen, wenn keine Telefonnummer angegeben werden soll */
-  phone: '',
+  phone: '0176 91318836',
   /** Verantwortlich für redaktionelle Inhalte (§ 18 Abs. 2 MStV) – meist dieselbe Person */
-  editor: '[NAME DES BETREIBERS]',
+  editor: 'Tobias Wollowski',
   /** Kontakt für Meldungen rechtswidriger Inhalte (Art. 11/12/16 DSA) – sollte REPORT_CONTACT im Worker entsprechen */
-  reportEmail: '[E-MAIL-ADRESSE FÜR MELDUNGEN]',
+  reportEmail: 'tobias@wollow.ski',
 } as const;
 
 export type Operator = { [K in keyof typeof OPERATOR]: string };
