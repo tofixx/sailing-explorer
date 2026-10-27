@@ -32,7 +32,7 @@ import type { SxMetricPicker } from './components/sx-metric-picker';
 import type { SxProfilePage } from './components/sx-profile-page';
 import type { SxShareDialog } from './components/sx-share-dialog';
 import type { SxToast } from './components/sx-toast';
-import type { SxTopbar } from './components/sx-topbar';
+import type { SxTopbar, TopbarSection } from './components/sx-topbar';
 import type { SxTrackList } from './components/sx-track-list';
 // ---- Kommentare & Melden (Phase D) ----
 import { CommunityController } from './controllers/community';
@@ -54,6 +54,7 @@ import type { SxHomeFeed } from './components/sx-home-feed';
 import type { FollowKind, GroupInput } from './services/api';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
+import { UnreadController } from './controllers/unread';
 import type { SxLegalPage } from './components/sx-legal-page';
 import type { ReactDetail, SxReactions } from './components/sx-reactions';
 import type { HarborChoice, SxHarborPicker } from './components/sx-harbor-picker';
@@ -129,6 +130,15 @@ export class App {
   private photos: PhotosController;
   private groups: GroupsController;
   private social: SocialController;
+  private unread: UnreadController;
+  /** angezeigte Seite statt Karte (Entdecken bzw. Profil, Gruppe …) – für die Bereiche in der Kopfzeile */
+  private pageSection: 'discover' | 'page' | null = null;
+  /** persönlicher Stream geladen, aber noch nicht angezeigt: Stand für „gelesen“ (F-222) */
+  private pendingSeen: { at?: number } | null = null;
+  /** ?community (Reiter „Community“ von einer Seite aus): nach dem Wiederherstellen die Startseite zeigen */
+  private wantCommunity = false;
+  /** start() ist durch – vorher ist offen, welcher Bereich gezeigt wird */
+  private started = false;
   /** Startseite als Einstieg (nicht Profil-, Boots-, Gruppen- oder Entdecken-Seite) – nur dort lädt die Startseite Neuigkeiten */
   private homeRoute = false;
   private timelinePts: TimedPoint[] = [];
@@ -172,6 +182,10 @@ export class App {
       openLogin: (reason) => this.session.openLogin(reason),
       // Startseite: Stream groß, „Track anlegen“ kompakt (Konzept 12.6)
       onCommunity: (visible) => (this.ui.empty.community = visible),
+      onPersonalStream: (at) => {
+        this.pendingSeen = { at };
+        this.markSeen();
+      },
       ready: () => this.session.backendReady,
     });
     this.social = new SocialController(this.store, {
@@ -185,6 +199,7 @@ export class App {
       toast: (msg, ms) => this.toast(msg, ms),
       openLogin: (reason) => this.session.openLogin(reason),
     });
+    this.unread = new UnreadController(this.store, { show: (label) => (this.ui.topbar.unread = label) });
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
     this.store.subscribe((s, prev) => this.render(s, prev));
@@ -195,6 +210,7 @@ export class App {
   async start(): Promise<void> {
     this.session.checkBackend();
     this.handleSupportParam();
+    this.handleCommunityParam();
     void this.handleAccountParam();
     const route = parseRoute(location);
     // Community-Leiste nur auf der Startseite; lädt nebenbei und blockiert nichts.
@@ -229,11 +245,18 @@ export class App {
         case 'inline':
           return await this.openInline(route.data);
         default:
-          return await this.restoreWorkspace();
+          await this.restoreWorkspace();
+          // Mit Tracks im Browser startet sonst die Törn-Ansicht – der Reiter wollte aber die Community.
+          if (this.wantCommunity) this.store.set({ home: true });
+          return;
       }
     } catch (e) {
       this.setLoading(null);
       this.toast(errorText(e));
+    } finally {
+      // Erst jetzt steht fest, ob Törn-Ansicht oder Community gezeigt wird (Arbeitsbereich wiederhergestellt).
+      this.started = true;
+      this.markSeen();
     }
   }
 
@@ -248,6 +271,15 @@ export class App {
     url.searchParams.delete('support');
     history.replaceState(history.state, '', url.pathname + url.search + url.hash);
     if (kind === 'success' || kind === 'cancel' || kind === 'open') void this.session.supportReturn(kind);
+  }
+
+  /** ?community: Parameter entfernen, Startseite merken (F-220). */
+  private handleCommunityParam() {
+    const url = new URL(location.href);
+    if (!url.searchParams.has('community')) return;
+    url.searchParams.delete('community');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    this.wantCommunity = true;
   }
 
   /** ?konto=einstellungen (Mail „Neuer Passkey“): Konto bei den Einstellungen öffnen, Parameter entfernen. */
@@ -274,7 +306,8 @@ export class App {
     this.ui.app.toggleAttribute('data-empty', home);
     this.ui.empty.hidden = !home;
     this.ui.empty.trackCount = s.tracks.length;
-    Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home, saved: s.saved });
+    Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home, saved: s.saved, section: this.section(home) });
+    if (changed('home') || changed('tracks')) this.markSeen();
     // Neuigkeiten auf der Startseite und Rollen auf der Gruppenseite hängen an der Anmeldung (Konzept 11.5).
     if (changed('user') || changed('backend')) {
       this.ui.page.signedIn = !!s.user;
@@ -283,6 +316,7 @@ export class App {
         void this.groups.userChanged();
         void this.social.userChanged();
       }
+      void this.unread.refresh(true);
     }
     this.ui.toast.loading = s.loading;
 
@@ -430,7 +464,9 @@ export class App {
     // Startseite ↔ Törn-Ansicht
     on('sx-home', () => {
       this.homeRoute = true;
-      void this.groups.loadHome();
+      // Neues seit dem Laden: Stream neu holen; gelesen erst mit dessen Stand, damit es zum Angezeigten passt (F-222)
+      if (this.unread.pending) this.pendingSeen = null;
+      void this.groups.loadHome(this.unread.pending);
       this.store.set({ home: true, hover: null });
       // z. B. aus einer geteilten Ansicht: Community-Leiste nachladen
       if (!this.ui.discoverStrip.data) void this.loadDiscoverStrip();
@@ -726,6 +762,19 @@ export class App {
     }
   }
 
+  /** Bereich für die Kopfzeile (F-220). */
+  private section(home: boolean): TopbarSection {
+    return this.pageSection ?? (home ? 'community' : 'track');
+  }
+
+  /** Community ist sichtbar und der persönliche Stream geladen: gelesen bis zu seinem Stand (F-222). */
+  private markSeen() {
+    const s = this.store.get();
+    if (!this.started || !this.pendingSeen || this.section(!s.tracks.length || s.home) !== 'community') return;
+    this.unread.seen(this.pendingSeen.at);
+    this.pendingSeen = null;
+  }
+
   /** Profil-, Boots- oder Entdecken-Seite statt Karte. */
   private async openPage(
     route:
@@ -738,6 +787,8 @@ export class App {
       | { kind: 'legal'; page: 'impressum' | 'datenschutz' },
   ) {
     this.ui.app.setAttribute('data-page', '');
+    this.pageSection = route.kind === 'discover' ? 'discover' : 'page';
+    this.ui.topbar.section = this.pageSection;
     if (route.kind === 'discover') return this.openDiscover();
     if (route.kind === 'legal') {
       // Impressum und Datenschutz kommen aus src/content/legal.ts – ohne Backend (Konzept 12.7).
@@ -859,6 +910,7 @@ export class App {
   private leavePage() {
     if (!this.ui.app.hasAttribute('data-page')) return;
     this.ui.app.removeAttribute('data-page');
+    this.pageSection = null;
     this.ui.page.hidden = true;
     this.ui.discoverPage.hidden = true;
     this.ui.groupPage.hidden = true;

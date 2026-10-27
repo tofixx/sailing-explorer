@@ -1240,7 +1240,7 @@ Der Community-Stream ist der Kern der Startseite – für alle:
 Hochladen tritt zurück: „Track anlegen“ als **zweitrangiger Knopf in der Kopfzeile**, eine **kompakte Karte** in der
 Seitenspalte (mit Beispielen) und Ziehen & Ablegen auf der ganzen Seite (beim Ziehen erscheint eine Ablagefläche). Mobil
 (< 760 px) steht der Stream in voller Breite oben, Hochladen ist ein runder Knopf unten rechts (FAB, 56 px). Die
-Kartenansicht eines geladenen Törns bleibt unverändert, ebenso der Wechsel Startseite ↔ Törn (F-75). Unten eine
+Kartenansicht eines geladenen Törns bleibt unverändert; den Wechsel Startseite ↔ Törn übernehmen die Reiter der Kopfzeile (12.10, F-75). Unten eine
 kleine Fußzeile mit „Impressum“ und „Datenschutz“.
 
 ### 12.7 Impressum und Datenschutz
@@ -1265,7 +1265,8 @@ Löschen, Rechte, Aufsicht Brandenburg, Meldekontakt). Die Texte sind eine Vorla
 | „Wer hat reagiert“ | 50 Namen |
 
 Schreiben: ein Törn eines Boots mit Hafen = 1 Ziel mehr. Lesen persönlich: 1 Batch (kleine Abfragen) + 1
-Stream-Abfrage + 1 Prüf-Batch (inkl. Reaktionen). Öffentlich: 60 s gecacht.
+Stream-Abfrage + 1 Prüf-Batch (inkl. Reaktionen). Öffentlich: 60 s gecacht. Badge (12.10): wie eine persönliche Seite
+ohne Reaktionen, höchstens alle 2 min je Tab.
 
 ### 12.9 Offene Fragen an den Betreiber
 
@@ -1276,6 +1277,31 @@ Stream-Abfrage + 1 Prüf-Batch (inkl. Reaktionen). Öffentlich: 60 s gecacht.
 4. Benachrichtigungs-Glocke (12.5) als nächster Schritt?
 5. Betreiberangaben für Impressum und Datenschutz (Name, Anschrift, E-Mail, ggf. Telefon) und ob
    Auftragsverarbeitungsverträge mit Cloudflare, Resend und Stripe abgeschlossen sind.
+
+### 12.10 Kopfzeile: Bereiche und Community-Badge
+
+Anlass (Betreiber, Oktober 2026): Der Wechsel Törn ↔ Community über das Logo war zu implizit, „Entdecken“ kaum zu
+finden. Die Kopfzeile zeigt deshalb drei **Reiter**: „Törn“ (nur mit geladenen Tracks), „Community“ (Startseite mit
+Stream) und „Entdecken“; der aktive ist markiert. Das Logo führt weiter zur Startseite, ist aber nicht mehr der einzige
+Weg. Mobil ist in einer Zeile kein Platz: Die Reiter bilden dort eine eigene, volle Zeile unter der Kopfzeile (Icon +
+Kurztext, aktiver Reiter unterstrichen) – eine Leiste unten hätte mit dem runden Hochladen-Knopf, der Seitenleiste als
+Bodenblatt und Hinweisen kollidiert. Speicherstatus, „Teilen“ und Konto bleiben, wo sie sind (F-76).
+
+Von Seiten (Profil, Gruppe, Entdecken) führt „Community“ nach `/?community`: Die Seite lädt neu, stellt gespeicherte
+Tracks wieder her, zeigt aber die Startseite statt der Törn-Ansicht.
+
+**Badge „neu“.** Angemeldete sehen an „Community“, wie viele Einträge ihres persönlichen Streams (12.4) seit dem
+letzten Lesen dazugekommen sind:
+
+| Frage | Entscheidung |
+|---|---|
+| Was ist „gelesen“? | Ein Zeitpunkt je Konto, `users.stream_seen_at` (ms) – serverseitig, damit es auf allen Geräten stimmt. Keine Markierung je Eintrag. |
+| Wann wird er gesetzt? | Wenn die Community wirklich angezeigt wird und der persönliche Stream geladen ist: auf den Stand dieser Stream-Antwort (`at`), nicht „jetzt“ – Neues, das der angezeigte Stream nicht enthält, bleibt ungelesen. Nur vorwärts (`MAX` in SQL), nie in der Zukunft. Mit Ungelesenem lädt „Community“ den Stream vorher neu. |
+| Was zählt? | Kandidaten aus `activity_target` für dieselbe Zielliste wie der Stream mit `created_at` > Gelesen-Zeitpunkt (höchstens 150), dann dieselbe Prüfung beim Lesen (`shapeItem`). Eigene Aktivitäten zählen nicht. Anzeige höchstens „99+“. |
+| Erstes Mal? | `NULL` → beim ersten Zählen auf „jetzt“; kein Rückstau-Badge nach dem Deploy. |
+| Gäste | kein Badge, keine Abfrage. |
+| Kosten | eine Zählung = Ziel-Batch + eine Index-Abfrage + ein Prüf-Batch (wie eine Stream-Seite ohne Reaktionen). Gezählt beim Start/Anmelden, beim Zurückkehren in den Tab (≥ 2 min Abstand) und alle 10 min bei sichtbarem Tab – kein Polling im Hintergrund-Tab. |
+| Löschen | Der Wert liegt in der Konto-Zeile und verschwindet mit ihr (Konto löschen, inaktive Konten); er sagt nur, wann der Stream zuletzt angesehen wurde, und wird sonst nirgends gespeichert oder protokolliert. |
 
 ## 13. Fotos an Person, Boot und Gruppe, Titelbilder, Häfen für Gruppen
 

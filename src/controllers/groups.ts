@@ -13,6 +13,8 @@ export interface GroupsUi {
   openLogin: (reason: string) => void;
   /** Community-Stream sichtbar (Startseite: Stream groß, Hochladen im Hintergrund – Konzept 12.6) */
   onCommunity?: (visible: boolean) => void;
+  /** persönlicher Stream geladen – Stand `at` für „gelesen“ (F-222) */
+  onPersonalStream?: (at: number | undefined) => void;
   /** wartet, bis Backend und Anmeldung bekannt sind */
   ready?: () => Promise<void>;
 }
@@ -283,6 +285,7 @@ export class GroupsController {
       }
       home.hidden = false;
       this.ui.onCommunity?.(true);
+      if (signedIn) this.ui.onPersonalStream?.(home.stream?.at);
     } catch {
       home.hidden = true;
       this.homeLoaded = false;

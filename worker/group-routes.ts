@@ -6,7 +6,7 @@ import {
 } from './groups';
 import { inviteGroup } from './invites';
 import { createPost, deletePost } from './posts';
-import { groupStream, personalStream } from './stream';
+import { groupStream, markStreamSeen, personalStream, streamUnread } from './stream';
 import { follow, getSuggestions, unfollow } from './follows';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { createHarbor, getHarbor, searchHarbors, updateHarbor } from './harbors';
@@ -38,6 +38,8 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['GET', new RegExp(`^/api/groups/${ID}/stream$`), (r, env, [id]) => groupStream(r, env, id)],
   ['DELETE', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => deletePost(r, env, id)],
   ['GET', /^\/api\/stream$/, (r, env) => personalStream(r, env)],
+  ['GET', /^\/api\/stream\/unread$/, (r, env) => streamUnread(r, env)],
+  ['POST', /^\/api\/stream\/seen$/, (r, env) => markStreamSeen(r, env)],
   ['GET', /^\/api\/me\/suggestions$/, (r, env) => getSuggestions(r, env)],
   ['PUT', /^\/api\/follows\/(user|boat|group|harbor)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => follow(r, env, kind, id)],
   ['DELETE', /^\/api\/follows\/(user|boat|group|harbor)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => unfollow(r, env, kind, id)],

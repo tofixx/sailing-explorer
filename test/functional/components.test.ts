@@ -175,6 +175,56 @@ describe('sx-topbar', () => {
     expect(shares).toHaveLength(1);
   });
 
+  const tabs = (el: LitEl) => [...el.shadowRoot.querySelectorAll('.nav .tab')] as HTMLElement[];
+  const tabText = (el: LitEl) => tabs(el).map((t) => t.textContent!.replace(/s+/g, ' ').trim());
+  const current = (el: LitEl) => tabs(el).find((t) => t.hasAttribute('aria-current'))?.textContent?.trim();
+
+  it('[F-220] Bereiche als sichtbare Reiter: Törn (nur mit Tracks), Community, Entdecken; der aktive ist markiert', async () => {
+    const el = await mount('sx-topbar', { user: null, mode: { kind: 'local' }, hasTracks: true, backend: true, section: 'track' });
+    expect(tabText(el)).toEqual(['Törn', 'Community', 'Entdecken']);
+    expect(current(el)).toBe('Törn');
+    expect(tabs(el)[2].getAttribute('href')).toBe('/entdecken');
+    // das alte „Mein Törn“ entfällt, die Reiter ersetzen es
+    expect(button(el, /Mein Törn/)).toBeUndefined();
+    const plain = await mount('sx-topbar', { user: null, mode: { kind: 'local' }, hasTracks: false, backend: true, section: 'discover' });
+    expect(tabText(plain)).toEqual(['Community', 'Entdecken']);
+    expect(current(plain)).toBe('Entdecken');
+  });
+
+  it('[F-220] Community aus der Törn-Ansicht: ohne Neuladen (sx-home), Törn zurück (sx-track-view); von Seiten ein Link', async () => {
+    const homes = listen('sx-home');
+    const tracks = listen('sx-track-view');
+    const el = await mount('sx-topbar', { user: null, mode: { kind: 'local' }, hasTracks: true, backend: true, section: 'track' });
+    const community = tabs(el)[1] as HTMLAnchorElement;
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    community.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(homes).toHaveLength(1);
+    (tabs(el)[0] as HTMLButtonElement).click();
+    expect(tracks).toHaveLength(1);
+    const page = await mount('sx-topbar', { user: null, mode: { kind: 'local' }, hasTracks: false, backend: true, section: 'page' });
+    const link = tabs(page)[0] as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/?community');
+    const nav = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    link.dispatchEvent(nav);
+    expect(nav.defaultPrevented).toBe(false);
+    expect(homes).toHaveLength(1);
+  });
+
+  it('[F-221] Badge an „Community“ nur für Angemeldete; Zahl auch im Namen für Screenreader', async () => {
+    const el = await mount('sx-topbar', { user: { id: 'u', email: 'a@b.de' }, mode: { kind: 'local' }, hasTracks: false, backend: true, section: 'community', unread: '99+' });
+    expect(el.shadowRoot.querySelector('.badge')?.textContent).toBe('99+');
+    expect(tabs(el)[0].getAttribute('aria-label')).toBe('Community, 99+ neue Einträge');
+    const guest = await mount('sx-topbar', { user: null, mode: { kind: 'local' }, hasTracks: false, backend: true, section: 'community', unread: '3' });
+    expect(guest.shadowRoot.querySelector('.badge')).toBeNull();
+  });
+
+  it('[F-220] ohne Backend keine Reiter (keine Community) – „Mein Törn“ führt von der Startseite zurück', async () => {
+    const el = await mount('sx-topbar', { user: null, mode: { kind: 'local' }, hasTracks: true, backend: false, home: true, section: 'community' });
+    expect(tabs(el)).toHaveLength(0);
+    expect(button(el, /Mein Törn/)).toBeDefined();
+  });
+
   it('[F-34] geteilte Ansicht zeigt den Titel der Freigabe', async () => {
     const el = await mount('sx-topbar', { user: null, mode: { kind: 'share', share: { id: 'x', title: 'Ostsee 2026', visibility: 'unlisted' } }, hasTracks: true, backend: true });
     expect(text(el)).toContain('Ostsee 2026');
