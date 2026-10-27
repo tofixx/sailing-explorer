@@ -438,6 +438,9 @@ export class App {
     on('sx-login-reset', () => s.resetLogin());
     on('sx-login-confirm', () => s.confirmLogin());
     on<{ code: string }>('sx-login-code', (d) => s.loginWithCode(d.code));
+    on('sx-login-passkey', () => s.loginWithPasskey());
+    on('sx-passkey-add', () => s.addPasskey());
+    on<{ id: string }>('sx-passkey-remove', (d) => s.removePasskey(d.id));
     on('sx-login-for-share', () => s.loginForShare());
     on('sx-share-inline', () => s.shareInlineLink());
     on<{ format: ImageFormat; content: ImageContent }>('sx-image-options', (d) => s.setImageOptions(d.format, d.content));

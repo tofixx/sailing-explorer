@@ -1,4 +1,5 @@
 import { metricRange } from '../domain/metrics';
+import { passkeyApi } from '../services/api';
 import { inviteAcceptedText } from '../domain/invite-text';
 import { shareSummary } from '../domain/summary';
 import { needsSupport, type SupportTier } from '../domain/support';
@@ -52,6 +53,20 @@ export interface ShareRequest {
  * Alles rund um Konto und Server: Anmelden per Magic Link, Teilen, Profil, Boote, Freigaben.
  * Kennt Store und Dialoge, aber weder Karte noch Track-Darstellung.
  */
+/** Der Nutzer hat den Passkey-Dialog abgebrochen (bzw. der Browser hat ihn abgelehnt) – kein Fehler zum Anzeigen. */
+const isPasskeyCancel = (e: unknown) => e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'AbortError');
+
+/** Name für einen neuen Passkey: grob das Gerät, damit man ihn in der Liste wiedererkennt. */
+function deviceName(ua = navigator.userAgent): string {
+  if (/iPhone/.test(ua)) return 'iPhone';
+  if (/iPad|Macintosh/.test(ua) && navigator.maxTouchPoints > 1) return 'iPad';
+  if (/Android/.test(ua)) return 'Android';
+  if (/Macintosh/.test(ua)) return 'Mac';
+  if (/Windows/.test(ua)) return 'Windows';
+  if (/Linux/.test(ua)) return 'Linux';
+  return 'Passkey';
+}
+
 export class SessionController {
   private pendingShare = false;
   private lastShare: { key: string; share: ShareMeta } | null = null;
@@ -161,6 +176,48 @@ export class SessionController {
     } finally {
       this.ui.login.busy = false;
     }
+  }
+
+  /**
+   * Anmelden mit Passkey (Konzept 14.7): der Browser bietet die passenden Passkeys selbst an. Abbrechen ist kein Fehler.
+   */
+  async loginWithPasskey(): Promise<void> {
+    Object.assign(this.ui.login, { busy: true, error: '' });
+    try {
+      const { startAuthentication } = await import('@simplewebauthn/browser');
+      const { options, challengeId } = await passkeyApi.loginOptions();
+      const response = await startAuthentication({ optionsJSON: options });
+      this.loggedIn((await passkeyApi.login(challengeId, response)).user);
+    } catch (e) {
+      if (!isPasskeyCancel(e)) this.ui.login.error = errorText(e);
+    } finally {
+      this.ui.login.busy = false;
+    }
+  }
+
+  /** Passkey für dieses Gerät anlegen (Konto, Einstellungen). */
+  addPasskey() {
+    return this.act(async () => {
+      const { startRegistration } = await import('@simplewebauthn/browser');
+      const { options, challengeId } = await passkeyApi.registerOptions();
+      let response;
+      try {
+        response = await startRegistration({ optionsJSON: options });
+      } catch (e) {
+        if (isPasskeyCancel(e)) return;
+        throw e;
+      }
+      const { passkey } = await passkeyApi.register(challengeId, response, deviceName());
+      this.ui.account.passkeys = [...(this.ui.account.passkeys ?? []), passkey];
+      this.ui.toast('Passkey angelegt – nächstes Mal ohne Mail anmelden');
+    });
+  }
+
+  removePasskey(id: string) {
+    return this.act(async () => {
+      await passkeyApi.remove(id);
+      this.ui.account.passkeys = (this.ui.account.passkeys ?? []).filter((p) => p.id !== id);
+    }, 'Passkey entfernt');
   }
 
   async confirmLogin(): Promise<void> {
@@ -724,6 +781,8 @@ export class SessionController {
         api.listShares(), api.myBoats(), api.myProfile(), api.myInvites().catch(() => ({ invites: [] })), this.refreshSupport(),
       ]);
       Object.assign(this.ui.account, { shares: shares.shares, boats: boats.boats, profile: me.profile, profileExists: me.exists, myInvites: invites.invites });
+      // Passkeys nebenbei – ohne Server-Unterstützung bleibt der Abschnitt einfach weg
+      passkeyApi.list().then((r) => (this.ui.account.passkeys = r.passkeys), () => (this.ui.account.passkeys = null));
     } catch (e) {
       this.ui.account.error = errorText(e);
     } finally {

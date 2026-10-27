@@ -207,7 +207,7 @@ export async function verifyCode(request: Request, env: Env): Promise<Response> 
 }
 
 /** Konto zur Adresse holen oder anlegen und eine Sitzung setzen – nach eingelöstem Link oder Code. */
-async function signIn(request: Request, env: Env, email: string, now: number): Promise<Response> {
+export async function signIn(request: Request, env: Env, email: string, now: number): Promise<Response> {
   let user = await env.DB.prepare('SELECT id, email FROM users WHERE email = ?').bind(email).first<User>();
   if (!user) {
     user = { id: randomId(), email };

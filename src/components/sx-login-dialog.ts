@@ -1,3 +1,5 @@
+/** Kann der Browser Passkeys (WebAuthn)? */
+export const passkeysSupported = () => typeof window !== 'undefined' && 'PublicKeyCredential' in window;
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
@@ -59,6 +61,23 @@ export class SxLoginDialog extends LitElement {
     css`
       .ts {
         min-height: 65px;
+      }
+      .btn.passkey {
+        width: 100%;
+        justify-content: center;
+      }
+      .or {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        color: var(--text-3);
+        font-size: var(--fs-s);
+      }
+      .or::before,
+      .or::after {
+        content: '';
+        flex: 1;
+        border-top: 1px solid var(--border-soft);
       }
       form.code {
         display: grid;
@@ -194,6 +213,10 @@ export class SxLoginDialog extends LitElement {
       default:
         return html`<form class="body" @submit=${this.submit}>
           <p class="muted">${this.reason || 'Melde dich mit deiner E-Mail-Adresse an. Du bekommst einen Link – ohne Passwort.'}</p>
+          ${passkeysSupported()
+            ? html`<button class="btn passkey" type="button" ?disabled=${this.busy} @click=${() => emit(this, 'sx-login-passkey')}>${icon('user')} Mit Passkey anmelden</button>
+                <div class="or"><span>oder per E-Mail</span></div>`
+            : ''}
           <div>
             <label class="label" for="email">E-Mail-Adresse</label>
             <input id="email" type="email" required autocomplete="email" inputmode="email" placeholder="du@example.org" maxlength="254" />

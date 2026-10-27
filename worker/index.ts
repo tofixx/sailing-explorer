@@ -18,6 +18,7 @@ import { communityRoutes } from './community';
 // ---- Fotos (Phase C) ----
 import { deletePhoto, getPhotoImage, listPhotos, updatePhoto, uploadPhoto } from './photos';
 import { deleteCover, getCover, putCover } from './covers';
+import { deletePasskey, listPasskeys, loginOptions, loginVerify, registerOptions, registerVerify } from './passkeys';
 // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11) ----
 import { groupRoutes } from './group-routes';
 import { canViewGroup, loadGroupBySlug } from './groups';
@@ -46,6 +47,13 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['POST', /^\/api\/auth\/peek$/, (r, env) => peekLink(r, env)],
   ['POST', /^\/api\/auth\/verify$/, (r, env) => verifyLink(r, env)],
   ['POST', /^\/api\/auth\/code$/, (r, env) => verifyCode(r, env)],
+  // ---- Passkeys (Konzept 14.7): worker/passkeys.ts ----
+  ['POST', /^\/api\/auth\/passkey\/options$/, (r, env) => loginOptions(r, env)],
+  ['POST', /^\/api\/auth\/passkey$/, (r, env) => loginVerify(r, env)],
+  ['GET', /^\/api\/passkeys$/, (r, env) => listPasskeys(r, env)],
+  ['POST', /^\/api\/passkeys\/options$/, (r, env) => registerOptions(r, env)],
+  ['POST', /^\/api\/passkeys$/, (r, env) => registerVerify(r, env)],
+  ['DELETE', /^\/api\/passkeys\/([A-Za-z0-9_%-]+)$/, (r, env, [id]) => deletePasskey(r, env, id)],
   ['POST', /^\/api\/auth\/logout$/, (r, env) => logout(r, env)],
   ['DELETE', /^\/api\/account$/, (r, env) => deleteAccount(r, env)],
   ['GET', /^\/api\/me\/profile$/, (r, env) => getMyProfile(r, env)],

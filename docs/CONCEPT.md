@@ -1411,3 +1411,15 @@ offener Links (15 min) schnell zu erraten; ein HMAC mit Worker-Secret wäre die 
 „Passwort vergessen“ bräuchte wieder Mails, und Wiederverwendung/Phishing sind das größere Risiko. Als nächster
 Schritt sind **Passkeys** vorgesehen (Anmeldung per Fingerabdruck/Face ID ohne Mail; die Mail bleibt für das erste
 Gerät und als Rückfallweg). Eine zusätzliche 2FA ist mit Passkeys nicht nötig.
+
+### 14.7 Passkeys
+
+Anmelden per Fingerabdruck, Face ID oder Geräte-PIN, ohne Mail und ohne Passwort (WebAuthn, discoverable
+credentials). Angelegt wird ein Passkey angemeldet im Konto („Einstellungen“ → „Passkey für dieses Gerät anlegen“);
+der Anmeldedialog bietet „Mit Passkey anmelden“, wenn der Browser es kann – die Mail bleibt für das erste Gerät und als
+Rückfallweg. Die WebAuthn-Prüfung (CBOR, COSE, Signaturen) übernimmt die Bibliothek `@simplewebauthn/server`
+(Wiederverwendung statt Eigenbau); gespeichert werden Credential-ID, öffentlicher Schlüssel, Zähler, Transportwege und
+ein Gerätename (Migration 0017), nie Biometrie oder private Schlüssel. Relying Party ist der Host der Anfrage
+(segeln-potsdam.de; Vorschauen haben eigene). Challenges sind einmalig und 5 Minuten gültig (atomar eingelöst), die
+Registrierungs-Challenge gehört zum angemeldeten Konto. Höchstens 10 Passkeys pro Konto; Konto löschen entfernt sie
+(Fremdschlüssel), abgelaufene Challenges räumt der Cron weg. Anmelden unterliegt dem IP-Limit der Anmeldung.

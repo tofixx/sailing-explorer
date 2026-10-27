@@ -1,6 +1,7 @@
 import { inviteWhat } from '../domain/invite-text';
+import { passkeysSupported } from './sx-login-dialog';
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, HomeInfo, Linkable, MyInvite, Profile, ShareMeta, SupportStatus, User } from '../services/api';
+import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, HomeInfo, Linkable, MyInvite, Profile, ShareMeta, SupportStatus, User, PasskeyInfo } from '../services/api';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-harbor-picker';
 import { WARN_MS, type SupportTier } from '../domain/support';
@@ -36,6 +37,7 @@ export class SxAccountDialog extends LitElement {
     shares: { attribute: false },
     admins: { attribute: false },
     myInvites: { attribute: false },
+    passkeys: { attribute: false },
     supportTiers: { attribute: false },
     checkoutBusy: { type: Boolean },
     supportStatus: { attribute: false },
@@ -67,6 +69,8 @@ export class SxAccountDialog extends LitElement {
   declare admins: { boatId: string; data: BoatAdmins | null } | null;
   /** offene Einladungen an mich (Posteingang) */
   declare myInvites: MyInvite[];
+  /** eigene Passkeys (Konzept 14.7); null = lädt bzw. nicht verfügbar */
+  declare passkeys: PasskeyInfo[] | null;
   /** Stufen des Unterstützen-Sliders; null = Unterstützen nicht eingerichtet */
   declare supportTiers: SupportTier[] | null;
   /** Checkout wird angelegt */
@@ -107,6 +111,7 @@ export class SxAccountDialog extends LitElement {
     this.shares = [];
     this.admins = null;
     this.myInvites = [];
+    this.passkeys = null;
     this.supportTiers = null;
     this.checkoutBusy = false;
     this.supportStatus = null;
@@ -902,10 +907,33 @@ export class SxAccountDialog extends LitElement {
 
   // ------------------------------------------------------------ Einstellungen und Meldungen (Phase D)
 
+  /** Passkeys: anmelden ohne Mail (Konzept 14.7). */
+  private passkeySection() {
+    if (!passkeysSupported() || this.passkeys === null) return '';
+    const list = this.passkeys;
+    return html`<div>
+      <div class="label">Anmelden mit Passkey</div>
+      <p class="muted small">Mit einem Passkey meldest du dich per Fingerabdruck, Face ID oder Geräte-PIN an – ohne Mail und ohne Passwort. Leg einen pro Gerät an (oder nutze den Passwort-Manager, der Passkeys geräteübergreifend synchronisiert).</p>
+      ${list.length
+        ? html`<ul class="list">
+            ${list.map(
+              (p) => html`<li>
+                <span class="name">${icon('lock')} ${p.name}<br /><small class="faint">angelegt ${fmtDate(p.createdAt)}${p.lastUsedAt ? `, zuletzt ${fmtDate(p.lastUsedAt)}` : ''}</small></span>
+                <button class="btn small ghost" ?disabled=${this.busy} aria-label="Passkey ${p.name} entfernen"
+                  @click=${() => confirm(`Passkey „${p.name}“ entfernen? Auf diesem Gerät meldest du dich danach wieder per Mail an.`) && emit(this, 'sx-passkey-remove', { id: p.id })}>${icon('trash')}</button>
+              </li>`,
+            )}
+          </ul>`
+        : ''}
+      <button class="btn small" ?disabled=${this.busy} @click=${() => emit(this, 'sx-passkey-add')}>${icon('plus')} Passkey für dieses Gerät anlegen</button>
+    </div>`;
+  }
+
   private settingsTab() {
     const st = this.settings;
     if (!st) return html`<div class="empty">Lade …</div>`;
     return html`
+      ${this.passkeySection()}
       ${st.suspended ? html`<div class="note warn" role="status">${icon('lock')}<span>Dein Konto ist gesperrt: Hochladen, Kommentieren, Melden und Einladen sind nicht möglich. Ansehen, Löschen und Abmelden gehen weiter.</span></div>` : ''}
       <div>
         <div class="label" id="notify-h">Benachrichtigungen</div>
