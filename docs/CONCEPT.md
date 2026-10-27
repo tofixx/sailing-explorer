@@ -702,9 +702,11 @@ und die Prüfungen in `boats.ts`/`profiles.ts`), `worker/links.ts`
 
 ## 10. Einladungen
 
-Stand: Oktober 2026. Zwei Fälle: **Boots-Admins** (Eigner lädt per E-Mail zum
-Mitverwalten ein) und **Crew auf einem Törn** (Eigentümer trägt Mitsegler mit
-Profil ein, per Einladungslink oder E-Mail). Anforderungen: **F-130 ff.**
+Stand: Oktober 2026. Zwei Fälle: **Boots-Admins** (Eigner lädt per E-Mail oder
+Profilname zum Mitverwalten ein) und **Crew auf einem Törn** (Eigentümer trägt
+Mitsegler ein, per Einladungslink, E-Mail oder Profilname). Per E-Mail kommen
+**neue** Leute ins System; **bestehende** Konten erreicht man per E-Mail genauso
+oder gezielt über ihren registrierten Profilnamen. Anforderungen: **F-130 ff.**
 (`REQUIREMENTS.md`). Umsetzung: `migrations/0007_invites.sql`,
 `worker/invites.ts`, `src/components/sx-crew.ts`, `sx-invite-dialog.ts`,
 Admin-Bereich im Boote-Reiter von `sx-account-dialog`.
@@ -733,6 +735,10 @@ CREATE TABLE share_crew (                -- Mitsegler eines Törns
 );
 ```
 
+`0008_invite_invitee.sql` ergänzt `invitee_id TEXT REFERENCES users(id) ON DELETE
+CASCADE`: Einladungen über den Profilnamen sind an dieses **Konto** gebunden statt
+an eine Adresse; die Mail geht an die Adresse des Kontos, die nur der Server kennt.
+
 `boat_admins` (0002) bleibt unverändert. Zwei Fremdschlüssel statt einer
 generischen `target_id`, damit Löschen von Boot, Törn oder Konto die
 Einladungen per `ON DELETE CASCADE` mitnimmt (D1 erzwingt Fremdschlüssel;
@@ -740,8 +746,8 @@ Einladungen per `ON DELETE CASCADE` mitnimmt (D1 erzwingt Fremdschlüssel;
 
 | Einladung | Bindung | Gültig | Nutzungen |
 |---|---|---|---|
-| Boots-Admin | nur per E-Mail, an die Adresse gebunden | 7 Tage | 1 |
-| Crew per E-Mail | an die Adresse gebunden | 14 Tage | 1 |
+| Boots-Admin | per E-Mail (an die Adresse gebunden) oder Profilname (an das Konto gebunden) | 7 Tage | 1 |
+| Crew per E-Mail oder Profilname | an die Adresse bzw. das Konto gebunden | 14 Tage | 1 |
 | Crew per Link | ohne Adresse, wer den Link hat | 14 Tage | bis 30 (= Crew-Obergrenze) |
 
 Token: `randomToken()` (256 Bit, base64url), gespeichert nur als Hash. Der
@@ -777,10 +783,13 @@ Alle Mutationen same-origin, angemeldet; fremde Objekte 404.
 | Methode | Pfad | Wer | Zweck |
 |---|---|---|---|
 | GET | `/api/boats/:id/admins` | Eigner, Admins | Admins mit Anzeigenamen (nie E-Mail) und offene Einladungen (nur Eigner) |
-| POST | `/api/boats/:id/invites` | Eigner | `{ email }` – Einladung per Mail |
+| POST | `/api/boats/:id/invites` | Eigner | `{ email }` oder `{ handle }` – Einladung per Mail |
 | DELETE | `/api/boats/:id/admins/:userId` | Eigner (jeden), Admin (nur sich: „Boot verlassen“) | entfernen |
 | GET | `/api/shares/:id/crew` | wer den Törn sehen darf | Crew (Regeln 10.6); Eigentümer zusätzlich IDs und offene Einladungen |
-| POST | `/api/shares/:id/invites` | Eigentümer | `{ email }` per Mail oder `{}` → Einladungslink (Token einmalig in der Antwort) |
+| POST | `/api/shares/:id/invites` | Eigentümer | `{ email }` oder `{ handle }` per Mail, `{}` → Einladungslink (Token einmalig in der Antwort) |
+| GET | `/api/me/invites` | angemeldet | Posteingang: offene Einladungen an mein Konto bzw. meine Adresse |
+| POST | `/api/me/invites/:id/accept` | Empfänger | aus dem Posteingang annehmen (gleiche Prüfungen wie per Link) |
+| DELETE | `/api/me/invites/:id` | Empfänger | ablehnen (verschwindet auch beim Einladenden) |
 | DELETE | `/api/shares/:id/crew/:userId` | Eigentümer (jeden), Crew (nur sich) | entfernen |
 | DELETE | `/api/invites/:id` | Eigentümer des Ziels | Einladung zurückziehen (Zeile wird gelöscht) |
 | POST | `/api/invites/peek` | alle | `{ token }` → Art, Ziel, Einladender, gebunden ja/nein, Ablauf |
@@ -790,7 +799,17 @@ Alle Mutationen same-origin, angemeldet; fremde Objekte 404.
 Die Antwort auf das Erzeugen einer Mail-Einladung ist gleich, ob es zur Adresse
 schon ein Konto gibt oder nicht, und auch, ob die Person schon Admin bzw. Crew
 ist (keine Konto-Enumeration, kein Ausprobieren fremder Adressen) – ein
-bestehendes Mitglied verbraucht beim Annehmen einfach nichts. Lokal im Log-Modus
+bestehendes Mitglied verbraucht beim Annehmen einfach nichts. Dass es trotzdem
+**für bestehende Konten funktioniert**, sieht der Einladende am Hinweis im
+Formular und am Ergebnis (die Person erscheint nach dem Annehmen mit Namen in
+der Liste); die eingeladene Person findet die Einladung zusätzlich zur Mail in
+ihrem Konto unter „Einladungen an dich“.
+
+**Profilname (`{ handle }`, auch mit „@“):** nur öffentliche Profile; private,
+„Nur mit Link“ und unbekannte Namen antworten gleich (404 `profile_not_found`).
+Da der Name öffentlich ist, darf hier „schon dabei“ (409 `already_member`)
+gemeldet werden. Die offene Einladung zeigt dem Einladenden den Namen, nie die
+Adresse. Lokal im Log-Modus
 liefert der Server wie beim Login einen `devLink`. „Mich selbst“ heißt im Pfad
 `me` (`/api/boats/:id/admins/me`, `/api/shares/:id/crew/me`).
 
@@ -850,8 +869,9 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
 
 | Stelle | Inhalt |
 |---|---|
-| `sx-account-dialog`, Reiter Boote | Knopf „Admins“ je Boot: Liste, entfernen, offene Einladungen zurückziehen, Feld „Per E-Mail einladen“ (nur Eigner); als Admin „Boot verlassen“ mit Bestätigung |
-| `sx-crew` (neu, Panel „Crew“ in der Törn-Ansicht) | Besucher: Namen mit Profil-Link, „+ n weitere“; Eigentümer: entfernen, „Einladungslink erzeugen“ (einmal anzeigen, kopieren), per E-Mail einladen, offene Einladungen; Crew: „Mich entfernen“ |
+| `sx-account-dialog`, Reiter Boote | Knopf „Admins“ je Boot: Liste, entfernen, offene Einladungen zurückziehen, Feld „E-Mail oder Profilname“ (nur Eigner); als Admin „Boot verlassen“ mit Bestätigung |
+| `sx-account-dialog`, oben | „Einladungen an dich“: Einladender, Ziel, Annehmen/Ablehnen |
+| `sx-crew` (neu, Panel „Crew“ in der Törn-Ansicht) | Besucher: Namen mit Profil-Link, „+ n weitere“; Eigentümer: entfernen, „Einladungslink erzeugen“ (einmal anzeigen, kopieren), per E-Mail oder Profilname einladen, offene Einladungen; Crew: „Mich entfernen“ |
 | `sx-invite-dialog` (neu) | Einladung zeigen, anmelden, annehmen, Ergebnis |
 | `sx-profile-page` | Abschnitt „Mitgesegelt“ (öffentliche Törns, auf denen die Person Crew ist) |
 | `SessionController` | alle Aufrufe; Komponenten melden nur Absichten (Events) |
@@ -865,5 +885,9 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
 4. Sollen Crew-Törns in die Kennzahlen (Seemeilen) des Profils zählen?
    (Umgesetzt: nein, nur eigener Abschnitt „Mitgesegelt“.)
 5. Passen die Grenzen (20/Tag, 10 Admins, 30 Crew, 50 Mails/Tag)?
-6. Crew-Einladungen auch per Link für Boots-Admins? (Umgesetzt: nein, Admins
-   nur per gebundener Mail – mehr Rechte, strengere Bindung.)
+6. Einladungslinks auch für Boots-Admins? (Umgesetzt: nein, Admins nur
+   gebunden per Mail oder Profilname – mehr Rechte, strengere Bindung.)
+
+Entschieden (Oktober 2026): Personen ohne öffentliches Profil bleiben öffentlich
+„Segler:in“ bzw. „+ n weitere“; der Spaßname erscheint nur dort, wo ein Name
+für Beteiligte nötig ist (Listen der Eigentümer, Mails, Posteingang).

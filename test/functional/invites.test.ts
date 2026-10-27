@@ -1,4 +1,4 @@
-// Funktionale Tests: Einladungen – Boots-Admins per E-Mail und Crew auf einem Törn (F-130 … F-137, Konzept Abschnitt 10).
+// Funktionale Tests: Einladungen – Boots-Admins per E-Mail und Crew auf einem Törn (F-130 … F-141, Konzept Abschnitt 10).
 // Echter Worker in workerd (Miniflare) mit lokalen D1-/R2-Bindings – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createShare, login, loginSupporter, startWorker, type Harness } from './worker-harness';
@@ -564,5 +564,93 @@ describe('F-140 E-Mail-Adressen erreichen nie andere Konten', () => {
     const mail = h.logs.find((l) => l.includes(`an ${to}:`))!;
     expect(mail).toContain(funnyName(owner.user.id));
     expect(mail).not.toContain(owner.email);
+  });
+});
+
+// ---------------------------------------------------------------- F-141 Bestehende Konten: Profilname und Posteingang
+
+describe('F-141 Bestehende Konten einladen: per Profilname oder per E-Mail, Posteingang im Konto', () => {
+  type MyInvites = { invites: Array<{ id: string; kind: string; target: string; inviter: string }> };
+  const inbox = async (p: Person) => getJson<MyInvites>(await send('GET', '/api/me/invites', p.cookie));
+
+  it('[F-141] per Profilname: Mail an die Adresse des Kontos (die der Einladende nie sieht), Annehmen im Konto', async () => {
+    const owner = await person({ profile: 'public' });
+    const boat = await newBoat(owner.cookie, 'Möwenschiss');
+    const mate = await person({ profile: 'public' });
+    const res = await send('POST', `/api/boats/${boat.id}/invites`, owner.cookie, { handle: `@${mate.handle}` });
+    expect(res.status).toBe(201);
+    const raw = await res.clone().text();
+    expect(raw).not.toContain(mate.email);
+    expect((await getJson<InviteOut & { invite: { invitee: unknown } }>(res)).invite).toMatchObject({ email: null, invitee: { handle: mate.handle, displayName: `Name ${mate.handle}` } });
+    expect(h.logs.some((l) => l.includes(`an ${mate.email}:`) && l.includes('Möwenschiss'))).toBe(true);
+    // Eigner sieht die offene Einladung mit Namen, ohne Adresse
+    const list = await (await send('GET', `/api/boats/${boat.id}/admins`, owner.cookie)).text();
+    expect(list).toContain(`Name ${mate.handle}`);
+    expect(list).not.toContain(mate.email);
+
+    const mine = await inbox(mate);
+    expect(mine.invites).toEqual([expect.objectContaining({ kind: 'boat_admin', target: 'Möwenschiss', inviter: `Name ${owner.handle}` })]);
+    expect(JSON.stringify(mine)).not.toContain(owner.email);
+    expect(await getJson(await send('POST', `/api/me/invites/${mine.invites[0].id}/accept`, mate.cookie))).toMatchObject({ kind: 'boat_admin', already: false });
+    expect((await inbox(mate)).invites).toEqual([]);
+    expect((await getJson<{ boats: Array<{ id: string; role: string }> }>(await send('GET', '/api/boats', mate.cookie))).boats.find((b) => b.id === boat.id)?.role).toBe('admin');
+  });
+
+  it('[F-141] per E-Mail an ein bestehendes Konto: erscheint dort im Posteingang; neue Adressen gehen wie bisher', async () => {
+    const owner = await person({ profile: 'public' });
+    const share = await newShare(owner.cookie, 'public', 'Bestandstörn');
+    const existing = await person();
+    await inviteCrew(owner, share.id, existing.email);
+    const fresh = email();
+    const outFresh = await inviteCrew(owner, share.id, fresh);
+    expect((await inbox(existing)).invites).toEqual([expect.objectContaining({ kind: 'crew', target: 'Bestandstörn' })]);
+    // Neue Adresse: Konto entsteht erst bei der Anmeldung, dann ist die Einladung im Posteingang und per Link annehmbar
+    const newcomer = { ...(await login(h, fresh)), email: fresh };
+    expect((await inbox(newcomer)).invites).toHaveLength(1);
+    expect((await accept(newcomer, tokenOf(outFresh.devLink!))).status).toBe(200);
+  });
+
+  it('[F-141] Ablehnen löscht die Einladung (auch beim Einladenden); fremde Einladungen lassen sich weder annehmen noch ablehnen', async () => {
+    const owner = await person({ profile: 'public' });
+    const share = await newShare(owner.cookie);
+    const a = await person({ profile: 'public' });
+    const b = await person({ profile: 'public' });
+    await inviteCrew(owner, share.id, a.email);
+    const [inv] = (await inbox(a)).invites;
+    expect((await send('POST', `/api/me/invites/${inv.id}/accept`, b.cookie)).status).toBe(404);
+    expect((await send('DELETE', `/api/me/invites/${inv.id}`, b.cookie)).status).toBe(404);
+    expect((await send('DELETE', `/api/me/invites/${inv.id}`, a.cookie)).status).toBe(204);
+    expect((await getJson<CrewOut>(await crewOf(share.id, owner))).invites).toEqual([]);
+  });
+
+  it('[F-141] über den Profilnamen gebunden: der Link gilt nur für dieses Konto', async () => {
+    const owner = await person({ profile: 'public' });
+    const share = await newShare(owner.cookie);
+    const mate = await person({ profile: 'public' });
+    const res = await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: mate.handle });
+    const token = tokenOf((await getJson<InviteOut>(res)).devLink!);
+    const other = await person({ profile: 'public' });
+    expect(await getJson(await peek(other, token))).toMatchObject({ bound: true, emailMatches: false });
+    expect(await getJson(await accept(other, token))).toMatchObject({ error: 'invite_wrong_account' });
+    expect(await getJson(await peek(mate, token))).toMatchObject({ bound: true, emailMatches: true });
+    expect((await accept(mate, token)).status).toBe(200);
+  });
+
+  it('[F-141] Profilname: nur öffentliche Profile (privat und unbekannt gleich 404), nicht sich selbst, nicht doppelt, nicht wer schon dabei ist', async () => {
+    const owner = await person({ profile: 'public' });
+    const share = await newShare(owner.cookie);
+    const hidden = await person({ profile: 'private' });
+    const r1 = await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: hidden.handle });
+    const r2 = await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: 'gibt-es-nicht-xyz' });
+    expect([r1.status, r2.status]).toEqual([404, 404]);
+    expect(await r1.json()).toEqual(await r2.json());
+    expect(await getJson(await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: owner.handle }))).toMatchObject({ error: 'own_object' });
+    const mate = await person({ profile: 'public' });
+    await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: mate.handle });
+    expect(await getJson(await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: mate.handle }))).toMatchObject({ error: 'already_invited' });
+    const [inv] = (await inbox(mate)).invites;
+    await send('POST', `/api/me/invites/${inv.id}/accept`, mate.cookie);
+    const again = await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: mate.handle });
+    expect(await getJson(again)).toMatchObject({ error: 'already_member' });
   });
 });

@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit';
 import type { Crew, PendingInvite, Visibility } from '../services/api';
 import { fmtDate } from '../util/html';
 import { icon } from './icons';
-import { base, emit } from './shared';
+import { base, emit, inviteTarget, pendingLabel } from './shared';
 
 /**
  * Crew eines geteilten Törns (Konzept 10.6/10.7) – reine Darstellung, Aktionen gehen als Events raus.
@@ -128,7 +128,7 @@ export class SxCrew extends LitElement {
   private invite(e: Event) {
     e.preventDefault();
     const input = (e.target as HTMLFormElement).querySelector('input') as HTMLInputElement;
-    emit(this, 'sx-crew-invite', { email: input.value.trim() });
+    emit(this, 'sx-crew-invite', { to: inviteTarget(input.value) });
     input.value = '';
   }
 
@@ -168,9 +168,9 @@ export class SxCrew extends LitElement {
       <ul>
         ${list.map(
           (i) => html`<li>
-            <span class="name">${icon(i.email ? 'mail' : 'link')}<span>${i.email ?? `Einladungslink · noch ${i.usesLeft}×`}</span></span>
+            <span class="name">${icon(i.invitee ? 'user' : i.email ? 'mail' : 'link')}<span>${pendingLabel(i)}</span></span>
             <span class="sub">bis ${fmtDate(i.expiresAt)}</span>
-            <button class="btn ghost small" ?disabled=${this.busy} aria-label="Einladung zurückziehen: ${i.email ?? 'Einladungslink'}" @click=${() => emit(this, 'sx-invite-revoke', { id: i.id, scope: 'crew' })}>Zurückziehen</button>
+            <button class="btn ghost small" ?disabled=${this.busy} aria-label="Einladung zurückziehen: ${pendingLabel(i)}" @click=${() => emit(this, 'sx-invite-revoke', { id: i.id, scope: 'crew' })}>Zurückziehen</button>
           </li>`,
         )}
       </ul>`;
@@ -185,11 +185,12 @@ export class SxCrew extends LitElement {
               <input type="text" readonly .value=${this.newLink} aria-label="Einladungslink" @focus=${(e: Event) => (e.target as HTMLInputElement).select()} />
               <button class="btn small" type="button" @click=${() => emit(this, 'sx-invite-copy', this.newLink)}>${icon('copy')} Kopieren</button>
             </div>`
-        : html`<div><button class="btn small" type="button" ?disabled=${this.busy} @click=${() => emit(this, 'sx-crew-invite', { email: null })}>${icon('link')} Einladungslink erzeugen</button></div>`}
+        : html`<div><button class="btn small" type="button" ?disabled=${this.busy} @click=${() => emit(this, 'sx-crew-invite', { to: null })}>${icon('link')} Einladungslink erzeugen</button></div>`}
       <form @submit=${this.invite}>
-        <input type="email" required maxlength="254" placeholder="mitsegler@example.org" aria-label="E-Mail-Adresse der Crew" />
+        <input type="text" required maxlength="254" placeholder="E-Mail oder Profilname" aria-label="E-Mail-Adresse oder Profilname" autocomplete="off" />
         <button class="btn small primary" type="submit" ?disabled=${this.busy}>${icon('mail')} Einladen</button>
       </form>
+      <p class="sub">Per E-Mail erreichst du neue und bestehende Konten; wer schon dabei ist, findet die Einladung auch im Konto. Bestehende Segler:innen kannst du auch über ihren Profilnamen einladen.</p>
       ${this.pending(c.invites)}
     `;
   }
