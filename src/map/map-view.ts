@@ -33,7 +33,7 @@ export class MapView {
   private hoverMarker: L.CircleMarker | null = null;
   private projected: Array<{ p: TrackPoint; x: number; y: number }> = [];
   private tracks: Track[] = [];
-  /** Ebene je Track und Zuordnung Punkt → Track – für das Hervorheben beim Hovern (F-215) */
+  /** Ebene je Track und Zuordnung Punkt → Track – für das Hervorheben beim Hovern (F-224) */
   private trackGroups = new Map<Track, L.LayerGroup>();
   private pointTrack = new WeakMap<TrackPoint, Track>();
   private focused: Track | null = null;
@@ -249,12 +249,16 @@ export class MapView {
     });
   }
 
-  /** Zeigt den Hover-Punkt; bei Bedarf wird die Karte dorthin verschoben. */
+  /** Track, zu dem ein gezeichneter Punkt gehört (Verlauf ↔ Trackliste, F-226). */
+  trackOf(p: TrackPoint): Track | null {
+    return this.pointTrack.get(p) ?? null;
+  }
+
   /**
-   * Bei mehreren Tracks den gehoverten hervorheben: die übrigen deutlich verblasst, aber sichtbar (F-215).
+   * Bei mehreren Tracks den gehoverten hervorheben: die übrigen deutlich verblasst, aber sichtbar (F-224, F-226).
    * null bzw. ein einzelner Track: alle normal.
    */
-  private focus(t: Track | null): void {
+  focus(t: Track | null): void {
     const target = this.trackGroups.size > 1 ? t : null;
     if (target === this.focused) return;
     this.focused = target;
@@ -272,8 +276,9 @@ export class MapView {
     }
   }
 
+  /** Zeigt den Hover-Punkt; bei Bedarf wird die Karte dorthin verschoben. */
   showHover(p: TrackPoint | null, opts: { emphasize?: boolean; pan?: boolean } = {}): void {
-    this.focus(p ? (this.pointTrack.get(p) ?? null) : null);
+    this.focus(p ? this.trackOf(p) : null);
     if (!p) {
       this.hoverMarker?.remove();
       this.hoverMarker = null;

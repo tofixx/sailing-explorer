@@ -13,6 +13,7 @@ import './components/sx-share-dialog';
 import './components/sx-account-dialog';
 import './components/sx-invite-dialog';
 import './components/sx-crew';
+import './components/sx-voyage-byline';
 import './components/sx-profile-page';
 import './components/sx-discover';
 import './components/sx-group-page';

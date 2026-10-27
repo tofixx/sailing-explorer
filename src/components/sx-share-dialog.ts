@@ -45,10 +45,17 @@ export interface ImageState {
   content: ImageContent;
 }
 
-/** Teilen als Bild (lokal, ohne Anmeldung) oder als Link (Upload). */
+/** Wozu der Dialog geöffnet wurde: nur speichern (F-225) oder teilen (Bild/Link). */
+export type SharePurpose = 'save' | 'share';
+
+/**
+ * Teilen als Bild (lokal, ohne Anmeldung) oder als Link (Upload) – bzw. nur Speichern (F-225): gleiches Formular, ohne
+ * Reiter, danach „Jetzt teilen“.
+ */
 export class SxShareDialog extends LitElement {
   static properties = {
     open: { type: Boolean },
+    purpose: { type: String },
     tab: { type: String },
     linkState: { type: String },
     defaultTitle: { type: String },
@@ -67,6 +74,7 @@ export class SxShareDialog extends LitElement {
     offer: { state: true },
   };
   declare open: boolean;
+  declare purpose: SharePurpose;
   declare tab: ShareTab;
   declare linkState: LinkState;
   declare defaultTitle: string;
@@ -93,6 +101,7 @@ export class SxShareDialog extends LitElement {
   constructor() {
     super();
     this.open = false;
+    this.purpose = 'share';
     this.tab = 'link';
     this.linkState = 'form';
     this.defaultTitle = '';
@@ -375,8 +384,27 @@ export class SxShareDialog extends LitElement {
     navigator.share?.({ title: this.result.share.title, text: this.result.share.summary, url: this.result.url }).catch(() => {});
   }
 
+  /** Nach dem Speichern: Bestätigung und „Jetzt teilen“. */
+  private savedPanel(r: ShareResult) {
+    const vis: Visibility = isVisibility(r.share.visibility) ? r.share.visibility : 'public';
+    return html`<div class="body">
+      <p class="muted visibility-note">
+        <span class="vis">${icon('check')} Gespeichert</span>
+        „${r.share.title}“ liegt in deinem Konto – ${VISIBILITY_LABEL[vis]}.
+      </p>
+      <div class="actions">
+        <button class="btn" @click=${this.close}>Schließen</button>
+        <button class="btn primary" @click=${() => {
+          this.purpose = 'share';
+          this.tab = 'link';
+        }}>${icon('share')} Jetzt teilen</button>
+      </div>
+    </div>`;
+  }
+
   private linkTab() {
     const r = this.result;
+    if (r && this.purpose === 'save') return this.savedPanel(r);
     if (r) {
       const vis: Visibility = isVisibility(r.share.visibility) ? r.share.visibility : 'public';
       return html`<div class="body">
@@ -400,11 +428,11 @@ export class SxShareDialog extends LitElement {
     }
     if (this.linkState === 'login') {
       return html`<div class="body">
-        <p class="muted">Für einen Link wird dein Törn gespeichert – dafür meldest du dich einmal mit deiner E-Mail-Adresse an. Danach geht es direkt hier weiter.</p>
-        <div class="note">${icon('info')}<span>Als Bild teilen geht ohne Anmeldung – im Reiter „Als Bild“.</span></div>
+        <p class="muted">${this.purpose === 'save' ? 'Gespeichert wird dein Törn in deinem Konto' : 'Für einen Link wird dein Törn gespeichert'} – dafür meldest du dich einmal mit deiner E-Mail-Adresse an. Danach geht es direkt hier weiter.</p>
+        ${this.purpose === 'share' ? html`<div class="note">${icon('info')}<span>Als Bild teilen geht ohne Anmeldung – im Reiter „Als Bild“.</span></div>` : ''}
         <div class="actions">
-          <button class="btn" @click=${() => this.selectTab('image')}>${icon('image')} Als Bild teilen</button>
-          <button class="btn primary" @click=${() => emit(this, 'sx-login-for-share')}>${icon('mail')} Anmelden &amp; Link erstellen</button>
+          ${this.purpose === 'share' ? html`<button class="btn" @click=${() => this.selectTab('image')}>${icon('image')} Als Bild teilen</button>` : ''}
+          <button class="btn primary" @click=${() => emit(this, 'sx-login-for-share')}>${icon('mail')} ${this.purpose === 'save' ? 'Anmelden &amp; speichern' : 'Anmelden &amp; Link erstellen'}</button>
         </div>
       </div>`;
     }
@@ -460,7 +488,7 @@ export class SxShareDialog extends LitElement {
       ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
       <div class="actions">
         <button type="button" class="btn" @click=${this.close}>Abbrechen</button>
-        <button type="submit" class="btn primary" ?disabled=${this.busy || !!this.supportStatus?.storagePaused}>${icon('share')} ${this.busy ? 'Lade hoch …' : 'Link erstellen'}</button>
+        <button type="submit" class="btn primary" ?disabled=${this.busy || !!this.supportStatus?.storagePaused}>${icon(this.purpose === 'save' ? 'check' : 'share')} ${this.busy ? 'Speichere …' : this.purpose === 'save' ? 'Speichern' : 'Speichern & Link erstellen'}</button>
       </div>
     </form>`;
   }
@@ -488,14 +516,16 @@ export class SxShareDialog extends LitElement {
   render() {
     return html`<dialog aria-labelledby="h" @close=${this.close}>
       <header>
-        <h2 id="h">Törn teilen</h2>
+        <h2 id="h">${this.purpose === 'save' ? 'Törn speichern' : 'Törn teilen'}</h2>
         <button class="btn ghost icon" aria-label="Schließen" @click=${this.close}>${icon('x')}</button>
       </header>
-      <div class="tabs" role="tablist">
-        <button role="tab" aria-selected=${this.tab === 'image'} @click=${() => this.selectTab('image')}>${icon('image')} Als Bild</button>
-        <button role="tab" aria-selected=${this.tab === 'link'} @click=${() => this.selectTab('link')}>${icon('link')} Als Link</button>
-      </div>
-      <div role="tabpanel">${this.tab === 'image' ? this.imageTab() : this.linkTab()}</div>
+      ${this.purpose === 'save'
+        ? this.linkTab()
+        : html`<div class="tabs" role="tablist">
+              <button role="tab" aria-selected=${this.tab === 'image'} @click=${() => this.selectTab('image')}>${icon('image')} Als Bild</button>
+              <button role="tab" aria-selected=${this.tab === 'link'} @click=${() => this.selectTab('link')}>${icon('link')} Als Link</button>
+            </div>
+            <div role="tabpanel">${this.tab === 'image' ? this.imageTab() : this.linkTab()}</div>`}
     </dialog>`;
   }
 }

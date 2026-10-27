@@ -13,6 +13,7 @@ import { deleteShareReactions } from './reaction-cleanup';
 import { quotaVerdict } from '../src/domain/limits';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseCommentsMode, parseVisibility } from './validate';
 import { EXPIRES_SQL } from './expiry-sql';
+import { shareContext } from './share-context';
 export { EXPIRES_SQL };
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
 
@@ -250,10 +251,10 @@ export async function listShares(request: Request, env: Env): Promise<Response> 
   return json({ shares: results.map((r) => shareShape(r, true)) });
 }
 
-/** GET /api/shares/:id – Metadaten. */
+/** GET /api/shares/:id – Metadaten, dazu Eigentümer-Profil und Gruppen, soweit sichtbar (F-228). */
 export async function getShareMeta(request: Request, env: Env, id: string): Promise<Response> {
-  const { row, isOwner } = await visibleShare(request, env, id);
-  return json({ share: shareShape(row, isOwner) });
+  const { row, isOwner, user } = await visibleShare(request, env, id);
+  return json({ share: { ...shareShape(row, isOwner), ...(await shareContext(env, row, user?.id ?? null)) } });
 }
 
 /** GET /api/shares/:id/data – gzip-Payload, der Browser entpackt selbst. */

@@ -23,6 +23,7 @@ import type { AccountTab, SxAccountDialog } from './components/sx-account-dialog
 import type { ChartSeries, SxTimeChart } from './components/sx-time-chart';
 import type { SxConditions } from './components/sx-conditions';
 import type { SxCrew } from './components/sx-crew';
+import type { SxVoyageByline } from './components/sx-voyage-byline';
 import type { SxInviteDialog } from './components/sx-invite-dialog';
 import type { SxDiscover } from './components/sx-discover';
 import type { SxEmptyState } from './components/sx-empty-state';
@@ -110,6 +111,7 @@ export class App {
     account: $<SxAccountDialog>('sx-account-dialog'),
     invite: $<SxInviteDialog>('sx-invite-dialog'),
     crew: $<SxCrew>('sx-crew'),
+    byline: $<SxVoyageByline>('sx-voyage-byline'),
     crewPanel: $<HTMLElement>('#crew-panel'),
     comments: $<SxComments>('sx-comments'),
     commentsPanel: $<HTMLElement>('#comments-panel'),
@@ -271,7 +273,7 @@ export class App {
 
     // Startseite: ohne Tracks immer, mit Tracks auf Wunsch (Logo / „Start“) – die Tracks bleiben dabei geladen.
     // Während ein Törn bzw. Tracks geladen werden (z. B. Aufruf per Link), nicht die Einstiegs-/Hochladen-Ansicht
-    // zeigen, sondern nur die Ladeanzeige über der Karte (F-214).
+    // zeigen, sondern nur die Ladeanzeige über der Karte (F-223).
     const home = (!has && !s.loading) || s.home;
     this.ui.app.toggleAttribute('data-empty', home);
     this.ui.empty.hidden = !home;
@@ -309,6 +311,10 @@ export class App {
     if (dataChanged || changed('hover') || changed('status')) this.renderHover(s);
     // Crew des geteilten Törns – neu laden bei anderem Törn oder anderer Anmeldung (Eigentümer verwaltet).
     if (changed('mode') || changed('user')) {
+      // „von … · in …“ (F-228)
+      const byline = s.mode.kind === 'share' ? s.mode.share : null;
+      this.ui.byline.share = byline;
+      this.ui.byline.hidden = !byline?.sailor && !byline?.groups?.length;
       if (s.mode.kind === 'share') void this.session.loadCrew(s.mode.share, s.mode.key);
       else this.session.hideCrew();
       // Kommentare des geteilten Törns (Phase D)
@@ -406,6 +412,7 @@ export class App {
     this.ui.speedChart.hoverTime = t;
     const fromKpi = h?.source === 'kpi';
     this.map.showHover(p, { emphasize: fromKpi, pan: fromKpi });
+    this.ui.trackList.focused = p ? (this.map.trackOf(p)?.id ?? null) : null;
   }
 
   // ---------------------------------------------------------------- Events
@@ -423,6 +430,11 @@ export class App {
     on<number | null>('sx-hover-time', (t) => {
       const i = t == null ? -1 : nearestByTime(this.timelinePts, t);
       this.hover(i >= 0 ? this.timelinePts[i] : null, 'chart');
+    });
+    on<string | null>('sx-track-focus', (id) => {
+      const t = id ? (this.store.get().tracks.find((x) => x.id === id) ?? null) : null;
+      this.map.focus(t);
+      this.ui.trackList.focused = t?.id ?? null;
     });
     on<string>('sx-track-toggle', (id) => this.updateTracks(this.store.get().tracks.map((t) => (t.id === id ? { ...t, hidden: !t.hidden } : t))));
     on<string>('sx-track-remove', (id) => this.updateTracks(this.store.get().tracks.filter((t) => t.id !== id)));
@@ -444,6 +456,7 @@ export class App {
 
     // Konto & Teilen
     on('sx-share', () => s.share());
+    on('sx-save', () => s.share('save'));
     on('sx-login', () => s.openLogin());
     on<AccountTab | undefined>('sx-account', (tab) => s.openAccount(tab));
     on<'login' | 'share' | 'account' | 'invite'>('sx-close', (which) => (which === 'invite' ? s.closeInvite() : (this.ui[which].open = false)));

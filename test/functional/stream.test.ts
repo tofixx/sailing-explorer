@@ -549,3 +549,44 @@ describe('F-167 Aufräumen', () => {
     expect(rest).toEqual({ old: 0, f: 0, o: 0, r: 0 });
   });
 });
+
+// ---------------------------------------------------------------- F-228 Eigentümer und Gruppen am Törn
+
+describe('F-228 Törn: von wem, in welcher Gruppe', () => {
+  type Meta = { sailor: { handle: string; displayName: string } | null; groups: Array<{ slug: string; name: string; kind: string }> };
+  const meta = async (id: string, p?: Person) => {
+    const res = await h.fetch(`/api/shares/${id}`, { cookie: p?.cookie });
+    expect(res.status, await res.clone().text()).toBe(200);
+    return ((await res.json()) as { share: Meta }).share;
+  };
+
+  it('[F-228] Profil nur öffentlich (Eigentümer sieht sich selbst); Gruppen nur öffentliche bzw. für Mitglieder, ausgeblendete nie', async () => {
+    const sailor = await s.person({ profile: 'public', supporter: true });
+    const open = await s.group(sailor, { name: 'Offener Club' });
+    const closed = await s.group(sailor, { name: 'Geschlossenes Team', kind: 'team', visibility: 'private' });
+    const member = await s.person();
+    await s.join(sailor, closed, member);
+    const share = await s.share(sailor, { title: 'Havel' });
+
+    const guest = await meta(share.id);
+    expect(guest.sailor).toEqual({ handle: sailor.handle, displayName: `Name ${sailor.handle}` });
+    expect(guest.groups).toEqual([{ slug: open.slug, name: 'Offener Club', kind: 'club' }]);
+    expect((await meta(share.id, member)).groups.map((g) => g.name)).toEqual(['Offener Club', 'Geschlossenes Team']);
+
+    const db = await s.db();
+    await db.prepare('UPDATE groups SET hidden_at = 1 WHERE id = ?').bind(open.id).run();
+    await db.prepare(`UPDATE profiles SET visibility = 'private' WHERE user_id = ?`).bind(sailor.user.id).run();
+    const later = await meta(share.id);
+    expect(later).toMatchObject({ sailor: null, groups: [] });
+    expect((await meta(share.id, sailor)).sailor?.handle).toBe(sailor.handle);
+    expect(JSON.stringify(later)).not.toContain(sailor.user.id);
+  });
+
+  it('[F-228] „Nur mit Link“-Törn erscheint in keiner Gruppe – auch nicht für Mitglieder', async () => {
+    const sailor = await s.person({ profile: 'public', supporter: true });
+    await s.group(sailor);
+    const share = await s.share(sailor, { visibility: 'unlisted' });
+    const res = await h.fetch(`/api/shares/${share.id}`, { cookie: sailor.cookie });
+    expect(((await res.json()) as { share: Meta }).share.groups).toEqual([]);
+  });
+});

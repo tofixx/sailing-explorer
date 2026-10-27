@@ -1,11 +1,16 @@
 // @vitest-environment happy-dom
-// Karte (F-215): Beim Hovern über einen Punkt werden bei mehreren Tracks die übrigen verblasst dargestellt.
+// Karte (F-224): Beim Hovern über einen Punkt werden bei mehreren Tracks die übrigen verblasst dargestellt.
 import { describe, expect, it } from 'vitest';
 import L from 'leaflet';
 import { MapView } from '../../src/map/map-view';
 import { P, makeTrack } from './helpers';
 
 type Internals = { trackGroups: Map<unknown, L.LayerGroup> };
+
+// happy-dom zeichnet nicht: ein Canvas-Kontext, dessen Methoden nichts tun (Leaflet rendert per Canvas)
+HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement) {
+  return new Proxy({}, { get: (_t, k) => (k === 'canvas' ? this : () => ({})), set: () => true });
+} as unknown as typeof HTMLCanvasElement.prototype.getContext;
 
 function lineOpacities(group: L.LayerGroup): number[] {
   const out: number[] = [];
@@ -16,7 +21,7 @@ function lineOpacities(group: L.LayerGroup): number[] {
 }
 
 describe('MapView: Track hervorheben', () => {
-  it('[F-215] Hover auf einen Punkt verblasst die anderen Tracks, Verlassen stellt alle wieder her; ein einzelner Track bleibt unverändert', () => {
+  it('[F-224] Hover auf einen Punkt verblasst die anderen Tracks, Verlassen stellt alle wieder her; ein einzelner Track bleibt unverändert', () => {
     const el = document.createElement('div');
     Object.assign(el.style, { width: '400px', height: '300px' });
     document.body.append(el);
@@ -39,6 +44,12 @@ describe('MapView: Track hervorheben', () => {
 
     view.showHover(null);
     expect([...lineOpacities(ga), ...lineOpacities(gb)].every((o) => o >= 0.7)).toBe(true);
+
+    // F-226: Hovern einer Zeile in der Trackliste nutzt denselben Fokus
+    view.focus(b);
+    expect(lineOpacities(ga).every((o) => o < 0.35)).toBe(true);
+    expect(view.trackOf(a.points[0])).toBe(a);
+    view.focus(null);
 
     view.render([a], 'speed', null);
     view.showHover(a.points[0]);
