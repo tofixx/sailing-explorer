@@ -1380,3 +1380,14 @@ Auf der Startseite sehen Angemeldete ohne Gruppe oder ohne Heimathafen „Willko
 Heimathafen wählen (Autovervollständigung), Verein oder Team beitreten (öffentliche Gruppen mit „Beitreten“,
 „Anfragen“ bzw. „Ansehen“ je nach Stufe, dazu „gründen“) und Freunde einladen (E-Mail oder Link). Erledigte
 Schritte verschwinden; „Später“ blendet die Karte auf dem Gerät aus.
+
+### 14.5 App auf dem Home-Bildschirm
+
+Web-App-Manifest (`id` und `start_url` „/“, eigenständige Anzeige, Icons 192/512 je „any“ und „maskable“) und
+iOS-Icon; auf Touch-Geräten außerhalb der installierten App und außerhalb von Einbettungen erscheint nach einigen
+Sekunden `sx-install-hint` – Android/Chrome mit „Installieren“, iOS-Safari mit der Anleitung über „Teilen“. Er liegt
+über Karte und Startseite, oberhalb des runden „Track anlegen“-Knopfs; „Nicht jetzt“ gilt dauerhaft pro Gerät.
+
+**Bekannte Grenze iOS:** Apps auf dem Home-Bildschirm haben unter iOS eigene Cookies und eigenen Speicher. Der
+Anmeldelink aus der Mail öffnet Safari – die Anmeldung landet dort, nicht in der App. Abhilfe wäre eine Anmeldung per
+Code zum Eintippen (offene Frage an den Betreiber). Android ist nicht betroffen.

@@ -10,6 +10,8 @@ const paths = {
   upload: svg`<path class="f" d="M5 4h9l5 5v11H5z"/><path d="M14 4H5v16h14V9zM14 4v5h5"/><path d="M8.5 16.5 11 13l2 2 2.5-3.5"/><path d="M12 2v0"/>`,
   // Teilen: das bekannte Symbol – drei verbundene Punkte
   share: svg`<circle class="f" cx="18" cy="5.5" r="2.75"/><circle class="f" cx="6" cy="12" r="2.75"/><circle class="f" cx="18" cy="18.5" r="2.75"/><circle cx="18" cy="5.5" r="2.75"/><circle cx="6" cy="12" r="2.75"/><circle cx="18" cy="18.5" r="2.75"/><path d="m8.4 10.7 7.2-3.9M8.4 13.3l7.2 3.9"/>`,
+  // Teilen auf iPhone/iPad: Quadrat mit Pfeil nach oben (für die Anleitung „Zum Home-Bildschirm“)
+  iosShare: svg`<path d="M12 3.5v11M8 7.5l4-4 4 4"/><path d="M8.5 10.5H6v10h12v-10h-2.5"/>`,
   link: svg`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>`,
   copy: svg`<rect class="f" x="9" y="9" width="11" height="11" rx="2.5"/><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/>`,
   // Konto: Kapitänsmütze-Silhouette

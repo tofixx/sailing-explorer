@@ -12,6 +12,8 @@ const DISMISS_KEY = 'sx-install-dismissed';
 
 // Früh registrieren: Chrome feuert beforeinstallprompt ggf. vor dem ersten Rendern der Komponente.
 let deferred: InstallPromptEvent | null = null;
+/** „Nicht jetzt“ in dieser Sitzung – falls localStorage fehlt */
+let dismissedNow = false;
 const listeners = new Set<() => void>();
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeinstallprompt', (e) => {
@@ -36,6 +38,7 @@ export function isIosSafari(ua = navigator.userAgent, touchPoints = navigator.ma
 }
 
 function dismissed(): boolean {
+  if (dismissedNow) return true;
   try {
     return localStorage.getItem(DISMISS_KEY) === '1';
   } catch {
@@ -69,12 +72,14 @@ export class SxInstallHint extends LitElement {
   static styles = [
     base,
     css`
+      /* Über Karte (Leaflet bis 1000), Startseite (800) und „Track anlegen“ (900), unter Toasts (3000); oberhalb des
+         runden Knopfs „Track anlegen“ (56 px unten rechts), damit beide bedienbar bleiben. */
       :host {
         position: fixed;
         left: var(--s-3);
         right: var(--s-3);
-        bottom: calc(var(--s-3) + env(safe-area-inset-bottom, 0px));
-        z-index: 60;
+        bottom: calc(var(--s-4) + 56px + var(--s-3) + env(safe-area-inset-bottom, 0px));
+        z-index: 1100;
         display: block;
       }
       :host([hidden]) {
@@ -137,10 +142,11 @@ export class SxInstallHint extends LitElement {
     if (this.timer) clearTimeout(this.timer);
   }
 
-  /** Welcher Hinweis passt gerade? */
+  /** Welcher Hinweis passt gerade? Nie in Einbettungen (iframe, ?embed). */
   private decide() {
     const touch = window.matchMedia?.('(pointer: coarse)').matches ?? false;
-    if (!this.ready || !touch || isStandalone() || dismissed()) {
+    const embedded = window.top !== window || new URLSearchParams(location.search).has('embed');
+    if (!this.ready || !touch || embedded || isStandalone() || dismissed()) {
       this.mode = null;
       return;
     }
@@ -152,6 +158,7 @@ export class SxInstallHint extends LitElement {
       localStorage.setItem(DISMISS_KEY, '1');
     } catch {
       // ohne Speicher bleibt es für diese Sitzung ausgeblendet
+      dismissedNow = true;
     }
     this.mode = null;
   }
@@ -159,15 +166,22 @@ export class SxInstallHint extends LitElement {
   private async install() {
     const e = deferred;
     if (!e) return;
-    await e.prompt();
-    const choice = await e.userChoice;
+    // Das Ereignis gilt nur einmal – danach (oder bei einem Fehler) nicht erneut anbieten.
     deferred = null;
-    if (choice.outcome === 'accepted') this.mode = null;
-    else this.dismiss();
+    try {
+      await e.prompt();
+      if ((await e.userChoice).outcome === 'accepted') this.mode = null;
+      else this.dismiss();
+    } catch {
+      this.mode = null;
+    }
+  }
+
+  willUpdate() {
+    this.hidden = !this.mode;
   }
 
   render() {
-    this.hidden = !this.mode;
     if (!this.mode) return '';
     return html`<div class="card" role="region" aria-label="App installieren">
       <img src="/icons/icon-192.png" alt="" />
@@ -175,11 +189,11 @@ export class SxInstallHint extends LitElement {
         <b>Sail Explorer als App</b>
         ${this.mode === 'android'
           ? 'Auf den Home-Bildschirm legen – startet wie eine App, ohne Browserleiste.'
-          : html`Tippe unten auf <span class="share" aria-label="Teilen">${icon('share')}</span> „Teilen“ und dann auf „Zum Home-Bildschirm“.`}
+          : html`Tippe auf <span class="share" aria-label="Teilen">${icon('iosShare')}</span> „Teilen“ und dann auf „Zum Home-Bildschirm“.`}
       </div>
       <div class="row">
         ${this.mode === 'android' ? html`<button class="btn small primary" @click=${() => this.install()}>Installieren</button>` : ''}
-        <button class="btn small ghost" aria-label="Nicht jetzt" @click=${() => this.dismiss()}>${icon('x')}</button>
+        <button class="btn small ghost icon" aria-label="Nicht jetzt" @click=${() => this.dismiss()}>${icon('x')}</button>
       </div>
     </div>`;
   }
