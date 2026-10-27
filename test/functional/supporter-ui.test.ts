@@ -151,9 +151,9 @@ describe('F-63 sx-support Slider', () => {
   it('[F-63] erklärt Laufzeit, Aufbewahrung und Grenzen für Unterstützer', async () => {
     const s = await mount('sx-support', { variant: 'required', tiers: TIERS, status: status(3) });
     const t = deepText(s.shadowRoot);
-    expect(t).toContain('gilt 12 Monate pro Zahlung');
-    expect(t).toContain('Kostenlose Törns bleiben 3 Monate gespeichert');
-    expect(t).toContain('so lange die Unterstützung läuft und 3 Monate darüber hinaus');
+    expect(t).toMatch(/gilt für die Saison \d{4} \(bis 31\.12\.\)/);
+    expect(t).toContain('jede weitere Zahlung hängt eine Saison an');
+    expect(t).toContain('Törns bleiben für ihre Saison gespeichert und werden Ende Januar danach gelöscht');
     expect(t).toContain('bis zu 100 Törns, 200 MB Speicher und 20 Boote');
   });
 

@@ -24,7 +24,7 @@ export interface Harness {
   db: () => Promise<D1Like>;
   r2: () => Promise<R2Like>;
   /** Löst den Cron-Handler (scheduled) des Workers aus und wartet, bis er samt waitUntil fertig ist. */
-  scheduled: (cron?: string) => Promise<{ outcome: string }>;
+  scheduled: (cron?: string, at?: Date) => Promise<{ outcome: string }>;
   /** Alle Worker-Logs (console.log/error) seit dem Start – z. B. „[mail:log] …“ */
   logs: string[];
   dispose: () => Promise<void>;
@@ -138,9 +138,9 @@ export async function startWorker(bindings: Record<string, string> = {}, opts: {
     },
     db: async () => db,
     r2: async () => (await mf.getR2Bucket('TRACKS')) as unknown as R2Like,
-    async scheduled(cron = '0 3 * * *') {
+    async scheduled(cron = '0 3 * * *', at = new Date()) {
       const worker = (await mf.getWorker()) as unknown as { scheduled(o: { cron?: string; scheduledTime?: Date }): Promise<{ outcome: string }> };
-      return worker.scheduled({ cron, scheduledTime: new Date() });
+      return worker.scheduled({ cron, scheduledTime: at });
     },
     logs,
     async dispose() {

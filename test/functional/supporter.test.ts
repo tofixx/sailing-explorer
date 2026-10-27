@@ -10,13 +10,12 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createShare, grantSupport, login, startWorker, stripeSignature, type Harness } from './worker-harness';
 import { parseFreeShares, parseStripeSignature, timingSafeEqual } from '../../worker/validate';
-import { SUPPORT_TIERS } from '../../src/domain/support';
+import { SUPPORT_TIERS, extendSupport } from '../../src/domain/support';
 import { limitsFor } from '../../src/domain/limits';
 
 const SECRET = 'whsec_test_0123456789abcdef';
 const KEY = 'sk_test_0123456789abcdef';
 const DAY = 86_400_000;
-const YEAR = 365 * DAY;
 
 let h: Harness;
 let h0: Harness;
@@ -324,7 +323,7 @@ describe('F-61 Stripe-Checkout', () => {
 // ---------------------------------------------------------------- Stripe-Webhook
 
 describe('F-61 Unterstützen per Stripe-Webhook', () => {
-  it('[F-61] bezahlte Session schaltet für 365 Tage frei – danach ist die 4. Freigabe erlaubt', async () => {
+  it('[F-61] bezahlte Session schaltet für die Saison frei – danach ist die 4. Freigabe erlaubt', async () => {
     const { cookie, user } = await login(h, email());
     await shares(h, cookie, 3);
     expect((await createShare(h, cookie)).status).toBe(402);
@@ -337,30 +336,30 @@ describe('F-61 Unterstützen per Stripe-Webhook', () => {
 
     const s = await status(h, cookie);
     expect(s).toMatchObject({ supporter: true, sharesUsed: 3 });
-    expect(s.supporterUntil).toBeGreaterThanOrEqual(before + YEAR);
-    expect(s.supporterUntil).toBeLessThanOrEqual(after + YEAR);
+    expect([extendSupport(null, before), extendSupport(null, after)]).toContain(s.supporterUntil);
+    expect(new Date(s.supporterUntil as number).toISOString()).toMatch(/-01-01T00:00:00.000Z$/);
     expect((await createShare(h, cookie)).status).toBe(201);
     expect(await supportRows(h, user.id)).toEqual([{ provider: 'stripe', provider_ref: expect.stringMatching(/^cs_test_/), amount: 500, currency: 'eur' }]);
   });
 
-  it('[F-61] eine zweite Zahlung verlängert ab dem laufenden Ende, nicht ab heute', async () => {
+  it('[F-61] eine zweite Zahlung hängt eine Saison an', async () => {
     const { cookie, user } = await login(h, email());
     expect((await webhook(h, checkoutEvent(user.id))).status).toBe(200);
     const first = (await status(h, cookie)).supporterUntil as number;
     expect((await webhook(h, checkoutEvent(user.id, { amount_total: 300 }))).status).toBe(200);
     const second = (await status(h, cookie)).supporterUntil as number;
-    expect(second).toBe(first + YEAR);
+    expect(second).toBe(extendSupport(first, Date.now()));
+    expect(new Date(second).getUTCFullYear()).toBe(new Date(first).getUTCFullYear() + 1);
     expect(await supportRows(h, user.id)).toHaveLength(2);
   });
 
-  it('[F-61] nach abgelaufener Unterstützung zählt eine neue Zahlung ab heute', async () => {
+  it('[F-61] nach abgelaufener Unterstützung zählt die Saison des Zahltags', async () => {
     const { cookie, user } = await login(h, email());
     await grantSupport(h, user.id, Date.now() - 30 * DAY);
     const before = Date.now();
     expect((await webhook(h, checkoutEvent(user.id))).status).toBe(200);
     const until = (await status(h, cookie)).supporterUntil as number;
-    expect(until).toBeGreaterThanOrEqual(before + YEAR);
-    expect(until).toBeLessThan(before + YEAR + 60_000);
+    expect(until).toBe(extendSupport(null, before));
   });
 
   it('[F-61] doppelt zugestellter Webhook ist idempotent (eine Unterstützung, Ende unverändert)', async () => {

@@ -2,7 +2,7 @@
 // Regeln stehen in src/domain/support.ts; der Ablauf eines Törns wird per EXPIRES_SQL in der DB berechnet.
 import type { Env } from './env';
 import { purgeUser } from './auth';
-import { expiryWarningMail, sendMail } from './mail';
+import { expiryWarningMail, seasonReminderMail, sendMail } from './mail';
 import { EXPIRES_SQL } from './shares';
 import { recomputeStorage, storageTotal, subtractShareStmt } from './storage';
 import { sendCommentDigests } from './comments';
@@ -11,7 +11,8 @@ import { deleteKeys, photoKeysForShares } from './photo-keys';
 import { deleteShareActivity, nightlyActivityCleanup } from './activity';
 import { deleteShareReactions } from './reaction-cleanup';
 import { sendGroupDigests } from './group-digest';
-import { INACTIVE_ACCOUNT_MS, WARN_MS } from '../src/domain/support';
+import { sweepOrphanCovers } from './covers';
+import { GRACE_MS, INACTIVE_ACCOUNT_MS, SEASON_MAIL_MONTH, WARN_MS, seasonEnd } from '../src/domain/support';
 
 /** Obergrenzen pro Lauf – hält den Cron im Free-Tier-CPU-Budget; der Rest folgt in der nächsten Nacht. */
 const MAX_DELETE = 200;
@@ -27,7 +28,11 @@ const COMMENT_LOG_MS = 86_400_000;
 export interface RetentionResult {
   deleted: number;
   warned: number;
+  /** verschickte Saison-Erinnerungen (Dezember, Konzept 5.5) */
+  seasonMails: number;
   purged: number;
+  /** entfernte Titelbilder gelöschter Profile, Boote und Gruppen (Konzept 13.2) */
+  covers: number;
   /** Gesamtspeicher nach dem Lauf (neu berechnet, Konzept 5.2) */
   storageBytes: number;
   /** Abweichung des inkrementell gepflegten Zählers vom neu berechneten Wert (null = Zeile fehlte) */
@@ -95,6 +100,36 @@ async function warnExpiring(env: Env, origin: string, now: number): Promise<numb
   return warned;
 }
 
+/**
+ * Saison-Erinnerung (Konzept 5.5): im Dezember einmal pro Konto und Jahr an Konten, deren Törns mit dieser Saison
+ * enden (Löschung am 1. Februar), solange keine Unterstützung für die nächste Saison läuft.
+ */
+async function remindSeason(env: Env, origin: string, now: number): Promise<number> {
+  const d = new Date(now);
+  if (d.getUTCMonth() !== SEASON_MAIL_MONTH) return 0;
+  const season = d.getUTCFullYear();
+  const expiresAt = seasonEnd(season) + GRACE_MS;
+  const { results } = await env.DB.prepare(
+    `SELECT u.id, u.email, COUNT(*) AS voyages FROM users u JOIN shares s ON s.user_id = u.id
+     WHERE ${EXPIRES_SQL} <= ?1 AND COALESCE(u.season_mail_year, 0) < ?2 AND u.suspended_at IS NULL
+     GROUP BY u.id LIMIT ?3`,
+  )
+    .bind(expiresAt, season, MAX_WARN_USERS)
+    .all<{ id: string; email: string; voyages: number }>();
+  let sent = 0;
+  for (const u of results) {
+    try {
+      await sendMail(env, seasonReminderMail(env, u.email, origin, { season, voyages: u.voyages, expiresAt }));
+    } catch (err) {
+      console.error('season reminder failed', err);
+      continue;
+    }
+    await env.DB.prepare('UPDATE users SET season_mail_year = ? WHERE id = ?').bind(season, u.id).run();
+    sent++;
+  }
+  return sent;
+}
+
 /** Konten ohne Törns, die seit 12 Monaten nicht angemeldet waren (und keinen laufenden Unterstützer-Status haben). */
 async function purgeInactive(env: Env, now: number): Promise<number> {
   const cutoff = now - INACTIVE_ACCOUNT_MS;
@@ -114,6 +149,10 @@ async function purgeInactive(env: Env, now: number): Promise<number> {
 export async function runRetention(env: Env, origin: string, now = Date.now()): Promise<RetentionResult> {
   const deleted = await deleteExpired(env, now);
   const warned = await warnExpiring(env, origin, now);
+  const seasonMails = await remindSeason(env, origin, now).catch((err) => {
+    console.error('season reminders failed', err);
+    return 0;
+  });
   const purged = await purgeInactive(env, now);
   // Sammelmail nach dem Aufräumen: Kommentare auf gerade gelöschten Törns zählen nicht mehr.
   const digests = await sendCommentDigests(env, origin, now).catch((err) => {
@@ -136,9 +175,14 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     console.error('group digests failed', err);
     return 0;
   });
+  // Titelbilder gelöschter Profile, Boote und Gruppen (Konzept 13.2)
+  const covers = await sweepOrphanCovers(env).catch((err) => {
+    console.error('cover sweep failed', err);
+    return 0;
+  });
   // Notbremse: Zähler aus D1 neu berechnen – korrigiert Abweichungen der inkrementellen Pflege und legt eine
   // fehlende Zeile wieder an (bis dahin gelten Uploads als pausiert).
   const counted = await storageTotal(env);
   const storageBytes = await recomputeStorage(env);
-  return { deleted, warned, purged, digests, groupDigests, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
+  return { deleted, warned, seasonMails, purged, digests, groupDigests, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
 }

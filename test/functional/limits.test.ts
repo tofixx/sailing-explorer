@@ -224,7 +224,7 @@ describe('F-122 Zähler storage_bytes wird gepflegt', () => {
 
   it('[F-122] der Cron zieht abgelaufene Törns ab und rechnet den Zähler neu (auch eine fehlende Zeile)', async () => {
     const { user } = await login(h, email());
-    const expired = await bigShare(h, user.id, 7000, 3000, 120 * DAY);
+    const expired = await bigShare(h, user.id, 7000, 3000, 1200 * DAY);
     // Zähler absichtlich falsch: der Cron korrigiert ihn auf die Summe aus D1
     await setCounter(h, 123);
     const res = await h.scheduled();
@@ -242,7 +242,7 @@ describe('F-122 Zähler storage_bytes wird gepflegt', () => {
   it('[F-122] beim Ablauf im Cron wird der Speicher inkrementell abgezogen – das Neuberechnen findet keine Abweichung', async () => {
     const { user } = await login(h, email());
     const total = await sumShares(h);
-    await bigShare(h, user.id, 5000, 1000, 120 * DAY);
+    await bigShare(h, user.id, 5000, 1000, 1200 * DAY);
     // Zähler stimmt (der direkt angelegte Törn ist mitgezählt)
     await setCounter(h, total + 6000);
     await h.scheduled();

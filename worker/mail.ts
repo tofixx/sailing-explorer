@@ -29,17 +29,51 @@ export function expiryWarningMail(env: Env, to: string, origin: string, shares: 
   const name = (t: string) => t.trim() || 'Ohne Titel';
   const lines = shares.map((s) => `• ${name(s.title)} – gelöscht am ${date(s.expiresAt)}`).join('\n');
   const link = `${origin}/?support=open`;
-  const text = `Hallo,\n\nfolgende geteilte Törns bei ${app} werden bald automatisch gelöscht:\n\n${lines}\n\nKostenlose Törns bleiben 3 Monate gespeichert. Mit einer Unterstützung (ab einem Kaffee) bleiben sie für die Dauer der Unterstützung und 3 Monate darüber hinaus erhalten:\n${link}\n\nWenn du nichts tust, werden sie zum genannten Datum entfernt.\n`;
+  const text = `Hallo,\n\nfolgende geteilte Törns bei ${app} werden bald automatisch gelöscht:\n\n${lines}\n\nKostenlose Törns bleiben für ihre Saison gespeichert (bis Ende Januar danach). Mit einer Unterstützung (ab einem Kaffee) nimmst du sie in die nächste Saison mit:\n${link}\n\nWenn du nichts tust, werden sie zum genannten Datum entfernt.\n`;
   // Titel stammen von Nutzern → escapen.
   const items = shares.map((s) => `<li><b>${escapeHtml(name(s.title))}</b> – gelöscht am ${date(s.expiresAt)}</li>`).join('');
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
 <p>Hallo,</p><p>folgende geteilte Törns bei <b>${app}</b> werden bald automatisch gelöscht:</p><ul>${items}</ul>
-<p>Kostenlose Törns bleiben 3 Monate gespeichert. Mit einer Unterstützung bleiben sie für die Dauer der Unterstützung und 3 Monate darüber hinaus erhalten.</p>
+<p>Kostenlose Törns bleiben für ihre Saison gespeichert (bis Ende Januar danach). Mit einer Unterstützung (ab einem Kaffee) nimmst du sie in die nächste Saison mit.</p>
 <p><a href="${link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Unterstützen</a></p>
 <p style="color:#5b6b7b;font-size:13px">Wenn du nichts tust, werden sie zum genannten Datum entfernt.</p>
 </body></html>`;
   const subject = shares.length === 1 ? `${app}: Ein Törn wird bald gelöscht` : `${app}: ${shares.length} Törns werden bald gelöscht`;
   return { to, subject, text, html };
+}
+
+/**
+ * Saison-Erinnerung im Dezember (Konzept 5.5): freundlich, einmal pro Konto und Jahr – die Törns der Saison bleiben
+ * bis Ende Januar; wer sie behalten will, unterstützt das private Projekt für die nächste Saison.
+ */
+export function seasonReminderMail(env: Env, to: string, origin: string, m: { season: number; voyages: number; expiresAt: number }): Mail {
+  const app = env.APP_NAME;
+  const date = new Date(m.expiresAt).toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
+  const what = m.voyages === 1 ? 'dein Törn' : `deine ${m.voyages} Törns`;
+  const link = `${origin}/?support=open`;
+  const next = m.season + 1;
+  const text = `Hallo,
+
+die Saison ${m.season} geht zu Ende – danke, dass du ${what} bei ${app} geteilt hast!
+
+${app} ist ein privates Projekt aus Potsdam: ohne Werbung, ohne Tracking, gebaut in der Freizeit. Server, Speicher und Karten kosten trotzdem Geld. Deshalb bleiben kostenlose Törns eine Saison lang gespeichert – ${what} also bis zum ${date}.
+
+Wenn du sie in die Saison ${next} mitnehmen möchtest, freue ich mich über eine kleine Unterstützung – schon ein Kaffee reicht, und für die ganze Saison ${next} kannst du dann auch Fotos hochladen und die Sichtbarkeit selbst wählen:
+${link}
+
+Kein Muss: Wenn du nichts tust, werden die Törns am ${date} entfernt, dein Konto bleibt.
+
+Frohe Weihnachten und immer eine Handbreit Wasser unterm Kiel!
+`;
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
+<p>Hallo,</p><p>die Saison ${m.season} geht zu Ende – danke, dass du ${what} bei <b>${app}</b> geteilt hast!</p>
+<p>${app} ist ein privates Projekt aus Potsdam: ohne Werbung, ohne Tracking, gebaut in der Freizeit. Server, Speicher und Karten kosten trotzdem Geld. Deshalb bleiben kostenlose Törns eine Saison lang gespeichert – ${what} also bis zum <b>${date}</b>.</p>
+<p>Wenn du sie in die Saison ${next} mitnehmen möchtest, freue ich mich über eine kleine Unterstützung – schon ein Kaffee reicht, und für die ganze Saison ${next} kannst du dann auch Fotos hochladen und die Sichtbarkeit selbst wählen.</p>
+<p><a href="${link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Saison ${next} unterstützen</a></p>
+<p style="color:#5b6b7b;font-size:13px">Kein Muss: Wenn du nichts tust, werden die Törns am ${date} entfernt, dein Konto bleibt.</p>
+<p>Frohe Weihnachten und immer eine Handbreit Wasser unterm Kiel!</p>
+</body></html>`;
+  return { to, subject: `${app}: Deine Saison ${m.season} – mitnehmen in die nächste?`, text, html };
 }
 
 export interface InviteMailInput {

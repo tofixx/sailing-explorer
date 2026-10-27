@@ -17,6 +17,7 @@ import { isShareKey, type Visibility } from '../src/domain/visibility';
 import { communityRoutes } from './community';
 // ---- Fotos (Phase C) ----
 import { deletePhoto, getPhotoImage, listPhotos, updatePhoto, uploadPhoto } from './photos';
+import { deleteCover, getCover, putCover } from './covers';
 // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11) ----
 import { groupRoutes } from './group-routes';
 import { canViewGroup, loadGroupBySlug } from './groups';
@@ -86,6 +87,10 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/photos\/([A-Za-z0-9]+)$/, (r, env, [id]) => getPhotoImage(r, env, id)],
   ['PATCH', /^\/api\/photos\/([A-Za-z0-9]+)$/, (r, env, [id]) => updatePhoto(r, env, id)],
   ['DELETE', /^\/api\/photos\/([A-Za-z0-9]+)$/, (r, env, [id]) => deletePhoto(r, env, id)],
+  // ---- Titelbilder (Konzept 13.2): worker/covers.ts ----
+  ['GET', /^\/api\/covers\/([ubg])\/([A-Za-z0-9-]+)\/([A-Za-z0-9]+)$/, (r, env, [k, id, ver]) => getCover(r, env, k, id, ver)],
+  ['PUT', /^\/api\/covers\/([ubg])\/([A-Za-z0-9-]+)$/, (r, env, [k, id]) => putCover(r, env, k, id)],
+  ['DELETE', /^\/api\/covers\/([ubg])\/([A-Za-z0-9-]+)$/, (r, env, [k, id]) => deleteCover(r, env, k, id)],
   // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11): worker/group-routes.ts ----
   ...groupRoutes,
 ];
@@ -241,7 +246,8 @@ export default {
   },
 
   // Nächtliches Aufräumen (Cron-Trigger in wrangler.jsonc).
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runRetention(env, env.APP_ORIGIN || 'https://segeln-potsdam.de').then((r) => console.log('retention', JSON.stringify(r))));
+  // Zeitbezug ist der geplante Zeitpunkt (in Tests frei wählbar, z. B. ein Dezembertag für die Saison-Erinnerung).
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runRetention(env, env.APP_ORIGIN || 'https://segeln-potsdam.de', controller.scheduledTime || Date.now()).then((r) => console.log('retention', JSON.stringify(r))));
   },
 } satisfies ExportedHandler<Env>;

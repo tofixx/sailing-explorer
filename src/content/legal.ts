@@ -120,7 +120,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
             'Für Konto, Speichern und Community verarbeiten wir deine E-Mail-Adresse und das, was du selbst einstellst.',
             'Öffentliche Inhalte – auch die Positionen und Zeiten öffentlicher Törns – kann jede:r sehen; sie erscheinen in der Community und können von Suchmaschinen gefunden werden.',
             'Kein Tracking, keine Werbung, keine Analyse-Dienste. Es gibt genau ein Cookie: das Anmelde-Cookie.',
-            'Kostenlose Törns werden nach 3 Monaten automatisch gelöscht, dein Konto kannst du jederzeit selbst löschen.',
+            'Törns bleiben eine Saison (Kalenderjahr) gespeichert und werden Ende Januar danach automatisch gelöscht – außer du unterstützt die nächste Saison. Dein Konto kannst du jederzeit selbst löschen.',
           ),
         ],
       },
@@ -147,7 +147,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
         id: 'inhalte',
         title: '5. Was du teilst und wer es sieht',
         blocks: [
-          p('Wenn du einen Törn teilst, speichern wir die Track-Daten (GPS-Positionen mit Zeitstempeln, daraus berechnete Geschwindigkeiten), Titel, Kurzbeschreibung, die beim Einstellen geladenen Wetterdaten und optional ein Übersichtsbild. Dazu kommen, was du selbst anlegst: Profil (Anzeigename, Profiladresse, Text), Boote, gewählter Heimathafen und Verein, Häfen, Vereine und Teams, Beiträge, Kommentare, Reaktionen, Folgen und – als Unterstützer:in – Fotos. Fotos werden vor dem Hochladen in deinem Browser verkleinert und ohne Metadaten (EXIF) gespeichert; eine Position aus dem Foto übernehmen wir nur, wenn sie zum Track passt.'),
+          p('Wenn du einen Törn teilst, speichern wir die Track-Daten (GPS-Positionen mit Zeitstempeln, daraus berechnete Geschwindigkeiten), Titel, Kurzbeschreibung, die beim Einstellen geladenen Wetterdaten und optional ein Übersichtsbild. Dazu kommen, was du selbst anlegst: Profil (Anzeigename, Profiladresse, Text), Boote, gewählter Heimathafen und Verein, Häfen, Vereine und Teams, Beiträge, Kommentare, Reaktionen, Folgen, Titelbilder und – als Unterstützer:in – Fotos. Fotos und Titelbilder werden vor dem Hochladen in deinem Browser verkleinert und ohne Metadaten (EXIF) gespeichert; eine Position aus dem Foto übernehmen wir nur, wenn sie zum Track passt.'),
           h3('Sichtbarkeit'),
           ul(
             '„Öffentlich“: für alle sichtbar, in der Community („Entdecken“, Startseite, Hafen- und Vereinsseiten) gelistet und von Suchmaschinen auffindbar – bei Törns einschließlich aller Positionen und Zeitpunkte.',
@@ -197,7 +197,8 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
         title: '9. Wie lange wir Daten speichern',
         blocks: [
           ul(
-            'Törns kostenloser Konten: 3 Monate nach dem Hochladen. Mit Unterstützung: für die Dauer der Unterstützung und 3 Monate darüber hinaus. 14 Tage vorher erinnern wir per Mail.',
+            'Törns samt Fotos: bis zum 1. Februar nach ihrer Saison (Kalenderjahr; ab November Hochgeladenes zählt zur nächsten Saison). Mit Unterstützung: bis zum 1. Februar nach der letzten unterstützten Saison. Im Dezember und 14 Tage vor dem Löschen erinnern wir per Mail.',
+            'Titelbilder von Profil, Boot, Verein oder Team: solange es das jeweilige Profil, Boot bzw. die Gruppe gibt.',
             'Konten ohne Törns, die 12 Monate nicht angemeldet waren (und keine laufende Unterstützung haben), löschen wir automatisch.',
             'Neuigkeiten (Aktivitäts-Log): 12 Monate. Anmeldelinks: 15 Minuten. Sitzungen: 180 Tage. Einladungen: 14 Tage. Beitrittsanfragen: 90 Tage.',
             'Zähler gegen Spam (Kommentare, Beiträge, Reaktionen): 24 Stunden. Entschiedene Meldungen: 180 Tage, ohne Bezug zur meldenden Person.',

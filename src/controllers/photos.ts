@@ -79,9 +79,20 @@ export class PhotosController {
       const data = await photoApi.list(share.id, key);
       if (this.current?.share.id !== share.id) return;
       this.setData(data);
+      this.openFromUrl();
     } catch {
       if (this.current?.share.id === share.id) this.setData({ photos: [], upload: null });
     }
+  }
+
+  /** `?foto=<id>` (aus Galerien von Person, Boot, Verein – Konzept 13.1): Foto in der Lightbox öffnen, Parameter entfernen. */
+  private openFromUrl() {
+    const url = new URL(location.href);
+    const id = url.searchParams.get('foto');
+    if (!id) return;
+    url.searchParams.delete('foto');
+    history.replaceState(history.state, '', url);
+    this.open(id);
   }
 
   hide(): void {

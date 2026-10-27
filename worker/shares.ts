@@ -12,7 +12,8 @@ import { deleteShareActivity, recordVoyage } from './activity';
 import { deleteShareReactions } from './reaction-cleanup';
 import { quotaVerdict } from '../src/domain/limits';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseCommentsMode, parseVisibility } from './validate';
-import { FREE_RETENTION_MS } from '../src/domain/support';
+import { EXPIRES_SQL } from './expiry-sql';
+export { EXPIRES_SQL };
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
 
 export interface ShareRow {
@@ -52,12 +53,6 @@ export interface ShareRow {
 const key = (id: string) => `shares/${id}`;
 const imageKey = (id: string) => `previews/${id}.jpg`;
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
-
-/**
- * Löschzeitpunkt eines Törns: 3 Monate nach Upload bzw. nach Ende der Unterstützung (später gilt).
- * Gleiche Regel wie shareExpiry() in src/domain/support.ts.
- */
-export const EXPIRES_SQL = `(MAX(s.created_at, COALESCE((SELECT MAX(valid_until) FROM supports WHERE user_id = s.user_id), 0)) + ${FREE_RETENTION_MS})`;
 
 export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at
   FROM shares s LEFT JOIN boats b ON b.id = s.boat_id`;

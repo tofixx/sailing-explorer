@@ -5,7 +5,7 @@
 // Dekodieren und Skalieren übernimmt createImageBitmap (in den Browsern außerhalb des Haupt-Threads), Kodieren
 // OffscreenCanvas.convertToBlob bzw. canvas.toBlob – beides asynchron, ein eigener Web Worker ist dafür nicht nötig.
 import { EXIF_SCAN_BYTES, readExif, type ExifData } from '../domain/exif';
-import { PHOTO_FULL_BYTES, PHOTO_FULL_PX, PHOTO_THUMB_BYTES, PHOTO_THUMB_PX } from '../domain/limits';
+import { COVER_BYTES, COVER_HEIGHT, COVER_WIDTH, PHOTO_FULL_BYTES, PHOTO_FULL_PX, PHOTO_THUMB_BYTES, PHOTO_THUMB_PX } from '../domain/limits';
 
 /** Größte Eingabedatei – größere Fotos sind eher Panoramen/RAW-Exporte und sprengen den Speicher mobiler Browser. */
 export const MAX_INPUT_BYTES = 40 * 1024 * 1024;
@@ -117,6 +117,56 @@ export async function processPhoto(file: File): Promise<ProcessedPhoto> {
       const thumb = await encode(thumbCanvas, format, THUMB_QUALITIES[format], PHOTO_THUMB_BYTES);
       if (!thumb) continue;
       return { exif, full, thumb, width: fullCanvas.width, height: fullCanvas.height, format };
+    }
+    throw new PhotoError('Dieser Browser kann keine Bilder speichern.');
+  } finally {
+    bitmap.close();
+  }
+}
+
+// ---------------------------------------------------------------- Titelbilder (Konzept 13.2)
+
+/**
+ * Ausschnitt für ein Titelbild: mittig auf das Seitenverhältnis `outW:outH` zugeschnitten, Ausgabe nie größer als die
+ * Quelle (kleine Bilder werden nicht hochskaliert).
+ */
+export function coverCrop(width: number, height: number, outW = COVER_WIDTH, outH = COVER_HEIGHT) {
+  const ratio = outW / outH;
+  const sw = Math.min(width, Math.round(height * ratio));
+  const sh = Math.min(height, Math.round(sw / ratio));
+  const scale = Math.min(1, outW / sw);
+  return {
+    sx: Math.round((width - sw) / 2),
+    sy: Math.round((height - sh) / 2),
+    sw,
+    sh,
+    width: Math.max(1, Math.round(sw * scale)),
+    height: Math.max(1, Math.round(sh * scale)),
+  };
+}
+
+/** Bild als Titelbild vorbereiten: drehen laut EXIF, auf 3:1 zuschneiden, verkleinern, ohne Metadaten neu kodieren. */
+export async function processCover(file: File): Promise<Blob> {
+  const problem = precheck(file);
+  if (problem) throw new PhotoError(problem);
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    throw new PhotoError(isHeic(file) ? 'HEIC kann dieser Browser nicht öffnen – bitte als JPEG exportieren oder Safari nutzen.' : 'Bild konnte nicht gelesen werden.');
+  }
+  try {
+    const r = coverCrop(bitmap.width, bitmap.height);
+    const c = canvas(r.width, r.height);
+    const ctx = c.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!ctx) throw new PhotoError('Bild konnte nicht verarbeitet werden.');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bitmap, r.sx, r.sy, r.sw, r.sh, 0, 0, r.width, r.height);
+    for (const format of webpEncodes === false ? (['jpeg'] as const) : (['webp', 'jpeg'] as const)) {
+      const blob = await encode(c, format, FULL_QUALITIES[format], COVER_BYTES);
+      if (blob) return blob;
+      if (format === 'webp') webpEncodes = false;
     }
     throw new PhotoError('Dieser Browser kann keine Bilder speichern.');
   } finally {

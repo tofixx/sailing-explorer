@@ -189,10 +189,17 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
         .all<{ id: string; slug: string; name: string }>()
     : { results: [] as Array<{ id: string; slug: string; name: string }> };
   const club = await harborClub(env, h.club_id);
+  // Vereine und Teams mit diesem Heimathafen (Konzept 13.3) – nur öffentliche
+  const { results: groups } = await env.DB.prepare(
+    `SELECT slug, name, kind FROM groups WHERE harbor_id = ? AND visibility = 'public' AND hidden_at IS NULL ORDER BY kind, name LIMIT 100`,
+  )
+    .bind(h.id)
+    .all<{ slug: string; name: string; kind: 'club' | 'team' }>();
   const ownClub = !!h.club_id && manageable.some((c) => c.id === h.club_id);
   return json({
     harbor: harborShape(env, h, user?.id ?? null),
     club: club ? { slug: club.slug, name: club.name, kind: club.kind } : null,
+    groups,
     stats: { boats: boats.length, voyages: stats?.voyages ?? 0, distNm: stats?.dist ?? 0, seasonNm: stats?.season ?? 0 },
     boats: boats.map((b) => ({
       id: b.id,
@@ -254,6 +261,7 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
     env.DB.prepare('UPDATE harbors SET name = ?, name_key = ?, lat = ?, lon = ?, club_id = ?, updated_at = ? WHERE id = ?').bind(h.name, h.name_key, h.lat, h.lon, h.club_id, h.updated_at, h.id),
     // Anzeige-Kopie an den Booten nachführen
     env.DB.prepare('UPDATE boats SET home_port = ? WHERE harbor_id = ?').bind(h.name, h.id),
+    env.DB.prepare('UPDATE groups SET home_port = ? WHERE harbor_id = ?').bind(h.name, h.id),
   ]);
   return json({ harbor: harborShape(env, h, user.id) });
 }
@@ -264,6 +272,7 @@ export async function removeHarbor(env: Env, id: string): Promise<void> {
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'harbor' AND target_id = ?`).bind(id),
     ...harborActivityCleanup(env, id),
     env.DB.prepare(`UPDATE boats SET harbor_id = NULL, home_port = '' WHERE harbor_id = ?`).bind(id),
+    env.DB.prepare(`UPDATE groups SET harbor_id = NULL, home_port = '' WHERE harbor_id = ?`).bind(id),
     env.DB.prepare('UPDATE users SET home_harbor_id = NULL WHERE home_harbor_id = ?').bind(id),
     env.DB.prepare('DELETE FROM harbors WHERE id = ?').bind(id),
   ]);

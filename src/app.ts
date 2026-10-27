@@ -7,7 +7,9 @@ import { attachConditions, parseWeatherData, type WeatherData } from './domain/w
 import { median } from './domain/geo';
 import type { MetricKey, Track, TrackPoint } from './domain/types';
 import { MapView } from './map/map-view';
-import { ApiError, api } from './services/api';
+import { ApiError, api, coverApi, type CoverKind } from './services/api';
+import { PhotoError, processCover } from './services/photo-process';
+import type { SxCover } from './components/sx-page-media';
 import { inflateFromBase64Url } from './services/compress';
 import { fetchTrackFile } from './services/samples';
 import { Store, initialState, visibleTracks, type HoverSource, type Layers, type State } from './services/store';
@@ -396,7 +398,7 @@ export class App {
   // ---------------------------------------------------------------- Events
 
   private wire() {
-    const on = <T>(name: string, fn: (detail: T) => void) => document.addEventListener(name, (e) => fn((e as CustomEvent<T>).detail));
+    const on = <T>(name: string, fn: (detail: T, e: Event) => void) => document.addEventListener(name, (e) => fn((e as CustomEvent<T>).detail, e));
     const s = this.session;
 
     // Tracks & Karte
@@ -447,6 +449,8 @@ export class App {
     on<string>('sx-share-copy', (id) => s.copyShare(id));
     on<string>('sx-link-copy', (path) => s.copyPath(path));
     on<{ path: string; title: string }>('sx-page-share', (d) => s.sharePage(d.path, d.title));
+    on<{ kind: CoverKind; id: string; file: File }>('sx-cover-change', (d, e) => this.changeCover(d, e));
+    on<{ kind: CoverKind; id: string }>('sx-cover-remove', (d, e) => this.changeCover({ ...d, file: null }, e));
     on<{ id: string; patch: Parameters<SessionController['updateShare']>[1] }>('sx-share-update', (d) => s.updateShare(d.id, d.patch));
     on<string>('sx-share-delete', (id) => s.deleteShare(id));
     on<Parameters<SessionController['saveProfile']>[0]>('sx-profile-save', (p) => s.saveProfile(p));
@@ -748,6 +752,31 @@ export class App {
       page.error = e instanceof ApiError && e.status === 404 ? 'Diese Seite gibt es nicht oder sie ist privat.' : errorText(e);
     } finally {
       page.loading = false;
+    }
+  }
+
+  /**
+   * Titelbild hochladen oder entfernen (Konzept 13.2): im Browser zuschneiden und neu kodieren, dann die angezeigte
+   * Seite mit der neuen Adresse aktualisieren.
+   */
+  private async changeCover(d: { kind: CoverKind; id: string; file: File | null }, e: Event) {
+    const el = e.composedPath()[0] as SxCover;
+    el.busy = true;
+    try {
+      let cover: string | null = null;
+      if (d.file) cover = (await coverApi.put(d.kind, d.id, await processCover(d.file))).cover;
+      else await coverApi.remove(d.kind, d.id);
+      if (d.kind === 'g') {
+        const g = this.ui.groupPage;
+        if (g.data) g.data = { ...g.data, cover };
+      } else if (this.ui.page.data && this.ui.page.data.kind !== 'harbor') {
+        this.ui.page.data = { ...this.ui.page.data, cover };
+      }
+      this.toast(d.file ? 'Titelbild gespeichert' : 'Titelbild entfernt');
+    } catch (err) {
+      this.toast(err instanceof PhotoError ? err.message : errorText(err), 6000);
+    } finally {
+      el.busy = false;
     }
   }
 

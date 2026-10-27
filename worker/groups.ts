@@ -11,6 +11,9 @@ import { checkVisibilityChoice, isSupporter, supportConfigured, visibilityRequir
 import { groupActivityCleanup, recordBoat, recordMember } from './activity';
 import { followStats } from './follows';
 import { clearHomeClub } from './home';
+import { coverUrl, loadCover } from './covers';
+import { galleryPhotos } from './gallery';
+import { harborFromBoatInput, harborRef } from './harbors';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, parseVisibility } from './validate';
 import { GROUP_LIMITS, groupLimitMessage, groupVerdict } from '../src/domain/limits';
 import { canChooseVisibility, DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
@@ -29,7 +32,13 @@ export interface GroupRow {
   slug: string;
   name: string;
   description: string;
+  /** Anzeige-Kopie des Hafennamens (Konzept 13.3) */
   home_port: string;
+  /** Hafen der Gruppe (0014) */
+  harbor_id?: string | null;
+  /** aus dem JOIN mit harbors (nur nicht ausgeblendete) */
+  harbor_slug?: string | null;
+  harbor_name?: string | null;
   visibility: Visibility;
   share_key: string | null;
   join_mode: JoinMode;
@@ -44,14 +53,17 @@ const FORBIDDEN = (msg = 'Das dürfen nur Eigner und Admins der Gruppe.') => new
 
 export const GROUP_ID_RE = SHARE_ID_RE;
 
+/** Gruppe samt Hafen (ausgeblendete Häfen zählen wie keiner). */
+const GROUP_SELECT = 'SELECT g.*, h.slug AS harbor_slug, h.name AS harbor_name FROM groups g LEFT JOIN harbors h ON h.id = g.harbor_id AND h.hidden_at IS NULL';
+
 export async function loadGroup(env: Env, id: string): Promise<GroupRow | null> {
   if (!GROUP_ID_RE.test(id)) return null;
-  return env.DB.prepare('SELECT * FROM groups WHERE id = ?').bind(id).first<GroupRow>();
+  return env.DB.prepare(`${GROUP_SELECT} WHERE g.id = ?`).bind(id).first<GroupRow>();
 }
 
 export async function loadGroupBySlug(env: Env, raw: string): Promise<GroupRow | null> {
   const slug = typeof raw === 'string' && /^[a-z0-9-]{3,30}$/i.test(raw) ? raw.toLowerCase() : null;
-  return slug ? env.DB.prepare('SELECT * FROM groups WHERE slug = ?').bind(slug).first<GroupRow>() : null;
+  return slug ? env.DB.prepare(`${GROUP_SELECT} WHERE g.slug = ?`).bind(slug).first<GroupRow>() : null;
 }
 
 /** Rolle des Kontos in der Gruppe (auch bei unbekannter Gruppe null). */
@@ -107,6 +119,7 @@ export function groupShape(g: GroupRow, role: GroupRole | null) {
     name: g.name,
     description: g.description,
     homePort: g.home_port,
+    harbor: g.harbor_id && g.harbor_slug ? harborRef({ id: g.harbor_id, slug: g.harbor_slug, name: g.harbor_name ?? '' }) : null,
     visibility: g.visibility,
     joinMode: g.join_mode,
     // Schlüssel und Link nur für Eigner und Admins (Konzept 2.4).
@@ -128,6 +141,8 @@ interface GroupInput {
   slug?: unknown;
   description?: unknown;
   homePort?: unknown;
+  /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort (Freitext, alte Clients) */
+  harborId?: unknown;
   visibility?: unknown;
   joinMode?: unknown;
   parentId?: unknown;
@@ -146,7 +161,6 @@ function applyInput(g: GroupRow, input: GroupInput): Visibility | null {
     g.slug = slug;
   }
   if (input.description !== undefined) g.description = cleanText(input.description, 1000);
-  if (input.homePort !== undefined) g.home_port = cleanText(input.homePort, LIMITS.nameLength);
   if (input.joinMode !== undefined) {
     if (!isJoinMode(input.joinMode)) throw new HttpError(400, 'invalid_join_mode', 'Unbekannte Beitrittsregel.');
     g.join_mode = input.joinMode;
@@ -196,13 +210,14 @@ export async function createGroup(request: Request, env: Env): Promise<Response>
     }
     g.parent_id = parent.id;
   }
+  await applyHarbor(env, user, g, input);
   if (await slugTaken(env, g.slug, null)) throw SLUG_TAKEN();
   try {
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO groups (id, kind, parent_id, slug, name, description, home_port, visibility, share_key, join_mode, owner_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(g.id, g.kind, g.parent_id, g.slug, g.name, g.description, g.home_port, g.visibility, g.share_key, g.join_mode, g.owner_id, now, now),
+        `INSERT INTO groups (id, kind, parent_id, slug, name, description, home_port, harbor_id, visibility, share_key, join_mode, owner_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(g.id, g.kind, g.parent_id, g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.owner_id, now, now),
       env.DB.prepare(`INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)`).bind(g.id, user.id, now),
     ]);
   } catch (err) {
@@ -218,10 +233,11 @@ export async function createGroup(request: Request, env: Env): Promise<Response>
  * die Sichtbarkeit nur der Eigner (E1 gilt für sein Konto, eine gesetzte Stufe darf bleiben).
  */
 export async function updateGroup(request: Request, env: Env, id: string): Promise<Response> {
-  const { group: g, role } = await memberGroup(request, env, id, 'manager');
+  const { user, group: g, role } = await memberGroup(request, env, id, 'manager');
   const input = await readJson<GroupInput>(request);
   const previous = g.visibility;
   const next = applyInput(g, input);
+  await applyHarbor(env, user, g, input);
   if (next && next !== previous) {
     if (role !== 'owner') throw FORBIDDEN('Die Sichtbarkeit ändert nur der Eigner.');
     await checkVisibilityChoice(env, g.owner_id, next, previous);
@@ -231,11 +247,21 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   if (await slugTaken(env, g.slug, g.id)) throw SLUG_TAKEN();
   g.updated_at = Date.now();
   await env.DB.prepare(
-    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, visibility = ?, share_key = ?, join_mode = ?, updated_at = ? WHERE id = ?',
+    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, updated_at = ? WHERE id = ?',
   )
-    .bind(g.slug, g.name, g.description, g.home_port, g.visibility, g.share_key, g.join_mode, g.updated_at, g.id)
+    .bind(g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.updated_at, g.id)
     .run();
   return json({ group: groupShape(g, role) });
+}
+
+/** Hafen aus der Eingabe übernehmen (Autovervollständigung; Freitext findet einen Hafen oder legt ihn an). */
+async function applyHarbor(env: Env, user: Pick<User, 'id'>, g: GroupRow, input: GroupInput): Promise<void> {
+  const h = await harborFromBoatInput(env, user, input);
+  if (h === undefined) return;
+  g.harbor_id = h?.id ?? null;
+  g.home_port = h?.name ?? '';
+  g.harbor_slug = h?.slug ?? null;
+  g.harbor_name = h?.name ?? null;
 }
 
 /** Löscht eine Gruppe samt Mitgliedern, Anfragen, Zuordnungen, Beiträgen, Einladungen, Folgen, Aktivitäten, Meldungen. */
@@ -265,14 +291,16 @@ export async function deleteGroup(request: Request, env: Env, id: string): Promi
 }
 
 /**
- * Konto löschen (Konzept 11.9): eigene Gruppen gehen an den dienstältesten Admin; ohne Admin werden sie gelöscht.
+ * Konto löschen (Konzept 11.9, 13.4): eigene Gruppen gehen an den dienstältesten Admin, ohne Admin an das
+ * dienstälteste Mitglied – eine Gruppe bleibt, solange sie Mitglieder hat. Nur Gruppen ohne weitere Mitglieder fallen.
  * Liefert die Anweisungen für Mitgliedschaften, Anfragen und Beiträge des Kontos (für den Batch in purgeUser).
  */
 export async function purgeUserGroups(env: Env, userId: string): Promise<D1PreparedStatement[]> {
   await env.DB.batch([
     env.DB.prepare(
-      `UPDATE group_members SET role = 'owner' WHERE role = 'admin' AND rowid IN (
-         SELECT (SELECT m.rowid FROM group_members m WHERE m.group_id = g.id AND m.role = 'admin' ORDER BY m.created_at, m.user_id LIMIT 1)
+      `UPDATE group_members SET role = 'owner' WHERE rowid IN (
+         SELECT (SELECT m.rowid FROM group_members m WHERE m.group_id = g.id AND m.user_id <> ?1
+                 ORDER BY m.role = 'admin' DESC, m.created_at, m.user_id LIMIT 1)
          FROM groups g WHERE g.owner_id = ?1)`,
     ).bind(userId),
     env.DB.prepare(
@@ -399,6 +427,9 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     others: members.length - named.length,
     boats: boatList,
     social: await followStats(env, 'group', group.id, user?.id ?? null),
+    // Titelbild und neueste öffentliche Fotos aus Törns der Boote und Mitglieder (Konzept 13)
+    cover: coverUrl('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request)),
+    photos: await galleryPhotos(env, 'group', group.id),
     membership: { role, requested, canRequest: !!user && !role && group.join_mode === 'request' && !requested },
     ...(admin ?? {}),
   });

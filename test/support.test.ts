@@ -1,13 +1,14 @@
 // Reine Regeln zu Unterstützung und Aufbewahrung (src/domain/support.ts) und der Betragsprüfung (worker/validate.ts).
 import { describe, expect, it } from 'vitest';
 import {
-  FREE_RETENTION_MS,
-  SUPPORT_MS,
+  GRACE_MS,
   SUPPORT_TIERS,
   extendSupport,
   formatEuro,
   needsSupport,
   quotaText,
+  seasonEnd,
+  seasonOf,
   shareExpiry,
   tierFor,
 } from '../src/domain/support';
@@ -15,38 +16,48 @@ import { parseSupportAmount } from '../worker/validate';
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 9, 24, 12);
+const JAN1 = (y: number) => Date.UTC(y, 0, 1);
+const FEB1 = (y: number) => Date.UTC(y, 1, 1);
+
+describe('Saison (Konzept 5.5)', () => {
+  it('Saison = Kalenderjahr, ab November die nächste', () => {
+    expect(seasonOf(Date.UTC(2026, 0, 1))).toBe(2026);
+    expect(seasonOf(Date.UTC(2026, 9, 31, 23, 59))).toBe(2026);
+    expect(seasonOf(Date.UTC(2026, 10, 1))).toBe(2027);
+    expect(seasonOf(Date.UTC(2026, 11, 31))).toBe(2027);
+    expect(seasonEnd(2026)).toBe(JAN1(2027));
+    expect(GRACE_MS).toBe(31 * DAY);
+  });
+});
 
 describe('extendSupport', () => {
-  it('ohne bisherige Unterstützung: 365 Tage ab Zahltag', () => {
-    expect(SUPPORT_MS).toBe(365 * DAY);
-    expect(extendSupport(null, NOW)).toBe(NOW + 365 * DAY);
+  it('ohne bisherige Unterstützung: bis Ende der Saison des Zahltags', () => {
+    expect(extendSupport(null, NOW)).toBe(JAN1(2027));
+    expect(extendSupport(null, Date.UTC(2026, 11, 20))).toBe(JAN1(2028)); // Weihnachten → nächste Saison
   });
-  it('laufende Unterstützung wird ab ihrem Ende verlängert', () => {
-    const until = NOW + 100 * DAY;
-    expect(extendSupport(until, NOW)).toBe(until + 365 * DAY);
+  it('laufende Unterstützung: eine Saison mehr', () => {
+    expect(extendSupport(JAN1(2027), NOW)).toBe(JAN1(2028));
+    expect(extendSupport(JAN1(2028), Date.UTC(2026, 11, 20))).toBe(JAN1(2029));
   });
-  it('abgelaufene Unterstützung zählt nicht – neu ab Zahltag', () => {
-    expect(extendSupport(NOW - 10 * DAY, NOW)).toBe(NOW + 365 * DAY);
-    expect(extendSupport(NOW, NOW)).toBe(NOW + 365 * DAY);
+  it('abgelaufene Unterstützung zählt nicht', () => {
+    expect(extendSupport(JAN1(2026), NOW)).toBe(JAN1(2027));
   });
-  it('mehrere Zahlungen addieren sich', () => {
-    expect(extendSupport(extendSupport(null, NOW), NOW + DAY)).toBe(NOW + 730 * DAY);
+  it('mehrere Zahlungen hängen Saisons an', () => {
+    expect(extendSupport(extendSupport(null, NOW), NOW + DAY)).toBe(JAN1(2028));
   });
 });
 
 describe('shareExpiry', () => {
-  it('kostenlos: 90 Tage nach Upload', () => {
-    expect(FREE_RETENTION_MS).toBe(90 * DAY);
-    expect(shareExpiry(NOW, null)).toBe(NOW + 90 * DAY);
+  it('kostenlos: 1. Februar nach der Saison des Uploads', () => {
+    expect(shareExpiry(Date.UTC(2026, 2, 1), null)).toBe(FEB1(2027));
+    expect(shareExpiry(NOW, null)).toBe(FEB1(2027));
+    expect(shareExpiry(Date.UTC(2026, 10, 5), null)).toBe(FEB1(2028)); // November zählt zur nächsten Saison
   });
-  it('Unterstützer: 90 Tage nach Ende der Unterstützung, wenn diese später endet', () => {
-    expect(shareExpiry(NOW - 300 * DAY, NOW + 100 * DAY)).toBe(NOW + 190 * DAY);
+  it('Unterstützer: 1. Februar nach der letzten unterstützten Saison', () => {
+    expect(shareExpiry(Date.UTC(2025, 5, 1), JAN1(2028))).toBe(FEB1(2028));
   });
-  it('Unterstützung endete vor dem Upload → zählt der Upload', () => {
-    expect(shareExpiry(NOW, NOW - 10 * DAY)).toBe(NOW + 90 * DAY);
-  });
-  it('abgelaufene Unterstützung verlängert noch bis Ende + 90 Tage', () => {
-    expect(shareExpiry(NOW - 500 * DAY, NOW - 80 * DAY)).toBe(NOW + 10 * DAY);
+  it('Unterstützung endete vor der Saison des Uploads → zählt die Saison', () => {
+    expect(shareExpiry(NOW, JAN1(2026))).toBe(FEB1(2027));
   });
 });
 

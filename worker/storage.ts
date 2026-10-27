@@ -16,6 +16,8 @@ export const SHARE_BYTES_SQL = 's.size_bytes + s.image_bytes';
  */
 export const PHOTO_BYTES_USER_SQL = '(SELECT COALESCE(SUM(bytes), 0) FROM photos WHERE user_id = ?1)';
 export const PHOTO_BYTES_TOTAL_SQL = '(SELECT COALESCE(SUM(bytes), 0) FROM photos)';
+/** Titelbilder (Konzept 13.2): nur im globalen Zähler, nicht im Speicher des Kontos. */
+export const COVER_BYTES_TOTAL_SQL = '(SELECT COALESCE(SUM(bytes), 0) FROM covers)';
 
 /** Belegter Speicher eines Kontos (Bind-Parameter ?1 = user_id). */
 export const USER_BYTES_SQL = `(SELECT COALESCE(SUM(${SHARE_BYTES_SQL}), 0) FROM shares s WHERE s.user_id = ?1) + ${PHOTO_BYTES_USER_SQL}`;
@@ -62,7 +64,7 @@ export const subtractUserStmt = (env: Env, userId: string) =>
 export async function recomputeStorage(env: Env): Promise<number> {
   const row = await env.DB.prepare(
     `INSERT INTO counters (name, value)
-       SELECT ?1, (SELECT COALESCE(SUM(${SHARE_BYTES_SQL}), 0) FROM shares s) + ${PHOTO_BYTES_TOTAL_SQL} WHERE true
+       SELECT ?1, (SELECT COALESCE(SUM(${SHARE_BYTES_SQL}), 0) FROM shares s) + ${PHOTO_BYTES_TOTAL_SQL} + ${COVER_BYTES_TOTAL_SQL} WHERE true
      ON CONFLICT(name) DO UPDATE SET value = excluded.value
      RETURNING value`,
   )

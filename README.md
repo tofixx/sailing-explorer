@@ -130,13 +130,13 @@ npx wrangler secret put RESEND_API_KEY
 
 - **Turnstile:** Widget im Cloudflare-Dashboard anlegen (Domains `segeln-potsdam.de` und `sailing.wollow.ski`), Site-Key in `wrangler.jsonc` → `TURNSTILE_SITE_KEY`.
 - **Mail:** Resend-Konto, Domain `sailing.wollow.ski` verifizieren (DNS bei Cloudflare), Absender in `MAIL_FROM`.
-- **Domain:** Hauptadresse ist `segeln-potsdam.de` (Zone im selben Cloudflare-Konto). `www.`, alle sonst nicht belegten Subdomains (proxied `*`-Eintrag + Worker-Route) und die frühere Adresse `sailing.wollow.ski` leiten per 301 mit Pfad dorthin weiter (`worker/canonical.ts`, Variablen `CANONICAL_HOST`, `ALIAS_HOSTS`). Ausnahme: der Stripe-Webhook antwortet unter jeder Adresse direkt. Vorschauen laufen weiter unter `sailing-<branch>.wollow.ski`.
+- **Domain:** Hauptadresse ist `segeln-potsdam.de` (Zone im selben Cloudflare-Konto). `www.`, alle sonst nicht belegten Subdomains (proxied `*`-Eintrag + Worker-Route) und die frühere Adresse `sailing.wollow.ski` leiten per 301 mit Pfad dorthin weiter (`worker/canonical.ts`, Variablen `CANONICAL_HOST`, `ALIAS_HOSTS`). Ausnahme: der Stripe-Webhook antwortet unter jeder Adresse direkt. Vorschauen laufen unter `dev-<branch>.segeln-potsdam.de`.
 
 Danach deployt die CI bei jedem Push auf den Standardzweig.
 
 ### Unterstützen (Stripe)
 
-Pro Konto sind `FREE_SHARES` (Standard 3) gespeicherte Törns kostenlos. Ab dem nächsten zeigt „Teilen“ eine Karte zum Unterstützen. Der Betrag wird per Schieberegler gewählt: Kaffee 3 €, Bier 5 €, Runde 10 €, Kiste 20 €, Skipper-Dank 50 €. Jede Zahlung macht das Konto **12 Monate** zum Unterstützer; eine weitere Zahlung verlängert ab dem laufenden Ende. Kostenlose Konten haben höchstens 3 Boote; auch für Unterstützer gelten feste Obergrenzen: 100 Törns, 200 MB (Tracks und Übersichtsbilder) und 20 Boote pro Konto (`src/domain/limits.ts`). Eine globale Notbremse pausiert neue Törns kostenloser Konten ab `STORAGE_SOFT_BYTES` (Standard 8·10⁹ Byte) und aller Konten ab `STORAGE_HARD_BYTES` (9,5·10⁹ Byte); der Zähler `counters.storage_bytes` wird nächtlich neu berechnet. Der Worker legt dafür eine Stripe-Checkout-Session an (`POST /api/support/checkout`), freigeschaltet wird **nur** über den signierten Webhook, nie über eine Angabe des Browsers. Ohne beide Secrets bleibt Unterstützen aus: kein Angebot, und der 4. Törn wird mit Hinweis abgelehnt.
+Pro Konto sind `FREE_SHARES` (Standard 3) gespeicherte Törns kostenlos. Ab dem nächsten zeigt „Teilen“ eine Karte zum Unterstützen. Der Betrag wird per Schieberegler gewählt: Kaffee 3 €, Bier 5 €, Runde 10 €, Kiste 20 €, Skipper-Dank 50 €. Unterstützung und Aufbewahrung gelten **je Saison (Kalenderjahr)**: Eine Zahlung macht das Konto bis 31.12. zum Unterstützer (ab November für die nächste Saison), jede weitere hängt eine Saison an. Törns werden am 1. Februar nach ihrer bzw. der letzten unterstützten Saison gelöscht; im Dezember kommt eine freundliche Saison-Erinnerung (Konzept 5.5). Kostenlose Konten haben höchstens 3 Boote; auch für Unterstützer gelten feste Obergrenzen: 100 Törns, 200 MB (Tracks und Übersichtsbilder) und 20 Boote pro Konto (`src/domain/limits.ts`). Eine globale Notbremse pausiert neue Törns kostenloser Konten ab `STORAGE_SOFT_BYTES` (Standard 8·10⁹ Byte) und aller Konten ab `STORAGE_HARD_BYTES` (9,5·10⁹ Byte); der Zähler `counters.storage_bytes` wird nächtlich neu berechnet. Der Worker legt dafür eine Stripe-Checkout-Session an (`POST /api/support/checkout`), freigeschaltet wird **nur** über den signierten Webhook, nie über eine Angabe des Browsers. Ohne beide Secrets bleibt Unterstützen aus: kein Angebot, und der 4. Törn wird mit Hinweis abgelehnt.
 
 1. **Secret Key setzen** (Stripe-Dashboard → *Entwickler → API-Schlüssel*). Am besten einen eingeschränkten Schlüssel verwenden, der nur *Checkout Sessions: Schreiben* darf:
 
@@ -151,6 +151,12 @@ npx wrangler secret put STRIPE_SECRET_KEY
 
 ```bash
 npx wrangler secret put STRIPE_WEBHOOK_SECRET
+```
+
+**Ohne Zahlung freischalten** (Betreiber, Testkonten, Vereinsvorstand): eine Zeile mit `provider = 'grant'` in `supports` – Kontingente und Aufbewahrung behandeln sie wie eine Zahlung, Löschen der Zeile nimmt sie zurück:
+
+```bash
+npx wrangler d1 execute sailing-explorer --remote --command "INSERT INTO supports (id, user_id, provider, provider_ref, amount, created_at, valid_until) VALUES ('grant-<name>', '<Konto-ID>', 'grant', 'grant:<name>', 0, unixepoch()*1000, <Ende in ms>)"
 ```
 
 Lokal testen: Testmodus-Schlüssel `sk_test_…` in `.dev.vars` eintragen und Ereignisse mit der Stripe-CLI weiterleiten. `stripe listen --forward-to localhost:5173/api/webhooks/stripe` gibt das passende `whsec_…` aus.
@@ -217,7 +223,7 @@ Primäres Repository ist Forgejo (`git.office.wollow.ski`), gebaut wird mit Wood
 
 1. **Woodpecker:** Repo aktivieren, Secret `cloudflare_api_token` anlegen (nur für den Deploy-Schritt / Push-Events).
 2. **Pipeline:** [.woodpecker.yaml](.woodpecker.yaml) – `install` → `check` (Typen, Tests, Build) → `deploy` (D1-Migrationen + `wrangler deploy`, nur Standardzweig). Läuft auf dem NUC (`labels: speed: fast`).
-   - **Vorschau je Branch:** jeder andere Branch landet als eigener Worker unter `https://sailing-<branch>.wollow.ski` (Präfix `feature/` entfällt) mit Vorschau-Datenbank und -Bucket ([scripts/deploy-preview.mjs](scripts/deploy-preview.mjs)); beim Schließen des Pull Requests wird sie gelöscht. Anmeldung/Teilen sind in Vorschauen gesperrt.
+   - **Vorschau je Branch:** jeder andere Branch landet als eigener Worker unter `https://dev-<branch>.segeln-potsdam.de` (Präfix `feature/` entfällt) mit Vorschau-Datenbank und -Bucket ([scripts/deploy-preview.mjs](scripts/deploy-preview.mjs)); beim Schließen des Pull Requests wird sie gelöscht. Anmeldung/Teilen sind in Vorschauen gesperrt.
 3. **Spiegel zu GitHub:** In Forgejo unter *Einstellungen → Repository → Spiegel-Einstellungen* einen Push-Mirror auf `https://github.com/tofixx/sailing-explorer.git` anlegen (GitHub-Token mit `contents: write`), „bei Push synchronisieren“ aktivieren.
 
 ## Lizenz & Quellen

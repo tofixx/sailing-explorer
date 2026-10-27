@@ -334,3 +334,17 @@ describe('cluster und photo-process', () => {
     expect(precheck({ name: 'a.png', type: 'image/png', size: 100 * 1024 * 1024 })).toMatch(/zu groß/);
   });
 });
+
+describe('Titelbild: coverCrop (Konzept 13.2)', () => {
+  it('schneidet mittig auf 3:1 zu und skaliert nur herunter', async () => {
+    const { coverCrop } = await import('../src/services/photo-process');
+    expect(coverCrop(4000, 3000)).toEqual({ sx: 0, sy: 834, sw: 4000, sh: 1333, width: 1500, height: 500 });
+    expect(coverCrop(3000, 500)).toEqual({ sx: 750, sy: 0, sw: 1500, sh: 500, width: 1500, height: 500 });
+    // klein: nicht hochskalieren
+    expect(coverCrop(600, 600)).toEqual({ sx: 0, sy: 200, sw: 600, sh: 200, width: 600, height: 200 });
+    // Hochformat
+    const r = coverCrop(1000, 3000);
+    expect(r.sw / r.sh).toBeCloseTo(3, 1);
+    expect(r.sx).toBe(0);
+  });
+});

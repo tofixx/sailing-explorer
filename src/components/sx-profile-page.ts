@@ -1,5 +1,5 @@
 import { LitElement, css, html } from 'lit';
-import type { Boat, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageStats, Profile, PublicHome, ShareMeta, StreamPage } from '../services/api';
+import type { Boat, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, Profile, PublicHome, ShareMeta, StreamPage } from '../services/api';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
@@ -7,6 +7,7 @@ import { base, emit } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
 import './sx-stream';
+import './sx-page-media';
 
 /** Kurzer Hinweis für Eigentümer, wer die Seite sieht. */
 const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
@@ -16,8 +17,8 @@ const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
 };
 
 export type PageData =
-  | { kind: 'profile'; profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[]; social?: FollowStats; home?: PublicHome }
-  | { kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[] }
+  | ({ kind: 'profile'; profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[]; social?: FollowStats; home?: PublicHome } & PageMedia)
+  | ({ kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[] } & PageMedia)
   /** Hafenseite /h/<slug> (Konzept 12.2) mit Neuigkeiten des Hafens */
   | ({ kind: 'harbor'; stream?: StreamPage | null } & HarborPageData);
 
@@ -295,6 +296,7 @@ export class SxProfilePage extends LitElement {
   private profile(d: Extract<PageData, { kind: 'profile' }>) {
     const p = d.profile;
     return html`
+      <sx-cover kind="u" target-id=${p.handle} .src=${d.cover ?? null} ?can-edit=${p.isSelf} label="Titelbild von ${p.displayName}"></sx-cover>
       <header class="hero">
         <div class="mark" aria-hidden="true">${p.displayName[0]}</div>
         <div>
@@ -327,6 +329,7 @@ export class SxProfilePage extends LitElement {
             </div>
           </section>`
         : ''}
+      <sx-gallery .photos=${d.photos ?? []} heading="Fotos"></sx-gallery>
       <section><h2 class="eyebrow">Törns</h2>${this.voyages(d.voyages)}</section>
       ${d.crewVoyages?.length ? html`<section><h2 class="eyebrow">Mitgesegelt</h2>${this.voyages(d.crewVoyages)}</section>` : ''}
     `;
@@ -336,6 +339,7 @@ export class SxProfilePage extends LitElement {
     const b = d.boat;
     const facts = [b.boatType, b.lengthM != null ? `${fmtNum(b.lengthM, 1)} m` : '', b.sailNumber, !b.harbor && b.homePort && `Heimathafen ${b.homePort}`].filter(Boolean);
     return html`
+      <sx-cover kind="b" target-id=${b.id} .src=${d.cover ?? null} ?can-edit=${!!b.role} label="Titelbild von ${b.name}"></sx-cover>
       <header class="hero">
         <div class="mark" aria-hidden="true">${icon('sail')}</div>
         <div>
@@ -345,7 +349,7 @@ export class SxProfilePage extends LitElement {
             ${facts.map((f) => html`<span>${f}</span>`)}
             ${b.harbor ? html`<span>Heimathafen <a href="/h/${b.harbor.slug}">${b.harbor.name}</a></span>` : ''}
             ${d.clubs?.length ? html`<span>${d.clubs.length === 1 ? 'Verein' : 'Vereine'} ${d.clubs.map((c, i) => html`${i ? ', ' : ''}<a href="/g/${c.slug}">${c.name}</a>`)}</span>` : ''}
-            ${b.owner ? html`<span>Eigner: <a href="/u/${b.owner.handle}">${b.owner.displayName}</a></span>` : ''}
+            ${b.ownerLabel ? html`<span>Eigner: ${b.ownerLabel}</span>` : b.owner ? html`<span>Eigner: <a href="/u/${b.owner.handle}">${b.owner.displayName}</a></span>` : ''}
             ${b.role ? this.ownerFacts(b) : ''}
           </div>
         </div>
@@ -361,6 +365,7 @@ export class SxProfilePage extends LitElement {
       </header>
       ${b.role && b.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.stats(d.stats)}
+      <sx-gallery .photos=${d.photos ?? []} heading="Fotos"></sx-gallery>
       <section><h2 class="eyebrow">Törns</h2>${this.voyages(d.voyages)}</section>
     `;
   }
@@ -450,6 +455,14 @@ export class SxProfilePage extends LitElement {
         <sx-stream scope="harbor" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading}
           empty-text="Noch nichts los in diesem Hafen. Neue Boote und öffentliche Törns erscheinen hier."></sx-stream>
       </section>
+      ${d.groups?.length
+        ? html`<section>
+            <h2 class="eyebrow">Vereine und Teams</h2>
+            <div class="cards">
+              ${d.groups.map((g) => html`<a class="card" href="/g/${g.slug}"><span class="t">${icon(g.kind === 'club' ? 'anchor' : 'sail')}${g.name}</span><span class="s">${g.kind === 'club' ? 'Verein' : 'Team'}</span></a>`)}
+            </div>
+          </section>`
+        : ''}
       <section>
         <h2 class="eyebrow">Boote im Hafen</h2>
         ${d.boats.length
