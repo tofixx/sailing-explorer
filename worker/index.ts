@@ -17,7 +17,7 @@ import { isShareKey, type Visibility } from '../src/domain/visibility';
 import { communityRoutes } from './community';
 // ---- Fotos (Phase C) ----
 import { deletePhoto, getPhotoImage, listPhotos, updatePhoto, uploadPhoto } from './photos';
-import { deleteCover, getCover, putCover } from './covers';
+import { deleteCover, getCover, patchCover, putCover } from './covers';
 // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11) ----
 import { groupRoutes } from './group-routes';
 import { canViewGroup, loadGroupBySlug } from './groups';
@@ -92,6 +92,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   // ---- Titelbilder (Konzept 13.2): worker/covers.ts ----
   ['GET', /^\/api\/covers\/([ubg])\/([A-Za-z0-9-]+)\/([A-Za-z0-9]+)$/, (r, env, [k, id, ver]) => getCover(r, env, k, id, ver)],
   ['PUT', /^\/api\/covers\/([ubg])\/([A-Za-z0-9-]+)$/, (r, env, [k, id]) => putCover(r, env, k, id)],
+  ['PATCH', /^\/api\/covers\/([ubg])\/([A-Za-z0-9-]+)$/, (r, env, [k, id]) => patchCover(r, env, k, id)],
   ['DELETE', /^\/api\/covers\/([ubg])\/([A-Za-z0-9-]+)$/, (r, env, [k, id]) => deleteCover(r, env, k, id)],
   // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11): worker/group-routes.ts ----
   ...groupRoutes,

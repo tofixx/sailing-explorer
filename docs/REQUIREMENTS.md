@@ -166,8 +166,8 @@ Konzept: `docs/CONCEPT.md` Abschnitt 12. Umsetzung: `migrations/0013_social.sql`
 
 ## Fotos an Person, Boot und Gruppe, Titelbilder (Konzept 13)
 
-- **F-190** Titelbild für Profil, Boot und Verein/Team: `PUT /api/covers/:art/:id` (WebP/JPEG ohne Metadaten, höchstens 1500 × 500 px und 300 KB) ersetzt, `DELETE` entfernt; Seiten-Antworten tragen `cover`. Jeder Austausch erzeugt eine neue Adresse; der globale Speicherzähler folgt.
-- **F-191** Ändern dürfen nur Verwalter (Person selbst, Eigner/Boots-Admins, Eigner/Admins der Gruppe) – sonst 404, ohne Anmeldung 401. Bilder mit Metadaten (400 `image_metadata`), anderen Formaten (400 `invalid_image`), zu großen Maßen (400 `too_large`) oder über 300 KB (413) werden abgelehnt.
+- **F-190** Titelbild für Profil, Boot und Verein/Team: `PUT /api/covers/:art/:id` (WebP/JPEG ohne Metadaten, höchstens 1500 × 1000 px und 400 KB) ersetzt, `DELETE` entfernt; Seiten-Antworten tragen `cover` und `coverY`. Jeder Austausch erzeugt eine neue Adresse; der globale Speicherzähler folgt.
+- **F-191** Ändern dürfen nur Verwalter (Person selbst, Eigner/Boots-Admins, Eigner/Admins der Gruppe) – sonst 404, ohne Anmeldung 401. Bilder mit Metadaten (400 `image_metadata`), anderen Formaten (400 `invalid_image`), zu großen Maßen (400 `too_large`) oder über 400 KB (413) werden abgelehnt.
 - **F-192** Titelbilder sind so sichtbar wie ihr Objekt: öffentlich für alle (`public, max-age=86400`), „Nur mit Link“ nur mit Schlüssel (die Seite liefert die Adresse mit `?k=`), privat nur für Verwalter (`private, no-cache`).
 - **F-193** Kostenlose Konten dürfen Titelbilder setzen (E6); die Notbremse gilt wie bei Törns.
 - **F-194** Titelbilder gelöschter Profile, Boote und Gruppen entfernt der nächtliche Cron (Datei, Zeile, Zähler).
@@ -175,6 +175,9 @@ Konzept: `docs/CONCEPT.md` Abschnitt 12. Umsetzung: `migrations/0013_social.sql`
 - **F-196** Vereine und Teams wählen den Heimathafen per Autovervollständigung (`harborId`) oder Name (findet den vorhandenen Hafen unabhängig von Schreibweise); die Hafenseite listet öffentliche Vereine und Teams.
 - **F-197** Migration 0014: vorhandene Freitext-Heimathäfen von Gruppen werden Häfen zugeordnet (vorhandene wiederverwendet, sonst je normalisiertem Namen einer).
 - **F-198** Eigner frei wählbar: Eigner und Boots-Admins setzen am Boot einen freien Eigner-Text (`ownerLabel`, bis 80 Zeichen, öffentlich); er ersetzt in der Anzeige das Eigner-Konto, leer zeigt wieder das Profil.
+- **F-209** Titelbilder werden höher gespeichert als das 3:1-Banner: Der Browser begrenzt das Seitenverhältnis auf 3:1 … 3:2 (breitere Bilder mittig links/rechts, höhere mittig oben/unten beschnitten, dazwischen ganz) und verkleinert auf höchstens 1500 × 1000 px.
+- **F-210** Ausschnitt: `PATCH /api/covers/:art/:id { focusY }` (ganze Prozent 0 = oben … 100 = unten, sonst 400 `invalid_focus`) ändert nur die vertikale Position, ohne neues Bild und ohne neue Adresse; nur Verwalter (sonst 404, ohne Anmeldung 401), ohne Titelbild 404. Ein neues Bild beginnt wieder mittig (50); vorhandene Titelbilder stehen nach Migration 0018 auf 50.
+- **F-211** Verwalter wählen den Ausschnitt im Banner („Ausschnitt“, nur wenn das Bild höher als 3:1 ist): Bild mit Maus oder Finger hoch/runter ziehen oder Schieberegler (Tastatur), „Speichern“/„Abbrechen“ (auch Escape). Nach einem Upload öffnet sich der Modus von selbst. Angezeigt wird per `object-position: 50% <coverY>%`.
 
 ## Beitreten und Einladen (Konzept 14)
 

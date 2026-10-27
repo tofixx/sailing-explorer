@@ -679,8 +679,9 @@ export interface GroupPageData {
   boats: GroupBoat[];
   social: FollowStats;
   membership: { role: GroupRole | null; requested: boolean; canRequest: boolean; canJoin?: boolean; canInvite?: boolean; canApprove?: boolean };
-  /** Titelbild und Galerie (Konzept 13) – fehlen bei älteren Servern */
+  /** Titelbild samt Ausschnitt und Galerie (Konzept 13) – fehlen bei älteren Servern */
   cover?: string | null;
+  coverY?: number;
   photos?: GalleryPhoto[];
   requests?: GroupRequest[];
   invites?: PendingInvite[];
@@ -865,9 +866,11 @@ export interface GalleryPhoto {
   height: number;
 }
 
-/** Titelbild (Adresse inkl. Version, bei „Nur mit Link“ mit Schlüssel) und Galerie einer Seite. */
+/** Titelbild (Adresse inkl. Version, bei „Nur mit Link“ mit Schlüssel), sein Ausschnitt und Galerie einer Seite. */
 export interface PageMedia {
   cover?: string | null;
+  /** vertikale Fokus-Position in Prozent (src/domain/cover.ts) */
+  coverY?: number;
   photos?: GalleryPhoto[];
 }
 
@@ -876,11 +879,14 @@ export type CoverKind = 'u' | 'b' | 'g';
 
 export const coverApi = {
   put: (kind: CoverKind, id: string, image: Blob) =>
-    call<{ cover: string }>(`/api/covers/${kind}/${encodeURIComponent(id)}`, {
+    call<{ cover: string; coverY: number }>(`/api/covers/${kind}/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: image,
     }),
+  /** nur den Ausschnitt ändern */
+  focus: (kind: CoverKind, id: string, focusY: number) =>
+    call<{ coverY: number }>(`/api/covers/${kind}/${encodeURIComponent(id)}`, jsonInit('PATCH', { focusY })),
   remove: (kind: CoverKind, id: string) => call<void>(`/api/covers/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 

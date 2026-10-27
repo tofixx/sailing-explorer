@@ -11,7 +11,7 @@ import { checkVisibilityChoice, isSupporter, supportConfigured, visibilityRequir
 import { groupActivityCleanup, recordBoat, recordMember } from './activity';
 import { followStats } from './follows';
 import { clearHomeClub } from './home';
-import { coverUrl, loadCover } from './covers';
+import { loadCover, pageCover } from './covers';
 import { galleryPhotos } from './gallery';
 import { harborFromBoatInput, harborRef } from './harbors';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, parseVisibility } from './validate';
@@ -442,7 +442,7 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     boats: boatList,
     social: await followStats(env, 'group', group.id, user?.id ?? null),
     // Titelbild und neueste öffentliche Fotos aus Törns der Boote und Mitglieder (Konzept 13)
-    cover: coverUrl('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request)),
+    ...pageCover('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request)),
     photos: await galleryPhotos(env, 'group', group.id),
     membership: {
       role,

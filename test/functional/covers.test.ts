@@ -1,4 +1,4 @@
-// Funktionale Tests: Titelbilder, Galerien und Heimathafen von Vereinen/Teams (Konzept 13, F-190 … F-198).
+// Funktionale Tests: Titelbilder, Galerien und Heimathafen von Vereinen/Teams (Konzept 13, F-190 … F-198, F-209/F-210).
 // Echter Worker in workerd (Miniflare) mit lokalen D1-/R2-Bindings – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startWorker, type Harness } from './worker-harness';
@@ -157,6 +157,43 @@ describe('Titelbilder (Konzept 13.2)', () => {
     expect((await putCover('g', g.id, owner.cookie)).status).toBe(201);
     const page = (await (await s.send('GET', `/api/groups/slug/${g.slug}`, undefined)).json()) as { cover: string | null };
     expect(page.cover).toMatch(new RegExp(`^/api/covers/g/${g.id}/`));
+  });
+
+  it('F-209: höhere Titelbilder bis 1500 × 1000 px werden angenommen, höhere nicht', async () => {
+    const me = await s.person({ profile: 'public' });
+    expect((await putCover('u', me.handle!, me.cookie, webp(1500, 1000))).status).toBe(201);
+    const tall = await putCover('u', me.handle!, me.cookie, webp(1500, 1001));
+    expect(tall.status).toBe(400);
+    expect(await s.errorOf(tall)).toBe('too_large');
+  });
+
+  it('F-210: Ausschnitt per PATCH ändern – ohne neues Bild, nur Verwalter; ein neues Bild beginnt wieder mittig', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const other = await s.person({ profile: 'public' });
+    const b = await s.boat(owner, { visibility: 'public' });
+    const focus = (cookie: string | undefined, body: unknown) => s.send('PATCH', `/api/covers/b/${b.id}`, cookie, body);
+    // ohne Titelbild: nichts zu verschieben
+    expect((await focus(owner.cookie, { focusY: 20 })).status).toBe(404);
+
+    const up = (await (await putCover('b', b.id, owner.cookie, webp(1500, 1000))).json()) as { cover: string; coverY: number };
+    expect(up.coverY).toBe(50);
+    expect((await focus(other.cookie, { focusY: 20 })).status).toBe(404);
+    expect((await focus(undefined, { focusY: 20 })).status).toBe(401);
+    for (const bad of [-1, 101, 12.5, '20', null]) {
+      const res = await focus(owner.cookie, { focusY: bad });
+      expect(res.status).toBe(400);
+      expect(await s.errorOf(res)).toBe('invalid_focus');
+    }
+    const ok = await focus(owner.cookie, { focusY: 20 });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ coverY: 20 });
+    const page = (await (await s.send('GET', `/api/boats/${b.id}`, undefined)).json()) as { cover: string; coverY: number };
+    // gleiche Adresse (kein neues Bild), neuer Ausschnitt
+    expect(page).toMatchObject({ cover: up.cover, coverY: 20 });
+
+    const again = (await (await putCover('b', b.id, owner.cookie, webp(1500, 900))).json()) as { coverY: number };
+    expect(again.coverY).toBe(50);
+    expect(((await (await s.send('GET', `/api/boats/${b.id}`, undefined)).json()) as { coverY: number }).coverY).toBe(50);
   });
 
   it('F-194: Titelbilder gelöschter Objekte räumt der Cron weg', async () => {

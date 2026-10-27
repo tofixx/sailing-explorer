@@ -74,10 +74,13 @@ export function photoLimitMessage(v: Exclude<QuotaVerdict, 'ok'>, supportOffered
 
 // ---------------------------------------------------------------- Titelbilder (Konzept 13.2)
 
-/** Titelbild: im Browser auf 3:1 zugeschnitten, so groß und höchstens so viele Bytes. Für alle Konten (E6). */
+/**
+ * Titelbild: im Browser auf ein Seitenverhältnis zwischen 3:1 (Banner) und 3:2 zugeschnitten – der Überstand ist der
+ * Spielraum für den Ausschnitt (src/domain/cover.ts) –, höchstens so groß und so viele Bytes. Für alle Konten (E6).
+ */
 export const COVER_WIDTH = 1500;
-export const COVER_HEIGHT = 500;
-export const COVER_BYTES = 300 * 1024;
+export const COVER_HEIGHT = 1000;
+export const COVER_BYTES = 400 * 1024;
 
 /** Galerie an Person, Boot, Verein/Team: so viele der neuesten öffentlichen Törn-Fotos. */
 export const GALLERY_PHOTOS = 12;
