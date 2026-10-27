@@ -15,6 +15,15 @@ export function randomId(length = 18): string {
   return out.join('');
 }
 
+/** 6-stelliger Anmeldecode, gleichverteilt (Verwerfen statt Modulo-Verzerrung). */
+export function randomCode(): string {
+  const buf = new Uint32Array(1);
+  for (;;) {
+    crypto.getRandomValues(buf);
+    if (buf[0] < 4_294_000_000) return String(buf[0] % 1_000_000).padStart(6, '0');
+  }
+}
+
 /** 256-Bit-Geheimnis als base64url (für Session- und Login-Tokens). */
 export function randomToken(): string {
   return toBase64Url(crypto.getRandomValues(new Uint8Array(32)));

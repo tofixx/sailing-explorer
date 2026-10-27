@@ -8,7 +8,7 @@ export type CaptchaMount = (el: HTMLElement, onToken: (token: string | null) => 
 /**
  * Anmeldung per Magic Link in drei Zuständen:
  *  form    – E-Mail eingeben
- *  sent    – Link verschickt
+ *  sent    – Link verschickt; Code aus der Mail eintippen (sx-login-code { code })
  *  confirm – Link geöffnet: „Als … anmelden?“ (Schutz gegen untergeschobene Links)
  */
 export class SxLoginDialog extends LitElement {
@@ -18,6 +18,7 @@ export class SxLoginDialog extends LitElement {
     busy: { type: Boolean },
     error: { type: String },
     sentTo: { type: String },
+    devCode: { type: String },
     devLink: { type: String },
     confirmEmail: { type: String },
     currentEmail: { type: String },
@@ -29,6 +30,8 @@ export class SxLoginDialog extends LitElement {
   declare error: string;
   declare sentTo: string;
   declare devLink: string;
+  /** nur lokal im Log-Modus: der Code (Test ohne Mailserver) */
+  declare devCode: string;
   declare confirmEmail: string;
   declare currentEmail: string;
   declare captcha: string | null;
@@ -43,6 +46,7 @@ export class SxLoginDialog extends LitElement {
     this.busy = false;
     this.error = '';
     this.sentTo = '';
+    this.devCode = '';
     this.devLink = '';
     this.confirmEmail = '';
     this.currentEmail = '';
@@ -55,6 +59,26 @@ export class SxLoginDialog extends LitElement {
     css`
       .ts {
         min-height: 65px;
+      }
+      form.code {
+        display: grid;
+        gap: var(--s-2);
+        padding-top: var(--s-3);
+        border-top: 1px solid var(--border-soft);
+      }
+      form.code .row {
+        display: flex;
+        gap: var(--s-2);
+      }
+      form.code input {
+        flex: 1;
+        min-width: 0;
+        font-size: 1.25rem;
+        letter-spacing: 0.2em;
+        font-variant-numeric: tabular-nums;
+      }
+      .small {
+        font-size: var(--fs-s);
       }
       .center {
         text-align: center;
@@ -125,6 +149,12 @@ export class SxLoginDialog extends LitElement {
 
   private close = () => emit(this, 'sx-close', 'login');
 
+  private submitCode(e: Event) {
+    e.preventDefault();
+    const code = String(new FormData(e.target as HTMLFormElement).get('code') ?? '').replace(/\s/g, '');
+    if (code) emit(this, 'sx-login-code', { code });
+  }
+
   private body() {
     switch (this.state) {
       case 'confirm':
@@ -149,7 +179,16 @@ export class SxLoginDialog extends LitElement {
             <div class="badge">${icon('mail')}</div>
             <p><b>Prüf dein Postfach.</b><br /><span class="muted">Wir haben einen Anmeldelink an <b>${this.sentTo}</b> geschickt. Er ist 15 Minuten gültig. Nach dem Klick bist du angemeldet – auch in diesem Tab.</span></p>
           </div>
-          ${this.devLink ? html`<div class="note warn"><span class="dev">Entwicklungsmodus – kein Mailversand:<br /><a href=${this.devLink}>${this.devLink}</a></span></div>` : ''}
+          ${this.devLink ? html`<div class="note warn"><span class="dev">Entwicklungsmodus – kein Mailversand:<br /><a href=${this.devLink}>${this.devLink}</a>${this.devCode ? html`<br />Code: ${this.devCode}` : ''}</span></div>` : ''}
+          <form class="code" @submit=${this.submitCode}>
+            <label class="label" for="code">Oder den Code aus der Mail eingeben</label>
+            <div class="row">
+              <input id="code" name="code" required inputmode="numeric" autocomplete="one-time-code" pattern="\\d{3} ?\\d{3}" maxlength="7" placeholder="123 456" />
+              <button class="btn primary" type="submit" ?disabled=${this.busy}>${icon('check')} ${this.busy ? 'Melde an …' : 'Anmelden'}</button>
+            </div>
+            <span class="muted small">Praktisch in der App auf dem Home-Bildschirm oder wenn die Mail auf einem anderen Gerät ankommt.</span>
+          </form>
+          ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
           <div class="actions"><button class="btn" @click=${() => emit(this, 'sx-login-reset')}>Andere Adresse</button></div>
         </div>`;
       default:
