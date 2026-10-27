@@ -296,27 +296,35 @@ describe('sx-account-dialog', () => {
 });
 
 
-describe('Startseite = Community (F-223, F-224)', () => {
-  it('[F-224] Gäste: „Mitmachen“ erklärt, wozu die Anmeldung gut ist, und meldet an', async () => {
+describe('Startseite = Community (F-260, F-261)', () => {
+  it('[F-261] Gäste: „Mitmachen“ erklärt, wozu die Anmeldung gut ist, und meldet an', async () => {
     const logins = listen('sx-login');
     const el = await mount('sx-join-card', { signedIn: false });
     const t = text(el);
-    for (const w of ['Törns speichern und teilen', 'Verein oder Team', 'Heimathafen', 'Folgen', 'Freunde einladen', 'Fotos', 'Passkey']) expect(t).toContain(w);
+    for (const w of ['Törns speichern und teilen', 'Verein oder Team', 'Heimathafen', 'Folgen', 'Freunde einladen', 'Passkey']) expect(t).toContain(w);
+    // kostenlos ist Teilen öffentlich – keine privaten Törns versprechen
+    expect(t).not.toMatch(/nur für dich|nur mit Link/);
     button(el, /Anmelden & mitmachen/)!.click();
     expect(logins).toHaveLength(1);
   });
 
-  it('[F-224] Angemeldete: nächste Schritte statt Werbung', async () => {
+  it('[F-261] Unterstützer-Vorteile nur, wenn Unterstützen eingerichtet ist', async () => {
+    const off = await mount('sx-join-card', { signedIn: false, supportOffered: false });
+    expect(text(off)).not.toContain('Unterstützer');
+    const on = await mount('sx-join-card', { signedIn: false, supportOffered: true });
+    expect(text(on)).toMatch(/Als Unterstützer:in mehr.*Fotos/);
+  });
+
+  it('[F-261] Angemeldete: „Dein Bereich“ statt Werbung, ohne Dopplung zur Willkommens-Karte', async () => {
     const accounts = listen('sx-account');
     const el = await mount('sx-join-card', { signedIn: true });
     expect(button(el, /Anmelden/)).toBeUndefined();
-    expect([...el.shadowRoot.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/entdecken#vereine', '/g/neu']);
-    button(el, /Passkey/)!.click();
-    button(el, /Heimathafen/)!.click();
-    expect(accounts).toEqual(['settings', 'profile']);
+    expect([...el.shadowRoot.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/entdecken#vereine']);
+    for (const b of [/Törns und Freigaben/, /Boote/, /Profil/]) button(el, b)!.click();
+    expect(accounts).toEqual(['shares', 'boats', 'profile']);
   });
 
-  it('[F-223] Hauptspalte: Entdecken und Stream – Gäste Entdecken zuerst, angemeldet der Stream; Seitenleiste: Hochladen und Mitmachen', async () => {
+  it('[F-260] Hauptspalte: Entdecken und Stream – Gäste Entdecken zuerst, angemeldet der Stream; Seitenleiste: Hochladen und Mitmachen', async () => {
     const el = await mount('sx-empty-state', { community: true, samples: [] });
     const main = el.shadowRoot.querySelector('.feed')!;
     const side = el.shadowRoot.querySelector('.side')!;
@@ -324,10 +332,12 @@ describe('Startseite = Community (F-223, F-224)', () => {
     expect(main.querySelector('slot[name="feed"]')).not.toBeNull();
     expect(side.querySelector('slot[name="join"]')).not.toBeNull();
     expect(side.textContent).toMatch(/Eigenen Törn anlegen/);
+    expect(el.shadowRoot.querySelector('h1')?.textContent).toBe('Community');
     const order = () => getComputedStyle(main.querySelector('.discover')!).order;
     expect(order()).toBe('0');
     el.streamFirst = true;
     await el.updateComplete;
+    // die Umkehr selbst ist CSS (:host([stream-first])) – happy-dom wertet sie nicht aus
     expect(el.hasAttribute('stream-first')).toBe(true);
   });
 });
@@ -347,12 +357,11 @@ describe('sx-discover', () => {
     expect(links(el)).toContain('/entdecken');
   });
 
-  it('[F-223] Vorschau auf der Startseite: neue Boote, Segler, Vereine als Chips; Anker #entdecken', async () => {
+  it('[F-260] Vorschau auf der Startseite: neue Boote, Segler, Vereine als Chips', async () => {
     const el = await mount('sx-discover', {
       variant: 'strip',
       data: data({ boats: [{ id: 'B1', name: 'Möwe' }], people: [{ handle: 'anna', displayName: 'Anna' }], groups: [{ slug: 'pyc', name: 'PYC', kind: 'club', members: 3 }] }),
     });
-    expect(el.shadowRoot.getElementById('entdecken')).not.toBeNull();
     expect(links(el)).toEqual(expect.arrayContaining(['/b/B1', '/u/anna', '/g/pyc']));
   });
 

@@ -8,7 +8,7 @@ export interface Sample {
 }
 
 /**
- * Startseite über der Karte (Konzept 12.6, F-182, F-223). Mit Community (`community`) ist sie die Community-Seite:
+ * Startseite über der Karte (Konzept 12.6, F-182, F-260). Mit Community (`community`) ist sie die Community-Seite:
  * Hauptspalte mit Entdecken-Vorschau (Slot „discover“) und Stream (Slot „feed“) – Gäste sehen zuerst Entdecken,
  * Angemeldete (`stream-first`) zuerst ihren Stream. Seitenleiste: „Eigenen Törn anlegen“ (kompakte Karte, mobil ein
  * runder Knopf unten rechts) und „Mitmachen“ (Slot „join“). Ohne Community (kein Backend): die große Einstiegskarte
@@ -79,9 +79,23 @@ export class SxEmptyState extends LitElement {
         display: grid;
         gap: var(--s-3);
       }
-      .side {
-        position: sticky;
-        top: 0;
+      /* mitlaufend nur, wenn die Seitenleiste ganz auf den Bildschirm passt */
+      @media (min-height: 900px) {
+        .side {
+          position: sticky;
+          top: 0;
+        }
+      }
+      .feed .discover.none {
+        display: none;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
       }
       .feed .discover {
         order: 0;
@@ -327,6 +341,24 @@ export class SxEmptyState extends LitElement {
     `,
   ];
 
+  /** Ist die Entdecken-Leiste ausgeblendet (Fehler), bleibt kein leerer Platz in der Hauptspalte. */
+  private discoverShown = true;
+  private discoverObserver: MutationObserver | null = null;
+  private onDiscover = (e: Event) => {
+    const el = (e.target as HTMLSlotElement).assignedElements()[0];
+    this.discoverObserver?.disconnect();
+    if (!el) return;
+    const sync = () => {
+      const shown = !el.hasAttribute('hidden');
+      if (shown === this.discoverShown) return;
+      this.discoverShown = shown;
+      this.requestUpdate();
+    };
+    this.discoverObserver = new MutationObserver(sync);
+    this.discoverObserver.observe(el, { attributes: true, attributeFilter: ['hidden'] });
+    sync();
+  };
+
   private samplesRow() {
     if (!this.samples.length) return '';
     return html`<div class="samples">
@@ -385,7 +417,8 @@ export class SxEmptyState extends LitElement {
         ${this.footer()} ${drop}`;
     }
     return html`<div class="layout">
-        <div class="feed"><div class="discover"><slot name="discover"></slot></div><div class="stream"><slot name="feed"></slot></div></div>
+        <h1 class="sr-only">Community</h1>
+        <div class="feed"><div class="discover ${this.discoverShown ? '' : 'none'}"><slot name="discover" @slotchange=${this.onDiscover}></slot></div><div class="stream"><slot name="feed"></slot></div></div>
         <div class="side">${this.compactCard()}<slot name="join"></slot></div>
       </div>
       ${this.footer()}

@@ -65,6 +65,10 @@ export class SessionController {
   private channel = 'BroadcastChannel' in window ? new BroadcastChannel('sx-auth') : null;
   /** Slider-Stufen aus /api/config (null = Unterstützen nicht eingerichtet) */
   private supportTiers: SupportTier[] | null = null;
+  /** Unterstützen ist eingerichtet (Stufen vom Server) – bekannt, sobald `backend` gesetzt ist */
+  get supportOffered(): boolean {
+    return !!this.supportTiers;
+  }
   private supportStatus: SupportStatus | null = null;
   /** erfüllt, sobald Konfiguration und Anmeldung geladen sind */
   backendReady: Promise<void> = Promise.resolve();

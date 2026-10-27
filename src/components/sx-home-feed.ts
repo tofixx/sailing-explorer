@@ -11,12 +11,12 @@ import './sx-stream';
 /**
  * Herzstück der Startseite (Konzept 12.6, F-182): der Community-Stream.
  * - Gäste: „Neues aus der Community“ (öffentlicher Stream) mit Filter-Chips nach Hafen und Verein; „Anmelden &
- *   mitmachen“ steht in der Seitenleiste (sx-join-card, F-224).
+ *   mitmachen“ steht in der Seitenleiste (sx-join-card, F-261).
  * - Angemeldete: „Neuigkeiten aus deinem Verein, Hafen und Team“, Heimat (Verein, Hafen), eigene Gruppen,
  *   „Leute, die du kennen könntest“; ohne Gruppen „Tritt deinem Verein bei“.
  * - Nach der Anmeldung (ohne Gruppe oder ohne Heimathafen) eine Willkommens-Karte (Konzept 14.3): Heimathafen wählen,
  *   Verein oder Team beitreten bzw. gründen, Freunde einladen.
- * Rein präsentational; meldet `sx-stream-more`, `sx-stream-filter`, `sx-follow`, `sx-login`, `sx-account`,
+ * Rein präsentational; meldet `sx-stream-more`, `sx-stream-filter`, `sx-follow`, `sx-account`,
  * `sx-home-harbor` { harbor }, `sx-home-join` { id, name }, `sx-friend-invite` { email | null }, `sx-invite-copy`.
  */
 const WELCOME_KEY = 'sx-welcome-dismissed';

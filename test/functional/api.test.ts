@@ -536,6 +536,8 @@ describe('F-39 Link-Vorschau /s/:id', () => {
     const a = await head(await h.fetch(`/s/${priv.id}`));
     const b = await head(await h.fetch('/s/ABCDEFGHJKLMNPQRST'));
     expect({ t: a.title, o: a.ogTitle, d: a.ogDesc }).toEqual({ t: b.title, o: b.ogTitle, d: b.ogDesc });
+    // [F-262] der Rückfall beschreibt die Community
+    expect(a.ogDesc).toMatch(/^Segel-Community:/);
   });
 
   it('[F-39] Titel mit HTML-Sonderzeichen wird nicht als Markup eingefügt', async () => {

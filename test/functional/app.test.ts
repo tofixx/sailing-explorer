@@ -953,6 +953,14 @@ describe('F-40 Ohne Backend', () => {
     expect(state().mode).toEqual({ kind: 'link', title: 'Geteilter Track' });
   });
 
+  it('[F-260] ohne Backend: große Einstiegskarte, keine Mitmachen-Karte', async () => {
+    server.backend = 'html';
+    await startApp();
+    await settled();
+    expect(el<{ community: boolean }>('sx-empty-state').community).toBe(false);
+    expect(el<{ hidden: boolean }>('sx-join-card').hidden).toBe(true);
+  });
+
   it('[F-40] zu große Tracks: verständlicher Hinweis statt riesiger URL', async () => {
     server.backend = 'html';
     await startApp();
@@ -1286,7 +1294,7 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
   const topbar = () => el<{ section: string; unread: string }>('sx-topbar');
   const seenCalls = () => server.calls.filter((c) => c.url === '/api/stream/seen');
 
-  it('[F-223] Startseite: Mitmachen-Karte sichtbar; angemeldet steht der Stream vor Entdecken', async () => {
+  it('[F-260] Startseite: Mitmachen-Karte sichtbar; angemeldet steht der Stream vor Entdecken', async () => {
     server.groups = {};
     await startApp();
     await vi.waitFor(() => expect(home().hidden).toBe(false));
@@ -1296,7 +1304,7 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(el<{ streamFirst: boolean }>('sx-empty-state').streamFirst).toBe(false);
   });
 
-  it('[F-223] Startseite angemeldet: Stream zuerst, Mitmachen mit nächsten Schritten', async () => {
+  it('[F-260] Startseite angemeldet: Stream zuerst, Mitmachen mit nächsten Schritten', async () => {
     server.user = { id: 'U1', email: 'a@example.org' };
     server.groups = { myStream: { items: [post], cursor: null, hasGroups: true }, mine: { groups: [], requests: [] } };
     await startApp();
@@ -1305,7 +1313,7 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(el<{ signedIn: boolean }>('sx-join-card').signedIn).toBe(true);
   });
 
-  it('[F-225] Link-Vorschau der Startseite beschreibt die Community', () => {
+  it('[F-262] Link-Vorschau der Startseite beschreibt die Community', () => {
     const html = readFileSync(resolve('index.html'), 'utf8');
     expect(/<meta property="og:description" content="([^"]*)"/.exec(html)?.[1]).toMatch(/^Segel-Community:/);
     expect(/<meta name="description" content="([^"]*)"/.exec(html)?.[1]).toMatch(/Verein, Hafen und Team/);

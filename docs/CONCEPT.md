@@ -1234,9 +1234,11 @@ Track hochladen als Seitenleiste als Pendant zum Stream“): Die Hauptspalte zei
 gesegelte Törns, neue Boote, Segler, Vereine) und den Stream – Gäste zuerst Entdecken (das Schaufenster), Angemeldete
 zuerst ihren persönlichen Stream (dazu passt das Badge am Reiter „Community“, 12.10). Die Seitenleiste daneben ist das
 Gegenstück: „Eigenen Törn anlegen“ und „Mitmachen“ – für Gäste, wozu man sich anmeldet (Törns speichern und teilen,
-Verein/Team, Heimathafen, Folgen und Reagieren, Freunde einladen, Fotos als Unterstützer:in, Anmeldung ohne Passwort),
-für Angemeldete die nächsten Schritte. `/entdecken` bleibt die vollständige Liste. Mobil: eine Spalte; für Gäste
-„Mitmachen“ zuerst, Hochladen als runder Knopf (F-223, F-224).
+Verein/Team, Heimathafen, Folgen und Reagieren, Freunde einladen, Anmeldung ohne Passwort; Unterstützer-Vorteile nur,
+wenn Unterstützen eingerichtet ist – kostenlos ist Teilen öffentlich), für Angemeldete Wege zum Eigenen (Törns, Boote,
+Profil; Heimathafen und Beitreten stehen schon in der Willkommens-Karte 14.3). `/entdecken` bleibt die vollständige
+Liste. Unter 960 px eine Spalte: für Gäste die Seitenleiste zuerst, für Angemeldete danach; unter 760 px ist Hochladen
+der runde Knopf. Mitlaufend (sticky) ist die Seitenleiste nur ab 900 px Fensterhöhe (F-260, F-261).
 
 Der Community-Stream ist der Kern der Startseite – für alle:
 
@@ -1248,7 +1250,7 @@ Der Community-Stream ist der Kern der Startseite – für alle:
 
 Hochladen tritt zurück: „Track anlegen“ als **zweitrangiger Knopf in der Kopfzeile**, eine **kompakte Karte** in der
 Seitenleiste (mit Beispielen) und Ziehen & Ablegen auf der ganzen Seite (beim Ziehen erscheint eine Ablagefläche). Mobil
-(< 760 px) steht der Stream in voller Breite oben, Hochladen ist ein runder Knopf unten rechts (FAB, 56 px). Die
+(< 760 px) ist Hochladen ein runder Knopf unten rechts (FAB, 56 px). Die
 Kartenansicht eines geladenen Törns bleibt unverändert; den Wechsel Startseite ↔ Törn übernehmen die Reiter der Kopfzeile (12.10, F-75). Unten eine
 kleine Fußzeile mit „Impressum“ und „Datenschutz“.
 
@@ -1309,7 +1311,7 @@ letzten Lesen dazugekommen sind:
 | Was zählt? | Kandidaten aus `activity_target` für dieselbe Zielliste wie der Stream mit `created_at` > Gelesen-Zeitpunkt (höchstens 150), dann dieselbe Prüfung beim Lesen (`shapeItem`). Eigene Aktivitäten zählen nicht. Anzeige höchstens „99+“. |
 | Erstes Mal? | `NULL` → beim ersten Zählen auf „jetzt“; kein Rückstau-Badge nach dem Deploy. |
 | Gäste | kein Badge, keine Abfrage. |
-| Migration | `0020_stream_seen.sql` (0019 belegt `feature/kartenstil`). |
+| Migration | `0023_stream_seen.sql` (0019–0022 belegen andere Branches). |
 | Kosten | eine Zählung = Ziel-Batch + eine Index-Abfrage + ein Prüf-Batch (wie eine Stream-Seite ohne Reaktionen). Gezählt beim Start/Anmelden, beim Zurückkehren in den Tab (≥ 2 min Abstand) und alle 10 min bei sichtbarem Tab – kein Polling im Hintergrund-Tab. |
 | Löschen | Der Wert liegt in der Konto-Zeile und verschwindet mit ihr (Konto löschen, inaktive Konten); er sagt nur, wann der Stream zuletzt angesehen wurde, und wird sonst nirgends gespeichert oder protokolliert. |
 

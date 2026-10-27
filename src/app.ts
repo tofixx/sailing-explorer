@@ -316,9 +316,10 @@ export class App {
     // Neuigkeiten auf der Startseite und Rollen auf der Gruppenseite hängen an der Anmeldung (Konzept 11.5).
     if (changed('user') || changed('backend')) {
       this.ui.page.signedIn = !!s.user;
-      // Startseite (F-223/F-224): angemeldet zuerst der eigene Stream, „Mitmachen“ zeigt nächste Schritte
+      // Startseite (F-260/F-261): angemeldet zuerst der eigene Stream, „Mitmachen“ zeigt nächste Schritte
       this.ui.empty.streamFirst = !!s.user;
       this.ui.join.signedIn = !!s.user;
+      this.ui.join.supportOffered = this.session.supportOffered;
       if (prev) {
         if (this.homeRoute) void this.groups.loadHome(true);
         void this.groups.userChanged();
