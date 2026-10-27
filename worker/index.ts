@@ -21,6 +21,8 @@ import { groupRoutes } from './group-routes';
 import { canViewGroup, loadGroupBySlug } from './groups';
 import { groupFeed } from './feed';
 import { GROUP_KIND_LABEL } from '../src/domain/groups';
+// ---- Häfen (Konzept 12.2) ----
+import { harborVisible, loadHarborBySlug } from './harbors';
 
 const WEBHOOK_PATH = '/api/webhooks/stripe';
 
@@ -143,6 +145,12 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
     const desc = g.description || [GROUP_KIND_LABEL[g.kind] ?? 'Gruppe', g.home_port && `Heimathafen ${g.home_port}`].filter(Boolean).join(' · ');
     return { title: `${g.name} · ${env.APP_NAME}`, description: desc, index: index(g.visibility) };
   }
+  if (kind === 'h') {
+    // Häfen sind öffentlich (Konzept 12.2); ausgeblendete und unbekannte neutral.
+    const h = await loadHarborBySlug(env, id);
+    if (!harborVisible(h)) return fallback;
+    return { title: `Hafen ${h.name} · ${env.APP_NAME}`, description: `Boote, Törns und Neuigkeiten aus dem Hafen ${h.name}`, index: key === undefined };
+  }
   if (kind === 'u') {
     const p = await env.DB.prepare('SELECT display_name, bio, visibility, share_key, hidden_at FROM profiles WHERE handle = ?')
       .bind(id)
@@ -210,6 +218,7 @@ export default {
       const page =
         /^\/(s|b)\/([A-Za-z0-9]{12,32})(?:\/([^/]+))?\/?$/.exec(url.pathname) ??
         /^\/(u|g)\/([a-z0-9-]{3,30})(?:\/([^/]+))?\/?$/i.exec(url.pathname) ??
+        /^\/(h)\/([a-z0-9-]{1,100})\/?$/.exec(url.pathname) ??
         /^\/(entdecken)()\/?$/.exec(url.pathname);
       if (page && (request.method === 'GET' || request.method === 'HEAD')) {
         const key = page[3] === undefined ? undefined : isShareKey(page[3]) ? page[3] : null;

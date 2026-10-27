@@ -13,6 +13,7 @@ import { addPhotoStmt, checkBrake, currentBrake, subtractPhotoStmt } from './sto
 import { inspectImage, type PhotoFormat } from './image';
 import { deleteKeys, photoKey, photoKeys } from './photo-keys';
 import { recordPhotos } from './activity';
+import { deletePhotoReactions } from './reaction-cleanup';
 import { SHARE_ID_RE, cleanText, parsePhotoMeta, parsePosition, parseTakenAt } from './validate';
 import {
   PHOTO_CAPTION_LENGTH,
@@ -265,6 +266,7 @@ export async function removePhoto(env: Env, row: Pick<PhotoRow, 'id' | 'share_id
   await env.DB.batch([
     subtractPhotoStmt(env, row.id),
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'photo' AND target_id = ?`).bind(row.id),
+    deletePhotoReactions(env, row.id),
     env.DB.prepare('UPDATE comments SET photo_id = NULL WHERE photo_id = ?').bind(row.id),
     env.DB.prepare('DELETE FROM photos WHERE id = ?').bind(row.id),
   ]);

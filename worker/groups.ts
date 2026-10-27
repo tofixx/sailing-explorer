@@ -10,6 +10,7 @@ import { assertActive, isAdmin } from './moderation';
 import { checkVisibilityChoice, isSupporter, supportConfigured, visibilityRequiresSupport } from './supporter';
 import { groupActivityCleanup, recordBoat, recordMember } from './activity';
 import { followStats } from './follows';
+import { clearHomeClub } from './home';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, parseVisibility } from './validate';
 import { GROUP_LIMITS, groupLimitMessage, groupVerdict } from '../src/domain/limits';
 import { canChooseVisibility, DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
@@ -466,7 +467,11 @@ export async function removeMember(request: Request, env: Env, id: string, who: 
   if (!targetRole) throw new HttpError(404, 'not_found', 'Diese Person ist kein Mitglied.');
   if (target === user.id && role === 'owner') throw new HttpError(400, 'owner_cannot_leave', 'Der Eigner kann die Gruppe nicht verlassen – nur löschen.');
   if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigner.');
-  await env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(group.id, target).run();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(group.id, target),
+    // „Mein Verein“ fällt mit (F-170)
+    clearHomeClub(env, target, group.id),
+  ]);
   return new Response(null, { status: 204 });
 }
 

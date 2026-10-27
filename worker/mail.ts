@@ -158,7 +158,20 @@ export function groupDigestMail(env: Env, to: string, origin: string, groups: Gr
   return { to, subject: `${app}: Was war los in deinem Verein`, text, html };
 }
 
-export async function sendMail(env: Env, mail: Mail): Promise<void> {
+/**
+ * Fußzeile jeder Mail mit Impressum und Datenschutz (Konzept 12.7, F-183). Origin aus APP_ORIGIN (Konfiguration,
+ * kein Nutzertext); ohne Konfiguration die Hauptadresse.
+ */
+export function withLegalFooter(mail: Mail, origin: string): Mail {
+  const base = origin.replace(/\/+$/, '');
+  const text = `${mail.text}\n--\nImpressum: ${base}/impressum\nDatenschutz: ${base}/datenschutz\n`;
+  const foot = `<p style="color:#8a97a5;font-size:12px;border-top:1px solid #e3e8ee;padding-top:8px;margin-top:24px"><a href="${base}/impressum" style="color:#8a97a5">Impressum</a> · <a href="${base}/datenschutz" style="color:#8a97a5">Datenschutz</a></p>`;
+  const html = mail.html.includes('</body>') ? mail.html.replace('</body>', `${foot}\n</body>`) : `${mail.html}${foot}`;
+  return { ...mail, text, html };
+}
+
+export async function sendMail(env: Env, plain: Mail): Promise<void> {
+  const mail = withLegalFooter(plain, env.APP_ORIGIN || 'https://sailing.wollow.ski');
   switch (env.MAIL_PROVIDER) {
     case 'resend': {
       if (!env.RESEND_API_KEY) throw new HttpError(503, 'mail_unconfigured', 'Mailversand ist nicht eingerichtet.');

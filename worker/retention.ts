@@ -9,6 +9,7 @@ import { sendCommentDigests } from './comments';
 import { deleteOrphanReports, deleteShareReports } from './moderation';
 import { deleteKeys, photoKeysForShares } from './photo-keys';
 import { deleteShareActivity, nightlyActivityCleanup } from './activity';
+import { deleteShareReactions } from './reaction-cleanup';
 import { sendGroupDigests } from './group-digest';
 import { INACTIVE_ACCOUNT_MS, WARN_MS } from '../src/domain/support';
 
@@ -53,7 +54,7 @@ async function deleteExpired(env: Env, now: number): Promise<number> {
     await deleteKeys(env, [...part.flatMap((r) => [`shares/${r.id}`, `previews/${r.id}.jpg`]), ...photoKeys]);
     // Speicher vom globalen Zähler abziehen und Meldungen zum Törn entfernen – im selben Batch wie das Löschen.
     await env.DB.batch(
-      part.flatMap((r) => [subtractShareStmt(env, r.id), deleteShareReports(env, r.id), deleteShareActivity(env, r.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)]),
+      part.flatMap((r) => [subtractShareStmt(env, r.id), deleteShareReports(env, r.id), deleteShareReactions(env, r.id), deleteShareActivity(env, r.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)]),
     );
   }
   return results.length;

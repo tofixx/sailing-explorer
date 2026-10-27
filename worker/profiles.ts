@@ -10,6 +10,8 @@ import { LIMITS, cleanText, normalizeHandle, parseVisibility } from './validate'
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 import { funnyName } from '../src/domain/names';
 import { followStats } from './follows';
+import { homeOf, publicHome } from './home';
+import { BOAT_HARBOR_COLS } from './boats';
 
 interface ProfileRow {
   user_id: string;
@@ -120,7 +122,7 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
   }
 
   const { results: boats } = await env.DB.prepare(
-    `SELECT b.*, ?2 AS owner_handle, ?3 AS owner_name, 1 AS owner_public FROM boats b
+    `SELECT b.*, ?2 AS owner_handle, ?3 AS owner_name, 1 AS owner_public, ${BOAT_HARBOR_COLS} FROM boats b
      WHERE b.owner_id = ?1 AND ((b.visibility = 'public' AND b.hidden_at IS NULL) OR ?4) ORDER BY b.name`,
   )
     .bind(p.user_id, p.handle, p.display_name, isSelf ? 1 : 0)
@@ -136,5 +138,7 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
     // öffentliche Törns anderer, auf denen die Person Crew ist – zählen nicht in die Kennzahlen
     crewVoyages: await crewShares(env, p.user_id),
     social: await followStats(env, 'user', p.user_id, user?.id ?? null),
+    // „Mein Verein“ und Heimathafen (Konzept 12.1/12.2) – nur, was öffentlich sein darf
+    home: publicHome(await homeOf(env, p.user_id)),
   });
 }

@@ -7,8 +7,9 @@
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // API sowie Törn-, Profil-, Boots-, Gruppen- (inkl. RSS) und Entdecken-Seite (Link-Vorschau-Metadaten) laufen durch den Worker
-    "run_worker_first": ["/api/*", "/s/*", "/u/*", "/b/*", "/g/*", "/entdecken"]
+    // API sowie Törn-, Profil-, Boots-, Gruppen- (inkl. RSS), Hafen- und Entdecken-Seite (Link-Vorschau-Metadaten) laufen durch den
+    // Worker. /impressum und /datenschutz bewusst nicht: statische SPA-Routen mit den Headern aus public/_headers, ohne Backend.
+    "run_worker_first": ["/api/*", "/s/*", "/u/*", "/b/*", "/g/*", "/h/*", "/entdecken"]
   },
   "routes": [{ "pattern": "sailing.wollow.ski", "custom_domain": true }],
   "d1_databases": [

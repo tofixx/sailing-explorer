@@ -44,6 +44,11 @@ async function resolveTarget(env: Env, kind: FollowKind, raw: string, mustBePubl
     return b ? { id: b.id, ownerId: b.owner_id } : null;
   }
   if (!SHARE_ID_RE.test(raw)) return null;
+  if (kind === 'harbor') {
+    // Häfen sind immer öffentlich – nur ausgeblendete nicht (Konzept 12.2)
+    const h = await env.DB.prepare(`SELECT id FROM harbors WHERE id = ?${mustBePublic ? ' AND hidden_at IS NULL' : ''}`).bind(raw).first<{ id: string }>();
+    return h ? { id: h.id, ownerId: null } : null;
+  }
   const g = await env.DB.prepare(`SELECT g.id FROM groups g WHERE g.id = ?${pub('g')}`).bind(raw).first<{ id: string }>();
   return g ? { id: g.id, ownerId: null } : null;
 }
@@ -63,7 +68,7 @@ export async function follow(request: Request, env: Env, rawKind: string, raw: s
   if (kind === 'user' && t.id === user.id) throw new HttpError(400, 'own_object', 'Dir selbst kannst du nicht folgen.');
   const n = (await env.DB.prepare('SELECT COUNT(*) AS n FROM follows WHERE user_id = ?').bind(user.id).first<{ n: number }>())?.n ?? 0;
   const exists = await env.DB.prepare('SELECT 1 AS x FROM follows WHERE user_id = ? AND target_kind = ? AND target_id = ?').bind(user.id, kind, t.id).first();
-  if (!exists && n >= GROUP_LIMITS.follows) throw new HttpError(409, 'quota', `Du folgst schon ${GROUP_LIMITS.follows} Profilen, Booten und Gruppen – entfolge zuerst anderen.`);
+  if (!exists && n >= GROUP_LIMITS.follows) throw new HttpError(409, 'quota', `Du folgst schon ${GROUP_LIMITS.follows} Profilen, Booten, Gruppen und Häfen – entfolge zuerst anderen.`);
   await env.DB.prepare('INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) VALUES (?, ?, ?, ?)').bind(user.id, kind, t.id, Date.now()).run();
   return json(await followStats(env, kind, t.id, user.id));
 }
@@ -99,9 +104,11 @@ const CANDIDATES: Array<[SuggestionReason, string]> = [
   ],
   [
     'port',
-    `SELECT DISTINCT b2.owner_id AS user_id, b2.home_port AS port FROM boats b1
-       JOIN boats b2 ON b2.home_port = b1.home_port COLLATE NOCASE AND b2.owner_id <> b1.owner_id AND b2.visibility = 'public' AND b2.hidden_at IS NULL
-     WHERE b1.owner_id = ?1 AND b1.home_port <> '' LIMIT 200`,
+    // Gleicher Hafen (Konzept 12.2) statt gleichem Freitext
+    `SELECT DISTINCT b2.owner_id AS user_id, h.name AS port FROM boats b1
+       JOIN boats b2 ON b2.harbor_id = b1.harbor_id AND b2.owner_id <> b1.owner_id AND b2.visibility = 'public' AND b2.hidden_at IS NULL
+       JOIN harbors h ON h.id = b1.harbor_id AND h.hidden_at IS NULL
+     WHERE b1.owner_id = ?1 AND b1.harbor_id IS NOT NULL LIMIT 200`,
   ],
 ];
 
