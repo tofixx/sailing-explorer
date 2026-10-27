@@ -335,16 +335,36 @@ describe('cluster und photo-process', () => {
   });
 });
 
-describe('Titelbild: coverCrop (Konzept 13.2)', () => {
-  it('schneidet mittig auf 3:1 zu und skaliert nur herunter', async () => {
+describe('Titelbild: coverCrop und Ausschnitt (Konzept 13.2)', () => {
+  it('F-209: begrenzt auf 3:1 … 3:2 (Überstand bleibt für den Ausschnitt) und skaliert nur herunter', async () => {
     const { coverCrop } = await import('../src/services/photo-process');
-    expect(coverCrop(4000, 3000)).toEqual({ sx: 0, sy: 834, sw: 4000, sh: 1333, width: 1500, height: 500 });
+    // 4:3 → oben und unten mittig auf 3:2
+    expect(coverCrop(4000, 3000)).toEqual({ sx: 0, sy: 167, sw: 4000, sh: 2667, width: 1500, height: 1000 });
+    // dazwischen (2:1) bleibt das Bild ganz
+    expect(coverCrop(3000, 1500)).toEqual({ sx: 0, sy: 0, sw: 3000, sh: 1500, width: 1500, height: 750 });
+    // breiter als 3:1 → links und rechts mittig auf 3:1
     expect(coverCrop(3000, 500)).toEqual({ sx: 750, sy: 0, sw: 1500, sh: 500, width: 1500, height: 500 });
     // klein: nicht hochskalieren
-    expect(coverCrop(600, 600)).toEqual({ sx: 0, sy: 200, sw: 600, sh: 200, width: 600, height: 200 });
+    expect(coverCrop(600, 600)).toEqual({ sx: 0, sy: 100, sw: 600, sh: 400, width: 600, height: 400 });
     // Hochformat
     const r = coverCrop(1000, 3000);
-    expect(r.sw / r.sh).toBeCloseTo(3, 1);
+    expect(r.sw / r.sh).toBeCloseTo(1.5, 1);
     expect(r.sx).toBe(0);
+    expect(r.height).toBeLessThanOrEqual(1000);
+  });
+
+  it('F-210: Ziehen verschiebt den Fokus im Verhältnis zum Überstand, begrenzt auf 0 … 100', async () => {
+    const { focusAfterDrag, focusSlack, parseFocusY } = await import('../src/domain/cover');
+    // 3:2-Bild in einem 900 × 300-Banner: 600 px hoch, 300 px Überstand
+    expect(focusSlack(900, 300, 1500, 1000)).toBe(300);
+    // 3:1-Bild oder breiter: kein Spielraum
+    expect(focusSlack(900, 300, 1500, 500)).toBe(0);
+    expect(focusSlack(900, 300, 3000, 500)).toBe(0);
+    expect(focusAfterDrag(50, 150, 300)).toBe(0); // Bild nach unten gezogen → oberer Rand
+    expect(focusAfterDrag(50, -30, 300)).toBe(60);
+    expect(focusAfterDrag(50, -900, 300)).toBe(100);
+    expect(focusAfterDrag(50, 40, 0)).toBe(50);
+    expect([0, 100, 37].map(parseFocusY)).toEqual([0, 100, 37]);
+    expect([-1, 101, 2.5, '50', null].map(parseFocusY)).toEqual([null, null, null, null, null]);
   });
 });

@@ -1,5 +1,6 @@
 import { LitElement, css, html } from 'lit';
 import type { Boat, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, Profile, PublicHome, ShareMeta, StreamPage } from '../services/api';
+import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
@@ -296,7 +297,7 @@ export class SxProfilePage extends LitElement {
   private profile(d: Extract<PageData, { kind: 'profile' }>) {
     const p = d.profile;
     return html`
-      <sx-cover kind="u" target-id=${p.handle} .src=${d.cover ?? null} ?can-edit=${p.isSelf} label="Titelbild von ${p.displayName}"></sx-cover>
+      <sx-cover kind="u" target-id=${p.handle} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} ?can-edit=${p.isSelf} label="Titelbild von ${p.displayName}"></sx-cover>
       <header class="hero">
         <div class="mark" aria-hidden="true">${p.displayName[0]}</div>
         <div>
@@ -339,7 +340,7 @@ export class SxProfilePage extends LitElement {
     const b = d.boat;
     const facts = [b.boatType, b.lengthM != null ? `${fmtNum(b.lengthM, 1)} m` : '', b.sailNumber, !b.harbor && b.homePort && `Heimathafen ${b.homePort}`].filter(Boolean);
     return html`
-      <sx-cover kind="b" target-id=${b.id} .src=${d.cover ?? null} ?can-edit=${!!b.role} label="Titelbild von ${b.name}"></sx-cover>
+      <sx-cover kind="b" target-id=${b.id} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} ?can-edit=${!!b.role} label="Titelbild von ${b.name}"></sx-cover>
       <header class="hero">
         <div class="mark" aria-hidden="true">${icon('sail')}</div>
         <div>

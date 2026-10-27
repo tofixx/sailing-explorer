@@ -172,11 +172,16 @@ export async function deleteComment(request: Request, env: Env, id: string): Pro
         .first<{ id: string; user_id: string; owner: string }>()
     : null;
   if (!row || !(row.user_id === user.id || row.owner === user.id || isAdmin(env, user.id))) throw NOT_FOUND();
+  await removeComment(env, id);
+  return new Response(null, { status: 204 });
+}
+
+/** Der eine Löschpfad für Kommentare (Autor, Eigentümer des Törns, Moderation): Meldungen fallen mit. */
+export async function removeComment(env: Env, id: string): Promise<void> {
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'comment' AND target_id = ?`).bind(id),
     env.DB.prepare('DELETE FROM comments WHERE id = ?').bind(id),
   ]);
-  return new Response(null, { status: 204 });
 }
 
 // ---------------------------------------------------------------- Einstellungen

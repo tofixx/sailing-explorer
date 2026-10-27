@@ -181,14 +181,14 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
         title: '7. Unterstützen und Zahlungen (Stripe)',
         blocks: [
           p('Wer die App unterstützt, bezahlt über Stripe Checkout (Stripe Payments Europe, Ltd., 1 Grand Canal Street Lower, Dublin 2, Irland). Wir übergeben Betrag, deine E-Mail-Adresse und eine Konto-Kennung; Zahlungsdaten gibst du nur bei Stripe ein. Stripe bestätigt die Zahlung an unseren Server (signierter Webhook). Wir speichern Betrag, Währung, Zeitpunkt, die Stripe-Referenz und bis wann die Unterstützung gilt.'),
-          p('Rechtsgrundlagen: Art. 6 Abs. 1 lit. b DSGVO (Zahlung), lit. c (Aufbewahrungspflichten nach Handels- und Steuerrecht, bis zu 10 Jahre). Löschst du dein Konto, bleiben die Buchungen ohne Bezug zu deinem Konto erhalten.'),
+          p('Rechtsgrundlagen: Art. 6 Abs. 1 lit. b DSGVO (Zahlung), lit. c (Aufbewahrungspflichten nach Handels- und Steuerrecht, bis zu 10 Jahre). Löschst du dein Konto, bleiben die Buchungen ohne Bezug zu deinem Konto erhalten; 10 Jahre nach Ablauf der Unterstützung löschen wir sie.'),
         ],
       },
       {
         id: 'moderation',
         title: '8. Meldungen und Moderation',
         blocks: [
-          p('Meldest du einen Inhalt, speichern wir Grund, optionale Anmerkung, Zeitpunkt und dein Konto (gegen Missbrauch, höchstens 20 Meldungen pro Tag). Der Inhalt kann bis zur Prüfung ausgeblendet werden. Nach der Entscheidung entfernen wir den Bezug zu deinem Konto und löschen die Meldung nach 180 Tagen. Konten, die wiederholt gegen Regeln verstoßen, können gesperrt werden. Rechtsgrundlage: Art. 6 Abs. 1 lit. c DSGVO (Pflichten nach dem DSA) und lit. f (sichere Community).'),
+          p('Meldest du einen Inhalt, speichern wir Grund, optionale Anmerkung, Zeitpunkt und dein Konto (gegen Missbrauch, höchstens 20 Meldungen pro Tag). Der Inhalt kann bis zur Prüfung ausgeblendet werden. Nach der Entscheidung – spätestens nach 180 Tagen ohne Entscheidung – entfernen wir den Bezug zu deinem Konto und deine Anmerkung; entschiedene Meldungen löschen wir nach weiteren 180 Tagen. Konten, die wiederholt gegen Regeln verstoßen, können gesperrt werden. Rechtsgrundlage: Art. 6 Abs. 1 lit. c DSGVO (Pflichten nach dem DSA) und lit. f (sichere Community).'),
           p(`Kontakt für Meldungen ohne Konto: ${op.reportEmail}`),
         ],
       },
@@ -198,11 +198,12 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
         blocks: [
           ul(
             'Törns samt Fotos: bis zum 1. Februar nach ihrer Saison (Kalenderjahr; ab November Hochgeladenes zählt zur nächsten Saison). Mit Unterstützung: bis zum 1. Februar nach der letzten unterstützten Saison. Im Dezember und 14 Tage vor dem Löschen erinnern wir per Mail.',
-            'Titelbilder von Profil, Boot, Verein oder Team: solange es das jeweilige Profil, Boot bzw. die Gruppe gibt.',
+            'Titelbilder von Profil, Boot, Verein oder Team: solange es das jeweilige Profil, Boot bzw. die Gruppe gibt; ein ersetztes Bild löschen wir sofort.',
+            'Passkeys (öffentlicher Schlüssel, Gerätename, letzte Nutzung): bis du sie entfernst oder dein Konto löschst.',
             'Konten ohne Törns, die 12 Monate nicht angemeldet waren (und keine laufende Unterstützung haben), löschen wir automatisch.',
-            'Neuigkeiten (Aktivitäts-Log): 12 Monate. Anmeldelinks: 15 Minuten. Sitzungen: 180 Tage. Einladungen: 14 Tage. Beitrittsanfragen: 90 Tage.',
-            'Zähler gegen Spam (Kommentare, Beiträge, Reaktionen): 24 Stunden. Entschiedene Meldungen: 180 Tage, ohne Bezug zur meldenden Person.',
-            'Server-Logs bei Cloudflare: wenige Tage. Zahlungsbelege: gesetzliche Fristen (siehe Abschnitt 7).',
+            'Neuigkeiten (Aktivitäts-Log): 12 Monate. Anmeldelinks und -codes: 15 Minuten gültig, gespeichert bis 24 Stunden nach Ablauf (Schutz vor Durchprobieren). Sitzungen: 180 Tage. Einladungen: 14 Tage. Beitrittsanfragen: 90 Tage.',
+            'Zähler gegen Spam (Kommentare, Beiträge, Reaktionen): 24 Stunden. Meldungen: ohne Bezug zur meldenden Person nach der Entscheidung bzw. spätestens nach 180 Tagen, entschiedene gelöscht nach weiteren 180 Tagen.',
+            'Server-Logs bei Cloudflare: wenige Tage. Zahlungsbelege: 10 Jahre nach Ablauf der Unterstützung (siehe Abschnitt 7).',
           ),
         ],
       },
@@ -210,7 +211,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
         id: 'loeschen',
         title: '10. Konto löschen',
         blocks: [
-          p('Im Konto („Konto & Freigaben“ → „Konto löschen“) löschst du sofort und endgültig: Konto, Profil, Boote, alle Törns mit Dateien und Fotos, Kommentare (auch fremde auf deinen Törns), Reaktionen (auch fremde auf deinen Inhalten), Beiträge, Mitgliedschaften, Folgen und Neuigkeiten. Gruppen, deren Eigner:in du bist, gehen an die dienstälteste Admin-Person über, sonst werden sie gelöscht. Häfen, die du angelegt hast, bleiben ohne Bezug zu dir bestehen. Einzelne Inhalte löschst du jederzeit selbst.'),
+          p('Im Konto („Konto & Freigaben“ → „Konto löschen“) löschst du sofort und endgültig: Konto, Profil, Boote, alle Törns mit Dateien und Fotos, Kommentare (auch fremde auf deinen Törns), Reaktionen (auch fremde auf deinen Inhalten), Beiträge, Mitgliedschaften, Folgen und Neuigkeiten. Gruppen, deren Eigner:in du bist, gehen an die dienstälteste Admin-Person über, ohne Admin an das dienstälteste Mitglied; nur Gruppen ohne weitere Mitglieder werden gelöscht. Passkeys und Titelbilder von Profil und Booten löschen wir mit. Häfen, die du angelegt hast, bleiben ohne Bezug zu dir bestehen. Einzelne Inhalte löschst du jederzeit selbst.'),
         ],
       },
       {

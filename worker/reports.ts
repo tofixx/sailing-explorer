@@ -4,6 +4,9 @@
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
+import { removeCoverOf } from './covers';
+import { removeBoat } from './boats';
+import { removeComment } from './comments';
 import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, requestKey } from './access';
 import { roleFor } from './boats';
@@ -14,7 +17,6 @@ import { removePhotoById, visiblePhoto } from './photos';
 import { canViewGroup, loadGroup, removeGroup, roleIn } from './groups';
 import { removePost } from './posts';
 import { harborVisible, loadHarbor, removeHarbor } from './harbors';
-import { boatCleanup } from './activity';
 import { canManageGroup } from '../src/domain/groups';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, normalizeHandle, parseReportKind, parseReportReason } from './validate';
 import { REPORT_NOTE_MAX, REPORT_REASONS, type ReportKind } from '../src/domain/comment-text';
@@ -306,26 +308,19 @@ export async function listReports(request: Request, env: Env): Promise<Response>
 /** Löscht ein gemeldetes Ziel (wie die jeweiligen Lösch-Wege der Eigentümer). */
 async function deleteTarget(env: Env, kind: ReportKind, id: string): Promise<void> {
   if (kind === 'share') return removeShare(env, id);
-  if (kind === 'comment') {
-    await env.DB.prepare('DELETE FROM comments WHERE id = ?').bind(id).run();
-    return;
-  }
+  if (kind === 'comment') return removeComment(env, id);
   if (kind === 'photo') return removePhotoById(env, id);
   if (kind === 'group') return removeGroup(env, id);
   if (kind === 'post') return removePost(env, id);
   if (kind === 'harbor') return removeHarbor(env, id);
   if (kind === 'profile') {
-    // Nur das Profil: Konto, Törns und Boote bleiben (der Autor erscheint dann ohne Namen).
+    // Nur das Profil samt Titelbild: Konto, Törns und Boote bleiben (der Autor erscheint dann ohne Namen). Das Bild
+    // geht sofort – sonst käme es mit einem neu angelegten Profil zurück.
+    await removeCoverOf(env, 'u', id);
     await env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(id).run();
     return;
   }
-  await env.DB.batch([
-    ...boatCleanup(env, id),
-    env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id = ?').bind(id),
-    env.DB.prepare('DELETE FROM boat_admins WHERE boat_id = ?').bind(id),
-    env.DB.prepare('DELETE FROM invites WHERE boat_id = ?').bind(id),
-    env.DB.prepare('DELETE FROM boats WHERE id = ?').bind(id),
-  ]);
+  return removeBoat(env, id);
 }
 
 /**

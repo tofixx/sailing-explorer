@@ -4,7 +4,7 @@
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
-import { HttpError, countKeyFailure, json, readBodyCapped, withApiHeaders } from './http';
+import { HttpError, countKeyFailure, json, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, requestKey } from './access';
 import { assertActive, isAdmin } from './moderation';
 import { roleFor } from './boats';
@@ -16,6 +16,7 @@ import { deleteKeys } from './photo-keys';
 import { normalizeHandle } from './validate';
 import { COVER_BYTES, COVER_HEIGHT, COVER_WIDTH } from '../src/domain/limits';
 import { canManageGroup } from '../src/domain/groups';
+import { COVER_FOCUS_DEFAULT, parseFocusY } from '../src/domain/cover';
 import type { Visibility } from '../src/domain/visibility';
 
 /** u = Profil (öffentliche ID: Profiladresse), b = Boot, g = Verein/Team (öffentliche ID: Objekt-ID). */
@@ -28,6 +29,8 @@ export interface CoverRow {
   ver: string;
   format: string;
   bytes: number;
+  /** sichtbarer Ausschnitt: vertikale Fokus-Position in Prozent (src/domain/cover.ts) */
+  focus_y: number;
   user_id: string | null;
   created_at: number;
 }
@@ -44,6 +47,11 @@ export const coverKey = (c: Pick<CoverRow, 'kind' | 'object_id' | 'ver' | 'forma
 export function coverUrl(kind: CoverKind, publicId: string, c: Pick<CoverRow, 'ver'> | null, key?: string | null): string | null {
   if (!c) return null;
   return `/api/covers/${kind}/${encodeURIComponent(publicId)}/${c.ver}${key ? `?k=${encodeURIComponent(key)}` : ''}`;
+}
+
+/** Titelbild-Felder einer Seiten-Antwort: Adresse (siehe coverUrl) und Ausschnitt. */
+export function pageCover(kind: CoverKind, publicId: string, c: CoverRow | null, key?: string | null): { cover: string | null; coverY: number } {
+  return { cover: coverUrl(kind, publicId, c, key), coverY: c?.focus_y ?? COVER_FOCUS_DEFAULT };
 }
 
 export async function loadCover(env: Env, kind: CoverKind, objectId: string): Promise<CoverRow | null> {
@@ -134,8 +142,9 @@ async function managedTarget(request: Request, env: Env, kind: string, publicId:
 }
 
 /**
- * PUT /api/covers/:kind/:id – Body = Bild (WebP oder JPEG, im Browser auf 3:1 zugeschnitten und neu kodiert, ohne
- * Metadaten). Ersetzt ein vorhandenes Titelbild; der Zähler verschiebt sich um die Differenz.
+ * PUT /api/covers/:kind/:id – Body = Bild (WebP oder JPEG, im Browser auf 3:1 … 3:2 zugeschnitten und neu kodiert,
+ * ohne Metadaten). Ersetzt ein vorhandenes Titelbild samt Ausschnitt (wieder mittig); der Zähler verschiebt sich um
+ * die Differenz.
  */
 export async function putCover(request: Request, env: Env, kind: string, publicId: string): Promise<Response> {
   const { user, t, kind: k } = await managedTarget(request, env, kind, publicId);
@@ -154,43 +163,71 @@ export async function putCover(request: Request, env: Env, kind: string, publicI
   }
   const { format, width, height } = check.info;
   if (width > COVER_WIDTH || height > COVER_HEIGHT) throw new HttpError(400, 'too_large', `Titelbild höchstens ${COVER_WIDTH} × ${COVER_HEIGHT} px.`);
+  // Querformat (der Browser liefert 3:1 … 3:2): ein Hochformat zeigte im Banner nur einen schmalen Streifen
+  if (height > width) throw new HttpError(400, 'invalid_image', 'Titelbild bitte im Querformat.');
 
   const old = await loadCover(env, k, t.objectId);
-  const c: CoverRow = { kind: k, object_id: t.objectId, ver: randomId(10), format, bytes: bytes.length, user_id: user.id, created_at: Date.now() };
+  const c: CoverRow = { kind: k, object_id: t.objectId, ver: randomId(10), format, bytes: bytes.length, focus_y: COVER_FOCUS_DEFAULT, user_id: user.id, created_at: Date.now() };
   await env.TRACKS.put(coverKey(c), bytes, { httpMetadata: { contentType: format === 'jpeg' ? 'image/jpeg' : 'image/webp' }, customMetadata: { owner: user.id } });
   await env.DB.batch([
     env.DB.prepare('UPDATE counters SET value = MAX(0, value + ?1 - COALESCE((SELECT bytes FROM covers WHERE kind = ?2 AND object_id = ?3), 0)) WHERE name = ?4').bind(
       c.bytes, c.kind, c.object_id, STORAGE_COUNTER,
     ),
     env.DB.prepare(
-      `INSERT INTO covers (kind, object_id, ver, format, bytes, user_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-       ON CONFLICT(kind, object_id) DO UPDATE SET ver = ?3, format = ?4, bytes = ?5, user_id = ?6, created_at = ?7`,
-    ).bind(c.kind, c.object_id, c.ver, c.format, c.bytes, c.user_id, c.created_at),
+      `INSERT INTO covers (kind, object_id, ver, format, bytes, focus_y, user_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+       ON CONFLICT(kind, object_id) DO UPDATE SET ver = ?3, format = ?4, bytes = ?5, focus_y = ?6, user_id = ?7, created_at = ?8`,
+    ).bind(c.kind, c.object_id, c.ver, c.format, c.bytes, c.focus_y, c.user_id, c.created_at),
   ]);
-  if (old) await deleteKeys(env, [coverKey(old)]);
-  return json({ cover: coverUrl(k, publicId, c) }, { status: 201 });
+  // Paralleles Ersetzen: hat ein anderer Upload gewonnen, ist die eigene Datei verwaist – sofort entfernen.
+  const now = await loadCover(env, k, t.objectId);
+  if (now?.ver !== c.ver) await deleteKeys(env, [coverKey(c)]);
+  if (old && old.ver !== now?.ver) await deleteKeys(env, [coverKey(old)]);
+  // das tatsächlich gespeicherte Bild melden (bei parallelem Ersetzen das des anderen Uploads)
+  return json(pageCover(k, publicId, now ?? c), { status: 201 });
+}
+
+/** PATCH /api/covers/:kind/:id { focusY } – nur den Ausschnitt ändern, ohne neues Bild (Verwalter). */
+export async function patchCover(request: Request, env: Env, kind: string, publicId: string): Promise<Response> {
+  const { user, t, kind: k } = await managedTarget(request, env, kind, publicId);
+  await assertActive(env, user);
+  const focusY = parseFocusY((await readJson<{ focusY?: unknown }>(request)).focusY);
+  if (focusY === null) throw new HttpError(400, 'invalid_focus', 'Ausschnitt als ganze Prozent 0 … 100 angeben.');
+  const res = await env.DB.prepare('UPDATE covers SET focus_y = ? WHERE kind = ? AND object_id = ?').bind(focusY, k, t.objectId).run();
+  if (!res.meta.changes) throw NOT_FOUND();
+  return json({ coverY: focusY });
 }
 
 /** Löscht Datei, Zeile und Zähleranteil eines Titelbilds. */
 async function removeCover(env: Env, c: CoverRow): Promise<void> {
   await deleteKeys(env, [coverKey(c)]);
   await env.DB.batch([
-    env.DB.prepare('UPDATE counters SET value = MAX(0, value - ?) WHERE name = ?').bind(c.bytes, STORAGE_COUNTER),
+    // nur abziehen, was diese Zeile wirklich belegt (bei parallelem Ersetzen gibt es sie nicht mehr)
+    env.DB.prepare('UPDATE counters SET value = MAX(0, value - COALESCE((SELECT bytes FROM covers WHERE kind = ?1 AND object_id = ?2 AND ver = ?3), 0)) WHERE name = ?4').bind(
+      c.kind, c.object_id, c.ver, STORAGE_COUNTER,
+    ),
     env.DB.prepare('DELETE FROM covers WHERE kind = ? AND object_id = ? AND ver = ?').bind(c.kind, c.object_id, c.ver),
   ]);
+}
+
+/**
+ * Titelbild eines Objekts sofort entfernen – beim Löschen von Profil (Moderation, Konto), Boot und Gruppe. Der
+ * nächtliche Sweep bleibt als Netz für Kaskaden; so kann ein gelöschtes Bild aber nicht mit einem neuen Profil zurückkommen.
+ */
+export async function removeCoverOf(env: Env, kind: CoverKind, objectId: string): Promise<void> {
+  const c = await loadCover(env, kind, objectId);
+  if (c) await removeCover(env, c);
 }
 
 /** DELETE /api/covers/:kind/:id – Verwalter. */
 export async function deleteCover(request: Request, env: Env, kind: string, publicId: string): Promise<Response> {
   const { t, kind: k } = await managedTarget(request, env, kind, publicId);
-  const c = await loadCover(env, k, t.objectId);
-  if (c) await removeCover(env, c);
+  await removeCoverOf(env, k, t.objectId);
   return new Response(null, { status: 204 });
 }
 
 /**
- * Nächtlich: Titelbilder gelöschter Profile, Boote und Gruppen entfernen (Konto löschen, Boot löschen, Gruppe
- * löschen und Kaskaden brauchen dadurch keinen eigenen Pfad). Liefert die Anzahl.
+ * Nächtlich: Netz für Titelbilder, deren Objekt ohne Löschpfad verschwand (Kaskaden). Profil, Boot, Gruppe und Konto
+ * entfernen ihr Bild selbst sofort (removeCoverOf). Liefert die Anzahl.
  */
 export async function sweepOrphanCovers(env: Env, limit = 200): Promise<number> {
   const { results } = await env.DB.prepare(
