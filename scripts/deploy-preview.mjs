@@ -67,7 +67,9 @@ try {
 // 2. Erzeugte Deploy-Konfiguration auf die Vorschau umschreiben
 const cfg = JSON.parse(readFileSync(CONFIG, 'utf8'));
 cfg.name = workerName;
-cfg.routes = [{ pattern: host, custom_domain: true }];
+// Zone-Route statt Custom Domain: die Wildcard-Route der Produktion (*.segeln-potsdam.de/*) ginge sonst vor; das
+// spezifischere Muster gewinnt. DNS deckt der proxied *-Eintrag ab.
+cfg.routes = [{ pattern: `${host}/*`, zone_name: ZONE }];
 cfg.d1_databases = cfg.d1_databases.map((d) => ({ ...d, database_name: DB_NAME, database_id: db.uuid }));
 cfg.r2_buckets = cfg.r2_buckets.map((b) => ({ ...b, bucket_name: BUCKET }));
 cfg.vars = { ...cfg.vars, APP_NAME: `Sail Explorer (Vorschau ${s})`, APP_ORIGIN: `https://${host}`, CANONICAL_HOST: '', ALIAS_HOSTS: '' };
