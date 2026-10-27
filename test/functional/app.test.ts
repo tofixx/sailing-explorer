@@ -168,6 +168,10 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     server.user = { id: 'u1', email: 'skipper@example.org' };
     return json({ user: server.user });
   }
+  if (url === '/api/passkeys/options' && method === 'POST') {
+    if (passkeyOptions === 'suspended') return json({ error: 'suspended', message: 'Dieses Konto ist gesperrt.' }, 403);
+    return json({ options: { challenge: 'x' }, challengeId: 'ch1' });
+  }
   if (url === '/api/auth/verify' && method === 'POST') {
     server.user = { id: 'u1', email: 'skipper@example.org' };
     return json({ user: server.user });
@@ -265,6 +269,9 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------- Helfer
+
+/** Antwort auf POST /api/passkeys/options im Mock-Server */
+let passkeyOptions: 'ok' | 'suspended' = 'ok';
 
 async function startApp(path = '/') {
   history.replaceState(null, '', path);
@@ -664,8 +671,8 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
         await vi.waitFor(() => expect(toasts().length).toBeGreaterThan(before)); // „Angemeldet als …“
       };
       await signIn();
+      await vi.waitFor(() => expect(login.offerPasskey).toBe(true));
       expect(login.open).toBe(true);
-      expect(login.offerPasskey).toBe(true);
       expect(toasts()).toContain('Angemeldet als skipper@example.org');
       emit('sx-passkey-offer', { answer: 'later' });
       await vi.waitFor(() => expect(login.open).toBe(false));
@@ -673,7 +680,7 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
 
       // erneut anmelden → wieder gefragt; „Nicht mehr fragen“ → beim nächsten Mal nicht mehr
       await signIn();
-      expect(login.offerPasskey).toBe(true);
+      await vi.waitFor(() => expect(login.offerPasskey).toBe(true));
       emit('sx-passkey-offer', { answer: 'never' });
       await vi.waitFor(() => expect(login.open).toBe(false));
       expect(localStorage.getItem('sx-passkey-hint')).toBe('never');
@@ -683,6 +690,26 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
     } finally {
       delete w.PublicKeyCredential;
       localStorage.removeItem('sx-passkey-hint');
+    }
+  });
+
+  it('[F-214] gesperrtes Konto (Anlegen verboten): kein Angebot, der Dialog schließt', async () => {
+    const w = window as unknown as Record<string, unknown>;
+    w.PublicKeyCredential = function () {};
+    passkeyOptions = 'suspended';
+    try {
+      await startApp();
+      const login = el<{ open: boolean; offerPasskey: boolean; sentTo: string }>('sx-login-dialog');
+      emit('sx-login');
+      emit('sx-login-submit', { email: 'skipper@example.org', turnstile: null });
+      await vi.waitFor(() => expect(login.sentTo).toBe('skipper@example.org'));
+      emit('sx-login-code', { code: '123456' });
+      await vi.waitFor(() => expect(login.open).toBe(false));
+      expect(login.offerPasskey).toBe(false);
+      expect(server.calls.some((c) => c.url === '/api/passkeys/options')).toBe(true);
+    } finally {
+      delete w.PublicKeyCredential;
+      passkeyOptions = 'ok';
     }
   });
 

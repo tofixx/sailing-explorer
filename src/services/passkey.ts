@@ -16,6 +16,13 @@ export function passkeysSupported(): boolean {
 /** Der Nutzer hat den Passkey-Dialog abgebrochen (bzw. der Browser hat ihn abgelehnt) – kein Fehler zum Anzeigen. */
 export const isPasskeyCancel = (e: unknown): boolean => e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'AbortError');
 
+/** Fehler: auf diesem Gerät gibt es schon einen Passkey für das Konto. */
+export class PasskeyExistsError extends Error {
+  constructor() {
+    super('Auf diesem Gerät gibt es schon einen Passkey für dein Konto.');
+  }
+}
+
 /** Auf diesem Gerät gibt es schon einen Passkey für das Konto (excludeCredentials). */
 export const isPasskeyDuplicate = (e: unknown): boolean =>
   e instanceof Error && (e.name === 'InvalidStateError' || (e as { code?: string }).code === 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED');
@@ -36,6 +43,20 @@ export class PreparedOptions<T> {
       if (this.pending?.p === p) this.pending = null;
     });
     this.pending = { p, at: Date.now() };
+  }
+
+  /** Vorgeladenes verwerfen (Konto gewechselt: Optionen und Challenge gehören zum alten Konto). */
+  reset(): void {
+    this.pending = null;
+  }
+
+  /** Vorladen und warten: true, sobald die Optionen da sind; false, wenn das Laden scheitert (z. B. gesperrt, Höchstzahl). */
+  ready(): Promise<boolean> {
+    this.prefetch();
+    return this.pending!.p.then(
+      () => true,
+      () => false,
+    );
   }
 
   take(): Promise<T> {

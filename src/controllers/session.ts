@@ -1,5 +1,5 @@
 import { metricRange } from '../domain/metrics';
-import { PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
+import { PasskeyExistsError, PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
 import { deviceName } from '../domain/device';
 import { passkeyApi } from '../services/api';
 import { inviteAcceptedText } from '../domain/invite-text';
@@ -157,7 +157,7 @@ export class SessionController {
       const { email } = await api.peek(token);
       this.pendingToken = token;
       Object.assign(this.ui.login, {
-        open: true, reason: '', error: '', sentTo: '', devLink: '', busy: false,
+        open: true, reason: '', error: '', sentTo: '', devLink: '', busy: false, offerPasskey: false,
         confirmEmail: email, currentEmail: this.store.get().user?.email ?? '',
       });
     } catch (e) {
@@ -212,7 +212,7 @@ export class SessionController {
     } catch (e) {
       this.passkeyRegister.prefetch();
       if (isPasskeyCancel(e)) return false;
-      if (isPasskeyDuplicate(e)) throw new Error('Auf diesem Gerät gibt es schon einen Passkey für dein Konto.');
+      if (isPasskeyDuplicate(e)) throw new PasskeyExistsError();
       throw e;
     }
     const { passkey } = await passkeyApi.register(challengeId, response, deviceName(navigator.userAgent, navigator.maxTouchPoints));
@@ -226,13 +226,23 @@ export class SessionController {
    * Gerät; ein im Browser abgebrochenes Anlegen lässt das Angebot stehen. Danach geht es mit dem Vorhaben weiter.
    */
   async answerPasskeyOffer(answer: 'add' | 'later' | 'never'): Promise<void> {
+    if (!this.ui.login.offerPasskey) return; // schon beantwortet (z. B. Schließen während des Anlegens)
     if (answer === 'add') {
       Object.assign(this.ui.login, { busy: true, error: '' });
       try {
-        if (!(await this.registerPasskey())) return;
+        const added = await this.registerPasskey();
+        if (!this.ui.login.offerPasskey) return;
+        // Abgebrochen – oder Safari hat die Geste verworfen, weil die Optionen neu geladen werden mussten.
+        if (!added) {
+          this.ui.login.error = 'Nicht angelegt. Tippe noch einmal auf „Passkey anlegen“ – oder später.';
+          return;
+        }
       } catch (e) {
-        this.ui.login.error = errorText(e);
-        return;
+        if (!(e instanceof PasskeyExistsError)) {
+          this.ui.login.error = errorText(e);
+          return;
+        }
+        this.ui.toast(e.message);
       } finally {
         this.ui.login.busy = false;
       }
@@ -288,18 +298,28 @@ export class SessionController {
     this.store.set({ user });
     this.channel?.postMessage('login');
     this.ui.toast(`Angemeldet als ${user.email}`);
-    if (viaMail && this.shouldOfferPasskey()) {
-      void passkeyLib().catch(() => undefined);
-      this.passkeyRegister.prefetch();
-      Object.assign(this.ui.login, { offerPasskey: true, confirmEmail: '', error: '' });
-      return;
-    }
-    this.afterLogin();
+    // Vorgeladenes gehört evtl. zu einem anderen Konto (abgemeldet, anderes angemeldet)
+    this.passkeyRegister.reset();
+    if (viaMail && this.shouldOfferPasskey()) void this.offerPasskey();
+    else this.afterLogin();
+  }
+
+  /**
+   * Passkey anbieten, sobald Bibliothek und Optionen geladen sind – dann kommt der WebAuthn-Aufruf ohne Warten aus
+   * dem Klick (Safari). Scheitert das Laden (gesperrtes Konto, Höchstzahl erreicht, offline), kein Angebot.
+   */
+  private async offerPasskey() {
+    this.ui.login.busy = true;
+    const ok = await Promise.all([passkeyLib(), this.passkeyRegister.ready()]).then(([, r]) => r, () => false);
+    this.ui.login.busy = false;
+    if (ok && this.store.get().user && this.ui.login.open) Object.assign(this.ui.login, { offerPasskey: true, confirmEmail: '', error: '' });
+    else this.afterLogin();
   }
 
   private afterLogin() {
     this.ui.login.open = false;
     this.ui.login.confirmEmail = '';
+    this.ui.login.offerPasskey = false;
     if (this.pendingShare && this.store.get().user) {
       this.pendingShare = false;
       this.share();
@@ -325,6 +345,7 @@ export class SessionController {
 
   private signedOut(msg: string) {
     this.store.set({ user: null });
+    this.passkeyRegister.reset();
     this.setSupport(null);
     this.channel?.postMessage('logout');
     this.lastShare = null;
