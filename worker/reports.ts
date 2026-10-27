@@ -11,7 +11,7 @@ import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, requestKey } from './access';
 import { roleFor } from './boats';
 import { visibleComment } from './comments';
-import { assertActive, isAdmin } from './moderation';
+import { LOCKED, adminLogStmt, assertActive, isAdmin, isLockedTarget, requireAdmin } from './moderation';
 import { removeShare, visibleShare } from './shares';
 import { removePhotoById, visiblePhoto } from './photos';
 import { canViewGroup, loadGroup, removeGroup, roleIn } from './groups';
@@ -174,13 +174,6 @@ export async function reportInfo(_request: Request, env: Env): Promise<Response>
 
 // ---------------------------------------------------------------- Admin
 
-/** Admin oder 404 – Nicht-Admins erfahren nicht, dass es die Route gibt (fail closed bei leerem ADMIN_USER_IDS). */
-async function requireAdmin(request: Request, env: Env) {
-  const user = await requireUser(request, env);
-  if (!isAdmin(env, user.id)) throw new HttpError(404, 'not_found');
-  return user;
-}
-
 interface Group {
   target_kind: ReportKind;
   target_id: string;
@@ -329,7 +322,7 @@ async function deleteTarget(env: Env, kind: ReportKind, id: string): Promise<voi
  * mit). Entschiedene Meldungen behalten weder Meldende noch Anmerkung.
  */
 export async function decideReport(request: Request, env: Env, reportId: string): Promise<Response> {
-  await requireAdmin(request, env);
+  const admin = await requireAdmin(request, env);
   const { action } = await readJson<{ action?: unknown }>(request);
   if (action !== 'keep' && action !== 'hide' && action !== 'delete') throw new HttpError(400, 'invalid_action', 'Unbekannte Entscheidung.');
   const r = SHARE_ID_RE.test(reportId)
@@ -337,13 +330,16 @@ export async function decideReport(request: Request, env: Env, reportId: string)
     : null;
   const kind = parseReportKind(r?.target_kind);
   if (!r || !kind) throw new HttpError(404, 'not_found', 'Diese Meldung gibt es nicht (mehr).');
+  // Gesperrtes (Konzept 15.2) entscheidet der Admin-Bereich – sonst höbe „wieder einblenden“ die Sperre unbemerkt auf.
+  if (await isLockedTarget(env, kind, r.target_id)) throw LOCKED();
   const now = Date.now();
+  const log = adminLogStmt(env, admin.id, `report_${action}`, kind, r.target_id, '', now);
   const { table, idCol } = TABLE[kind];
   const resolve = env.DB.prepare(
     `UPDATE reports SET resolved_at = ?, resolution = ?, reporter_id = NULL, note = '' WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL`,
   ).bind(now, action === 'keep' ? 'kept' : action === 'hide' ? 'hidden' : 'deleted', kind, r.target_id);
   if (action === 'delete') {
-    await resolve.run();
+    await env.DB.batch([resolve, log]);
     await deleteTarget(env, kind, r.target_id);
     // Meldungen zu einem gelöschten Ziel braucht es nicht mehr.
     await env.DB.prepare('DELETE FROM reports WHERE target_kind = ? AND target_id = ?').bind(kind, r.target_id).run();
@@ -353,6 +349,7 @@ export async function decideReport(request: Request, env: Env, reportId: string)
         ? env.DB.prepare(`UPDATE ${table} SET hidden_at = NULL WHERE ${idCol} = ?`).bind(r.target_id)
         : hideTarget(env, kind, r.target_id, now),
       resolve,
+      log,
     ]);
   }
   return json({ ok: true });
@@ -368,7 +365,13 @@ export async function suspendUser(request: Request, env: Env, userId: string): P
   const { suspended } = await readJson<{ suspended?: unknown }>(request);
   if (typeof suspended !== 'boolean') throw new HttpError(400, 'invalid_body', 'suspended: true oder false.');
   if (userId === admin.id || isAdmin(env, userId)) throw new HttpError(400, 'cannot_suspend_admin', 'Admin-Konten lassen sich nicht sperren.');
-  const res = await env.DB.prepare('UPDATE users SET suspended_at = ? WHERE id = ?').bind(suspended ? Date.now() : null, userId).run();
+  // Die Sperre (Konzept 15.2) hat die Suspendierung gesetzt und stellt sie beim Entsperren wieder her.
+  if (await isLockedTarget(env, 'user', userId)) throw LOCKED();
+  const [res] = await env.DB.batch([
+    env.DB.prepare('UPDATE users SET suspended_at = ? WHERE id = ?').bind(suspended ? Date.now() : null, userId),
+    env.DB.prepare(`INSERT INTO admin_log (id, admin_id, action, target_kind, target_id, detail, created_at)
+      SELECT ?, ?, ?, 'user', id, '', ? FROM users WHERE id = ?`).bind(randomId(), admin.id, suspended ? 'suspend' : 'unsuspend', Date.now(), userId),
+  ]);
   if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Dieses Konto gibt es nicht (mehr).');
   return json({ suspended });
 }

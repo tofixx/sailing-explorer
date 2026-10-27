@@ -53,11 +53,11 @@ export async function canManageBoat(env: Env, userId: string, boatId: string): P
   return (await roleFor(env, userId, boatId)) !== null;
 }
 
-/** Rolle des Kontos am Boot: Eigner, Admin oder keine (auch bei unbekanntem Boot). */
+/** Rolle des Kontos am Boot: Eigner, Admin oder keine (auch bei unbekanntem oder gesperrtem Boot, Konzept 15.2). */
 export async function roleFor(env: Env, userId: string, boatId: string): Promise<Role> {
   const row = await env.DB.prepare(
     `SELECT CASE WHEN b.owner_id = ?1 THEN 'owner' WHEN a.user_id IS NOT NULL THEN 'admin' END AS role
-     FROM boats b LEFT JOIN boat_admins a ON a.boat_id = b.id AND a.user_id = ?1 WHERE b.id = ?2`,
+     FROM boats b LEFT JOIN boat_admins a ON a.boat_id = b.id AND a.user_id = ?1 WHERE b.id = ?2 AND b.locked_at IS NULL`,
   )
     .bind(userId, boatId)
     .first<{ role: Role }>();
@@ -171,7 +171,7 @@ function setHarbor(b: BoatRow, harbor: HarborRow | null | undefined): void {
 export async function listMyBoats(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const { results } = await env.DB.prepare(
-    `${BOAT_SELECT} WHERE b.owner_id = ?1 OR b.id IN (SELECT boat_id FROM boat_admins WHERE user_id = ?1) ORDER BY b.name`,
+    `${BOAT_SELECT} WHERE (b.owner_id = ?1 OR b.id IN (SELECT boat_id FROM boat_admins WHERE user_id = ?1)) AND b.locked_at IS NULL ORDER BY b.name`,
   )
     .bind(user.id)
     .all<BoatRow>();

@@ -43,6 +43,12 @@ export async function loadHarborBySlug(env: Env, slug: unknown): Promise<HarborR
   return env.DB.prepare('SELECT * FROM harbors WHERE slug = ?').bind(slug).first<HarborRow>();
 }
 
+/** Hafen über eine alte Adresse (zusammengeführt, Konzept 15.7) – null, wenn es keine Weiterleitung gibt. */
+export async function loadHarborByRedirect(env: Env, slug: unknown): Promise<HarborRow | null> {
+  if (!isHarborSlug(slug)) return null;
+  return env.DB.prepare('SELECT h.* FROM harbor_redirects r JOIN harbors h ON h.id = r.harbor_id WHERE r.old_slug = ?').bind(slug).first<HarborRow>();
+}
+
 /** Sichtbar: nicht ausgeblendet – oder Moderation. */
 export const harborVisible = (h: HarborRow | null, admin = false): h is HarborRow => !!h && (!h.hidden_at || admin);
 
@@ -65,7 +71,9 @@ export async function harborForName(env: Env, user: Pick<User, 'id'>, rawName: u
   if (today >= HARBOR_LIMITS.perDay) throw new HttpError(429, 'harbor_quota', `Du hast heute schon ${HARBOR_LIMITS.perDay} Häfen angelegt – morgen geht es weiter.`);
   const base = harborSlugBase(name);
   let slug = base;
-  for (let i = 0; i < 5 && (await env.DB.prepare('SELECT 1 AS x FROM harbors WHERE slug = ?').bind(slug).first()); i++) {
+  // auch keine Adresse, die auf einen zusammengeführten Hafen weiterleitet (Konzept 15.7)
+  const taken = (s: string) => env.DB.prepare('SELECT 1 AS x FROM harbors WHERE slug = ?1 UNION ALL SELECT 1 FROM harbor_redirects WHERE old_slug = ?1').bind(s).first();
+  for (let i = 0; i < 5 && (await taken(slug)); i++) {
     slug = `${base.slice(0, 24)}-${randomId(5).toLowerCase()}`;
   }
   const h: HarborRow = { id: randomId(), slug, name, name_key: key, lat: null, lon: null, club_id: null, created_by: user.id, hidden_at: null, created_at: now, updated_at: now };
@@ -151,7 +159,7 @@ function harborShape(env: Env, h: HarborRow, viewerId: string | null) {
 
 /** GET /api/harbors/slug/:slug – Hafenseite (F-173). */
 export async function getHarbor(request: Request, env: Env, slug: string): Promise<Response> {
-  const h = await loadHarborBySlug(env, slug);
+  const h = (await loadHarborBySlug(env, slug)) ?? (await loadHarborByRedirect(env, slug));
   const user = await currentUser(request, env);
   if (!harborVisible(h, isAdmin(env, user?.id))) throw HARBOR_NOT_FOUND();
   const { results: boats } = await env.DB.prepare(

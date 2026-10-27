@@ -213,6 +213,8 @@ export class App {
         case 'harbor':
         case 'legal':
           return await this.openPage(route);
+        case 'admin':
+          return await this.openAdmin();
         case 'login':
           history.replaceState(null, '', '/');
           await this.restoreWorkspace();
@@ -855,6 +857,18 @@ export class App {
     }
   }
 
+  /**
+   * Admin-Bereich (Konzept 15): erst hier nachgeladen – andere laden keinen Admin-Code. Die Seite holt ihre Daten
+   * selbst; für Nicht-Admins antwortet die API mit 404 und die Seite zeigt nur das.
+   */
+  private async openAdmin() {
+    this.ui.app.setAttribute('data-page', '');
+    await import('./components/sx-admin-page');
+    const page = document.querySelector<HTMLElement>('sx-admin-page');
+    if (page) page.hidden = false;
+    document.title = 'Admin · Sail Explorer';
+  }
+
   /** Zurück von Profil-/Boots-/Entdecken-Seite zur Kartenansicht. */
   private leavePage() {
     if (!this.ui.app.hasAttribute('data-page')) return;
@@ -863,6 +877,8 @@ export class App {
     this.ui.discoverPage.hidden = true;
     this.ui.groupPage.hidden = true;
     this.ui.legalPage.hidden = true;
+    const admin = document.querySelector<HTMLElement>('sx-admin-page');
+    if (admin) admin.hidden = true;
     document.title = 'Sail Explorer';
   }
 

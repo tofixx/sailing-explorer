@@ -415,15 +415,20 @@ interface LoadedInvite extends InviteRow {
   share_title: string | null;
   share_owner: string | null;
   share_visibility: string | null;
+  /** einladendes Konto gesperrt (Konzept 15.2) */
+  inviter_locked: number | null;
 }
 
+// Gesperrte Ziele (Boot, Törn, Gruppe) zählen wie gelöscht, Einladungen gesperrter Konten wie ungültig (Konzept 15.2).
 const LOADED_SELECT = `SELECT i.*, b.name AS boat_name, b.owner_id AS boat_owner, s.title AS share_title, s.user_id AS share_owner, s.visibility AS share_visibility,
     g.name AS group_name, g.owner_id AS group_owner, g.slug AS group_slug, g.kind AS group_kind, g.join_mode AS group_join_mode, g.approve_by AS group_approve_by,
-    g.visibility AS group_visibility, g.hidden_at AS group_hidden_at
-  FROM invites i LEFT JOIN boats b ON b.id = i.boat_id LEFT JOIN shares s ON s.id = i.share_id LEFT JOIN groups g ON g.id = i.group_id`;
+    g.visibility AS group_visibility, g.hidden_at AS group_hidden_at,
+    (SELECT locked_at FROM users WHERE id = i.inviter_id) AS inviter_locked
+  FROM invites i LEFT JOIN boats b ON b.id = i.boat_id AND b.locked_at IS NULL LEFT JOIN shares s ON s.id = i.share_id AND s.locked_at IS NULL
+    LEFT JOIN groups g ON g.id = i.group_id AND g.locked_at IS NULL`;
 
 const usable = (row: LoadedInvite | null): row is LoadedInvite =>
-  !!row && !!parseInviteKind(row.kind) && (row.kind === 'friend' || !!(row.boat_owner || row.share_owner || row.group_owner));
+  !!row && !row.inviter_locked && !!parseInviteKind(row.kind) && (row.kind === 'friend' || !!(row.boat_owner || row.share_owner || row.group_owner));
 
 /** Eigentümer des Ziels – bei Einladungen ohne Ziel die einladende Person. */
 const ownerOf = (inv: LoadedInvite) => (inv.kind === 'friend' ? inv.inviter_id : (inv.boat_owner ?? inv.share_owner ?? inv.group_owner));

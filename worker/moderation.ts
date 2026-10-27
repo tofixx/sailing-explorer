@@ -1,11 +1,52 @@
 // Moderation (Konzept 4.4): Admin-Konten, gesperrte Konten und Aufräumen von Meldungen.
 // Bewusst ohne Abhängigkeit zu shares/boats/profiles, damit diese Module es importieren können.
 import type { Env } from './env';
-import { requireUser, type User } from './auth';
+import { currentUser, requireUser, type User } from './auth';
+import { randomId } from './crypto';
 import { HttpError } from './http';
+import { isAdmin } from './validate';
+import { ADMIN_LIMITS } from '../src/domain/admin';
 
 // Admin-Liste ist eine reine Funktion (worker/validate.ts, unit-getestet).
 export { adminIds, isAdmin } from './validate';
+
+/**
+ * Admin oder 404 – auch für Gäste: Nicht-Admins erfahren nicht, dass es die Route gibt (Konzept 15.1, fail closed bei
+ * leerem ADMIN_USER_IDS).
+ */
+export async function requireAdmin(request: Request, env: Env): Promise<User> {
+  const user = await currentUser(request, env);
+  if (!user || !isAdmin(env, user.id)) throw new HttpError(404, 'not_found');
+  return user;
+}
+
+/**
+ * Eintrag im Admin-Protokoll (Konzept 15.10): wer (null = nächtlicher Lauf), was, Ziel, kurzes Detail – nie
+ * Mail-Adressen. Als Anweisung, damit er im selben Batch wie die Aktion landet.
+ */
+export const adminLogStmt = (env: Env, adminId: string | null, action: string, kind: string | null, id: string | null, detail = '', now = Date.now()): D1PreparedStatement =>
+  env.DB.prepare('INSERT INTO admin_log (id, admin_id, action, target_kind, target_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
+    randomId(), adminId, action, kind, id, detail.slice(0, ADMIN_LIMITS.detailMax), now,
+  );
+
+/** Ist das Ziel gesperrt (Konzept 15.2)? Profile zählen als Konto. */
+export async function isLockedTarget(env: Env, kind: string, id: string): Promise<boolean> {
+  const k = kind === 'profile' ? 'user' : kind;
+  return !!(await env.DB.prepare('SELECT 1 AS x FROM locks WHERE target_kind = ? AND target_id = ?').bind(k, id).first());
+}
+
+/**
+ * SQL: besitzt das Konto (Spalte/Platzhalter `user`) gesperrte Törns, Boote oder Gruppen? `ownOnly`: nur einzeln
+ * gesperrte (nicht die mit dem Konto mitgesperrten).
+ */
+export function ownsLockedSql(user: string, ownOnly = false): string {
+  const own = (kind: string) => (ownOnly ? ` AND id NOT IN (SELECT target_id FROM locks WHERE target_kind = '${kind}' AND via_user = ${user})` : '');
+  return `(EXISTS (SELECT 1 FROM shares WHERE user_id = ${user} AND locked_at IS NOT NULL${own('share')})
+    OR EXISTS (SELECT 1 FROM boats WHERE owner_id = ${user} AND locked_at IS NOT NULL${own('boat')})
+    OR EXISTS (SELECT 1 FROM groups WHERE owner_id = ${user} AND locked_at IS NOT NULL))`;
+}
+
+export const LOCKED = () => new HttpError(409, 'locked', 'Das ist gesperrt – erst entsperren.');
 
 /** Gesperrt? Fail closed: ein Konto, das es nicht (mehr) gibt, gilt als gesperrt. */
 export async function isSuspended(env: Env, userId: string): Promise<boolean> {

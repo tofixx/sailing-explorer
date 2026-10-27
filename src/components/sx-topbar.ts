@@ -252,6 +252,9 @@ export class SxTopbar extends LitElement {
               ${icon('share')}<span class="label-text">Teilen</span>
             </button>`
           : nothing}
+        ${this.user?.admin
+          ? html`<a class="btn ghost collapse" href="/admin" title="Admin-Bereich" aria-label="Admin-Bereich">${icon('lock')}<span class="label-text">Admin</span></a>`
+          : nothing}
         ${this.backend
           ? this.user
             ? html`<button class="btn ghost icon" @click=${() => emit(this, 'sx-account')} title="Konto & Freigaben (${this.user.email})" aria-label="Konto & Freigaben">

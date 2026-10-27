@@ -87,7 +87,9 @@ export async function listComments(request: Request, env: Env, id: string): Prom
   const mode = (row.comments_mode ?? 'on') as CommentsMode;
   const show = mode !== 'hidden' || isOwner || admin;
   const { results } = show
-    ? await env.DB.prepare(`${COMMENT_SELECT} WHERE c.share_id = ?1 AND (c.hidden_at IS NULL OR c.user_id = ?2 OR ?3) ORDER BY c.created_at, c.id LIMIT ?4`)
+    ? await env.DB.prepare(`${COMMENT_SELECT} WHERE c.share_id = ?1 AND (c.hidden_at IS NULL OR c.user_id = ?2 OR ?3)
+         AND (?3 OR NOT EXISTS (SELECT 1 FROM users lu WHERE lu.id = c.user_id AND lu.locked_at IS NOT NULL))
+       ORDER BY c.created_at, c.id LIMIT ?4`)
         .bind(row.id, user?.id ?? '', admin ? 1 : 0, COMMENT_LIMITS.perShare)
         .all<CommentRow>()
     : { results: [] as CommentRow[] };

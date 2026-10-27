@@ -188,7 +188,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
         id: 'moderation',
         title: '8. Meldungen und Moderation',
         blocks: [
-          p('Meldest du einen Inhalt, speichern wir Grund, optionale Anmerkung, Zeitpunkt und dein Konto (gegen Missbrauch, höchstens 20 Meldungen pro Tag). Der Inhalt kann bis zur Prüfung ausgeblendet werden. Nach der Entscheidung – spätestens nach 180 Tagen ohne Entscheidung – entfernen wir den Bezug zu deinem Konto und deine Anmerkung; entschiedene Meldungen löschen wir nach weiteren 180 Tagen. Konten, die wiederholt gegen Regeln verstoßen, können gesperrt werden. Rechtsgrundlage: Art. 6 Abs. 1 lit. c DSGVO (Pflichten nach dem DSA) und lit. f (sichere Community).'),
+          p('Meldest du einen Inhalt, speichern wir Grund, optionale Anmerkung, Zeitpunkt und dein Konto (gegen Missbrauch, höchstens 20 Meldungen pro Tag). Der Inhalt kann bis zur Prüfung ausgeblendet werden. Nach der Entscheidung – spätestens nach 180 Tagen ohne Entscheidung – entfernen wir den Bezug zu deinem Konto und deine Anmerkung; entschiedene Meldungen löschen wir nach weiteren 180 Tagen. Konten, die wiederholt gegen Regeln verstoßen, können gesperrt werden. Sperren wir einen Inhalt oder ein Konto zur Beweissicherung, ist er nur noch für die Moderation sichtbar und von den üblichen Löschfristen ausgenommen; nach 180 Tagen wird er endgültig gelöscht, falls die Sperre nicht begründet verlängert oder vorher aufgehoben wird. Jede Moderationsaktion halten wir in einem Protokoll fest (wer, was, wann, welches Objekt – ohne Mail-Adressen): Einblicke 180 Tage, Entscheidungen 2 Jahre, zu noch gesperrten Inhalten bis zum Ende der Sperre. Rechtsgrundlage: Art. 6 Abs. 1 lit. c DSGVO (Pflichten nach dem DSA) und lit. f (sichere Community).'),
           p(`Kontakt für Meldungen ohne Konto: ${op.reportEmail}`),
         ],
       },
@@ -202,7 +202,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
             'Passkeys (öffentlicher Schlüssel, Gerätename, letzte Nutzung): bis du sie entfernst oder dein Konto löschst.',
             'Konten ohne Törns, die 12 Monate nicht angemeldet waren (und keine laufende Unterstützung haben), löschen wir automatisch.',
             'Neuigkeiten (Aktivitäts-Log): 12 Monate. Anmeldelinks und -codes: 15 Minuten gültig, gespeichert bis 24 Stunden nach Ablauf (Schutz vor Durchprobieren). Sitzungen: 180 Tage. Einladungen: 14 Tage. Beitrittsanfragen: 90 Tage.',
-            'Zähler gegen Spam (Kommentare, Beiträge, Reaktionen): 24 Stunden. Meldungen: ohne Bezug zur meldenden Person nach der Entscheidung bzw. spätestens nach 180 Tagen, entschiedene gelöscht nach weiteren 180 Tagen.',
+            'Zähler gegen Spam (Kommentare, Beiträge, Reaktionen): 24 Stunden. Meldungen: ohne Bezug zur meldenden Person nach der Entscheidung bzw. spätestens nach 180 Tagen, entschiedene gelöscht nach weiteren 180 Tagen. Gesperrte Inhalte und Konten: höchstens 180 Tage je Sperre, dann endgültig gelöscht. Moderationsprotokoll: Einblicke 180 Tage, Entscheidungen 2 Jahre.',
             'Server-Logs bei Cloudflare: wenige Tage. Zahlungsbelege: 10 Jahre nach Ablauf der Unterstützung (siehe Abschnitt 7).',
           ),
         ],

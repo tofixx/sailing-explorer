@@ -42,6 +42,8 @@ export interface ShareRow {
   comments_mode?: string;
   /** per Meldung oder Admin ausgeblendet (0009) */
   hidden_at?: number | null;
+  /** gesperrt (0020, Konzept 15.2): nur Admins */
+  locked_at?: number | null;
   /** aus EXPIRES_SQL */
   expires_at?: number | null;
   /** aus dem JOIN mit boats */
@@ -96,7 +98,7 @@ export async function getShareRow(env: Env, id: string): Promise<ShareRow | null
  * Ausgeblendete Törns (Meldung) sehen nur Eigentümer und Admins.
  */
 export const canViewShare = (row: ShareRow, manager: boolean, key: string | null, admin = false) =>
-  canView({ visibility: row.visibility, shareKey: row.share_key, hiddenAt: row.hidden_at ?? null }, { manager, key, admin }, true);
+  canView({ visibility: row.visibility, shareKey: row.share_key, hiddenAt: row.hidden_at ?? null, lockedAt: row.locked_at ?? null }, { manager, key, admin }, true);
 
 /**
  * Lädt eine Freigabe, die der Anfragende sehen darf (worker/access.ts): öffentlich für alle, „Nur mit Link“ mit
@@ -118,8 +120,8 @@ export async function visibleShare(request: Request, env: Env, id: string, allow
 export async function ownedShare(request: Request, env: Env, id: string) {
   const user = await requireUser(request, env);
   const row = await getShareRow(env, id);
-  // Fremde Freigaben verhalten sich wie nicht existent (kein Hinweis auf Existenz).
-  if (!row || row.user_id !== user.id) throw NOT_FOUND();
+  // Fremde und gesperrte Freigaben verhalten sich wie nicht existent (kein Hinweis auf Existenz).
+  if (!row || row.user_id !== user.id || row.locked_at) throw NOT_FOUND();
   return { row, user };
 }
 
@@ -246,7 +248,7 @@ export async function createShare(request: Request, env: Env): Promise<Response>
 /** GET /api/shares – eigene Freigaben. */
 export async function listShares(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const { results } = await env.DB.prepare(`${SHARE_SELECT} WHERE s.user_id = ? ORDER BY s.created_at DESC`).bind(user.id).all<ShareRow>();
+  const { results } = await env.DB.prepare(`${SHARE_SELECT} WHERE s.user_id = ? AND s.locked_at IS NULL ORDER BY s.created_at DESC`).bind(user.id).all<ShareRow>();
   return json({ shares: results.map((r) => shareShape(r, true)) });
 }
 

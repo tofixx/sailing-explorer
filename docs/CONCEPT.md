@@ -1269,10 +1269,11 @@ Stream-Abfrage + 1 Prüf-Batch (inkl. Reaktionen). Öffentlich: 60 s gecacht.
 
 ### 12.9 Offene Fragen an den Betreiber
 
-1. Häfen zusammenführen (Dubletten trotz Normalisierung, z. B. „Potsdam“ und „Hafen Potsdam“) – reicht die Moderation
-   (ausblenden/löschen) oder braucht es „zusammenführen“?
+1. ~~Häfen zusammenführen (Dubletten trotz Normalisierung, z. B. „Potsdam“ und „Hafen Potsdam“) – reicht die Moderation
+   (ausblenden/löschen) oder braucht es „zusammenführen“?~~ Zusammenführen kommt mit dem Admin-Bereich (15.7).
 2. ~~Soll der Heimathafen einer Gruppe ebenfalls auf `harbors` umgestellt werden?~~ Ja – umgesetzt in 13.3.
 3. Wer darf die Position eines Hafens pflegen, wenn die Anleger:in inaktiv ist – Vereins-Admins des Hafens?
+   *Teilweise: Admins können die Anleger:in neu zuweisen (15.6).*
 4. Benachrichtigungs-Glocke (12.5) als nächster Schritt?
 5. Betreiberangaben für Impressum und Datenschutz (Name, Anschrift, E-Mail, ggf. Telefon) und ob
    Auftragsverarbeitungsverträge mit Cloudflare, Resend und Stripe abgeschlossen sind.
@@ -1455,3 +1456,183 @@ Moderation nutzt; R2-Schlüssel für Törns stehen nur in `photo-keys.ts`. Schei
 die übrigen nicht auf); die Neuberechnung des Speicherzählers läuft immer. Fristen: offene Meldungen nach 180 Tagen ohne
 Meldende und Anmerkung (sie zählen dann nicht mehr fürs automatische Ausblenden, dieselbe Person kann neu melden), Zahlungen 10 Jahre nach Ablauf der Unterstützung. Austritt bzw. Entfernen eines Boots aus einer
 Gruppe nimmt die zugehörige Neuigkeit mit. `covers.user_id` wird beim Konto-Löschen geleert.
+
+## 15. Admin-Bereich
+
+Plattform-Admins (`ADMIN_USER_IDS`, `isAdmin`) bekommen eine eigene Seite `/admin` mit Übersicht über alle Konten,
+Boote, Gruppen, Häfen und Törns – auch nicht öffentliche – und Werkzeugen für Sperren, Umbenennen, Eigner-Wechsel,
+Zusammenführen und endgültiges Löschen. Jede Admin-Aktion und jeder Einblick steht im Admin-Protokoll.
+Anforderungen F-230 … F-242.
+
+### 15.1 Zugang
+
+| Punkt | Entscheidung |
+|---|---|
+| Wer | nur Konten in `ADMIN_USER_IDS`; leer = niemand (fail closed) |
+| Kopfzeile | `GET /api/auth/me` liefert `admin: true` nur für Admins; nur dann zeigt `sx-topbar` den Eintrag „Admin“ (Link auf `/admin`) |
+| Server | jede Route unter `/api/admin/` prüft `requireAdmin` und antwortet Nicht-Admins **und Gästen** mit 404 (die Route verrät sich nicht). Die Seite `/admin` liefert Nicht-Admins 404 |
+| Code | Die Admin-Oberfläche wird erst bei `/admin` nachgeladen (eigener Chunk) – andere laden keinen Admin-Code |
+
+### 15.2 Drei Stufen: ausgeblendet, suspendiert, gesperrt
+
+Bisher gab es zwei Werkzeuge; „gesperrt“ kommt als stärkste Stufe dazu und **baut auf beiden auf**, statt sie zu
+ersetzen:
+
+| Stufe | Gespeichert | Wer sieht es noch | Wirkung | Fristen |
+|---|---|---|---|---|
+| **ausgeblendet** (Meldung, Moderation) | `hidden_at` am Objekt | Verwalter (Eigner, Boots-/Gruppen-Admins, Autor:in) und Admins | wie nicht existent für alle anderen, keine Listen | normale Löschfristen |
+| **suspendiert** (Konto) | `users.suspended_at` | – | kein Hochladen, Kommentieren, Melden, Einladen; Inhalte aus Listen und Stream | normale Löschfristen |
+| **gesperrt** (Admin) | Zeile in `locks` + `locked_at` an `users`, `shares`, `boats`, `groups` | **nur Admins** | Aufruf für alle verboten (404), auch für Eigner und Verwalter; nichts lässt sich ändern oder löschen; Konto: keine Anmeldung, alle Sitzungen beendet | **eigene Frist** statt der normalen (15.4) |
+
+Umsetzung der Sperre: Sie setzt zusätzlich `hidden_at` (alle bestehenden Listen- und Leseprüfungen greifen damit
+ohne Änderung), bei Konten zusätzlich `suspended_at` (alle Konto-Wirkungen der Suspendierung). Die vorherigen Werte
+merkt sich `locks.prev_at`; Entsperren stellt sie genau wieder her (ein vorher ausgeblendetes Objekt bleibt
+ausgeblendet). Die Verwalter-Ausnahme heben drei Stellen auf: `canView` (Törns: `locked_at` → nur Admins),
+`roleFor` (Boote: ein gesperrtes Boot hat keine Verwalter) und `roleIn` (Gruppen: in einer gesperrten Gruppe hat
+niemand eine Rolle). Häfen und Profile haben keine Verwalter-Sicht auf Ausgeblendetes – dort genügt `hidden_at`. Einladungen in gesperrte Boote, Törns und Gruppen und Einladungen gesperrter Konten gelten als ungültig.
+
+Solange ein Objekt gesperrt ist, lehnen Meldungs-Entscheidungen und Suspendieren/Entsperren eines gesperrten Kontos
+mit 409 `locked` ab – sonst würde der gesicherte Zustand unbemerkt aufgehoben.
+
+**Konto sperren** sperrt mit: das Profil (ausgeblendet), alle eigenen Törns und eigenen Boote (Zeilen in `locks`
+mit `via_user`); Kommentare des Kontos verschwinden beim Lesen. Anmeldung per Link, Code und Passkey endet mit 403
+`account_locked`, bestehende Sitzungen werden gelöscht. **Gruppen** des Kontos werden nicht mitgesperrt – sie gehören
+der Gemeinschaft (andere Mitglieder) und lassen sich einzeln sperren. Entsperren des Kontos entsperrt nur, was über
+das Konto mitgesperrt wurde; einzeln gesperrte Objekte bleiben gesperrt. Admin-Konten lassen sich nicht sperren.
+
+### 15.3 Beweissicherung statt Löschfristen
+
+Gesperrte Objekte bleiben vollständig gespeichert (D1-Zeilen, Track-Dateien, Fotos, Titelbilder) und sind von allen
+normalen Löschwegen ausgenommen:
+
+| Löschweg | gesperrt |
+|---|---|
+| Saison-Ablauf von Törns (5.5) und Ablauf-Erinnerung | übersprungen (`locked_at IS NULL`) |
+| inaktive leere Konten (12 Monate) | übersprungen (Konto gesperrt oder besitzt Gesperrtes) |
+| Konto selbst löschen | 409 `locked_content`, solange das Konto gesperrte Törns, Boote oder Gruppen besitzt (Art. 17 Abs. 3 lit. e DSGVO: Verteidigung von Rechtsansprüchen) – ein gesperrtes Konto kann sich ohnehin nicht anmelden |
+| Eigner löscht Törn, Boot, Gruppe | unmöglich (für ihn 404) |
+
+### 15.4 Löschkonzept der Sperre: wie lange, wer löscht
+
+- **Frist:** Eine Sperre gilt **180 Tage** (`locks.until`). Ein Admin kann sie mit Begründung um jeweils 180 Tage ab
+  heute verlängern (z. B. auf Anfrage einer Behörde), beliebig oft; jede Verlängerung steht im Protokoll.
+- **Ende durch Admin:** entsperren (alles wie vorher, normale Fristen laufen weiter – ein inzwischen abgelaufener
+  Törn wird in der nächsten Nacht gelöscht) oder **endgültig löschen** (der normale Löschpfad des Objekts:
+  `removeShare`, `removeBoat`, `removeGroup`, `removeHarbor`, `purgeUser` – samt Dateien, Zähler, Meldungen).
+- **Ende durch Frist:** Läuft die Sperre ab, löscht der **nächtliche Lauf** das Objekt endgültig über denselben
+  Löschpfad (höchstens 20 pro Nacht) und schreibt einen System-Eintrag ins Protokoll. Mitgesperrtes (`via_user`)
+  folgt dem Konto. Die Admin-Seite zeigt das Ablaufdatum; was in 14 Tagen abläuft, ist hervorgehoben.
+- **Aufräumen:** `locks`-Zeilen, deren Ziel es nicht mehr gibt, löscht der nächtliche Lauf; jeder Admin-Löschweg
+  entfernt die Zeile seines Objekts.
+
+### 15.5 Übersicht und Einblick
+
+`GET /api/admin/list/:art?q=&filter=&page=` mit `art` ∈ `users`, `boats`, `groups`, `harbors`, `shares`; 50 je Seite,
+neueste zuerst; `q` sucht in Namen, Profilnamen, Slugs, IDs und (nur bei Konten) E-Mail-Adressen.
+
+| Filter | Bedeutung |
+|---|---|
+| `locked` | gesperrt |
+| `hidden` | ausgeblendet (Meldung), nicht gesperrt |
+| `suspended` | (Konten) suspendiert, nicht gesperrt |
+| `private` | nicht öffentlich („Nur mit Link“ oder „Nur ich“) |
+| `ownerless` | ohne Eigner: Häfen ohne (noch vorhandene) Anleger:in, Gruppen ohne Eigner-Mitgliedschaft oder mit gesperrtem Eigner-Konto, Boote mit gesperrtem Eigner-Konto |
+
+Admins sehen alle Objekte, auch „Nur ich“ – aber nur **Metadaten** (Name, Eigner, Sichtbarkeit, Zahlen, Zeiten,
+Sperr-/Ausblend-Status) und Links; die Inhalte selbst (Track, private Fotos) öffnet die Admin-Seite nicht. Jeder
+Abruf einer Liste und jeder Detail-Abruf (`GET /api/admin/:art/:id`) wird protokolliert (`list`, `view`).
+
+### 15.6 Umbenennen und Eigner neu zuweisen
+
+| Objekt | Umbenennen (`PATCH /api/admin/:art/:id`) | Eigner (`POST /api/admin/:art/:id/owner { userId }`) |
+|---|---|---|
+| Konto/Profil | Anzeigename und Profilname (Adresse); gleiche Regeln wie beim Profil, 409 bei vergebenem Namen | – |
+| Boot | Name | ja: neues Konto wird Eigner, das alte bleibt Boots-Admin (nichts geht verloren); Kontingent gilt nicht (Admin) |
+| Gruppe | Name und Adresse (Slug) | ja: neues Konto wird Eigner (wird Mitglied, falls nicht), das alte wird Admin der Gruppe |
+| Hafen | Name (Anzeige-Kopie an Booten und Gruppen folgt); gleicher normalisierter Name wie ein anderer Hafen → 409 `harbor_exists` (dann zusammenführen) | ja: Anleger:in (darf Name und Position pflegen) – löst auch 12.9 Frage 3 |
+| Törn | – | **nein**: Ein Törn sind Positionsdaten der Person, die ihn aufgezeichnet hat; ein anderes Konto als Urheber würde fremde Bewegungsdaten unter falschem Namen zeigen, Speicher- und Ablaufregeln hängen am Konto. Törns wechseln das Konto nur beim Verbinden zweier Konten derselben Person (15.8) |
+
+Gesperrte Objekte lassen sich nicht umbenennen oder übertragen (409 `locked`). Neue Eigner müssen ein nicht
+gesperrtes Konto sein.
+
+### 15.7 Häfen zusammenführen
+
+`POST /api/admin/harbors/:id/merge { into }` führt den Hafen `:id` (Dublette) in `into` über, in **einem** D1-Batch:
+
+- Boote, Gruppen (`harbor_id` und Anzeige-Kopie `home_port`), Heimathafen der Personen (`users.home_harbor_id`)
+- Folgen (wer beiden folgt, folgt danach einmal), Ziele der Neuigkeiten (`activity_target`), Aktivitäten
+  „Neues Boot im Hafen“ (`data.harbor`)
+- Verein des Hafens, wenn das Ziel keinen hat; Meldungen zur Dublette fallen weg
+- alte Adresse: `harbor_redirects (old_slug → harbor_id)`; Weiterleitungen, die auf die Dublette zeigten, zeigen
+  danach aufs Ziel. `/h/<alt>` antwortet mit **301** auf `/h/<neu>`, `GET /api/harbors/slug/<alt>` liefert den
+  Zielhafen. Neue Häfen bekommen keinen Slug, der als Weiterleitung belegt ist. Weiterleitungen enthalten keine
+  Personendaten und leben so lange wie ihr Zielhafen.
+- danach wird die Dublette gelöscht. Gesperrte Häfen (Quelle oder Ziel) → 409 `locked`; gleicher Hafen → 400.
+
+### 15.8 Konten verbinden
+
+Zwei Konten derselben Person (z. B. zwei Mail-Adressen): `GET /api/admin/users/:id/merge?into=` zeigt eine Vorschau
+(Zahlen und Konflikte), `POST /api/admin/users/:id/merge { into, confirm }` führt aus – `confirm` muss die ID des
+**aufgelösten** Kontos `:id` sein (Tippbestätigung im Dialog). Das Zielkonto `into` behält Mail-Adresse, Sitzungen,
+Einstellungen. Alles Umhängen in einem D1-Batch, danach entfernt `purgeUser` das leere Quellkonto (gleicher Löschpfad
+wie immer, Reste fallen mit).
+
+| Daten | Regel bzw. Konflikt |
+|---|---|
+| Törns, Fotos, Kommentare, Beiträge, Aktivitäten | gehen ans Ziel; Kontingente gelten danach für das Ziel, Überschreitung ist erlaubt (wie Altbestand: nichts wird gelöscht, nur Neues gesperrt) |
+| Boote | Eigner wird das Ziel; Boots-Admin-Einträge der Quelle gehen ans Ziel, außer das Ziel ist dort schon Eigner/Admin |
+| Gruppen | Eigner-Gruppen gehen ans Ziel; Mitgliedschaft: in beiden Mitglied → die höhere Rolle (Eigner > Admin > Mitglied); Anfragen nur, wenn das Ziel noch kein Mitglied ist |
+| Crew auf Törns | geht ans Ziel; auf eigenen Törns des Ziels entfällt sie |
+| Folgen | in beide Richtungen ans Ziel; doppelte zählen einmal; Folgen auf sich selbst entfallen |
+| Reaktionen | die des Ziels gewinnen bei demselben Gegenstand |
+| Passkeys | gehen ans Ziel (die Grenze von 10 gilt nur beim Anlegen); offene Challenges der Quelle entfallen |
+| Unterstützungen | gehen ans Ziel (Status und Ablauf der Törns rechnen mit dem spätesten) |
+| Einladungen, eigene Meldungen | gehen ans Ziel (doppelte Meldungen entfallen) |
+| Profil | das des Ziels bleibt; hat das Ziel keins, übernimmt es das der Quelle (Name, Adresse, Text, Sichtbarkeit) – das Titelbild der Quelle entfällt in jedem Fall |
+| Heimatverein, Heimathafen | die Wahl des Ziels; fehlt sie, die der Quelle |
+| Suspendierung | ist eins der Konten suspendiert, ist es danach das Ziel (fail closed) |
+| nicht möglich | gleiche Konten (400), Admin-Konto als Quelle (400), gesperrte Konten (409 `locked`) |
+
+### 15.9 Endgültig löschen
+
+`DELETE /api/admin/:art/:id { confirm }` (`confirm` = ID) löscht über den Löschpfad des Objekts; Konten über
+`purgeUser` (nicht für Admin-Konten). Eine bestehende Sperre endet damit.
+
+### 15.10 Admin-Protokoll
+
+Tabelle `admin_log (id, admin_id, action, target_kind, target_id, detail, created_at)`; `admin_id` NULL = nächtlicher
+Lauf. Aktionen: `list`, `view`, `lock`, `extend`, `unlock`, `lock_expired`, `rename`, `owner`, `merge_harbor`,
+`merge_user`, `delete`, dazu die Meldungs-Entscheidungen (`report_keep`, `report_hide`, `report_delete`) und
+`suspend`/`unsuspend`. `detail` ist ein kurzer Text (höchstens 500 Zeichen: Begründung, alter → neuer Name,
+Zahlen) – **keine Mail-Adressen**. Lesen: `GET /api/admin/log?q=&page=` (Suche nach Ziel-ID, Admin oder Aktion).
+
+Fristen: Einblicke (`list`, `view`) **180 Tage**, alle übrigen Einträge **2 Jahre** (Nachweis gegenüber Betroffenen
+und Behörden, DSA, berechtigtes Interesse); Einträge zu einem noch gesperrten Ziel bleiben, bis die Sperre endet.
+Gelöscht nachts. Konto löschen lässt Einträge über das Konto bestehen (nur IDs und Namen, keine Inhalte).
+
+### 15.11 Datenmodell (`0020_admin.sql`)
+
+- `users.locked_at`, `shares.locked_at`, `boats.locked_at`, `groups.locked_at`
+- `locks (target_kind, target_id, locked_at, until, locked_by, reason, via_user, prev_at)`, Primärschlüssel
+  `(target_kind, target_id)`; `target_kind` ∈ `user`, `share`, `boat`, `group`, `harbor`
+- `admin_log` wie 15.10, `harbor_redirects (old_slug PRIMARY KEY, harbor_id → harbors ON DELETE CASCADE, created_at)`
+
+Module: `src/domain/admin.ts` (Arten, Filter, Fristen, Rollen-Regel – rein), `worker/locks.ts` (Sperren und
+Sperr-Fristen), `worker/admin.ts` (Listen, Details, Umbenennen, Eigner, Löschen, Protokoll),
+`worker/admin-merge.ts` (Häfen und Konten zusammenführen), Routen in `worker/admin-routes.ts`.
+
+### 15.12 Oberfläche
+
+`/admin` (`sx-admin-page`, nachgeladen): Reiter Konten, Boote, Gruppen, Häfen, Törns, Protokoll. Je Reiter Suche,
+Filter-Chips, seitenweise blättern; je Zeile Status-Abzeichen (gesperrt bis …, ausgeblendet, suspendiert, privat) und
+Aktionen: Details, Umbenennen, Eigner, Sperren/Verlängern/Entsperren, Zusammenführen (Häfen, Konten), Endgültig
+löschen. Zerstörerische Aktionen fragen nach (Löschen und Konten verbinden mit Eingabe der ID). Meldungen bleiben im
+Konto-Dialog (Reiter „Meldungen“).
+
+### 15.13 Offene Fragen an den Betreiber
+
+1. Sperrfrist 180 Tage mit automatischem endgültigen Löschen danach – passt das, oder lieber kürzer (z. B. 90 Tage)
+   bzw. nur eine Erinnerung statt automatischem Löschen?
+2. Sollen Admins bei gesperrten Objekten auch den Inhalt (Track, private Fotos) sehen können (für die Prüfung), mit
+   Protokolleintrag? Heute nur Metadaten.
+3. Sollen Betroffene beim Sperren eine Mail mit Begründung bekommen (DSA Art. 17)? Heute nicht.

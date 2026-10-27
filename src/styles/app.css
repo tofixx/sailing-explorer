@@ -256,6 +256,7 @@ body {
 .app[data-page] sx-profile-page,
 .app[data-page] sx-group-page,
 .app[data-page] sx-legal-page,
+.app[data-page] sx-admin-page,
 .app[data-page] #discover-page {
   min-height: 0;
 }
