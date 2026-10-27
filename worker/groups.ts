@@ -291,14 +291,16 @@ export async function deleteGroup(request: Request, env: Env, id: string): Promi
 }
 
 /**
- * Konto löschen (Konzept 11.9): eigene Gruppen gehen an den dienstältesten Admin; ohne Admin werden sie gelöscht.
+ * Konto löschen (Konzept 11.9, 13.4): eigene Gruppen gehen an den dienstältesten Admin, ohne Admin an das
+ * dienstälteste Mitglied – eine Gruppe bleibt, solange sie Mitglieder hat. Nur Gruppen ohne weitere Mitglieder fallen.
  * Liefert die Anweisungen für Mitgliedschaften, Anfragen und Beiträge des Kontos (für den Batch in purgeUser).
  */
 export async function purgeUserGroups(env: Env, userId: string): Promise<D1PreparedStatement[]> {
   await env.DB.batch([
     env.DB.prepare(
-      `UPDATE group_members SET role = 'owner' WHERE role = 'admin' AND rowid IN (
-         SELECT (SELECT m.rowid FROM group_members m WHERE m.group_id = g.id AND m.role = 'admin' ORDER BY m.created_at, m.user_id LIMIT 1)
+      `UPDATE group_members SET role = 'owner' WHERE rowid IN (
+         SELECT (SELECT m.rowid FROM group_members m WHERE m.group_id = g.id AND m.user_id <> ?1
+                 ORDER BY m.role = 'admin' DESC, m.created_at, m.user_id LIMIT 1)
          FROM groups g WHERE g.owner_id = ?1)`,
     ).bind(userId),
     env.DB.prepare(

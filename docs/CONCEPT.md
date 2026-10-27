@@ -1307,3 +1307,22 @@ Autovervollständigung (`sx-harbor-picker`); ein getippter Name findet über den
 den vorhandenen Hafen – „POTSDAM“, „potsdam“ und „Potsdam“ sind einer – oder legt ihn an. Migration 0014 übernimmt
 vorhandene Freitexte mit derselben Regel. Die Hafenseite listet öffentliche Vereine und Teams mit diesem Heimathafen;
 Umbenennen eines Hafens führt die Kopie bei Gruppen nach, Löschen löst die Zuordnung.
+
+### 13.4 Bilder: Verkleinerung, Fristen, Aufräumen – Vereine und Häfen bleiben
+
+Alle Bilder werden **im Browser verkleinert und neu kodiert** (WebP, sonst JPEG), dadurch frei von EXIF/GPS/XMP; der
+Worker lehnt Bilder mit Metadaten oder Übergröße ab.
+
+| Bild | Größe | Lebt so lange wie | Aufräumen |
+|---|---|---|---|
+| Foto am Törn | lange Kante 2048 px, ≤ 1 MB; Vorschau 400 px, ≤ 80 KB | der Törn (Ablauf: Unterstützungsende bzw. Upload + 3 Monate, Abschnitt 5) | mit dem Törn (Ablauf, Löschen, Konto löschen, inaktive Konten) im selben Lauf |
+| Übersichtsbild des Törns | ≤ 1,5 MB JPEG | der Törn | wie oben |
+| Titelbild Profil | 1500 × 500 px, ≤ 300 KB | das Profil (Konto löschen; leere Konten nach 12 Monaten ohne Anmeldung) | nächtlich `sweepOrphanCovers` |
+| Titelbild Boot | wie oben | das Boot (Boot oder Konto des Eigners löschen) | nächtlich |
+| Titelbild Verein/Team | wie oben | die Gruppe | nächtlich |
+
+**Vereine und Teams bleiben, solange sie Mitglieder haben:** Löscht der Eigner sein Konto (oder wird es als inaktiv
+entfernt), geht die Gruppe an den dienstältesten Admin, ohne Admin an das dienstälteste Mitglied – samt Titelbild,
+Beiträgen anderer, Booten und Neuigkeiten. Nur eine Gruppe ohne weitere Mitglieder wird gelöscht. **Häfen bleiben
+immer** (auch ohne Boote, Anleger:in oder Verein); löschen kann sie nur die Moderation. Leere Häfen tauchen in der
+Autovervollständigung weiter auf (sonst entstünden Dubletten), rutschen dort aber nach hinten (Sortierung nach Booten).

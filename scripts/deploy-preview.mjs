@@ -1,4 +1,4 @@
-// Vorschau-Deployment für einen Branch: eigener Worker unter sailing-<branch>.wollow.ski,
+// Vorschau-Deployment für einen Branch: eigener Worker unter dev-<branch>.segeln-potsdam.de,
 // eigene Vorschau-Datenbank und eigener Bucket – die Produktion bleibt unberührt.
 //
 //   node scripts/deploy-preview.mjs deploy <branch>   (nach `npm run build`)
@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const CONFIG = 'dist/sailing_explorer/wrangler.json';
 const DB_NAME = 'sailing-explorer-preview';
 const BUCKET = 'sailing-explorer-tracks-preview';
-const ZONE = 'wollow.ski';
+const ZONE = 'segeln-potsdam.de';
 
 const [action, branch] = process.argv.slice(2);
 if (!action || !branch) {
@@ -37,7 +37,7 @@ if (!s || s === 'main') {
   process.exit(2);
 }
 const workerName = `sailing-explorer-${s}`;
-const host = `sailing-${s}.${ZONE}`;
+const host = `dev-${s}.${ZONE}`;
 
 const wrangler = (args, opts = {}) => execFileSync('npx', ['wrangler', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: process.platform === 'win32', ...opts });
 

@@ -465,7 +465,7 @@ describe('F-165 Wöchentliche Sammelmail', () => {
 // ---------------------------------------------------------------- F-167 Aufräumen
 
 describe('F-167 Aufräumen', () => {
-  it('[F-167] Konto löschen: Gruppe geht an den dienstältesten Admin; ohne Admin gelöscht; Folgen, Beiträge, Aktivitäten weg', async () => {
+  it('[F-167] Konto löschen: Gruppe geht an den dienstältesten Admin, sonst an das dienstälteste Mitglied; ohne Mitglieder gelöscht; Folgen, Beiträge, Aktivitäten weg', async () => {
     const owner = await s.person({ profile: 'public' });
     const kept = await s.group(owner);
     const gone = await s.group(owner, {}).catch(() => null); // kostenlos nur eine – zweite über Unterstützer
@@ -473,9 +473,11 @@ describe('F-167 Aufräumen', () => {
     const supOwner = await s.person({ supporter: true, profile: 'public' });
     const g1 = await s.group(supOwner);
     const g2 = await s.group(supOwner);
+    const g3 = await s.group(supOwner);
     const [a1, a2] = [await s.person(), await s.person()];
     await s.join(supOwner, g1, a1);
     await s.join(supOwner, g1, a2);
+    await s.join(supOwner, g3, a2);
     await s.send('PATCH', `/api/groups/${g1.id}/members/${a1.user.id}`, supOwner.cookie, { role: 'admin' });
     await s.send('PATCH', `/api/groups/${g1.id}/members/${a2.user.id}`, supOwner.cookie, { role: 'admin' });
     await s.send('POST', `/api/groups/${g1.id}/posts`, supOwner.cookie, { body: 'Abschied' });
@@ -489,6 +491,8 @@ describe('F-167 Aufräumen', () => {
     expect(g1row?.owner_id).toBe(a1.user.id);
     expect((await db.prepare('SELECT role FROM group_members WHERE group_id = ? AND user_id = ?').bind(g1.id, a1.user.id).first<{ role: string }>())?.role).toBe('owner');
     expect(await db.prepare('SELECT id FROM groups WHERE id = ?').bind(g2.id).first()).toBeNull();
+    // ohne Admin: das Mitglied übernimmt (Konzept 13.4)
+    expect((await db.prepare('SELECT owner_id FROM groups WHERE id = ?').bind(g3.id).first<{ owner_id: string }>())?.owner_id).toBe(a2.user.id);
     const left = await db.prepare(
       `SELECT (SELECT COUNT(*) FROM follows WHERE user_id = ?1 OR target_id = ?1) AS f, (SELECT COUNT(*) FROM posts WHERE author_id = ?1) AS p,
          (SELECT COUNT(*) FROM activity WHERE actor_id = ?1) AS a, (SELECT COUNT(*) FROM group_members WHERE user_id = ?1) AS m,

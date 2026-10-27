@@ -130,7 +130,7 @@ npx wrangler secret put RESEND_API_KEY
 
 - **Turnstile:** Widget im Cloudflare-Dashboard anlegen (Domains `segeln-potsdam.de` und `sailing.wollow.ski`), Site-Key in `wrangler.jsonc` → `TURNSTILE_SITE_KEY`.
 - **Mail:** Resend-Konto, Domain `sailing.wollow.ski` verifizieren (DNS bei Cloudflare), Absender in `MAIL_FROM`.
-- **Domain:** Hauptadresse ist `segeln-potsdam.de` (Zone im selben Cloudflare-Konto). `www.`, alle sonst nicht belegten Subdomains (proxied `*`-Eintrag + Worker-Route) und die frühere Adresse `sailing.wollow.ski` leiten per 301 mit Pfad dorthin weiter (`worker/canonical.ts`, Variablen `CANONICAL_HOST`, `ALIAS_HOSTS`). Ausnahme: der Stripe-Webhook antwortet unter jeder Adresse direkt. Vorschauen laufen weiter unter `sailing-<branch>.wollow.ski`.
+- **Domain:** Hauptadresse ist `segeln-potsdam.de` (Zone im selben Cloudflare-Konto). `www.`, alle sonst nicht belegten Subdomains (proxied `*`-Eintrag + Worker-Route) und die frühere Adresse `sailing.wollow.ski` leiten per 301 mit Pfad dorthin weiter (`worker/canonical.ts`, Variablen `CANONICAL_HOST`, `ALIAS_HOSTS`). Ausnahme: der Stripe-Webhook antwortet unter jeder Adresse direkt. Vorschauen laufen unter `dev-<branch>.segeln-potsdam.de`.
 
 Danach deployt die CI bei jedem Push auf den Standardzweig.
 
@@ -223,7 +223,7 @@ Primäres Repository ist Forgejo (`git.office.wollow.ski`), gebaut wird mit Wood
 
 1. **Woodpecker:** Repo aktivieren, Secret `cloudflare_api_token` anlegen (nur für den Deploy-Schritt / Push-Events).
 2. **Pipeline:** [.woodpecker.yaml](.woodpecker.yaml) – `install` → `check` (Typen, Tests, Build) → `deploy` (D1-Migrationen + `wrangler deploy`, nur Standardzweig). Läuft auf dem NUC (`labels: speed: fast`).
-   - **Vorschau je Branch:** jeder andere Branch landet als eigener Worker unter `https://sailing-<branch>.wollow.ski` (Präfix `feature/` entfällt) mit Vorschau-Datenbank und -Bucket ([scripts/deploy-preview.mjs](scripts/deploy-preview.mjs)); beim Schließen des Pull Requests wird sie gelöscht. Anmeldung/Teilen sind in Vorschauen gesperrt.
+   - **Vorschau je Branch:** jeder andere Branch landet als eigener Worker unter `https://dev-<branch>.segeln-potsdam.de` (Präfix `feature/` entfällt) mit Vorschau-Datenbank und -Bucket ([scripts/deploy-preview.mjs](scripts/deploy-preview.mjs)); beim Schließen des Pull Requests wird sie gelöscht. Anmeldung/Teilen sind in Vorschauen gesperrt.
 3. **Spiegel zu GitHub:** In Forgejo unter *Einstellungen → Repository → Spiegel-Einstellungen* einen Push-Mirror auf `https://github.com/tofixx/sailing-explorer.git` anlegen (GitHub-Token mit `contents: write`), „bei Push synchronisieren“ aktivieren.
 
 ## Lizenz & Quellen

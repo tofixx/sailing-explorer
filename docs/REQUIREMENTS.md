@@ -190,4 +190,4 @@ Konzept: `docs/CONCEPT.md` Abschnitt 12. Umsetzung: `migrations/0013_social.sql`
 
 - **F-50** Lokale Entwicklung mit `npm run dev`, erreichbar im LAN (Handy) inkl. Login.
 - **F-51** CI prüft Typen, Tests und Build; Deploy nur vom Hauptzweig.
-- **F-52** Jeder andere Branch bekommt eine eigene Vorschau unter `sailing-<branch>.wollow.ski` mit eigener Datenbank und eigenem Speicher; beim Schließen des Pull Requests wird sie entfernt.
+- **F-52** Jeder andere Branch bekommt eine eigene Vorschau unter `dev-<branch>.segeln-potsdam.de` mit eigener Datenbank und eigenem Speicher; beim Schließen des Pull Requests wird sie entfernt.
