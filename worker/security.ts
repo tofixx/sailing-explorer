@@ -31,7 +31,8 @@ export const PAGE_HEADERS: Record<string, string> = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
   'Cross-Origin-Opener-Policy': 'same-origin',
-  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  // Ohne includeSubDomains: unter segeln-potsdam.de laufen fremde Dienste (dev., psv., lists. …) teils ohne gültiges Zertifikat.
+  'Strict-Transport-Security': 'max-age=31536000',
 };
 
 export function withPageHeaders(res: Response): Response {
