@@ -1453,5 +1453,5 @@ was die Zeile belegt. Boote und Kommentare haben je einen Löschpfad (`removeBoa
 Moderation nutzt; R2-Schlüssel für Törns stehen nur in `photo-keys.ts`. Scheitert D1 nach einem Upload (Törn, Foto,
 Übersichtsbild), wird die Datei wieder entfernt. Der nächtliche Lauf führt jeden Schritt einzeln aus (ein Fehler hält
 die übrigen nicht auf); die Neuberechnung des Speicherzählers läuft immer. Fristen: offene Meldungen nach 180 Tagen ohne
-Meldende und Anmerkung, Zahlungen 10 Jahre nach Ablauf der Unterstützung. Austritt bzw. Entfernen eines Boots aus einer
+Meldende und Anmerkung (sie zählen dann nicht mehr fürs automatische Ausblenden, dieselbe Person kann neu melden), Zahlungen 10 Jahre nach Ablauf der Unterstützung. Austritt bzw. Entfernen eines Boots aus einer
 Gruppe nimmt die zugehörige Neuigkeit mit. `covers.user_id` wird beim Konto-Löschen geleert.

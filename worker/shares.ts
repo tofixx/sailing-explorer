@@ -50,8 +50,6 @@ export interface ShareRow {
   boat_hidden_at?: number | null;
 }
 
-const key = shareKey;
-const imageKey = previewKey;
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
 export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at
@@ -220,7 +218,7 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     has_image: 0,
   };
 
-  await env.TRACKS.put(key(row.id), bytes, {
+  await env.TRACKS.put(shareKey(row.id), bytes, {
     httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' },
     customMetadata: { owner: user.id },
   });
@@ -235,7 +233,8 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     ),
     addStorageStmt(env, row.size_bytes),
   ]).catch(async (err: unknown) => {
-    await deleteKeys(env, [key(row.id)]);
+    // nur aufräumen, wenn die Zeile wirklich fehlt (ein Timeout kann trotz Schreiben einen Fehler melden)
+    if (!(await env.DB.prepare('SELECT 1 AS x FROM shares WHERE id = ?').bind(row.id).first())) await deleteKeys(env, [shareKey(row.id)]);
     throw err;
   });
   const saved = await getShareRow(env, row.id);
@@ -260,7 +259,7 @@ export async function getShareMeta(request: Request, env: Env, id: string): Prom
 /** GET /api/shares/:id/data – gzip-Payload, der Browser entpackt selbst. */
 export async function getShareData(request: Request, env: Env, id: string): Promise<Response> {
   const { row } = await visibleShare(request, env, id);
-  const obj = await env.TRACKS.get(key(row.id), { onlyIf: request.headers });
+  const obj = await env.TRACKS.get(shareKey(row.id), { onlyIf: request.headers });
   if (!obj) throw NOT_FOUND();
   const headers = new Headers({
     'Content-Type': 'application/json; charset=utf-8',
@@ -319,7 +318,7 @@ export async function deleteShare(request: Request, env: Env, id: string): Promi
 export async function removeShare(env: Env, id: string): Promise<void> {
   // Dateien zuerst (Track, Übersichtsbild, Fotos aus der D1-Liste): scheitert danach D1, bleibt nur eine Zeile ohne
   // Datei zurück statt einer Datei, die niemand mehr findet. Die Foto-Zeilen fallen per ON DELETE CASCADE.
-  await deleteKeys(env, [key(id), imageKey(id), ...(await photoKeysForShares(env, [id]))]);
+  await deleteKeys(env, [shareKey(id), previewKey(id), ...(await photoKeysForShares(env, [id]))]);
   // Speicher vom globalen Zähler abziehen (vor dem Löschen der Zeile), Meldungen entfernen, Törn löschen – ein Batch.
   await env.DB.batch([subtractShareStmt(env, id), deleteShareReports(env, id), deleteShareReactions(env, id), deleteShareActivity(env, id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id)]);
 }
@@ -372,14 +371,14 @@ export async function putShareImage(request: Request, env: Env, id: string): Pro
     const v = quotaVerdict(usage.supporter, usage.bytesUsed, delta, (l) => l.bytes, usage.sharesFree);
     if (v !== 'ok') throw storageQuotaError(env, usage, v);
   }
-  await env.TRACKS.put(imageKey(row.id), bytes, { httpMetadata: { contentType: 'image/jpeg' }, customMetadata: { owner: row.user_id } });
+  await env.TRACKS.put(previewKey(row.id), bytes, { httpMetadata: { contentType: 'image/jpeg' }, customMetadata: { owner: row.user_id } });
   const [, upd] = await env.DB.batch([
     replaceImageStmt(env, row.id, bytes.length),
     env.DB.prepare('UPDATE shares SET has_image = 1, image_bytes = ?, updated_at = ? WHERE id = ?').bind(bytes.length, Date.now(), row.id),
   ]);
   // Törn inzwischen gelöscht: das Bild hätte keine Zeile mehr – sofort wieder entfernen.
   if (!upd.meta.changes) {
-    await deleteKeys(env, [imageKey(row.id)]);
+    await deleteKeys(env, [previewKey(row.id)]);
     throw NOT_FOUND();
   }
   return new Response(null, { status: 204 });
@@ -389,7 +388,7 @@ export async function putShareImage(request: Request, env: Env, id: string): Pro
 export async function getShareImage(request: Request, env: Env, id: string): Promise<Response> {
   const { row } = await visibleShare(request, env, id, true);
   if (!row.has_image) throw NOT_FOUND();
-  const obj = await env.TRACKS.get(imageKey(row.id), { onlyIf: request.headers });
+  const obj = await env.TRACKS.get(previewKey(row.id), { onlyIf: request.headers });
   if (!obj) throw NOT_FOUND();
   const headers = new Headers({
     'Content-Type': 'image/jpeg',

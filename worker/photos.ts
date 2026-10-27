@@ -226,8 +226,8 @@ export async function uploadPhoto(request: Request, env: Env, shareId: string): 
     ).bind(id, share.id, user.id, meta.visibility, meta.caption, meta.takenAt, meta.lat, meta.lon, meta.placement, fi.width, fi.height, fi.format, bytes.length, now, share.id, max),
     addPhotoStmt(env, id),
   ]).catch(async (err: unknown) => {
-    // z. B. Törn parallel gelöscht (Fremdschlüssel): keine Zeile – also auch keine Dateien
-    await deleteKeys(env, photoKeys({ share_id: share.id, id, format: fi.format }));
+    // z. B. Törn parallel gelöscht (Fremdschlüssel): keine Zeile – also auch keine Dateien (nur wenn sie wirklich fehlt)
+    if (!(await env.DB.prepare('SELECT 1 AS x FROM photos WHERE id = ?').bind(id).first())) await deleteKeys(env, photoKeys({ share_id: share.id, id, format: fi.format }));
     throw err;
   });
   if (!ins.meta.changes) {

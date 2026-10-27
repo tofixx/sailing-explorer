@@ -110,6 +110,14 @@ describe('Austritt und Fristen im nächtlichen Lauf (F-212)', () => {
     expect(await db.prepare('SELECT 1 AS x FROM activity WHERE bucket = ?').bind(bucket).first()).not.toBeNull();
     expect((await s.send('DELETE', `/api/groups/${g.id}/members/me`, m.cookie)).status).toBe(204);
     expect(await db.prepare('SELECT 1 AS x FROM activity WHERE bucket = ?').bind(bucket).first()).toBeNull();
+
+    // Boot aus der Gruppe entfernen nimmt seine Neuigkeit mit
+    const b = await s.boat(owner);
+    expect((await s.send('POST', `/api/groups/${g.id}/boats`, owner.cookie, { boatId: b.id })).status).toBe(201);
+    const boatBucket = `boat:${g.id}:${b.id}`;
+    expect(await db.prepare('SELECT 1 AS x FROM activity WHERE bucket = ?').bind(boatBucket).first()).not.toBeNull();
+    expect((await s.send('DELETE', `/api/groups/${g.id}/boats/${b.id}`, owner.cookie)).status).toBe(204);
+    expect(await db.prepare('SELECT 1 AS x FROM activity WHERE bucket = ?').bind(boatBucket).first()).toBeNull();
   });
 
   it('[F-212] Nacht: abgelaufene Challenges weg, offene Meldungen nach 180 Tagen anonym, alte Zahlungen gelöscht, Zähler ohne Drift', async () => {
@@ -128,11 +136,24 @@ describe('Austritt und Fristen im nächtlichen Lauf (F-212)', () => {
     const share = await s.share(p);
     await h.fetch(`/api/shares/${share.id}/image`, { method: 'PUT', cookie: p.cookie, headers: { 'Content-Type': 'image/jpeg' }, body: jpeg() });
     await putCover('u', p.handle!, p.cookie);
+    // Zählerstand der inkrementellen Pflege (alle bisherigen Lösch- und Ersetzungswege dieser Datei) vor der Nacht …
+    const counted = (await db.prepare(`SELECT value FROM counters WHERE name = 'storage_bytes'`).first<{ value: number }>())!.value;
     await h.scheduled();
-    const before = (await db.prepare(`SELECT value FROM counters WHERE name = 'storage_bytes'`).first<{ value: number }>())!.value;
+    // … muss der Neuberechnung entsprechen, und kein Schritt der Nacht darf gescheitert sein
+    const run = JSON.parse(h.logs.filter((l) => l.startsWith('retention ')).at(-1)!.slice('retention '.length)) as { storageBytes: number; storageDrift: number; failed: string[] };
+    expect(run).toMatchObject({ storageBytes: counted, storageDrift: 0, failed: [] });
+
+    // Gegenproben: jüngere offene Meldung und jüngere Zahlung bleiben unverändert
+    const q = await s.person({ profile: 'public' });
+    await s.send('POST', '/api/reports', reporter.cookie, { kind: 'profile', id: q.handle, reason: 'other', note: 'bleibt' });
+    await db.prepare('UPDATE reports SET created_at = ? WHERE target_id = ?').bind(now - 100 * DAY, q.user.id).run();
+    await db
+      .prepare(`INSERT INTO supports (id, user_id, provider, provider_ref, amount, currency, created_at, valid_until) VALUES ('SupportNewAAAAAAAA', NULL, 'stripe', 'cs_new', 500, 'eur', ?, ?)`)
+      .bind(now - 5 * 365 * DAY, now - 4 * 365 * DAY)
+      .run();
     await h.scheduled();
-    expect((await db.prepare(`SELECT value FROM counters WHERE name = 'storage_bytes'`).first<{ value: number }>())!.value).toBe(before);
-    expect(h.logs.some((l) => l.includes('retention') && l.includes('"storageDrift":0'))).toBe(true);
+    expect(await db.prepare('SELECT note FROM reports WHERE target_id = ?').bind(q.user.id).first()).toEqual({ note: 'bleibt' });
+    expect(await db.prepare(`SELECT 1 AS x FROM supports WHERE id = 'SupportNewAAAAAAAA'`).first()).not.toBeNull();
 
     expect(await db.prepare(`SELECT 1 AS x FROM webauthn_challenges WHERE id = 'ChallengeOldAAAAAA'`).first()).toBeNull();
     expect(await db.prepare('SELECT reporter_id, note FROM reports WHERE target_id = ?').bind(p.user.id).first()).toEqual({ reporter_id: null, note: '' });

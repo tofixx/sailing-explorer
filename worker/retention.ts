@@ -42,6 +42,8 @@ export interface RetentionResult {
   storageBytes: number;
   /** Abweichung des inkrementell gepflegten Zählers vom neu berechneten Wert (null = Zeile fehlte) */
   storageDrift: number | null;
+  /** Schritte, die in diesem Lauf gescheitert sind (leer = alles gelaufen); null-Drift kann auch daher kommen */
+  failed: string[];
   /** verschickte Sammelmails über neue Kommentare */
   digests: number;
   /** verschickte wöchentliche Sammelmails aus Vereinen und Teams (Konzept 11.7) */
@@ -143,7 +145,7 @@ async function purgeInactive(env: Env, now: number): Promise<number> {
      WHERE COALESCE(u.last_login, u.created_at) < ?
        AND NOT EXISTS (SELECT 1 FROM shares WHERE user_id = u.id)
        AND NOT EXISTS (SELECT 1 FROM supports WHERE user_id = u.id AND valid_until > ?)
-     LIMIT ?`,
+     ORDER BY COALESCE(u.last_login, u.created_at), u.id LIMIT ?`,
   )
     .bind(cutoff, now, MAX_PURGE_USERS)
     .all<{ id: string; email: string }>();
@@ -160,14 +162,15 @@ async function purgeInactive(env: Env, now: number): Promise<number> {
   return purged;
 }
 
-/** Ein Schritt der Nacht: Fehler protokollieren, die übrigen Schritte laufen weiter (Fallback-Wert). */
-const step = <T>(name: string, p: Promise<T>, fallback: T): Promise<T> =>
-  p.catch((err) => {
-    console.error(`retention step ${name} failed`, err);
-    return fallback;
-  });
-
 export async function runRetention(env: Env, origin: string, now = Date.now()): Promise<RetentionResult> {
+  // Jeder Schritt einzeln: ein Fehler hält die übrigen nicht auf, steht aber im Ergebnis (failed) und im Log.
+  const failed: string[] = [];
+  const step = <T>(name: string, p: Promise<T>, fallback: T): Promise<T> =>
+    p.catch((err) => {
+      console.error(`retention step ${name} failed`, err);
+      failed.push(name);
+      return fallback;
+    });
   const deleted = await step('expired', deleteExpired(env, now), 0);
   const warned = await step('warn', warnExpiring(env, origin, now), 0);
   const seasonMails = await remindSeason(env, origin, now).catch((err) => {
@@ -191,12 +194,15 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     env.DB.prepare('DELETE FROM comment_log WHERE created_at < ?').bind(now - COMMENT_LOG_MS),
     env.DB.prepare('DELETE FROM reports WHERE resolved_at IS NOT NULL AND resolved_at < ?').bind(now - RESOLVED_REPORTS_MS),
     deleteOrphanReports(env),
+    // Neuigkeiten (Konzept 11.9): alte Aktivitäten, verwaiste Ziele und Folgen, alte Anfragen
+    ...nightlyActivityCleanup(env, now),
+  ]), []);
+  // Datenschutz-Fristen als eigener Batch (scheitert einer, läuft der andere trotzdem)
+  await step('privacy', env.DB.batch([
     // Offene Meldungen nach 180 Tagen ohne Entscheidung: ohne Meldende und Anmerkung (Datenschutz, Abschnitt 9)
     env.DB.prepare(`UPDATE reports SET reporter_id = NULL, note = '' WHERE resolved_at IS NULL AND created_at < ? AND (reporter_id IS NOT NULL OR note <> '')`).bind(now - OPEN_REPORT_MS),
     // Zahlungen: 10 Jahre nach Ablauf der Unterstützung (steuerliche Aufbewahrung), dann gelöscht
     env.DB.prepare('DELETE FROM supports WHERE valid_until < ? AND created_at < ?').bind(now - SUPPORT_RECORD_MS, now - SUPPORT_RECORD_MS),
-    // Neuigkeiten (Konzept 11.9): alte Aktivitäten, verwaiste Ziele und Folgen, alte Anfragen
-    ...nightlyActivityCleanup(env, now),
   ]), []);
   const groupDigests = await sendGroupDigests(env, origin, now).catch((err) => {
     console.error('group digests failed', err);
@@ -211,5 +217,5 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   // fehlende Zeile wieder an (bis dahin gelten Uploads als pausiert).
   const counted = await step('count', storageTotal(env), null);
   const storageBytes = await recomputeStorage(env);
-  return { deleted, warned, seasonMails, purged, digests, groupDigests, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
+  return { deleted, warned, seasonMails, purged, digests, groupDigests, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted, failed };
 }

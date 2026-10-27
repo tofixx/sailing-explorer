@@ -182,7 +182,8 @@ export async function putCover(request: Request, env: Env, kind: string, publicI
   const now = await loadCover(env, k, t.objectId);
   if (now?.ver !== c.ver) await deleteKeys(env, [coverKey(c)]);
   if (old && old.ver !== now?.ver) await deleteKeys(env, [coverKey(old)]);
-  return json(pageCover(k, publicId, c), { status: 201 });
+  // das tatsächlich gespeicherte Bild melden (bei parallelem Ersetzen das des anderen Uploads)
+  return json(pageCover(k, publicId, now ?? c), { status: 201 });
 }
 
 /** PATCH /api/covers/:kind/:id { focusY } – nur den Ausschnitt ändern, ohne neues Bild (Verwalter). */
@@ -220,14 +221,13 @@ export async function removeCoverOf(env: Env, kind: CoverKind, objectId: string)
 /** DELETE /api/covers/:kind/:id – Verwalter. */
 export async function deleteCover(request: Request, env: Env, kind: string, publicId: string): Promise<Response> {
   const { t, kind: k } = await managedTarget(request, env, kind, publicId);
-  const c = await loadCover(env, k, t.objectId);
-  if (c) await removeCover(env, c);
+  await removeCoverOf(env, k, t.objectId);
   return new Response(null, { status: 204 });
 }
 
 /**
- * Nächtlich: Titelbilder gelöschter Profile, Boote und Gruppen entfernen (Konto löschen, Boot löschen, Gruppe
- * löschen und Kaskaden brauchen dadurch keinen eigenen Pfad). Liefert die Anzahl.
+ * Nächtlich: Netz für Titelbilder, deren Objekt ohne Löschpfad verschwand (Kaskaden). Profil, Boot, Gruppe und Konto
+ * entfernen ihr Bild selbst sofort (removeCoverOf). Liefert die Anzahl.
  */
 export async function sweepOrphanCovers(env: Env, limit = 200): Promise<number> {
   const { results } = await env.DB.prepare(

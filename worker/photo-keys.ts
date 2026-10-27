@@ -3,12 +3,12 @@
 import type { Env } from './env';
 import type { PhotoFormat } from './image';
 
-/** photos/<shareId>/<photoId>.webp bzw. _t.webp (JPEG-Fallback: .jpg / _t.jpg) */
 /** R2-Schlüssel eines Törns: Track-Payload und Übersichtsbild (einzige Stelle für diese Präfixe). */
 export const shareKey = (id: string) => `shares/${id}`;
 export const previewKey = (id: string) => `previews/${id}.jpg`;
 export const shareFileKeys = (id: string) => [shareKey(id), previewKey(id)];
 
+/** photos/<shareId>/<photoId>.webp bzw. _t.webp (JPEG-Fallback: .jpg / _t.jpg) */
 export function photoKey(shareId: string, photoId: string, format: PhotoFormat | string, thumb: boolean): string {
   return `photos/${shareId}/${photoId}${thumb ? '_t' : ''}.${format === 'jpeg' ? 'jpg' : 'webp'}`;
 }
