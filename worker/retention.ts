@@ -11,6 +11,7 @@ import { deleteKeys, photoKeysForShares } from './photo-keys';
 import { deleteShareActivity, nightlyActivityCleanup } from './activity';
 import { deleteShareReactions } from './reaction-cleanup';
 import { sendGroupDigests } from './group-digest';
+import { sweepOrphanCovers } from './covers';
 import { INACTIVE_ACCOUNT_MS, WARN_MS } from '../src/domain/support';
 
 /** Obergrenzen pro Lauf – hält den Cron im Free-Tier-CPU-Budget; der Rest folgt in der nächsten Nacht. */
@@ -28,6 +29,8 @@ export interface RetentionResult {
   deleted: number;
   warned: number;
   purged: number;
+  /** entfernte Titelbilder gelöschter Profile, Boote und Gruppen (Konzept 13.2) */
+  covers: number;
   /** Gesamtspeicher nach dem Lauf (neu berechnet, Konzept 5.2) */
   storageBytes: number;
   /** Abweichung des inkrementell gepflegten Zählers vom neu berechneten Wert (null = Zeile fehlte) */
@@ -136,9 +139,14 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     console.error('group digests failed', err);
     return 0;
   });
+  // Titelbilder gelöschter Profile, Boote und Gruppen (Konzept 13.2)
+  const covers = await sweepOrphanCovers(env).catch((err) => {
+    console.error('cover sweep failed', err);
+    return 0;
+  });
   // Notbremse: Zähler aus D1 neu berechnen – korrigiert Abweichungen der inkrementellen Pflege und legt eine
   // fehlende Zeile wieder an (bis dahin gelten Uploads als pausiert).
   const counted = await storageTotal(env);
   const storageBytes = await recomputeStorage(env);
-  return { deleted, warned, purged, digests, groupDigests, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
+  return { deleted, warned, purged, digests, groupDigests, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted };
 }

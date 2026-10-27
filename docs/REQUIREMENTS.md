@@ -164,6 +164,17 @@ Konzept: `docs/CONCEPT.md` Abschnitt 12. Umsetzung: `migrations/0013_social.sql`
 - **F-182** Startseite: Der Community-Stream ist der Hauptbereich – Gäste sehen den öffentlichen Stream mit Filter-Chips und „Anmelden & mitmachen“, Angemeldete „Neuigkeiten aus deinem Verein, Hafen und Team“ und „Leute, die du kennen könntest“. „Track anlegen“ ist ein zweitrangiger Knopf in der Kopfzeile und eine kompakte Karte, mobil ein runder Knopf unten rechts; Ziehen & Ablegen geht weiter. Ohne Backend bleibt die große Einstiegskarte. Kartenansicht und F-75 unverändert.
 - **F-183** Impressum und Datenschutz: SPA-Seiten `/impressum` und `/datenschutz` aus `src/content/legal.ts`, ohne Backend lauffähig, verlinkt in Startseiten-Fußzeile, Konto-Dialog und allen Mails. Betreiberdaten aus einem Objekt `OPERATOR`; solange Platzhalter enthalten sind, zeigen beide Seiten einen sichtbaren Warnhinweis.
 
+## Fotos an Person, Boot und Gruppe, Titelbilder (Konzept 13)
+
+- **F-190** Titelbild für Profil, Boot und Verein/Team: `PUT /api/covers/:art/:id` (WebP/JPEG ohne Metadaten, höchstens 1500 × 500 px und 300 KB) ersetzt, `DELETE` entfernt; Seiten-Antworten tragen `cover`. Jeder Austausch erzeugt eine neue Adresse; der globale Speicherzähler folgt.
+- **F-191** Ändern dürfen nur Verwalter (Person selbst, Eigner/Boots-Admins, Eigner/Admins der Gruppe) – sonst 404, ohne Anmeldung 401. Bilder mit Metadaten (400 `image_metadata`), anderen Formaten (400 `invalid_image`), zu großen Maßen (400 `too_large`) oder über 300 KB (413) werden abgelehnt.
+- **F-192** Titelbilder sind so sichtbar wie ihr Objekt: öffentlich für alle (`public, max-age=86400`), „Nur mit Link“ nur mit Schlüssel (die Seite liefert die Adresse mit `?k=`), privat nur für Verwalter (`private, no-cache`).
+- **F-193** Kostenlose Konten dürfen Titelbilder setzen (E6); die Notbremse gilt wie bei Törns.
+- **F-194** Titelbilder gelöschter Profile, Boote und Gruppen entfernt der nächtliche Cron (Datei, Zeile, Zähler).
+- **F-195** Galerien: Profil-, Boots- und Gruppenseite zeigen die 12 neuesten effektiv öffentlichen Fotos ihrer Törns (Person: eigene und als Crew; Boot: mit dem Boot; Gruppe: Boote und Mitglieder). Ein Klick öffnet den Törn mit dem Foto (`?foto=`).
+- **F-196** Vereine und Teams wählen den Heimathafen per Autovervollständigung (`harborId`) oder Name (findet den vorhandenen Hafen unabhängig von Schreibweise); die Hafenseite listet öffentliche Vereine und Teams.
+- **F-197** Migration 0014: vorhandene Freitext-Heimathäfen von Gruppen werden Häfen zugeordnet (vorhandene wiederverwendet, sonst je normalisiertem Namen einer).
+
 ## Community (Entdecken)
 
 - **F-70** Entdecken: Auf der Startseite zeigt – solange keine eigenen Tracks geladen sind – neben (breite Bildschirme) bzw. unter der Einstiegskarte eine Community-Leiste „Zuletzt gesegelt“ mit neuen Booten und Seglern; ohne öffentliche Törns lädt sie zum ersten Teilen ein, nur ohne Backend bleibt sie ausgeblendet die neuesten öffentlichen Törns (Übersichtsbild oder Platzhalter, Titel, Distanz, Datum, Segler, Boot) mit Link „Alle entdecken“. Die Seite `/entdecken` zeigt drei Abschnitte: Törns, Boote, Segler, jeweils neueste zuerst. Die Leiste verdeckt die Karte nicht und ist mobil seitlich scrollbar; ohne Backend, bei Fehlern oder ohne öffentliche Törns bleibt sie unsichtbar.

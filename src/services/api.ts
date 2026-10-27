@@ -349,14 +349,14 @@ export const api = {
   myProfile: () => call<{ profile: Profile; exists: boolean }>('/api/me/profile'),
   saveProfile: (p: ProfileInput) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),
   profile: (handle: string, key?: string | null) =>
-    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[]; social?: FollowStats; home?: PublicHome }>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
+    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[]; social?: FollowStats; home?: PublicHome } & PageMedia>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
 
   myBoats: () => call<{ boats: Boat[] }>('/api/boats'),
   createBoat: (b: BoatInput) => call<{ boat: Boat }>('/api/boats', jsonInit('POST', b)),
   updateBoat: (id: string, b: BoatInput) => call<{ boat: Boat }>(`/api/boats/${encodeURIComponent(id)}`, jsonInit('PATCH', b)),
   deleteBoat: (id: string) => call<void>(`/api/boats/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   boat: (id: string, key?: string | null) =>
-    call<{ boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[] }>(`/api/boats/${encodeURIComponent(id)}`, keyInit(key)),
+    call<{ boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[] } & PageMedia>(`/api/boats/${encodeURIComponent(id)}`, keyInit(key)),
 
   boatAdmins: (id: string) => call<BoatAdmins>(`/api/boats/${encodeURIComponent(id)}/admins`),
   inviteBoatAdmin: (id: string, to: InviteTo) => call<InviteCreated>(`/api/boats/${encodeURIComponent(id)}/invites`, jsonInit('POST', to)),
@@ -610,6 +610,8 @@ export interface GroupInfo extends Linkable {
   name: string;
   description: string;
   homePort: string;
+  /** Hafen (Konzept 13.3) – fehlt bei älteren Servern */
+  harbor?: HarborRef | null;
   joinMode: JoinMode;
   role: GroupRole | null;
   /** nur für Eigner und Admins: bis zur Prüfung ausgeblendet */
@@ -668,6 +670,9 @@ export interface GroupPageData {
   boats: GroupBoat[];
   social: FollowStats;
   membership: { role: GroupRole | null; requested: boolean; canRequest: boolean };
+  /** Titelbild und Galerie (Konzept 13) – fehlen bei älteren Servern */
+  cover?: string | null;
+  photos?: GalleryPhoto[];
   requests?: GroupRequest[];
   invites?: PendingInvite[];
 }
@@ -709,6 +714,8 @@ export interface DiscoverData {
 
 export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode'>> & {
   kind?: GroupKind;
+  /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
+  harborId?: string | null;
   parentId?: string | null;
   rotateKey?: boolean;
 };
@@ -785,6 +792,8 @@ export interface HarborSearchHit extends HarborRef {
 export interface HarborPageData {
   harbor: HarborRef & { lat: number | null; lon: number | null; canEdit: boolean; hiddenAt?: number | null; createdAt: number };
   club: GroupRef | null;
+  /** Vereine und Teams mit diesem Heimathafen (Konzept 13.3) – fehlt bei älteren Servern */
+  groups?: GroupRef[];
   stats: { boats: number; voyages: number; distNm: number; seasonNm: number };
   boats: Array<{ id: string; name: string; boatType: string; lengthM: number | null; owner: { handle: string; displayName: string } | null }>;
   voyages: ShareMeta[];
@@ -828,4 +837,36 @@ export const socialApi = {
       headers: { ...(kind ? { 'Content-Type': 'application/json' } : {}), ...(key ? { 'X-Share-Key': key } : {}) },
     }),
   reactions: (subject: ReactionSubject, id: string, key?: string | null) => call<ReactionWho>(`/api/reactions/${subject}/${encodeURIComponent(id)}`, keyInit(key)),
+};
+
+// ================================================================ Titelbilder und Galerien (Konzept 13)
+
+/** Foto eines öffentlichen Törns in der Galerie von Person, Boot oder Verein/Team. */
+export interface GalleryPhoto {
+  id: string;
+  shareId: string;
+  shareTitle: string;
+  caption: string;
+  takenAt: number | null;
+  width: number;
+  height: number;
+}
+
+/** Titelbild (Adresse inkl. Version, bei „Nur mit Link“ mit Schlüssel) und Galerie einer Seite. */
+export interface PageMedia {
+  cover?: string | null;
+  photos?: GalleryPhoto[];
+}
+
+/** u = Profil (Profiladresse), b = Boot (ID), g = Verein/Team (ID) */
+export type CoverKind = 'u' | 'b' | 'g';
+
+export const coverApi = {
+  put: (kind: CoverKind, id: string, image: Blob) =>
+    call<{ cover: string }>(`/api/covers/${kind}/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: image,
+    }),
+  remove: (kind: CoverKind, id: string) => call<void>(`/api/covers/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

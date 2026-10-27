@@ -72,6 +72,16 @@ export function photoLimitMessage(v: Exclude<QuotaVerdict, 'ok'>, supportOffered
   return 'Fotos gibt es nur für Unterstützer.' + (supportOffered ? ' Unterstütze Sail Explorer mit einem Kaffee oder Bier, um Fotos zu deinen Törns hochzuladen.' : '');
 }
 
+// ---------------------------------------------------------------- Titelbilder (Konzept 13.2)
+
+/** Titelbild: im Browser auf 3:1 zugeschnitten, so groß und höchstens so viele Bytes. Für alle Konten (E6). */
+export const COVER_WIDTH = 1500;
+export const COVER_HEIGHT = 500;
+export const COVER_BYTES = 300 * 1024;
+
+/** Galerie an Person, Boot, Verein/Team: so viele der neuesten öffentlichen Törn-Fotos. */
+export const GALLERY_PHOTOS = 12;
+
 // ---------------------------------------------------------------- Globale Notbremse (Konzept 5.2)
 
 const GB = 1000 ** 3;

@@ -153,6 +153,12 @@ npx wrangler secret put STRIPE_SECRET_KEY
 npx wrangler secret put STRIPE_WEBHOOK_SECRET
 ```
 
+**Ohne Zahlung freischalten** (Betreiber, Testkonten, Vereinsvorstand): eine Zeile mit `provider = 'grant'` in `supports` – Kontingente und Aufbewahrung behandeln sie wie eine Zahlung, Löschen der Zeile nimmt sie zurück:
+
+```bash
+npx wrangler d1 execute sailing-explorer --remote --command "INSERT INTO supports (id, user_id, provider, provider_ref, amount, created_at, valid_until) VALUES ('grant-<name>', '<Konto-ID>', 'grant', 'grant:<name>', 0, unixepoch()*1000, <Ende in ms>)"
+```
+
 Lokal testen: Testmodus-Schlüssel `sk_test_…` in `.dev.vars` eintragen und Ereignisse mit der Stripe-CLI weiterleiten. `stripe listen --forward-to localhost:5173/api/webhooks/stripe` gibt das passende `whsec_…` aus.
 
 ### Kommentare und Moderation

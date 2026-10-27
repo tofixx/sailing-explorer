@@ -10,8 +10,11 @@ import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
+import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-stream';
 import './sx-follow';
+import './sx-harbor-picker';
+import './sx-page-media';
 
 /**
  * Gruppenseite `/g/<slug>` und Anlegen `/g/neu` (Konzept 11.1, 11.5, F-163). Rein präsentational: Daten kommen als
@@ -375,8 +378,8 @@ export class SxGroupPage extends LitElement {
         <div class="row"><span class="faint">/g/</span><input type="text" maxlength="30" pattern="[a-z0-9-]{3,30}" .value=${d.slug ?? ''} aria-describedby="slug-hint"
           @input=${(e: Event) => this.set({ slug: (e.target as HTMLInputElement).value.toLowerCase() })} /></div>
         <span class="hint" id="slug-hint">3–30 Zeichen: a–z, 0–9 und Bindestrich.</span></label>
-      <label><span class="label">Heimathafen (optional)</span>
-        <input type="text" maxlength="80" .value=${d.homePort ?? ''} @input=${(e: Event) => this.set({ homePort: (e.target as HTMLInputElement).value })} /></label>
+      <div><label class="label" for="gh">Heimathafen (optional)</label>
+        <sx-harbor-picker input-id="gh" label="Heimathafen" .value=${g?.harbor ?? null}></sx-harbor-picker></div>
       <label><span class="label">Beschreibung (optional)</span>
         <textarea maxlength="1000" .value=${d.description ?? ''} @input=${(e: Event) => this.set({ description: (e.target as HTMLTextAreaElement).value })}></textarea></label>
       ${create && d.kind === 'team' && this.clubs.length
@@ -407,7 +410,7 @@ export class SxGroupPage extends LitElement {
       ${this.signedIn
         ? html`<form class="box" @submit=${(e: Event) => {
             e.preventDefault();
-            emit(this, 'sx-group-create', { ...this.draft });
+            emit(this, 'sx-group-create', { ...this.draft, ...this.harborInput() });
           }}>
             ${this.fields(true, null)}
             <div class="row"><button class="btn primary" type="submit" ?disabled=${this.busy}>${icon('check')} Gruppe anlegen</button><a class="btn ghost" href="/">Abbrechen</a></div>
@@ -417,16 +420,24 @@ export class SxGroupPage extends LitElement {
     </div>`;
   }
 
+  /** Hafen aus der Auswahl (Konzept 13.3): vorhandener per ID, neuer Name als Text – der Server erkennt Dubletten. */
+  private harborInput(): Pick<GroupInput, 'harborId' | 'homePort'> {
+    const picker = this.renderRoot.querySelector<SxHarborPicker>('sx-harbor-picker');
+    if (!picker) return {};
+    const c = picker.choice;
+    return 'name' in c ? { homePort: c.name } : { harborId: c.harborId };
+  }
+
   /** Bearbeiten öffnen: Entwurf aus der aktuellen Gruppe. */
   private startEdit(g: GroupInfo) {
-    this.draft = { name: g.name, slug: g.slug, description: g.description, homePort: g.homePort, visibility: g.visibility, joinMode: g.joinMode };
+    this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode };
     this.editing = true;
   }
 
   private editForm(g: GroupInfo) {
     return html`<form class="box" aria-label="Gruppe bearbeiten" @submit=${(e: Event) => {
         e.preventDefault();
-        const patch: GroupInput = { ...this.draft };
+        const patch: GroupInput = { ...this.draft, ...this.harborInput() };
         if (g.role !== 'owner' || patch.visibility === g.visibility) delete patch.visibility;
         emit(this, 'sx-group-save', { id: g.id, patch });
       }}>
@@ -477,7 +488,7 @@ export class SxGroupPage extends LitElement {
         ${g.description ? html`<div class="lead">${g.description}</div>` : ''}
         <div class="facts">
           <span>${GROUP_KIND_LABEL[g.kind]}</span>
-          ${g.homePort ? html`<span>Heimathafen ${g.homePort}</span>` : ''}
+          ${g.harbor ? html`<span>Heimathafen <a href="/h/${g.harbor.slug}">${g.harbor.name}</a></span>` : g.homePort ? html`<span>Heimathafen ${g.homePort}</span>` : ''}
           ${d.parent ? html`<span>im Verein <a href="/g/${d.parent.slug}">${d.parent.name}</a></span>` : ''}
           ${manager ? html`<span class="vis">${icon(VISIBILITY_ICON[v] ?? 'lock')} ${GROUP_VISIBILITY_LABEL[v]}</span>` : ''}
           ${g.role ? html`<span>Du: ${GROUP_ROLE_LABEL[g.role]}</span>` : ''}
@@ -621,6 +632,7 @@ export class SxGroupPage extends LitElement {
     const g = d.group;
     const manager = canManageGroup(g.role);
     return html`
+      <sx-cover kind="g" target-id=${g.id} .src=${d.cover ?? null} ?can-edit=${manager} label="Titelbild von ${g.name}"></sx-cover>
       ${this.hero(d)}
       ${manager && g.hiddenAt ? html`<p class="note" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.editing && manager ? this.editForm(g) : ''}
@@ -639,6 +651,7 @@ export class SxGroupPage extends LitElement {
         <sx-stream scope="group" in-group .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.streamLoading}
           empty-text="Noch keine Neuigkeiten in dieser Gruppe."></sx-stream>
       </section>
+      <sx-gallery .photos=${d.photos ?? []} heading="Fotos aus Törns von Mitgliedern und Booten"></sx-gallery>
       ${this.members(d)}
       ${this.boats(d)}
     `;

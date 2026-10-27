@@ -21,6 +21,7 @@ Diese Entscheidungen gehen allen Vorschlägen unten vor; betroffene Stellen sind
 | E2 | **Öffentlich heißt öffentlich.** | Öffentliche Törns, Boote und Profile sind gelistet und indexierbar, ohne 24-h-Verzögerung (offene Fragen 1 und 2 erledigt). |
 | E3 | **Fotos nur für Unterstützer**, Speicher für Unterstützer **200 MB** (Tracks, Übersichtsbilder und Fotos zusammen). | Kostenlos: keine Fotos (offene Frage 5 erledigt). Kostenlose Konten: Speicher wie bisher nur über 3 Törns begrenzt. |
 | E4 | **Ende der Unterstützung macht nichts öffentlich.** | Nicht öffentliche Objekte bleiben, wie sie sind, bis sie ablaufen (Unterstützungsende + 3 Monate). Neu „Nur mit Link“/„Nur ich“ setzen oder Fotos hinzufügen geht nicht mehr; auf „Öffentlich“ schalten oder löschen geht immer. Eine stille Hochstufung würde private Positionsdaten veröffentlichen. |
+| E6 | **Titelbilder für alle** (Oktober 2026, Konzept 13.2). | Ein Titelbild je Profil, Boot, Verein/Team auch für kostenlose Konten – höchstens 300 KB, nur im globalen Speicherzähler. Fotos an Törns bleiben Unterstützern vorbehalten (E3). |
 | E5 | **Altbestand** wird nicht hochgestuft. | Heute private oder nicht gelistete Törns, Boote und Profile kostenloser Konten bleiben, wie sie sind (F-86); nur Neues folgt E1. |
 
 ## 0. Ausgangslage
@@ -1251,9 +1252,58 @@ Stream-Abfrage + 1 Prüf-Batch (inkl. Reaktionen). Öffentlich: 60 s gecacht.
 
 1. Häfen zusammenführen (Dubletten trotz Normalisierung, z. B. „Potsdam“ und „Hafen Potsdam“) – reicht die Moderation
    (ausblenden/löschen) oder braucht es „zusammenführen“?
-2. Soll der Heimathafen einer Gruppe (`groups.home_port`, Freitext) ebenfalls auf `harbors` umgestellt werden?
-   Umgesetzt: nein, nur Boote und Personen.
+2. ~~Soll der Heimathafen einer Gruppe ebenfalls auf `harbors` umgestellt werden?~~ Ja – umgesetzt in 13.3.
 3. Wer darf die Position eines Hafens pflegen, wenn die Anleger:in inaktiv ist – Vereins-Admins des Hafens?
 4. Benachrichtigungs-Glocke (12.5) als nächster Schritt?
 5. Betreiberangaben für Impressum und Datenschutz (Name, Anschrift, E-Mail, ggf. Telefon) und ob
    Auftragsverarbeitungsverträge mit Cloudflare, Resend und Stripe abgeschlossen sind.
+
+## 13. Fotos an Person, Boot und Gruppe, Titelbilder, Häfen für Gruppen
+
+Anlass (Betreiber, Oktober 2026): Fotos waren in der App kaum zu finden – sie hängen nur am Törn, und ohne
+eingerichtetes Stripe konnte niemand Unterstützer werden. Gewünscht: Fotos beim Törn hinzufügen, die dann auch bei
+Boot, Team, Person usw. erscheinen; Titelbilder für Personen, Boote und Vereine; Häfen nur mit Stream; Häfen per
+Autovervollständigung, damit „Potsdam“ und „potsdam“ ein Hafen bleiben.
+
+### 13.1 Fotos hängen am Törn – Galerien zeigen sie überall
+
+Ein Foto gehört genau einem Törn (Sichtbarkeit, Platzierung, Löschen bleiben wie in Abschnitt 3). Person, Boot und
+Verein/Team zeigen **keine Kopien**, sondern eine Abfrage: die 12 neuesten Fotos ihrer Törns
+(`worker/gallery.ts`, Feld `photos` der Seiten-Antworten).
+
+| Seite | Törns |
+|---|---|
+| Person | eigene und solche, auf denen die Person Crew ist |
+| Boot | Törns mit diesem Boot |
+| Verein/Team | Törns der zugeordneten Boote und der Mitglieder |
+
+Nur **effektiv öffentliche** Fotos: Foto „wie der Törn“, Törn öffentlich, beides nicht ausgeblendet, Konto nicht
+gesperrt. Ein Klick öffnet den Törn mit dem Foto in der Lightbox (`/s/<id>?foto=<photoId>`). Die Galerie macht nichts
+sichtbarer, als es am Törn schon ist; „Nur mit Link“-Törns erscheinen nie. Neue Fotos laufen wie bisher als
+Neuigkeit in die Streams (11.3).
+
+Damit der Betreiber Fotos ohne Stripe nutzen kann, lässt sich ein Konto direkt freischalten: eine Zeile in
+`supports` mit `provider = 'grant'` (README). Aufbewahrung und Kontingente behandeln sie wie eine Zahlung.
+
+### 13.2 Titelbilder (E6)
+
+| | |
+|---|---|
+| Wofür | Profil (`u`, öffentliche ID = Profiladresse), Boot (`b`), Verein/Team (`g`). Häfen bekommen keins – ihre Seite lebt vom Stream. |
+| Wer | Profil: die Person; Boot: Eigner und Boots-Admins; Gruppe: Eigner und Admins. Alle Konten (E6), gesperrte nicht. |
+| Format | Im Browser mittig auf 3:1 zugeschnitten, höchstens 1500 × 500 px, WebP (sonst JPEG), höchstens 300 KB, neu kodiert ohne Metadaten (`processCover`). Der Worker prüft wie bei Fotos nur Kopfdaten (`inspectImage`). |
+| Speicher | Tabelle `covers` (eine Zeile je Objekt, `ver` wechselt bei jedem Austausch), R2 `covers/<art>/<id>/<ver>.<format>`. Zählt im globalen Zähler (Notbremse), nicht im Kontingent des Kontos. |
+| Sichtbar | wie das Objekt: öffentlich für alle (1 Tag cachebar, die Version steckt in der Adresse), „Nur mit Link“ mit Schlüssel – die Seite liefert die Adresse schon mit `?k=` –, privat nur Verwalter. |
+| API | `PUT/DELETE /api/covers/:art/:id`, `GET /api/covers/:art/:id/:ver`; Seiten-Antworten tragen `cover` (Adresse oder null). |
+| Löschen | Objekt gelöscht (auch per Kaskade beim Konto-Löschen) → der nächtliche Cron entfernt Datei, Zeile und Zähleranteil (`sweepOrphanCovers`). |
+
+Oberfläche: Banner über dem Kopf der Seite (`sx-cover`); Verwalter sehen ohne Bild einen schmalen Platzhalter
+„Titelbild hinzufügen“, mit Bild „Ändern“ und „Entfernen“.
+
+### 13.3 Heimathafen für Vereine und Teams
+
+`groups.harbor_id` wie bei Booten (`home_port` bleibt Anzeige-Kopie). Das Formular nutzt dieselbe
+Autovervollständigung (`sx-harbor-picker`); ein getippter Name findet über den normalisierten Schlüssel (`harborKey`)
+den vorhandenen Hafen – „POTSDAM“, „potsdam“ und „Potsdam“ sind einer – oder legt ihn an. Migration 0014 übernimmt
+vorhandene Freitexte mit derselben Regel. Die Hafenseite listet öffentliche Vereine und Teams mit diesem Heimathafen;
+Umbenennen eines Hafens führt die Kopie bei Gruppen nach, Löschen löst die Zuordnung.
