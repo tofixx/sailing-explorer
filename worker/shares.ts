@@ -5,7 +5,7 @@ import { randomId } from './crypto';
 import { HttpError, clientIp, countKeyFailure, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, nextShareKey, requestKey } from './access';
 import { assertActive, deleteShareReports, isAdmin } from './moderation';
-import { deleteKeys, photoKeysForShares } from './photo-keys';
+import { deleteKeys, photoKeysForShares, previewKey, shareKey } from './photo-keys';
 import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
 import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, subtractShareStmt } from './storage';
 import { deleteShareActivity, recordVoyage } from './activity';
@@ -50,8 +50,8 @@ export interface ShareRow {
   boat_hidden_at?: number | null;
 }
 
-const key = (id: string) => `shares/${id}`;
-const imageKey = (id: string) => `previews/${id}.jpg`;
+const key = shareKey;
+const imageKey = previewKey;
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
 export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at
@@ -224,6 +224,7 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' },
     customMetadata: { owner: user.id },
   });
+  // Scheitert D1 nach dem Upload (z. B. Konto parallel gelöscht), bleibt sonst eine Datei ohne Zeile zurück.
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO shares (id, user_id, title, summary, visibility, share_key, view, size_bytes, track_count, created_at, updated_at, boat_id, listed, dist_nm, started_at)
@@ -233,7 +234,10 @@ export async function createShare(request: Request, env: Env): Promise<Response>
       row.visibility === 'public' ? 1 : 0, row.dist_nm, row.started_at,
     ),
     addStorageStmt(env, row.size_bytes),
-  ]);
+  ]).catch(async (err: unknown) => {
+    await deleteKeys(env, [key(row.id)]);
+    throw err;
+  });
   const saved = await getShareRow(env, row.id);
   // Neuigkeiten (Konzept 11.3): nur öffentliche Törns kommen ins Log.
   if (row.visibility === 'public') await recordVoyage(env, row, now);
@@ -369,10 +373,15 @@ export async function putShareImage(request: Request, env: Env, id: string): Pro
     if (v !== 'ok') throw storageQuotaError(env, usage, v);
   }
   await env.TRACKS.put(imageKey(row.id), bytes, { httpMetadata: { contentType: 'image/jpeg' }, customMetadata: { owner: row.user_id } });
-  await env.DB.batch([
+  const [, upd] = await env.DB.batch([
     replaceImageStmt(env, row.id, bytes.length),
     env.DB.prepare('UPDATE shares SET has_image = 1, image_bytes = ?, updated_at = ? WHERE id = ?').bind(bytes.length, Date.now(), row.id),
   ]);
+  // Törn inzwischen gelöscht: das Bild hätte keine Zeile mehr – sofort wieder entfernen.
+  if (!upd.meta.changes) {
+    await deleteKeys(env, [imageKey(row.id)]);
+    throw NOT_FOUND();
+  }
   return new Response(null, { status: 204 });
 }
 

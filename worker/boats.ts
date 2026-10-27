@@ -8,7 +8,7 @@ import { publicShares } from './shares';
 import { boatCleanup, recordHarborBoat } from './activity';
 import { harborFromBoatInput, type HarborRow } from './harbors';
 import { followStats } from './follows';
-import { loadCover, pageCover } from './covers';
+import { loadCover, pageCover, removeCoverOf } from './covers';
 import { galleryPhotos } from './gallery';
 import { checkBoatQuota, checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
@@ -263,6 +263,16 @@ export async function updateBoat(request: Request, env: Env, id: string): Promis
 export async function deleteBoat(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   if (!BOAT_ID_RE.test(id) || (await roleFor(env, user.id, id)) !== 'owner') throw NOT_FOUND();
+  await removeBoat(env, id);
+  return new Response(null, { status: 204 });
+}
+
+/**
+ * Der eine Löschpfad für Boote (Eigner, Moderation): Titelbild, Zuordnungen, Admins, Einladungen, Meldungen, Folgen
+ * und Aktivitäten; Törns bleiben und verlieren nur die Zuordnung.
+ */
+export async function removeBoat(env: Env, id: string): Promise<void> {
+  await removeCoverOf(env, 'b', id);
   await env.DB.batch([
     ...boatCleanup(env, id),
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id = ?').bind(id),
@@ -271,5 +281,4 @@ export async function deleteBoat(request: Request, env: Env, id: string): Promis
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'boat' AND target_id = ?`).bind(id),
     env.DB.prepare('DELETE FROM boats WHERE id = ?').bind(id),
   ]);
-  return new Response(null, { status: 204 });
 }

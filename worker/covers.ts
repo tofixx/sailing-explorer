@@ -178,7 +178,10 @@ export async function putCover(request: Request, env: Env, kind: string, publicI
        ON CONFLICT(kind, object_id) DO UPDATE SET ver = ?3, format = ?4, bytes = ?5, focus_y = ?6, user_id = ?7, created_at = ?8`,
     ).bind(c.kind, c.object_id, c.ver, c.format, c.bytes, c.focus_y, c.user_id, c.created_at),
   ]);
-  if (old) await deleteKeys(env, [coverKey(old)]);
+  // Paralleles Ersetzen: hat ein anderer Upload gewonnen, ist die eigene Datei verwaist – sofort entfernen.
+  const now = await loadCover(env, k, t.objectId);
+  if (now?.ver !== c.ver) await deleteKeys(env, [coverKey(c)]);
+  if (old && old.ver !== now?.ver) await deleteKeys(env, [coverKey(old)]);
   return json(pageCover(k, publicId, c), { status: 201 });
 }
 
@@ -197,9 +200,21 @@ export async function patchCover(request: Request, env: Env, kind: string, publi
 async function removeCover(env: Env, c: CoverRow): Promise<void> {
   await deleteKeys(env, [coverKey(c)]);
   await env.DB.batch([
-    env.DB.prepare('UPDATE counters SET value = MAX(0, value - ?) WHERE name = ?').bind(c.bytes, STORAGE_COUNTER),
+    // nur abziehen, was diese Zeile wirklich belegt (bei parallelem Ersetzen gibt es sie nicht mehr)
+    env.DB.prepare('UPDATE counters SET value = MAX(0, value - COALESCE((SELECT bytes FROM covers WHERE kind = ?1 AND object_id = ?2 AND ver = ?3), 0)) WHERE name = ?4').bind(
+      c.kind, c.object_id, c.ver, STORAGE_COUNTER,
+    ),
     env.DB.prepare('DELETE FROM covers WHERE kind = ? AND object_id = ? AND ver = ?').bind(c.kind, c.object_id, c.ver),
   ]);
+}
+
+/**
+ * Titelbild eines Objekts sofort entfernen – beim Löschen von Profil (Moderation, Konto), Boot und Gruppe. Der
+ * nächtliche Sweep bleibt als Netz für Kaskaden; so kann ein gelöschtes Bild aber nicht mit einem neuen Profil zurückkommen.
+ */
+export async function removeCoverOf(env: Env, kind: CoverKind, objectId: string): Promise<void> {
+  const c = await loadCover(env, kind, objectId);
+  if (c) await removeCover(env, c);
 }
 
 /** DELETE /api/covers/:kind/:id – Verwalter. */

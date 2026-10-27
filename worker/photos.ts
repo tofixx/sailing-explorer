@@ -225,7 +225,11 @@ export async function uploadPhoto(request: Request, env: Env, shareId: string): 
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM photos WHERE share_id = ?) < ?`,
     ).bind(id, share.id, user.id, meta.visibility, meta.caption, meta.takenAt, meta.lat, meta.lon, meta.placement, fi.width, fi.height, fi.format, bytes.length, now, share.id, max),
     addPhotoStmt(env, id),
-  ]);
+  ]).catch(async (err: unknown) => {
+    // z. B. Törn parallel gelöscht (Fremdschlüssel): keine Zeile – also auch keine Dateien
+    await deleteKeys(env, photoKeys({ share_id: share.id, id, format: fi.format }));
+    throw err;
+  });
   if (!ins.meta.changes) {
     await deleteKeys(env, photoKeys({ share_id: share.id, id, format: fi.format }));
     throw new HttpError(409, 'quota', photoLimitMessage('quota', false));

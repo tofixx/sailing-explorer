@@ -11,7 +11,7 @@ import { checkVisibilityChoice, isSupporter, supportConfigured, visibilityRequir
 import { groupActivityCleanup, recordBoat, recordMember } from './activity';
 import { followStats } from './follows';
 import { clearHomeClub } from './home';
-import { loadCover, pageCover } from './covers';
+import { loadCover, pageCover, removeCoverOf } from './covers';
 import { galleryPhotos } from './gallery';
 import { harborFromBoatInput, harborRef } from './harbors';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, parseVisibility } from './validate';
@@ -279,6 +279,7 @@ async function applyHarbor(env: Env, user: Pick<User, 'id'>, g: GroupRow, input:
 
 /** Löscht eine Gruppe samt Mitgliedern, Anfragen, Zuordnungen, Beiträgen, Einladungen, Folgen, Aktivitäten, Meldungen. */
 export async function removeGroup(env: Env, id: string): Promise<void> {
+  await removeCoverOf(env, 'g', id);
   await env.DB.batch([
     env.DB.prepare(
       `DELETE FROM reports WHERE (target_kind = 'group' AND target_id = ?1)
@@ -527,8 +528,9 @@ export async function removeMember(request: Request, env: Env, id: string, who: 
   if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigner.');
   await env.DB.batch([
     env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(group.id, target),
-    // „Mein Verein“ fällt mit (F-170)
+    // „Mein Verein“ fällt mit (F-170), ebenso die Beitritts-Neuigkeit (sonst stünde sie bis zu 12 Monate im Stream)
     clearHomeClub(env, target, group.id),
+    env.DB.prepare('DELETE FROM activity WHERE bucket = ?').bind(`member:${group.id}:${target}`),
   ]);
   return new Response(null, { status: 204 });
 }
@@ -613,7 +615,10 @@ export async function removeGroupBoat(request: Request, env: Env, id: string, bo
   const role = g ? await roleIn(env, user.id, g.id) : null;
   const boatRole = BOAT_ID_RE.test(boatId) ? await roleFor(env, user.id, boatId) : null;
   if (!g || (!canManageGroup(role) && !boatRole)) throw GROUP_NOT_FOUND();
-  const res = await env.DB.prepare('DELETE FROM group_boats WHERE group_id = ? AND boat_id = ?').bind(g.id, boatId).run();
+  const [res] = await env.DB.batch([
+    env.DB.prepare('DELETE FROM group_boats WHERE group_id = ? AND boat_id = ?').bind(g.id, boatId),
+    env.DB.prepare('DELETE FROM activity WHERE bucket = ?').bind(`boat:${g.id}:${boatId}`),
+  ]);
   if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Dieses Boot ist nicht in der Gruppe.');
   return new Response(null, { status: 204 });
 }

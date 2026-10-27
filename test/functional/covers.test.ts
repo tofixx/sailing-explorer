@@ -200,18 +200,22 @@ describe('Titelbilder (Konzept 13.2)', () => {
     expect(((await (await s.send('GET', `/api/boats/${b.id}`, undefined)).json()) as { coverY: number }).coverY).toBe(50);
   });
 
-  it('F-194: Titelbilder gelöschter Objekte räumt der Cron weg', async () => {
+  it('F-194: Boot löschen nimmt das Titelbild sofort mit; Reste aus Kaskaden räumt der Cron weg', async () => {
     const owner = await s.person({ profile: 'public' });
     const b = await s.boat(owner);
     await putCover('b', b.id, owner.cookie);
     const before = await counter();
     expect((await s.send('DELETE', `/api/boats/${b.id}`, owner.cookie)).status).toBe(204);
-    expect((await (await h.r2()).list({ prefix: `covers/b/${b.id}/` })).objects).toHaveLength(1);
-    await h.scheduled();
     expect((await (await h.r2()).list({ prefix: `covers/b/${b.id}/` })).objects).toHaveLength(0);
-    expect(await (await h.db()).prepare(`SELECT 1 AS x FROM covers WHERE object_id = ?`).bind(b.id).first()).toBeNull();
-    // Der Cron rechnet den Zähler ohnehin neu – das Titelbild zählt nicht mehr mit.
-    expect(await counter()).toBeLessThanOrEqual(before - webp(1500, 500).length);
+    expect(await counter()).toBe(before - webp(1500, 500).length);
+
+    // Netz: Objekt verschwindet ohne Löschpfad (z. B. Kaskade) – der nächtliche Sweep entfernt das Bild
+    const b2 = await s.boat(owner);
+    await putCover('b', b2.id, owner.cookie);
+    await (await h.db()).prepare('DELETE FROM boats WHERE id = ?').bind(b2.id).run();
+    await h.scheduled();
+    expect((await (await h.r2()).list({ prefix: `covers/b/${b2.id}/` })).objects).toHaveLength(0);
+    expect(await (await h.db()).prepare('SELECT 1 AS x FROM covers WHERE object_id = ?').bind(b2.id).first()).toBeNull();
   });
 });
 
