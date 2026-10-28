@@ -221,10 +221,11 @@ export class SxHomeFeed extends LitElement {
         font: 600 var(--fs-s) / 1 var(--font);
         cursor: pointer;
       }
-      .modes .joins {
-        margin-left: var(--s-2);
-        border-left: 1px solid var(--border-soft);
-        border-radius: 0 calc(var(--radius) - 2px) calc(var(--radius) - 2px) 0;
+      .modebar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--s-2);
       }
       .modes button[aria-pressed='true'] {
         background: var(--surface);
@@ -485,10 +486,12 @@ export class SxHomeFeed extends LitElement {
 
   private modeTabs() {
     const modes: StreamMode[] = this.signedIn ? ['near', 'all', 'mine'] : ['near', 'all'];
-    return html`<div class="modes" role="toolbar" aria-label="Was zeigen?">
-      ${modes.map((m) => html`<button type="button" aria-pressed=${this.mode === m ? 'true' : 'false'} @click=${() => this.mode !== m && emit(this, 'sx-stream-mode', { mode: m })}>${m === 'near' ? icon('anchor') : ''}${MODE_LABEL[m]}</button>`)}
-      <button type="button" class="joins" aria-pressed=${this.joins ? 'true' : 'false'} title=${this.joins ? 'Beitrittsmeldungen ausblenden' : 'Beitrittsmeldungen zeigen'}
-        @click=${() => emit(this, 'sx-stream-joins', { show: !this.joins })}>${icon('user')}Beitritte</button>
+    return html`<div class="modebar">
+      <div class="modes" role="toolbar" aria-label="Was zeigen?">
+        ${modes.map((m) => html`<button type="button" aria-pressed=${this.mode === m ? 'true' : 'false'} @click=${() => this.mode !== m && emit(this, 'sx-stream-mode', { mode: m })}>${m === 'near' ? icon('anchor') : ''}${MODE_LABEL[m]}</button>`)}
+      </div>
+      <button type="button" class="chip" aria-pressed=${this.joins ? 'true' : 'false'} title=${this.joins ? 'Beitrittsmeldungen ausblenden' : 'Beitrittsmeldungen zeigen'}
+        @click=${() => emit(this, 'sx-stream-joins', { show: !this.joins })}>${icon('user')} Beitritte</button>
     </div>`;
   }
 

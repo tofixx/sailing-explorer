@@ -232,7 +232,9 @@ export class SxStream extends LitElement {
         // „<Name> ist dem Team <Gruppe> beigetreten“ (F-349); ohne öffentliches Profil der Spaßname mit Schloss
         const name = i.actor
           ? this.who(i)
-          : html`<span class="pseudo" title="Spaßname – das Profil ist nicht öffentlich">${icon('lock')}${i.alias ?? 'Ein neues Mitglied'}</span>`;
+          : i.alias
+            ? html`<span class="pseudo" title="Spaßname – das Profil ist nicht öffentlich">${icon('lock')}${i.alias}</span>`
+            : html`<span>Ein neues Mitglied</span>`;
         const g = i.group;
         return html`<div class="head">${name} <span class="what">ist${g && !this.inGroup
             ? html` ${g.kind === 'club' ? 'dem Verein' : 'dem Team'} <a href="/g/${g.slug}">${g.name}</a>`
@@ -269,13 +271,15 @@ export class SxStream extends LitElement {
   }
 
   render() {
-    if (!this.items.length) return this.loading ? html`<div class="empty">Lade …</div>` : html`<div class="empty">${this.emptyText}</div>`;
+    // „Mehr laden“ auch bei leerer Liste, solange es weitergeht – sonst bliebe ein ganz weggefilterter Stand stecken (F-350)
+    const more = this.cursor
+      ? html`<div class="more"><button class="btn" ?disabled=${this.loading} @click=${() => emit(this, 'sx-stream-more', { scope: this.scope })}>${this.loading ? 'Lade …' : 'Mehr laden'}</button></div>`
+      : '';
+    if (!this.items.length) return html`${this.loading ? html`<div class="empty">Lade …</div>` : html`<div class="empty">${this.emptyText}</div>`}${more}`;
     return html`<ol>
         ${this.items.map((i) => this.item(i))}
       </ol>
-      ${this.cursor
-        ? html`<div class="more"><button class="btn" ?disabled=${this.loading} @click=${() => emit(this, 'sx-stream-more', { scope: this.scope })}>${this.loading ? 'Lade …' : 'Mehr laden'}</button></div>`
-        : ''}`;
+      ${more}`;
   }
 }
 customElements.define('sx-stream', SxStream);

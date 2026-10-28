@@ -166,4 +166,9 @@ describe('F-349/F-350 Beitrittsmeldungen', () => {
     button(el, /Beitritte/)!.click();
     expect(joins).toEqual([{ show: true }]);
   });
+
+  it('[F-350] ganz weggefilterte Seite: „Mehr laden“ bleibt', async () => {
+    const el = await mount({ items: [], cursor: 'c2' }, 'sx-stream');
+    expect(button(el, /Mehr laden/)).toBeDefined();
+  });
 });
