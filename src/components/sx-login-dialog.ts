@@ -11,6 +11,7 @@ export type CaptchaMount = (el: HTMLElement, onToken: (token: string | null) => 
  *  form    – E-Mail eingeben
  *  sent    – Link verschickt; Code aus der Mail eintippen (sx-login-code { code })
  *  confirm – Link geöffnet: „Als … anmelden?“ (Schutz gegen untergeschobene Links)
+ *  passkey – nach der Anmeldung per Link oder Code: Passkey für dieses Gerät anlegen? (sx-passkey-offer { answer })
  */
 export class SxLoginDialog extends LitElement {
   static properties = {
@@ -23,6 +24,7 @@ export class SxLoginDialog extends LitElement {
     devLink: { type: String },
     confirmEmail: { type: String },
     currentEmail: { type: String },
+    offerPasskey: { type: Boolean, attribute: 'offer-passkey' },
     captcha: { state: true },
   };
   declare open: boolean;
@@ -35,6 +37,8 @@ export class SxLoginDialog extends LitElement {
   declare devCode: string;
   declare confirmEmail: string;
   declare currentEmail: string;
+  /** gerade per Mail angemeldet: Passkey anbieten (Konzept 14.7) */
+  declare offerPasskey: boolean;
   declare captcha: string | null;
   /** Wird von außen gesetzt; ohne Mount kein Bot-Schutz im Formular. */
   mountCaptcha: CaptchaMount | null = null;
@@ -51,6 +55,7 @@ export class SxLoginDialog extends LitElement {
     this.devLink = '';
     this.confirmEmail = '';
     this.currentEmail = '';
+    this.offerPasskey = false;
     this.captcha = null;
   }
 
@@ -129,8 +134,8 @@ export class SxLoginDialog extends LitElement {
     `,
   ];
 
-  private get state(): 'form' | 'sent' | 'confirm' {
-    return this.confirmEmail ? 'confirm' : this.sentTo ? 'sent' : 'form';
+  private get state(): 'form' | 'sent' | 'confirm' | 'passkey' {
+    return this.offerPasskey ? 'passkey' : this.confirmEmail ? 'confirm' : this.sentTo ? 'sent' : 'form';
   }
 
   updated(changed: PropertyValues<this>) {
@@ -165,7 +170,12 @@ export class SxLoginDialog extends LitElement {
     emit(this, 'sx-login-submit', { email, turnstile: this.captcha });
   }
 
-  private close = () => emit(this, 'sx-close', 'login');
+  /** Schließen beim Passkey-Angebot heißt „Später“ – angemeldet ist man schon, das Vorhaben geht weiter. */
+  private close = () => (this.offerPasskey ? this.answer('later') : emit(this, 'sx-close', 'login'));
+
+  private answer(answer: 'add' | 'later' | 'never') {
+    emit(this, 'sx-passkey-offer', { answer });
+  }
 
   private submitCode(e: Event) {
     e.preventDefault();
@@ -175,6 +185,20 @@ export class SxLoginDialog extends LitElement {
 
   private body() {
     switch (this.state) {
+      case 'passkey':
+        return html`<div class="body">
+          <div class="center">
+            <div class="badge">${icon('check')}</div>
+            <p><b>Du bist angemeldet.</b><br /><span class="muted">Nächstes Mal ohne Mail? Lege einen Passkey für dieses Gerät an – dann meldest du dich mit Fingerabdruck, Face ID oder der Geräte-PIN an.</span></p>
+          </div>
+          <div class="note">${icon('info')}<span>Kein Passwort, nichts zu merken. Entfernen kannst du ihn jederzeit unter Konto › Einstellungen.</span></div>
+          ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
+          <div class="actions">
+            <button class="btn ghost" ?disabled=${this.busy} @click=${() => this.answer('never')}>Nicht mehr fragen</button>
+            <button class="btn" ?disabled=${this.busy} @click=${() => this.answer('later')}>Später</button>
+            <button class="btn primary" ?disabled=${this.busy} @click=${() => this.answer('add')}>${icon('user')} ${this.busy ? 'Lege an …' : 'Passkey anlegen'}</button>
+          </div>
+        </div>`;
       case 'confirm':
         return html`<div class="body">
           <div class="center">
@@ -234,7 +258,7 @@ export class SxLoginDialog extends LitElement {
   render() {
     return html`<dialog aria-labelledby="h" @close=${this.close}>
       <header>
-        <h2 id="h">Anmelden</h2>
+        <h2 id="h">${this.offerPasskey ? 'Angemeldet' : 'Anmelden'}</h2>
         <button class="btn ghost icon" aria-label="Schließen" @click=${this.close}>${icon('x')}</button>
       </header>
       ${this.body()}

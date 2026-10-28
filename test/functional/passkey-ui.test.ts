@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-// Passkeys in der Oberfläche (F-208): Knopf im Anmeldedialog nur mit WebAuthn-Unterstützung, Verwaltung im Konto.
+// Passkeys in der Oberfläche (F-208, F-214): Knopf im Anmeldedialog nur mit WebAuthn-Unterstützung, Verwaltung im
+// Konto, Angebot nach der Anmeldung per Mail.
 import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-login-dialog';
 import '../../src/components/sx-account-dialog';
@@ -23,6 +24,8 @@ const listen = (name: string) => document.addEventListener(name, (e) => events.p
 listen('sx-login-passkey');
 listen('sx-passkey-add');
 listen('sx-passkey-remove');
+listen('sx-passkey-offer');
+listen('sx-close');
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -38,6 +41,24 @@ describe('Passkeys in der Oberfläche', () => {
     const el = await mount('sx-login-dialog', { open: true });
     buttons(el).find((b) => /Mit Passkey anmelden/.test(b.textContent ?? ''))!.click();
     expect(events).toEqual([['sx-login-passkey', null]]);
+  });
+
+  it('[F-214] Anmeldedialog nach Mail-Anmeldung: Passkey anlegen, Später, Nicht mehr fragen; Schließen heißt „Später“', async () => {
+    const el = await mount('sx-login-dialog', { open: true, offerPasskey: true });
+    const t = el.shadowRoot.textContent ?? '';
+    expect(t).toContain('Du bist angemeldet');
+    expect(el.shadowRoot.querySelector('h2')!.textContent).toBe('Angemeldet');
+    const by = (re: RegExp) => buttons(el).find((b) => re.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`))!;
+    by(/Passkey anlegen/).click();
+    by(/Später/).click();
+    by(/Nicht mehr fragen/).click();
+    by(/Schließen/).click();
+    expect(events).toEqual([
+      ['sx-passkey-offer', { answer: 'add' }],
+      ['sx-passkey-offer', { answer: 'later' }],
+      ['sx-passkey-offer', { answer: 'never' }],
+      ['sx-passkey-offer', { answer: 'later' }],
+    ]);
   });
 
   it('[F-208] Konto: Passkeys auflisten, anlegen, entfernen (mit Rückfrage)', async () => {

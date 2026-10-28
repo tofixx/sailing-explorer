@@ -172,6 +172,10 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     server.user = { id: 'u1', email: 'skipper@example.org' };
     return json({ user: server.user });
   }
+  if (url === '/api/passkeys/options' && method === 'POST') {
+    if (passkeyOptions === 'suspended') return json({ error: 'suspended', message: 'Dieses Konto ist gesperrt.' }, 403);
+    return json({ options: { challenge: 'x' }, challengeId: 'ch1' });
+  }
   if (url === '/api/auth/verify' && method === 'POST') {
     server.user = { id: 'u1', email: 'skipper@example.org' };
     return json({ user: server.user });
@@ -270,6 +274,9 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------- Helfer
+
+/** Antwort auf POST /api/passkeys/options im Mock-Server */
+let passkeyOptions: 'ok' | 'suspended' = 'ok';
 
 async function startApp(path = '/') {
   history.replaceState(null, '', path);
@@ -652,6 +659,75 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
     const call = server.calls.filter((c) => c.url === '/api/auth/code').at(-1)!;
     expect(JSON.parse(String(call.body))).toEqual({ email: 'skipper@example.org', code: '123456' });
     expect(toasts()).toContain('Angemeldet als skipper@example.org');
+  });
+
+  it('[F-214] nach der Anmeldung per Code bietet der Dialog einen Passkey an; „Später“ schließt, „Nicht mehr fragen“ merkt es sich', async () => {
+    const w = window as unknown as Record<string, unknown>;
+    w.PublicKeyCredential = function () {};
+    try {
+      await startApp();
+      const login = el<{ open: boolean; offerPasskey: boolean; sentTo: string }>('sx-login-dialog');
+      const signIn = async () => {
+        emit('sx-login');
+        emit('sx-login-submit', { email: 'skipper@example.org', turnstile: null });
+        await vi.waitFor(() => expect(login.sentTo).toBe('skipper@example.org'));
+        const before = toasts().length;
+        emit('sx-login-code', { code: '123456' });
+        await vi.waitFor(() => expect(toasts().length).toBeGreaterThan(before)); // „Angemeldet als …“
+      };
+      await signIn();
+      await vi.waitFor(() => expect(login.offerPasskey).toBe(true));
+      expect(login.open).toBe(true);
+      expect(toasts()).toContain('Angemeldet als skipper@example.org');
+      emit('sx-passkey-offer', { answer: 'later' });
+      await vi.waitFor(() => expect(login.open).toBe(false));
+      expect(login.offerPasskey).toBe(false);
+
+      // erneut anmelden → wieder gefragt; „Nicht mehr fragen“ → beim nächsten Mal nicht mehr
+      await signIn();
+      await vi.waitFor(() => expect(login.offerPasskey).toBe(true));
+      emit('sx-passkey-offer', { answer: 'never' });
+      await vi.waitFor(() => expect(login.open).toBe(false));
+      expect(localStorage.getItem('sx-passkey-hint')).toBe('never');
+      await signIn();
+      expect(login.offerPasskey).toBe(false);
+      expect(login.open).toBe(false);
+    } finally {
+      delete w.PublicKeyCredential;
+      localStorage.removeItem('sx-passkey-hint');
+    }
+  });
+
+  it('[F-214] gesperrtes Konto (Anlegen verboten): kein Angebot, der Dialog schließt', async () => {
+    const w = window as unknown as Record<string, unknown>;
+    w.PublicKeyCredential = function () {};
+    passkeyOptions = 'suspended';
+    try {
+      await startApp();
+      const login = el<{ open: boolean; offerPasskey: boolean; sentTo: string }>('sx-login-dialog');
+      emit('sx-login');
+      emit('sx-login-submit', { email: 'skipper@example.org', turnstile: null });
+      await vi.waitFor(() => expect(login.sentTo).toBe('skipper@example.org'));
+      emit('sx-login-code', { code: '123456' });
+      await vi.waitFor(() => expect(login.open).toBe(false));
+      expect(login.offerPasskey).toBe(false);
+      expect(server.calls.some((c) => c.url === '/api/passkeys/options')).toBe(true);
+    } finally {
+      delete w.PublicKeyCredential;
+      passkeyOptions = 'ok';
+    }
+  });
+
+  it('[F-214] ohne WebAuthn im Browser kein Passkey-Angebot – der Dialog schließt wie bisher', async () => {
+    await startApp();
+    const login = el<{ open: boolean; offerPasskey: boolean; sentTo: string }>('sx-login-dialog');
+    emit('sx-login');
+    emit('sx-login-submit', { email: 'skipper@example.org', turnstile: null });
+    await vi.waitFor(() => expect(login.sentTo).toBe('skipper@example.org'));
+    emit('sx-login-code', { code: '123456' });
+    await vi.waitFor(() => expect(state().user).not.toBeNull());
+    expect(login.open).toBe(false);
+    expect(login.offerPasskey).toBe(false);
   });
 
   it('[F-32] Klick auf den Link (/login#token=…) fragt „Als … anmelden?“, meldet an und informiert den ursprünglichen Tab', async () => {

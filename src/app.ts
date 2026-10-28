@@ -469,6 +469,7 @@ export class App {
     on<{ code: string }>('sx-login-code', (d) => s.loginWithCode(d.code));
     on('sx-login-passkey', () => s.loginWithPasskey());
     on('sx-passkey-add', () => s.addPasskey());
+    on<{ answer: 'add' | 'later' | 'never' }>('sx-passkey-offer', (d) => s.answerPasskeyOffer(d.answer));
     on<{ id: string }>('sx-passkey-remove', (d) => s.removePasskey(d.id));
     on('sx-login-for-share', () => s.loginForShare());
     on('sx-share-inline', () => s.shareInlineLink());
