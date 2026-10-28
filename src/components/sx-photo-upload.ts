@@ -105,6 +105,13 @@ export class SxPhotoUpload extends LitElement {
         max-height: 40dvh;
         overflow-y: auto;
       }
+      /* Handy: der Dialog ist Vollbild und scrollt selbst – keine Scrollbox in der Scrollbox (F-291) */
+      @media (max-width: 760px) {
+        ul {
+          max-height: none;
+          overflow: visible;
+        }
+      }
       li {
         display: grid;
         grid-template-columns: 72px 1fr auto;

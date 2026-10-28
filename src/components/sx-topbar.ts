@@ -191,6 +191,15 @@ export class SxTopbar extends LitElement {
         .brand .name {
           display: none;
         }
+        /* Sonst wird die Leiste breiter als das Handy und zieht die ganze Seite mit (F-291) */
+        .share .label-text {
+          display: none;
+        }
+      }
+      @media (max-width: 380px) {
+        .login .label-text {
+          display: none;
+        }
       }
     `,
   ];

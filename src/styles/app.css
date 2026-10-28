@@ -76,20 +76,51 @@ body {
   display: none;
 }
 
+/* Handy (F-291): eine lange Seite, die als Ganzes scrollt – keine kleinen Scrollbereiche. Die Kopfzeile bleibt stehen,
+   die Karte ist ein fester Block oben und scrollt mit hinaus, Auswertung und Seiten (Profil, Gruppe …) folgen darunter
+   in voller Länge. */
 @media (max-width: 760px) {
+  body {
+    overflow: visible;
+  }
+  .app {
+    height: auto;
+    min-height: 100dvh;
+    /* Nie seitlich verschiebbar, auch wenn ein Element doch zu breit gerät */
+    overflow-x: clip;
+  }
+  sx-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+  }
   .workspace {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(260px, 1fr) auto;
+    grid-template-rows: auto auto;
+  }
+  .map-area {
+    height: 55dvh;
+    min-height: 260px;
   }
   .sidebar {
+    overflow: visible;
+    scrollbar-gutter: auto;
     border-left: 0;
     border-top: 1px solid var(--border);
-    max-height: 48dvh;
     border-radius: var(--radius-l) var(--radius-l) 0 0;
     box-shadow: var(--shadow-2);
     position: relative;
     z-index: 500;
     margin-top: calc(-1 * var(--s-4));
+  }
+  /* Startseite: die Karte bleibt ruhiger Hintergrund, der Stream fließt in der Seite */
+  .app[data-empty] .map-area {
+    height: auto;
+    min-height: calc(100dvh - var(--topbar-h));
+  }
+  .app[data-empty] #map {
+    position: fixed;
+    inset: var(--topbar-h) 0 0 0;
   }
 }
 

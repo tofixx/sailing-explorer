@@ -24,6 +24,10 @@ Prüfpunkte:
 7. **Anforderungen dokumentiert** – ist jedes neue oder geänderte Verhalten als funktionale Anforderung mit F-ID in
    `docs/REQUIREMENTS.md` beschrieben (und im Konzept, wo es Entscheidungen gibt), gibt es zu jeder F-ID einen Test, und
    stimmen geänderte alte Anforderungen noch mit dem Code überein?
+8. **Frontend in Komponenten** – UI gehört in Lit-Komponenten (`src/components`), gemeinsame Stile und Verhalten in
+   geteilte Bausteine (`shared.ts`, z. B. `dialogStyles`) statt Kopien je Komponente; `app.ts`/`app.css` nur für
+   Verdrahtung und Seitenraster. Bewährte Muster nutzen (Properties rein, Events raus, Controller für Abläufe, keine
+   Logik im Template) und Mobil-Verhalten (Handy-Breite, Touch, Scrollen) mitdenken.
 
 `npm run check` (Typecheck, Tests, Build) muss vorher grün sein.
 
