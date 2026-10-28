@@ -12,7 +12,7 @@ export const GROUP_KIND_LABEL: Record<GroupKind, string> = { club: 'Verein', tea
 
 export const GROUP_ROLES = ['owner', 'admin', 'member'] as const;
 export type GroupRole = (typeof GROUP_ROLES)[number];
-export const GROUP_ROLE_LABEL: Record<GroupRole, string> = { owner: 'Eigner', admin: 'Admin', member: 'Mitglied' };
+export const GROUP_ROLE_LABEL: Record<GroupRole, string> = { owner: 'Eigentümer', admin: 'Admin', member: 'Mitglied' };
 
 /** Beitritt: per Einladung oder Anfrage (Standard) bzw. nur per Einladung. */
 /** Beitritt in drei Stufen (Konzept 14.1): offen (sofort Mitglied), auf Anfrage (Admins bestätigen), nur auf Einladung. */
@@ -34,6 +34,24 @@ export function effectiveJoinMode(g: { join_mode: JoinMode; visibility: string; 
   return g.join_mode === 'open' && (g.visibility !== 'public' || g.hidden_at) ? 'request' : g.join_mode;
 }
 
+/** Was eine Gruppenkarte anbietet (F-333): beitreten, anfragen – oder nur einen Hinweis. */
+export type JoinAction = 'join' | 'request' | 'requested' | 'member' | 'invite';
+export const JOIN_ACTION_LABEL: Record<JoinAction, string> = {
+  join: 'Beitreten',
+  request: 'Anfragen',
+  requested: 'Angefragt',
+  member: 'Mitglied',
+  invite: 'Nur auf Einladung',
+};
+
+/** Knopf bzw. Hinweis je Beitrittsstufe und eigenem Stand; null ohne Stufe (ältere Server). */
+export function joinAction(mode: JoinMode | undefined, state: { member: boolean; requested: boolean }): JoinAction | null {
+  if (!mode) return null;
+  if (state.member) return 'member';
+  if (state.requested) return 'requested';
+  return mode === 'open' ? 'join' : mode === 'request' ? 'request' : 'invite';
+}
+
 /**
  * Wird eine angenommene Einladung sofort zur Mitgliedschaft? Ja, wenn die Gruppe (effektiv) offen ist oder die
  * einladende Person Anfragen bestätigen darf; sonst entsteht eine Beitrittsanfrage. `mode` = effectiveJoinMode.
@@ -46,8 +64,8 @@ export const APPROVERS = ['members', 'admins', 'owner'] as const;
 export type Approvers = (typeof APPROVERS)[number];
 export const APPROVERS_LABEL: Record<Approvers, string> = {
   members: 'Alle Mitglieder',
-  admins: 'Eigner und Admins',
-  owner: 'Nur der Eigner',
+  admins: 'Eigentümer und Admins',
+  owner: 'Nur der Eigentümer',
 };
 export const isApprovers = (v: unknown): v is Approvers => typeof v === 'string' && (APPROVERS as readonly string[]).includes(v);
 
@@ -171,6 +189,8 @@ export interface StreamItem {
   createdAt: number;
   /** Handelnde Person – nur mit öffentlichem Profil, sonst null */
   actor: { handle: string; displayName: string } | null;
+  /** Beitritt ohne öffentliches Profil: Spaßname statt Name (F-349, wie F-134) – nie der gewählte Name */
+  alias?: string;
   /** Gruppe als Kontext (Beitrag, Mitglied, Boot) */
   group: { slug: string; name: string; kind: GroupKind } | null;
   /** `logbook`: Fahrtenbuch-Eintrag ohne GPX (Abzeichen, F-302) */
@@ -202,7 +222,7 @@ export function reactionSubjectOf(i: Pick<StreamItem, 'id' | 'kind' | 'voyage' |
   return { subject: 'activity', id: i.id };
 }
 
-const who = (i: StreamItem, fallback: string) => i.actor?.displayName || fallback;
+const who = (i: StreamItem, fallback: string) => i.actor?.displayName || i.alias || fallback;
 
 /** Kurzer Satz zu einem Eintrag (ohne Beitragstext) – gleich in App, RSS und Mail. */
 export function streamHeadline(i: StreamItem): string {

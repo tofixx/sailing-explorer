@@ -51,7 +51,9 @@ async function resolveHarbor(env: Env, user: Pick<User, 'id'>, input: unknown): 
     h = await loadHarbor(env, i.harborId);
     if (!harborVisible(h)) throw INVALID_HARBOR();
   } else {
-    h = (await harborForName(env, user, i.name)).harbor;
+    // neue Häfen brauchen eine Lage (F-353)
+    const p = parseHarborPosition(i.lat ?? null, i.lon ?? null);
+    h = (await harborForName(env, user, i.name, p && p.lat !== null && p.lon !== null ? { lat: p.lat, lon: p.lon } : null, true)).harbor;
   }
   const wantsPosition = (i.lat !== undefined && i.lat !== null) || (i.lon !== undefined && i.lon !== null);
   if (wantsPosition && h.lat === null) {

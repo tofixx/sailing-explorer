@@ -2,7 +2,7 @@
 import type { Env } from './env';
 import {
   addGroupBoat, createGroup, decideRequest, deleteGroup, getGroup, listMyGroups, removeGroupBoat, removeMember, requestJoin,
-  setMemberRole, updateGroup, withdrawRequest,
+  setMemberRole, transferGroup, muteGroup, updateGroup, withdrawRequest,
 } from './groups';
 import { inviteGroup } from './invites';
 import { createPost, deletePost } from './posts';
@@ -12,7 +12,7 @@ import { follow, getSuggestions, unfollow } from './follows';
 import { createHarbor, getHarbor, searchHarbors, updateHarbor } from './harbors';
 import { getMyHome, putMyHome } from './home';
 import { deleteReaction, getReactions, putReaction } from './reactions';
-import { harborStream, publicStream } from './stream';
+import { harborStream, nearStream, publicStream } from './stream';
 
 type Handler = (request: Request, env: Env, params: string[]) => Promise<Response>;
 
@@ -27,6 +27,8 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['PATCH', new RegExp(`^/api/groups/${ID}$`), (r, env, [id]) => updateGroup(r, env, id)],
   ['DELETE', new RegExp(`^/api/groups/${ID}$`), (r, env, [id]) => deleteGroup(r, env, id)],
   ['PATCH', new RegExp(`^/api/groups/${ID}/members/${WHO}$`), (r, env, [id, who]) => setMemberRole(r, env, id, who)],
+  ['POST', new RegExp(`^/api/groups/${ID}/owner$`), (r, env, [id]) => transferGroup(r, env, id)],
+  ['PUT', new RegExp(`^/api/groups/${ID}/mute$`), (r, env, [id]) => muteGroup(r, env, id)],
   ['DELETE', new RegExp(`^/api/groups/${ID}/members/${WHO}$`), (r, env, [id, who]) => removeMember(r, env, id, who)],
   ['POST', new RegExp(`^/api/groups/${ID}/invites$`), (r, env, [id]) => inviteGroup(r, env, id)],
   ['POST', new RegExp(`^/api/groups/${ID}/requests$`), (r, env, [id]) => requestJoin(r, env, id)],
@@ -45,6 +47,7 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['DELETE', /^\/api\/follows\/(user|boat|group|harbor)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => unfollow(r, env, kind, id)],
   // ---- Konzept 12: öffentlicher Stream, Häfen, Heimat, Reaktionen ----
   ['GET', /^\/api\/stream\/public$/, (r, env) => publicStream(r, env)],
+  ['GET', /^\/api\/stream\/near$/, (r, env) => nearStream(r, env)],
   ['GET', /^\/api\/harbors$/, (r, env) => searchHarbors(r, env)],
   ['POST', /^\/api\/harbors$/, (r, env) => createHarbor(r, env)],
   ['GET', /^\/api\/harbors\/slug\/([a-z0-9-]{1,100})$/, (r, env, [slug]) => getHarbor(r, env, slug)],

@@ -42,7 +42,7 @@ async function boat(p: Person, o: Record<string, unknown> = {}) {
   return (await json<{ boat: { id: string } }>(await s.send('POST', '/api/boats', p.cookie, { name: 'Möwe', visibility: 'public', ...o }))).boat;
 }
 async function harbor(p: Person, name: string) {
-  return (await json<{ harbor: { id: string; slug: string } }>(await s.send('POST', '/api/harbors', p.cookie, { name }))).harbor;
+  return (await json<{ harbor: { id: string; slug: string } }>(await s.send('POST', '/api/harbors', p.cookie, { name, lat: -45, lon: -170 }))).harbor;
 }
 const lock = (kind: string, id: string, reason = 'Prüfung') => A('PUT', `/api/admin/${kind}/${id}/lock`, { reason });
 

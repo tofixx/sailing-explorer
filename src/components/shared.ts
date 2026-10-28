@@ -1,5 +1,6 @@
 import { css, html } from 'lit';
 import { icon } from './icons';
+import type { CoverRef } from '../domain/cover';
 
 /** Gemeinsame Grundstile aller Komponenten – nutzt ausschließlich Tokens. */
 export const base = css`
@@ -78,8 +79,12 @@ export const base = css`
     cursor: not-allowed;
   }
 
+  /* alle Eingabefelder im selben Raster – auch Suche (Entdecken, Auswahllisten), Adressen und Zahlen */
   input[type='text'],
   input[type='email'],
+  input[type='search'],
+  input[type='url'],
+  input[type='number'],
   select {
     width: 100%;
     min-height: max(38px, var(--control-h));
@@ -172,6 +177,30 @@ export const base = css`
 /** Abzeichen „Fahrtenbuch“: Törn ohne GPS-Aufzeichnung (F-302) – Stil `.logtag` aus `base`. */
 export const logbookTag = () =>
   html`<span class="logtag" title="Ohne GPS-Aufzeichnung – Strecke vom Segler angegeben">${icon('book')} Fahrtenbuch</span>`;
+
+/**
+ * Seite über der Karte (F-351, Hafen- und Vereinsseite mit Ort): Hintergrund durchsichtig, der Inhalt als Tafel mit
+ * Abstand oben, damit der Ort auf der Karte darüber sichtbar bleibt. Gesetzt über das Attribut `on-map`.
+ */
+export const onMapStyles = css`
+  :host([on-map]) {
+    background: transparent;
+  }
+  :host([on-map]) .page {
+    margin-top: min(34vh, 300px);
+    margin-bottom: var(--s-6);
+    background: var(--overlay);
+    backdrop-filter: blur(10px) saturate(1.2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    box-shadow: var(--shadow-2);
+  }
+  @media (max-width: 760px) {
+    :host([on-map]) .page {
+      margin: min(30vh, 220px) var(--s-2) var(--s-4);
+    }
+  }
+`;
 
 /** Gemeinsame Dialog-Stile für native <dialog>-Elemente. */
 export const dialogStyles = css`
@@ -270,6 +299,34 @@ export const dialogStyles = css`
     }
   }
 `;
+
+/**
+ * Titelbild-Streifen (Konzept 13.2): überall dasselbe 3:1-Banner (`COVER_BANNER_RATIO`) mit dem gespeicherten
+ * Ausschnitt – im Seitenkopf (sx-cover), auf /entdecken und in den Neuigkeiten, damit der Eigner überall denselben
+ * Ausschnitt sieht, den er im Kopf eingestellt hat (F-211, F-330). Feste Breite ohne Mindestbreite aus der Datei.
+ */
+export const coverBannerStyles = css`
+  .cover-banner {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: auto;
+    aspect-ratio: 3 / 1;
+    object-fit: cover;
+    background: var(--surface-2);
+  }
+`;
+
+/** Ausschnitt eines Titelbilds: horizontal mittig, vertikal die gespeicherte Fokus-Position (F-211). */
+export function coverPosition(y: number): string {
+  return `object-position: 50% ${y}%`;
+}
+
+/** Titelbild als Streifen in Listen (Entdecken, Neuigkeiten) – braucht `coverBannerStyles`. */
+export function coverBanner(cover: CoverRef, cls = '') {
+  return html`<img class="cover-banner ${cls}" src=${cover.src} style=${coverPosition(cover.y)} alt="" loading="lazy" decoding="async" />`;
+}
 
 /** Eingabe „E-Mail oder Profilname“: mit @ in der Mitte eine Adresse, sonst ein Profilname (führendes @ erlaubt). */
 export function inviteTarget(raw: string): { email: string } | { handle: string } {

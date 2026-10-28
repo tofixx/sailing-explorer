@@ -119,6 +119,8 @@ interface BoatInput {
   lengthM?: unknown;
   sailNumber?: unknown;
   homePort?: unknown;
+  /** Lage eines neuen Hafens zu `homePort` (F-353) */
+  homePortPos?: unknown;
   /** Hafen (Konzept 12.2): ID oder null; hat Vorrang vor homePort */
   harborId?: unknown;
   description?: unknown;

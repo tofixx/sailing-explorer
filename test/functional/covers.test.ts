@@ -324,7 +324,9 @@ describe('Heimathafen für Vereine und Teams (Konzept 13.3)', () => {
     // Auswahl per ID und Entfernen
     const team = await s.group(owner, { kind: 'team', harborId: page.group.harbor!.id });
     expect((team as unknown as { harbor: { id: string } }).harbor.id).toBe(page.group.harbor!.id);
-    const cleared = await s.send('PATCH', `/api/groups/${g.id}`, owner.cookie, { harborId: null });
+    // ein Verein behält seinen Heimathafen (F-354), ein Team darf ihn entfernen
+    expect(await s.errorOf(await s.send('PATCH', `/api/groups/${g.id}`, owner.cookie, { harborId: null }))).toBe('harbor_required');
+    const cleared = await s.send('PATCH', `/api/groups/${team.id}`, owner.cookie, { harborId: null });
     expect(cleared.status).toBe(200);
     expect(((await cleared.json()) as { group: { harbor: unknown; homePort: string } }).group).toMatchObject({ harbor: null, homePort: '' });
     expect((await s.send('PATCH', `/api/groups/${g.id}`, owner.cookie, { harborId: 'GibtEsNichtAAAAAAA' })).status).toBe(400);

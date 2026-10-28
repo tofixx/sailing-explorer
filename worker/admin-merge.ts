@@ -51,6 +51,8 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
     ).bind(dst.id, src.id),
     env.DB.prepare(`DELETE FROM activity WHERE kind = 'harbor' AND json_extract(data, '$.harbor') = ?`).bind(src.id),
     env.DB.prepare('UPDATE harbors SET club_id = COALESCE(club_id, ?1), updated_at = ?2 WHERE id = ?3').bind(src.club_id, now, dst.id),
+    // Lage der Dublette übernehmen, wenn das Ziel noch keine hat (F-353)
+    env.DB.prepare('UPDATE harbors SET lat = ?1, lon = ?2 WHERE id = ?3 AND lat IS NULL AND ?1 IS NOT NULL').bind(src.lat ?? null, src.lon ?? null, dst.id),
     // alte Adressen leiten aufs Ziel weiter (auch die, die auf die Dublette zeigten)
     env.DB.prepare('UPDATE harbor_redirects SET harbor_id = ? WHERE harbor_id = ?').bind(dst.id, src.id),
     env.DB.prepare('INSERT OR REPLACE INTO harbor_redirects (old_slug, harbor_id, created_at) VALUES (?, ?, ?)').bind(src.slug, dst.id, now),

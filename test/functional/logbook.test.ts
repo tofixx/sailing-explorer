@@ -67,6 +67,13 @@ async function manual(p: Person, o: Record<string, unknown> = {}, status = 201):
   return ((await res.json()) as { share: LogShare }).share;
 }
 
+/** Hafen ohne Position wie im Altbestand: mit Lage anlegen (F-353), Lage danach entfernen. */
+async function bareHarbor(p: Person, name: string): Promise<{ harbor: { id: string } }> {
+  const created = (await (await s.send('POST', '/api/harbors', p.cookie, { name, lat: 52, lon: 13 })).json()) as { harbor: { id: string } };
+  await (await h.db()).prepare('UPDATE harbors SET lat = NULL, lon = NULL WHERE id = ?').bind(created.harbor.id).run();
+  return created;
+}
+
 const errorOf = async (res: Response) => ((await res.json()) as { error: string; message: string });
 
 describe('F-300 Fahrtenbuch-Eintrag ohne GPX', () => {
@@ -100,10 +107,14 @@ describe('F-300 Fahrtenbuch-Eintrag ohne GPX', () => {
     expect(payload.route).toHaveLength(1);
   });
 
-  it('[F-300] nur angemeldet (L5); ohne Position beider Häfen 400', async () => {
+  it('[F-300] nur angemeldet (L5); ohne Position beider Häfen 400; neuer Hafen nur mit Lage (F-353)', async () => {
     expect((await s.send('POST', '/api/shares/manual', undefined, entry())).status).toBe(401);
     const p = await s.person();
-    const res = await s.send('POST', '/api/shares/manual', p.cookie, entry({ fromHarbor: { name: port('Ohne') }, toHarbor: null }));
+    const neu = await s.send('POST', '/api/shares/manual', p.cookie, entry({ fromHarbor: { name: port('Ohne') }, toHarbor: null }));
+    expect(neu.status).toBe(400);
+    expect((await errorOf(neu)).error).toBe('position_required');
+    const old = await bareHarbor(p, port('Alt ohne Lage'));
+    const res = await s.send('POST', '/api/shares/manual', p.cookie, entry({ fromHarbor: { harborId: old.harbor.id }, toHarbor: null }));
     expect(res.status).toBe(400);
     expect((await errorOf(res)).error).toBe('harbor_position');
   });
@@ -134,7 +145,7 @@ describe('F-301 Fahrtenbuch-Angaben', () => {
   it('[F-301] PATCH: Angaben und Häfen auch an GPX-Törns; Datum und Strecke nur bei Einträgen ohne GPX', async () => {
     const p = await s.person();
     const gpx = ((await (await createShare(h, p.cookie)).json()) as { share: LogShare }).share;
-    const res = await s.send('PATCH', `/api/shares/${gpx.id}`, p.cookie, { log: { engineH: 2 }, fromHarbor: { name: port('Hafen') } });
+    const res = await s.send('PATCH', `/api/shares/${gpx.id}`, p.cookie, { log: { engineH: 2 }, fromHarbor: { name: port('Hafen'), ...POTSDAM } });
     expect(res.status, await res.clone().text()).toBe(200);
     const patched = ((await res.json()) as { share: LogShare }).share;
     expect(patched.log).toEqual({ engineH: 2 });
@@ -277,14 +288,13 @@ describe('F-307 Hafenposition (L3)', () => {
   it('[F-307] fremder Hafen ohne Position: nur Anleger:in; Altbestand ohne Anleger:in – wer zuerst setzt, wird Anleger:in', async () => {
     const a = await s.person();
     const b = await s.person();
-    const name = port('Ketzin');
-    expect((await s.send('POST', '/api/harbors', a.cookie, { name })).status).toBe(201);
-    const res = await s.send('POST', '/api/shares/manual', b.cookie, entry({ fromHarbor: { name, ...POTSDAM } }));
+    const ketzin = await bareHarbor(a, port('Ketzin'));
+    const res = await s.send('POST', '/api/shares/manual', b.cookie, entry({ fromHarbor: { harborId: ketzin.harbor.id, ...POTSDAM } }));
     expect(res.status).toBe(403);
 
     const db = await h.db();
     const legacy = port('Altbestand');
-    const created = (await (await s.send('POST', '/api/harbors', a.cookie, { name: legacy })).json()) as { harbor: { id: string } };
+    const created = await bareHarbor(a, legacy);
     await db.prepare('UPDATE harbors SET created_by = NULL WHERE id = ?').bind(created.harbor.id).run();
     await manual(b, { fromHarbor: { harborId: created.harbor.id, ...POTSDAM } });
     const row = await db.prepare('SELECT created_by, lat FROM harbors WHERE id = ?').bind(created.harbor.id).first<{ created_by: string; lat: number }>();
@@ -297,7 +307,7 @@ describe('F-307 Hafenposition (L3)', () => {
   it('[F-307] PATCH auf Altbestand ohne Anleger:in und Position macht zur Anleger:in', async () => {
     const a = await s.person();
     const db = await h.db();
-    const created = (await (await s.send('POST', '/api/harbors', a.cookie, { name: port('Alt') })).json()) as { harbor: { id: string } };
+    const created = await bareHarbor(a, port('Alt'));
     await db.prepare('UPDATE harbors SET created_by = NULL WHERE id = ?').bind(created.harbor.id).run();
     const b = await s.person();
     expect((await s.send('PATCH', `/api/harbors/${created.harbor.id}`, b.cookie, { name: 'Umbenannt' })).status).toBe(403);
@@ -414,7 +424,7 @@ describe('Review-Befunde', () => {
 
   it('[F-307] gesperrte Häfen bekommen auch über das Fahrtenbuch keine Position', async () => {
     const a = await s.person();
-    const created = (await (await s.send('POST', '/api/harbors', a.cookie, { name: port('Gesperrt') })).json()) as { harbor: { id: string } };
+    const created = await bareHarbor(a, port('Gesperrt'));
     await (await h.db()).prepare("INSERT INTO locks (target_kind, target_id, locked_at, until, locked_by) VALUES ('harbor', ?, ?, ?, 'x')").bind(created.harbor.id, Date.now(), Date.now() + DAY).run();
     const res = await s.send('POST', '/api/shares/manual', a.cookie, entry({ fromHarbor: { harborId: created.harbor.id, ...POTSDAM } }));
     expect(res.status).toBe(409);

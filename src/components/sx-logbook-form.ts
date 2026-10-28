@@ -11,7 +11,7 @@ import type { SxHarborPicker } from './sx-harbor-picker';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import './sx-harbor-picker';
-import './sx-position-picker';
+import './sx-place-picker';
 import './sx-visibility-picker';
 
 type Pos = { lat: number; lon: number };
@@ -192,17 +192,22 @@ export class SxLogbookForm extends LitElement {
     return (which === 'from' ? this.fromPos : this.toPos) ?? this.picker(which)?.position ?? null;
   }
 
-  /** Braucht der Hafen eine Position von Hand? (gewählt, aber ohne bekannte Position) */
+  /**
+   * Braucht ein vorhandener Hafen eine Position von Hand (L3)? Neue Häfen fragt der Hafen-Picker selbst nach ihrer Lage
+   * (F-353).
+   */
   private needsPos(which: 'from' | 'to'): boolean {
     const c = this.picker(which)?.choice;
-    return !!c && !('harborId' in c && c.harborId === null) && !this.picker(which)?.position;
+    return !!c && 'harborId' in c && !!c.harborId && !this.picker(which)?.position;
   }
 
   private harbor(which: 'from' | 'to'): HarborInput | null {
     const c = this.picker(which)?.choice;
-    if (!c || ('harborId' in c && c.harborId === null)) return null;
+    if (!c) return null;
+    if ('name' in c) return { name: c.name, ...(c.pos ?? {}) };
+    if (!c.harborId) return null;
     const p = which === 'from' ? this.fromPos : this.toPos;
-    return { ...c, ...(p ?? {}) } as HarborInput;
+    return { harborId: c.harborId, ...(p ?? {}) };
   }
 
   private route(): LatLon[] {
@@ -282,13 +287,11 @@ export class SxLogbookForm extends LitElement {
     const other = this.pos(which === 'from' ? 'to' : 'from');
     const value = which === 'from' ? this.fromPos : this.toPos;
     return html`<div>
-      <p class="hint">${icon('map')} Wo liegt ${label}? Auf die Karte klicken${value ? ` – gesetzt (${fmtNum(value.lat, 4)}, ${fmtNum(value.lon, 4)})` : ''}.</p>
-      <sx-position-picker
-        label="Position von ${label}"
-        .value=${value}
-        .near=${other}
-        @sx-position=${(e: CustomEvent<Pos>) => (which === 'from' ? (this.fromPos = e.detail) : (this.toPos = e.detail))}
-      ></sx-position-picker>
+      <sx-place-picker
+        label="Wo liegt ${label}? Auf der Karte antippen"
+        .value=${value ?? other}
+        @sx-place-pick=${(e: CustomEvent<Pos>) => (which === 'from' ? (this.fromPos = e.detail) : (this.toPos = e.detail))}
+      ></sx-place-picker>
     </div>`;
   }
 

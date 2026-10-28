@@ -1,4 +1,7 @@
 import { inviteWhat } from '../domain/invite-text';
+import type { MyGroup } from '../services/api';
+import './sx-my-groups';
+import type { MyRequest } from './sx-my-groups';
 import { passkeysSupported } from '../services/passkey';
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import { live } from 'lit/directives/live.js';
@@ -17,11 +20,12 @@ import './sx-support';
 import './sx-admin-reports';
 import './sx-filter-select';
 
-export type AccountTab = 'profile' | 'boats' | 'shares' | 'settings' | 'reports';
+export type AccountTab = 'profile' | 'boats' | 'groups' | 'shares' | 'settings' | 'reports';
 
 const TABS: Array<[AccountTab, string]> = [
   ['profile', 'Profil'],
   ['boats', 'Boote'],
+  ['groups', 'Gruppen'],
   ['shares', 'Freigaben'],
   ['settings', 'Einstellungen'],
   // nur für Admins (ADMIN_USER_IDS) sichtbar
@@ -31,6 +35,7 @@ const TABS: Array<[AccountTab, string]> = [
 /** Konto: Profil, Boote und Freigaben verwalten. Reine Darstellung – Aktionen gehen als Events raus. */
 export class SxAccountDialog extends LitElement {
   static properties = {
+    myGroups: { attribute: false },
     open: { type: Boolean },
     tab: { type: String },
     user: { attribute: false },
@@ -68,6 +73,8 @@ export class SxAccountDialog extends LitElement {
   declare profile: Profile | null;
   declare profileExists: boolean;
   declare boats: Boat[];
+  /** „Meine Gruppen“ (F-348) – null bis geladen */
+  declare myGroups: { groups: MyGroup[]; requests: MyRequest[] } | null;
   declare shares: ShareMeta[];
   /** Admins des aufgeklappten Boots (data null = lädt) */
   declare admins: { boatId: string; data: BoatAdmins | null } | null;
@@ -607,6 +614,8 @@ export class SxAccountDialog extends LitElement {
     const form = e.target as HTMLFormElement;
     const clubId = String(new FormData(form).get('clubId') || '') || null;
     const picker = form.querySelector('sx-harbor-picker') as SxHarborPicker | null;
+    const problem = picker?.problem() ?? null;
+    if (problem) return void (this.error = problem);
     emit(this, 'sx-home-save', { clubId, harbor: picker?.choice ?? { harborId: null } });
   }
 
@@ -644,13 +653,16 @@ export class SxAccountDialog extends LitElement {
     const d = new FormData(e.target as HTMLFormElement);
     const len = String(d.get('lengthM') || '').replace(',', '.');
     // Hafen (Konzept 12.2): vorhandener per ID, neuer per Name (der Server erkennt Dubletten), sonst keiner
-    const harbor = ((e.target as HTMLFormElement).querySelector('sx-harbor-picker') as SxHarborPicker | null)?.choice ?? { harborId: null };
+    const boatPicker = (e.target as HTMLFormElement).querySelector('sx-harbor-picker') as SxHarborPicker | null;
+    const boatProblem = boatPicker?.problem() ?? null;
+    if (boatProblem) return void (this.error = boatProblem);
+    const harbor = boatPicker?.choice ?? { harborId: null };
     const input: BoatInput = {
       name: String(d.get('name') || ''),
       boatType: String(d.get('boatType') || ''),
       lengthM: len ? Number(len) : null,
       sailNumber: String(d.get('sailNumber') || ''),
-      ...('name' in harbor ? { homePort: harbor.name } : { harborId: harbor.harborId }),
+      ...('name' in harbor ? { homePort: harbor.name, homePortPos: harbor.pos } : { harborId: harbor.harborId }),
       description: String(d.get('description') || ''),
       ownerLabel: String(d.get('ownerLabel') || ''),
       visibility: this.boatVis,
@@ -1080,6 +1092,8 @@ export class SxAccountDialog extends LitElement {
               ? this.profileTab()
               : this.tab === 'boats'
                 ? this.boatsTab()
+                : this.tab === 'groups'
+                  ? html`<sx-my-groups .groups=${this.myGroups?.groups ?? []} .requests=${this.myGroups?.requests ?? []} ?busy=${this.busy}></sx-my-groups>`
                 : this.tab === 'settings'
                   ? this.settingsTab()
                   : this.tab === 'reports' && this.settings?.isAdmin

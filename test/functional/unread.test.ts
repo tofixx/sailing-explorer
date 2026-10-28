@@ -126,3 +126,14 @@ describe('F-222 Community gelesen', () => {
     expect(row).toBeNull();
   });
 });
+
+describe('F-350 Badge zählt nur, was man sieht', () => {
+  it('[F-350] mit ?joins=0 zählen Beitritte nicht mit, andere Einträge schon', async () => {
+    const { owner, g, reader } = await setup();
+    await s.join(owner, g, await s.person());
+    await post(owner, g, 'Hallo');
+    expect((await unread(reader)).count).toBe(2);
+    const res = await s.send('GET', '/api/stream/unread?joins=0', reader.cookie);
+    expect(((await res.json()) as { count: number }).count).toBe(1);
+  });
+});

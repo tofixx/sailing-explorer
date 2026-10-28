@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-stream';
 import '../../src/components/sx-home-feed';
 import '../../src/components/sx-group-page';
+import '../../src/components/sx-my-groups';
 import '../../src/components/sx-follow';
 import '../../src/components/sx-profile-page';
 import '../../src/components/sx-discover';
@@ -53,7 +54,7 @@ const items: StreamItem[] = [
   { id: 'a1', kind: 'voyage', createdAt: T, actor: { handle: 'anna', displayName: 'Anna' }, group: null, voyage: { id: 'S1', title: '<b>Rügen</b>', distNm: 42.5, startedAt: T, hasImage: false, boat: { id: 'B1', name: 'Möwe' } } },
   { id: 'a2', kind: 'post', createdAt: T, actor: null, group: { slug: 'sc', name: 'SC Kiel', kind: 'club' }, post: { id: 'P1', body: 'Absegeln <img src=x onerror=alert(1)> https://example.org/termine', link: 'https://example.org/x', canDelete: true } },
   { id: 'a3', kind: 'post', createdAt: T, actor: null, group: { slug: 'sc', name: 'SC Kiel', kind: 'club' }, post: { id: 'P2', body: 'Fremd', link: null, canDelete: false } },
-  { id: 'a4', kind: 'member', createdAt: T, actor: null, group: { slug: 'sc', name: 'SC Kiel', kind: 'club' } },
+  { id: 'a4', kind: 'member', createdAt: T, actor: null, alias: 'Mutige Krabbe', group: { slug: 'sc', name: 'SC Kiel', kind: 'club' } },
   { id: 'a5', kind: 'photos', createdAt: T, actor: null, group: null, voyage: { id: 'S2', title: 'Fotos', distNm: 1, startedAt: null, hasImage: false, boat: null }, photos: { count: 3, thumbs: ['F1', 'F2'] } },
   { id: 'a6', kind: 'milestone', createdAt: T, actor: null, group: null, boat: { id: 'B1', name: 'Möwe' }, milestone: { nm: 500, year: 2026, subject: 'boat', name: 'Möwe', path: '/b/B1' } },
 ];
@@ -66,7 +67,7 @@ describe('sx-stream', () => {
     const t = text(el.shadowRoot);
     expect(t).toContain('hat einen Törn geteilt: <b>Rügen</b>');
     expect(t).toContain('42,5 sm');
-    expect(t).toContain('Ein neues Mitglied ist beigetreten');
+    expect(t).toContain('Mutige Krabbe ist dem Verein SC Kiel beigetreten'); // F-349: Spaßname statt „Ein neues Mitglied“
     expect(t).toContain('3 neue Fotos zu');
     expect(t).toContain('Möwe hat 500 Seemeilen in der Saison 2026 erreicht');
     expect(el.shadowRoot.querySelector('b')).toBeNull();
@@ -131,7 +132,10 @@ describe('sx-home-feed', () => {
   it('[F-163] mit Gruppen: eigene Gruppen und Neuigkeiten', async () => {
     const el = await mount('sx-home-feed', {
       signedIn: true,
+      mode: 'mine',
+      shown: 'mine',
       stream: { items, cursor: 'c', hasGroups: true },
+      personal: { items, cursor: 'c', hasGroups: true },
       groups: [{ id: 'G1', slug: 'sc-kiel', name: 'SC Kiel', kind: 'club', role: 'member', members: 3 }],
     });
     await settle(el);
@@ -150,7 +154,8 @@ describe('sx-home-feed', () => {
       { id: 'GREQ', slug: 'anfrage', name: 'Anfrage', kind: 'club', homePort: '', description: '', createdAt: T, members: 2, joinMode: 'request' },
       { id: 'GINV', slug: 'einladung', name: 'Einladung', kind: 'club', homePort: '', description: '', createdAt: T, members: 2, joinMode: 'invite' },
     ];
-    const el = await mount('sx-home-feed', { signedIn: true, stream: { items: [], cursor: null, hasGroups: false, home: { club: null, harbor: { slug: 'potsdam', name: 'Potsdam' } } }, groups: [], publicGroups: groups });
+    const personal = { items: [], cursor: null, hasGroups: false, home: { club: null, harbor: { slug: 'potsdam', name: 'Potsdam' } } };
+    const el = await mount('sx-home-feed', { signedIn: true, mode: 'mine', shown: 'mine', stream: personal, personal, groups: [], publicGroups: groups });
     expect(text(el.shadowRoot)).not.toContain('Dein Heimathafen');
     button(el.shadowRoot, /Beitreten/)!.click();
     button(el.shadowRoot, /Anfragen/)!.click();
@@ -262,6 +267,18 @@ describe('sx-group-page', () => {
     expect(text(el.shadowRoot)).toContain('Beitritt nur auf Einladung');
   });
 
+  it('[F-333] Gäste: „Anmelden und beitreten“ öffnet die Anmeldung; „Nur auf Einladung“ als Hinweis', async () => {
+    const logins = listen('sx-login');
+    const el = await mount('sx-group-page', { data: pageData(), signedIn: false });
+    button(el.shadowRoot, /Anmelden und beitreten/)!.click();
+    expect(logins).toHaveLength(1);
+    const d = pageData();
+    d.group.joinMode = 'invite';
+    const inv = await mount('sx-group-page', { data: d, signedIn: false });
+    expect(button(inv.shadowRoot, /beitreten/i)).toBeUndefined();
+    expect(text(inv.shadowRoot)).toContain('Beitritt nur auf Einladung');
+  });
+
   it('[F-163] Eigner: Beitrag schreiben, Anfragen, Einladen (Link einmal), Rollen, Boot zuordnen', async () => {
     const posts = listen('sx-post-create');
     const reqs = listen('sx-group-request');
@@ -303,7 +320,7 @@ describe('sx-group-page', () => {
     await admin.updateComplete;
     const radios = [...admin.shadowRoot.querySelectorAll('input[name="vis"]')] as HTMLInputElement[];
     expect(radios.every((r) => r.disabled)).toBe(true);
-    expect(text(admin.shadowRoot)).toContain('Die Sichtbarkeit ändert nur der Eigner.');
+    expect(text(admin.shadowRoot)).toContain('Die Sichtbarkeit ändert nur der Eigentümer.');
     expect(button(admin.shadowRoot, /Gruppe löschen/)).toBeUndefined();
     (admin.shadowRoot.querySelector('form[aria-label="Gruppe bearbeiten"]') as HTMLFormElement).requestSubmit();
     expect(saves[0]).toMatchObject({ id: 'G1', patch: { name: 'SC <Kiel>', slug: 'sc-kiel' } });
@@ -326,8 +343,16 @@ describe('sx-group-page', () => {
     const vis = [...root.querySelectorAll('input[name="vis"]')] as HTMLInputElement[];
     expect(vis.map((v) => v.disabled)).toEqual([false, true, true]);
     expect(text(root)).toContain('Nur für Unterstützer');
+    // ohne Heimathafen blockiert das Formular vorab (F-354)
     (root.querySelector('form') as HTMLFormElement).requestSubmit();
-    expect(creates[0]).toMatchObject({ kind: 'club', name: 'Segelclub Möwe', slug: 'segelclub-moewe', visibility: 'public', joinMode: 'request' });
+    await el.updateComplete;
+    expect(creates).toHaveLength(0);
+    expect(text(root)).toContain('Ein Verein braucht einen Heimathafen');
+    const hp = root.querySelector('sx-harbor-picker') as unknown as LitEl & { value: unknown };
+    hp.value = { id: 'H1', slug: 'potsdam', name: 'Potsdam' };
+    await hp.updateComplete;
+    (root.querySelector('form') as HTMLFormElement).requestSubmit();
+    expect(creates[0]).toMatchObject({ kind: 'club', name: 'Segelclub Möwe', slug: 'segelclub-moewe', visibility: 'public', joinMode: 'request', harborId: 'H1' });
     const anon = await mount('sx-group-page', { mode: 'create', signedIn: false });
     expect(text(anon.shadowRoot)).toContain('Zum Gründen bitte anmelden');
   });
@@ -348,7 +373,7 @@ describe('Entdecken und Einladungsdialog', () => {
       variant: 'page',
       data: { voyages: [], boats: [], people: [], groups: [{ slug: 'sc-kiel', name: 'SC Kiel', kind: 'club', homePort: 'Kiel', description: 'Hallo', createdAt: T, members: 1 }] },
     });
-    expect(el.shadowRoot.querySelector('#vereine a[href="/g/sc-kiel"]')!.textContent).toContain('1 Mitglied');
+    expect(el.shadowRoot.querySelector('#vereine a[href="/g/sc-kiel"]')!.closest('.card')!.textContent).toContain('1 Mitglied');
   });
 
   it('[F-153] Einladung in eine Gruppe: Wortlaut und Ergebnis', async () => {
@@ -360,5 +385,68 @@ describe('Entdecken und Einladungsdialog', () => {
     expect(text(el.shadowRoot)).toContain('Mitgliedschaft öffnet keine nicht öffentlichen Törns');
     const done = await mount('sx-invite-dialog', { open: true, state: 'done', peek: { kind: 'group' }, result: { kind: 'group', path: '/g/sc-kiel', target: 'SC Kiel', already: false } });
     expect(done.shadowRoot.querySelector('a[href="/g/sc-kiel"]')!.textContent).toContain('Zur Gruppe');
+  });
+});
+
+describe('Mitgliedschaft: Glocke, Austreten, Übergeben, Meine Gruppen (F-346 … F-348)', () => {
+  it('[F-346] Mitglieder sehen die Glocke statt „Folgen“ und „Austreten“; Nicht-Mitglieder weiter „Folgen“', async () => {
+    const mutes = listen('sx-group-mute');
+    const leaves = listen('sx-group-leave');
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      const el = await mount('sx-group-page', { data: pageData({}, 'member'), signedIn: true });
+      expect(el.shadowRoot.querySelector('sx-follow')).toBeNull();
+      const bell = button(el.shadowRoot, /Neuigkeiten stumm schalten/)!;
+      expect(bell.getAttribute('aria-pressed')).toBe('false');
+      bell.click();
+      expect(mutes).toEqual([{ id: 'G1', muted: true }]);
+      button(el.shadowRoot, /Austreten/)!.click();
+      expect(leaves).toEqual([{ id: 'G1' }]);
+      const muted = await mount('sx-group-page', { data: pageData({ membership: { role: 'member', requested: false, canRequest: false, muted: true } }, 'member'), signedIn: true });
+      expect(button(muted.shadowRoot, /Neuigkeiten wieder anzeigen/)!.getAttribute('aria-pressed')).toBe('true');
+      const guest = await mount('sx-group-page', { data: pageData(), signedIn: true });
+      expect(guest.shadowRoot.querySelector('sx-follow')).not.toBeNull();
+      expect(button(guest.shadowRoot, /stumm/)).toBeUndefined();
+    } finally {
+      window.confirm = realConfirm;
+    }
+  });
+
+  it('[F-347] Eigner: kein „Austreten“, dafür „Übergeben“ bei Admins in der Mitgliederliste', async () => {
+    const transfers = listen('sx-group-transfer');
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      const d = pageData({}, 'owner');
+      d.members = [...d.members, { id: 'U3', handle: 'cara', displayName: 'Cara', role: 'admin', isSelf: false } as (typeof d.members)[number]];
+      const el = await mount('sx-group-page', { data: d, signedIn: true });
+      expect(button(el.shadowRoot, /Austreten/)).toBeUndefined();
+      const btns = buttons(el.shadowRoot).filter((b) => /Übergeben/.test(b.textContent ?? ''));
+      expect(btns).toHaveLength(1);
+      btns[0].click();
+      expect(transfers).toEqual([{ id: 'G1', userId: 'U3' }]);
+    } finally {
+      window.confirm = realConfirm;
+    }
+  });
+
+  it('[F-348] Konto „Meine Gruppen“: Glocke, Austreten (Eigner: Übergeben …), offene Anfragen zurückziehen', async () => {
+    const mutes = listen('sx-group-mute');
+    const withdraws = listen('sx-group-withdraw');
+    const el = await mount('sx-my-groups', {
+      groups: [
+        { id: 'G1', slug: 'pyc', name: 'PYC', kind: 'club', role: 'member', members: 9, muted: true },
+        { id: 'G2', slug: 'eigen', name: 'Eigen', kind: 'team', role: 'owner', members: 2, muted: false },
+      ],
+      requests: [{ id: 'G3', slug: 'anfrage', name: 'Anfrageclub', kind: 'club', createdAt: T }],
+    });
+    expect(text(el.shadowRoot)).toContain('stumm');
+    button(el.shadowRoot, /PYC wieder anzeigen/)!.click();
+    expect(mutes).toEqual([{ id: 'G1', muted: false }]);
+    expect(buttons(el.shadowRoot).filter((b) => /Austreten/.test(b.textContent ?? ''))).toHaveLength(1);
+    expect(el.shadowRoot.querySelector('a[href="/g/eigen"].btn')?.textContent).toContain('Übergeben');
+    button(el.shadowRoot, /Zurückziehen/)!.click();
+    expect(withdraws).toEqual([{ id: 'G3' }]);
   });
 });

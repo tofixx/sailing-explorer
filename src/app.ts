@@ -40,6 +40,7 @@ import type { SxShareDialog } from './components/sx-share-dialog';
 import type { SxToast } from './components/sx-toast';
 import type { SxTopbar, TopbarSection } from './components/sx-topbar';
 import type { SxTrackList } from './components/sx-track-list';
+import type { NearRadius, StreamMode } from './domain/near';
 // ---- Kommentare & Melden (Phase D) ----
 import { CommunityController } from './controllers/community';
 import type { SxComments } from './components/sx-comments';
@@ -56,6 +57,7 @@ import type { Photo } from './services/api';
 import type { PhotoVisibility } from './domain/visibility';
 // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11) ----
 import { GroupsController } from './controllers/groups';
+import { DiscoverController } from './controllers/discover';
 import type { SxGroupPage } from './components/sx-group-page';
 import type { SxHomeFeed } from './components/sx-home-feed';
 import type { SxJoinCard } from './components/sx-join-card';
@@ -106,6 +108,10 @@ const series = (m: MetricDef, axis: 'left' | 'right', value: (p: TrackPoint) => 
 export class App {
   private store = new Store(initialState);
   private map: MapView;
+  /** Navigationsnummer (F-351: veraltete Seiten setzen keinen Ort) */
+  private navSeq = 0;
+  /** nach einer Ort-Ansicht beim Zurück zur Karte die Tracks neu einpassen */
+  private refitAfterPlace = false;
   private ui = {
     app: $<HTMLElement>('.app'),
     topbar: $<SxTopbar>('sx-topbar'),
@@ -155,6 +161,7 @@ export class App {
   private photos: PhotosController;
   private logbook: LogbookController;
   private groups: GroupsController;
+  private discover: DiscoverController;
   private social: SocialController;
   private unread: UnreadController;
   /** angezeigte Seite statt Karte (Entdecken bzw. Profil, Gruppe …) – für die Bereiche in der Kopfzeile */
@@ -210,6 +217,8 @@ export class App {
       open: (path) => location.assign(path),
     });
     this.map.photos.callbacks = { onOpen: (id) => this.photos.open(id), onHover: (id) => this.photoHover(id) };
+    this.discover = new DiscoverController(this.store, this.ui.discoverPage);
+    this.discover.toast = (msg) => this.toast(msg, 6000);
     this.groups = new GroupsController(this.store, {
       page: this.ui.groupPage,
       home: this.ui.homeFeed,
@@ -221,6 +230,10 @@ export class App {
         this.ui.empty.community = visible;
         this.ui.join.hidden = !visible;
       },
+      // „Meine Gruppen“ nur nachladen, wenn das Konto offen ist
+      onMembership: () => void (this.ui.account.open && this.session.refreshMyGroups()),
+      onMembershipBusy: (busy) => (this.ui.account.busy = busy),
+      onJoinsChanged: () => void this.unread.refresh(true),
       onPersonalStream: (at) => {
         this.pendingSeen = { at };
         this.markSeen();
@@ -402,6 +415,7 @@ export class App {
       if (prev) {
         if (this.homeRoute) void this.groups.loadHome(true);
         void this.groups.userChanged();
+        this.discover.userChanged();
         void this.social.userChanged();
       }
       void this.unread.refresh(true);
@@ -697,7 +711,12 @@ export class App {
     on<GroupInput>('sx-group-create', (d) => g.create(d));
     on<{ id: string; patch: GroupInput }>('sx-group-save', (d) => g.save(d.id, d.patch));
     on<{ id: string }>('sx-group-delete', (d) => g.remove(d.id));
-    on<{ id: string }>('sx-group-join', (d) => g.join(d.id));
+    // Gruppenseite und Vereinskarten auf /entdecken (F-333) – derselbe Ablauf, dort danach Mitgliedschaften neu
+    on<{ id: string }>('sx-group-join', (d) => (this.ui.discoverPage.hidden ? g.join(d.id) : this.discover.join(d.id, () => g.join(d.id))));
+    on<{ query: string }>('sx-discover-search', (d) => this.discover.search(d.query));
+    on<{ on: boolean }>('sx-discover-near', (d) => this.discover.setNear(d.on));
+    on<{ radius: NearRadius }>('sx-discover-radius', (d) => this.discover.setRadius(d.radius));
+    on('sx-discover-locate', () => this.discover.useLocation());
     // Willkommens-Karte der Startseite (Konzept 14.3)
     on<{ id: string; name: string }>('sx-home-join', (d) => g.join(d.id, { name: d.name }));
     on<{ email: string | null }>('sx-friend-invite', (d) => this.social.inviteFriend(d.email));
@@ -711,6 +730,8 @@ export class App {
     });
     on<{ id: string }>('sx-group-withdraw', (d) => g.withdraw(d.id));
     on<{ id: string }>('sx-group-leave', (d) => g.leave(d.id));
+    on<{ id: string; muted: boolean }>('sx-group-mute', (d) => g.mute(d));
+    on<{ id: string; userId: string }>('sx-group-transfer', (d) => g.transfer(d));
     on<{ id: string; userId: string; approve: boolean }>('sx-group-request', (d) => g.decide(d));
     on<{ id: string; userId: string; role: 'admin' | 'member' }>('sx-group-role', (d) => g.setRole(d));
     on<{ id: string; userId: string }>('sx-group-remove', (d) => g.removeMember(d));
@@ -726,6 +747,12 @@ export class App {
     // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
     const so = this.social;
     on<{ filter: StreamFilter }>('sx-stream-filter', (d) => g.setFilter(d.filter));
+    on<{ mode: StreamMode }>('sx-stream-mode', (d) => g.setMode(d.mode));
+    on<{ radius: NearRadius }>('sx-near-radius', (d) => g.setRadius(d.radius));
+    on<{ show: boolean }>('sx-stream-joins', (d) => g.setJoins(d.show));
+    on('sx-near-locate', () => g.useLocation());
+    on('sx-near-forget', () => g.forgetLocation());
+    on<{ lat: number; lon: number }>('sx-near-place', (d) => g.usePlace(d));
     on<ReactDetail>('sx-react', (d) => so.react(d));
     on<{ subject: ReactionSubject; id: string; key?: string | null; el: SxReactions }>('sx-react-who', (d) => so.who(d));
     on<{ query: string; el: SxHarborPicker }>('sx-harbor-search', (d) => so.searchHarbors(d));
@@ -930,9 +957,12 @@ export class App {
       | { kind: 'legal'; page: 'impressum' | 'datenschutz' },
   ) {
     this.ui.app.setAttribute('data-page', '');
+    this.clearPlace();
+    // jede Navigation hat ihre Nummer – eine veraltete Seite setzt danach keinen Ort mehr (F-351)
+    const nav = ++this.navSeq;
     this.pageSection = route.kind === 'discover' ? 'discover' : 'page';
     this.ui.topbar.section = this.pageSection;
-    if (route.kind === 'discover') return this.openDiscover();
+    if (route.kind === 'discover') return this.discover.open();
     if (route.kind === 'legal') {
       // Impressum und Datenschutz kommen aus src/content/legal.ts – ohne Backend (Konzept 12.7).
       this.ui.legalPage.page = route.page;
@@ -940,10 +970,17 @@ export class App {
       document.title = `${route.page === 'impressum' ? 'Impressum' : 'Datenschutz'} · Sail Explorer`;
       return;
     }
-    if (route.kind === 'harbor') return this.social.openHarbor(route.slug);
+    if (route.kind === 'harbor') {
+      await this.social.openHarbor(route.slug);
+      if (nav !== this.navSeq) return;
+      const d = this.ui.page.data;
+      const h = d?.kind === 'harbor' ? d.harbor : null;
+      return this.showPlace(this.ui.page, h && h.lat != null && h.lon != null ? { lat: h.lat, lon: h.lon } : null);
+    }
     if (route.kind === 'group') {
       this.community.setPageKey(route.key);
       await this.groups.openGroup(route.slug, route.key);
+      if (nav === this.navSeq) this.showPlace(this.ui.groupPage, this.ui.groupPage.data?.place ?? null);
       // Gruppenseite geöffnet: Beitrittsanfragen dazu gelesen (F-253)
       const group = this.ui.groupPage.data?.group;
       if (group) this.notifications.viewing({ subjectKind: 'group', subjectId: group.id });
@@ -1023,23 +1060,6 @@ export class App {
     }
   }
 
-  /** Seite /entdecken: neueste öffentliche Törns, Boote und Segler. */
-  private async openDiscover() {
-    const page = this.ui.discoverPage;
-    page.hidden = false;
-    Object.assign(page, { loading: true, error: '', data: null });
-    document.title = 'Entdecken · Sail Explorer';
-    try {
-      page.data = await api.discover(24);
-      // Anker /entdecken#vereine („Alle Vereine“)
-      if (location.hash === '#vereine') requestAnimationFrame(() => page.shadowRoot?.getElementById('vereine')?.scrollIntoView());
-    } catch (e) {
-      page.error = e instanceof ApiError && e.code === 'no_backend' ? 'Entdecken ist auf dieser Installation nicht verfügbar.' : errorText(e);
-    } finally {
-      page.loading = false;
-    }
-  }
-
   /** Community-Leiste im Einstieg – immer sichtbar, wenn der Server antwortet (auch leer mit Einladung); ohne Backend oder bei Fehlern unsichtbar. */
   private async loadDiscoverStrip() {
     const strip = this.ui.discoverStrip;
@@ -1067,10 +1087,40 @@ export class App {
     new AdminController(page).start();
   }
 
+  /**
+   * Hafen- und Vereinsseite mit Ort (F-351): Karte als Hintergrund, auf den Ort gezoomt; ohne Ort wie bisher die
+   * Seite allein.
+   */
+  private showPlace(page: HTMLElement, place: { lat: number; lon: number } | null) {
+    this.ui.app.toggleAttribute('data-place', !!place);
+    page.toggleAttribute('on-map', !!place);
+    // erst nach dem Umschalten des Rasters messen – sonst kennt die Karte ihre Größe nicht
+    requestAnimationFrame(() => this.map.showPlace(place, Math.min(window.innerHeight * 0.34, 300)));
+  }
+
+  /**
+   * Ort-Ansicht verlassen: Markierung weg. Die Tracks werden erst wieder eingepasst, wenn die Karte sichtbar ist
+   * (leavePage) – auf der versteckten Karte (Wechsel zu einer anderen Seite) wäre ihre Größe 0.
+   */
+  private clearPlace() {
+    if (!this.ui.app.hasAttribute('data-place')) return;
+    this.ui.app.removeAttribute('data-place');
+    this.ui.page.removeAttribute('on-map');
+    this.ui.groupPage.removeAttribute('on-map');
+    this.map.showPlace(null);
+    this.refitAfterPlace = true;
+  }
+
   /** Zurück von Profil-/Boots-/Entdecken-Seite zur Kartenansicht. */
   private leavePage() {
     if (!this.ui.app.hasAttribute('data-page')) return;
+    this.clearPlace();
     this.ui.app.removeAttribute('data-page');
+    if (this.refitAfterPlace) {
+      this.refitAfterPlace = false;
+      const tracks = this.store.get().tracks.filter((t) => !t.hidden);
+      if (tracks.length) requestAnimationFrame(() => this.map.fit(tracks));
+    }
     this.pageSection = null;
     this.ui.page.hidden = true;
     this.ui.discoverPage.hidden = true;

@@ -3,7 +3,7 @@ import type { CoverKind, GalleryPhoto } from '../services/api';
 import { COVER_BANNER_RATIO, COVER_FOCUS_DEFAULT, focusAfterDrag, focusSlack } from '../domain/cover';
 import { fmtShort } from '../util/html';
 import { icon } from './icons';
-import { base, emit } from './shared';
+import { base, coverPosition, emit } from './shared';
 
 /**
  * Titelbild über Profil-, Boots- und Gruppenseite (Konzept 13.2). Ohne Bild sehen nur Verwalter einen Platzhalter
@@ -247,7 +247,7 @@ export class SxCover extends LitElement {
           src=${this.src}
           alt=${this.label}
           draggable="false"
-          style="object-position: 50% ${y}%"
+          style=${coverPosition(y)}
           @load=${this.loaded}
           @error=${() => (this.adjustOnLoad = false)}
           @pointerdown=${this.down}

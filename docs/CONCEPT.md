@@ -1299,6 +1299,36 @@ ohne Reaktionen, höchstens alle 2 min je Tab.
 5. Betreiberangaben für Impressum und Datenschutz (Name, Anschrift, E-Mail, ggf. Telefon) und ob
    Auftragsverarbeitungsverträge mit Cloudflare, Resend und Stripe abgeschlossen sind.
 
+### 12.11 Umgebung: Stream nach Nähe (Entscheidung 28.10.2026)
+
+Betreiber: „Gäste sollen in der Community alles sehen, angemeldet auch, aber eingrenzbar“ und „den Stream auf
+Mitgliedschaften oder in der Nähe des eigenen Hafens mit Radius einstellen und zeige auch meine Umgebung aktivieren –
+als Standard“. Umgesetzt (F-340 … F-343) als Weiterentwicklung von `konzept-lokalitaet.md` Phase 2, aber **ohne
+Zellen-Spalten**: Häfen haben schon `lat/lon`, Vereine und Teams ihren Ort über den Heimathafen.
+
+- **Modi:** „Umgebung“ (Standard), „Alles“ (öffentlicher Stream mit Filtern, 12.6) und „Mitgliedschaften“ (persönlicher
+  Stream, nur angemeldet). Die Wahl gilt pro Gerät.
+- **Umgebung lesen:** Häfen im Rechteck um den Mittelpunkt (einfacher Vergleich auf `lat/lon`, Häfen sind wenige),
+  genau gefiltert per Haversine, nächste zuerst, höchstens 150; dazu öffentliche Gruppen mit diesen Heimathäfen. Ihre
+  Aktivitäts-Ziele (`harbor`, `group`) gehen als Schlüsselliste in dieselbe Abfrage wie der persönliche Stream
+  (`PERSONAL_SQL`), geprüft ohne Betrachter wie „Alles“. Kein neues Schreiben, keine Migration.
+- **Mittelpunkt:** grober Standort dieses Geräts, sonst Heimathafen (12.2). Häfen ohne Position zählen nicht – die
+  Anleger:in bzw. die Moderation trägt die Position auf der Hafenseite ein.
+- **Datenschutz:** Standort nur auf Klick, im Browser auf 0,1° gerundet, nur im localStorage; die Anfrage enthält nur
+  die gerundeten Werte, der Server speichert sie nicht, der Cache-Schlüssel enthält nur Mittelpunkt, Umkreis, Cursor.
+- **Gelesen:** Das Community-Badge zählt den persönlichen Stream; als gelesen gilt er nur, wenn „Mitgliedschaften“
+  angezeigt wird.
+
+### 12.12 Mitglied, Folgen, Stumm, Austreten (Entscheidung 28.10.2026)
+
+Betreiber: Mitglieder brauchen kein „Folgen“ – stattdessen eine Glocke zum Stummschalten und „Verlassen“. Umgesetzt
+(F-346 … F-348): **Mitglied** = Teil der Gruppe (Mitgliederliste, geschlossene Inhalte, Boote zuordnen, Beiträge je
+Rolle), bekommt die Neuigkeiten im Stream; **stumm** (`group_members.muted_at`) nimmt die Gruppe aus Stream und
+Wochenmail, die Mitgliedschaft bleibt – beim Heimatverein samt seiner Teams, bei einem Team samt den Törns der
+Teamkollegen. **Folgen** ist nur für Nicht-Mitglieder (Neuigkeiten öffentlicher Gruppen ohne
+Mitgliedschaft). **Austreten** auf der Gruppenseite und im Konto unter „Gruppen“; der Eigner übergibt vorher an einen
+Admin. Die Spalte verschwindet mit der Mitgliedschaft (Austreten, Entfernen, Gruppe oder Konto löschen).
+
 ### 12.10 Kopfzeile: Bereiche und Community-Badge
 
 Anlass (Betreiber, Oktober 2026): Der Wechsel Törn ↔ Community über das Logo war zu implizit, „Entdecken“ kaum zu
@@ -1375,7 +1405,11 @@ den Schieberegler darunter (Tastatur, Screenreader); „Speichern“/„Abbreche
 3:1-Streifen mit demselben Ausschnitt – „Neues Boot“ und „Neues Boot im Hafen“ das des Boots, „ist beigetreten“ das
 der Person, Meilensteine das von Person, Boot oder Gruppe. Törns behalten ihr Übersichtsbild (jetzt unbeschnitten,
 1200 : 630), Beiträge zeigen keins (sonst stünde dasselbe Gruppenbild über jedem Beitrag). Auf /entdecken tragen
-die Karten von Booten, Seglern sowie Vereinen und Teams ihr Titelbild oben. Nur Titelbilder **öffentlicher**
+die Karten von Booten, Seglern sowie Vereinen und Teams ihr Titelbild oben – ebenfalls als breiter 3:1-Streifen mit
+Ausschnitt, nicht hochkant (Betreiber, 28.10.: die Bilder sind breit angelegt und in der Höhe justiert, F-330). Dazu
+hat /entdecken eine serverseitige Suche, einen Abschnitt Häfen und Beitreten-Knöpfe je Beitrittsstufe (F-331 … F-333;
+für Häfen kein Folgen-Knopf in der Liste – der eigene Folgen-Stand ist dort nicht bekannt, Folgen bleibt auf der
+Hafenseite). Nur Titelbilder **öffentlicher**
 Objekte erscheinen (die Adresse kommt ohne Schlüssel aus; ein Mitglied einer geschlossenen Gruppe sieht den Eintrag,
 aber ohne Bild). Gelesen wird beim Ausliefern per JOIN auf `covers` (`coverRef` in `src/domain/cover.ts`) – nichts
 wird in die Aktivität kopiert: Ein gelöschtes Titelbild verschwindet sofort überall, ein ausgetauschtes erscheint mit
@@ -1978,7 +2012,7 @@ die endgültigen Texte stehen in `docs/REQUIREMENTS.md`.
 **Umsetzungsstand (Branch `feature/fahrtenbuch`):** Phase 1 umgesetzt – Migration `0025_logbook.sql`, `src/domain/logbook.ts`,
 `worker/logbook.ts`, `POST /api/shares/manual`, `PATCH /api/shares/:id` mit `log`/Häfen, Kontingent (L1), Aufbewahrung (L2),
 Hafenposition (L3), Meilensteine (L4), nur angemeldet (L5), keine Medien (L6), Formular `sx-logbook-form` mit kleiner Karte für die
-Hafenposition (`sx-position-picker`), Panel `sx-logbook-panel`, gestrichelte Linie, Abzeichen, „davon aufgezeichnet“, Stream-Bündel
+Hafenposition (`sx-place-picker`, F-353), Panel `sx-logbook-panel`, gestrichelte Linie, Abzeichen, „davon aufgezeichnet“, Stream-Bündel
 `logbook`. Aus L8 umgesetzt: Obergrenze, `X-Share-Ended`, 60 Tage, 30 kn in Browser und Worker, Ausreißer aus der Distanz;
 **offen** (Phase 3, F-315): Hinweis bei > 10 % Abweichung für Eigentümer und Moderation.
 

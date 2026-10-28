@@ -134,7 +134,7 @@ export class SocialController {
   /** Nur den Heimathafen setzen (Willkommens-Karte, Konzept 14.3); true bei Erfolg. */
   async saveHomeHarbor(choice: HarborChoice): Promise<boolean> {
     try {
-      const harborId = 'name' in choice ? (await socialApi.createHarbor(choice.name)).harbor.id : choice.harborId;
+      const harborId = 'name' in choice ? (await socialApi.createHarbor(choice.name, choice.pos)).harbor.id : choice.harborId;
       if (!harborId) return false;
       await socialApi.saveHome({ harborId });
       this.ui.toast('Heimathafen gespeichert');
@@ -150,7 +150,7 @@ export class SocialController {
     Object.assign(acc, { busy: true, error: '' });
     try {
       let harborId: string | null = null;
-      if ('name' in d.harbor) harborId = (await socialApi.createHarbor(d.harbor.name)).harbor.id;
+      if ('name' in d.harbor) harborId = (await socialApi.createHarbor(d.harbor.name, d.harbor.pos)).harbor.id;
       else harborId = d.harbor.harborId;
       const home = await socialApi.saveHome({ clubId: d.clubId, harborId });
       acc.home = { ...home, clubs: acc.home?.clubs ?? [] };

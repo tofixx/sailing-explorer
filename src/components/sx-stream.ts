@@ -4,7 +4,7 @@ import { linkify } from '../domain/comment-text';
 import { GROUP_KIND_LABEL, streamHeadline } from '../domain/groups';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
-import { base, emit, logbookTag } from './shared';
+import { base, coverBanner, coverBannerStyles, emit, logbookTag } from './shared';
 import './sx-reactions';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
@@ -53,7 +53,19 @@ export class SxStream extends LitElement {
 
   static styles = [
     base,
+    coverBannerStyles,
     css`
+      /* Spaßname (F-349): kursiv mit Schloss, nicht mit einem echten Namen verwechselbar */
+      .pseudo {
+        font-style: italic;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .pseudo svg {
+        width: 14px;
+        height: 14px;
+      }
       :host {
         display: block;
       }
@@ -152,10 +164,6 @@ export class SxStream extends LitElement {
       .cover {
         aspect-ratio: 1200 / 630;
       }
-      /* Titelbild (COVER_BANNER_RATIO) mit gespeichertem Ausschnitt */
-      .banner {
-        aspect-ratio: 3 / 1;
-      }
       .tools {
         margin-left: auto;
       }
@@ -231,8 +239,18 @@ export class SxStream extends LitElement {
           <div class="ctx">${fmtNum(l.distNm, 0)} sm · ${l.voyages.map((v, n) => html`${n ? ', ' : ''}<a href="/s/${v.id}">${v.title}</a>`)}${l.count > l.voyages.length ? ' …' : ''}
             ${logbookTag()}</div>`;
       }
-      case 'member':
-        return html`<div class="head">${i.actor ? this.who(i) : html`<span>Ein neues Mitglied</span>`} <span class="what">ist beigetreten</span> ${this.groupLink(i)}</div>`;
+      case 'member': {
+        // „<Name> ist dem Team <Gruppe> beigetreten“ (F-349); ohne öffentliches Profil der Spaßname mit Schloss
+        const name = i.actor
+          ? this.who(i)
+          : i.alias
+            ? html`<span class="pseudo" title="Spaßname – das Profil ist nicht öffentlich">${icon('lock')}${i.alias}</span>`
+            : html`<span>Ein neues Mitglied</span>`;
+        const g = i.group;
+        return html`<div class="head">${name} <span class="what">ist${g && !this.inGroup
+            ? html` ${g.kind === 'club' ? 'dem Verein' : 'dem Team'} <a href="/g/${g.slug}">${g.name}</a>`
+            : ''} beigetreten</span></div>`;
+      }
       case 'boat':
         return html`<div class="head"><span class="what">Neues Boot: <a href="/b/${i.boat!.id}">${i.boat!.name}</a></span> ${this.groupLink(i)}</div>`;
       case 'milestone': {
@@ -248,7 +266,7 @@ export class SxStream extends LitElement {
   private banner(i: StreamItem) {
     if (!i.cover) return '';
     const href = i.milestone?.path ?? (i.boat ? `/b/${i.boat.id}` : i.actor ? `/u/${i.actor.handle}` : null);
-    const img = html`<img class="banner" src=${i.cover.src} style="object-position: 50% ${i.cover.y}%" alt="" loading="lazy" decoding="async" />`;
+    const img = coverBanner(i.cover, 'banner');
     return href ? html`<a href=${href} tabindex="-1" aria-hidden="true">${img}</a>` : img;
   }
 
@@ -264,13 +282,15 @@ export class SxStream extends LitElement {
   }
 
   render() {
-    if (!this.items.length) return this.loading ? html`<div class="empty">Lade …</div>` : html`<div class="empty">${this.emptyText}</div>`;
+    // „Mehr laden“ auch bei leerer Liste, solange es weitergeht – sonst bliebe ein ganz weggefilterter Stand stecken (F-350)
+    const more = this.cursor
+      ? html`<div class="more"><button class="btn" ?disabled=${this.loading} @click=${() => emit(this, 'sx-stream-more', { scope: this.scope })}>${this.loading ? 'Lade …' : 'Mehr laden'}</button></div>`
+      : '';
+    if (!this.items.length) return html`${this.loading ? html`<div class="empty">Lade …</div>` : html`<div class="empty">${this.emptyText}</div>`}${more}`;
     return html`<ol>
         ${this.items.map((i) => this.item(i))}
       </ol>
-      ${this.cursor
-        ? html`<div class="more"><button class="btn" ?disabled=${this.loading} @click=${() => emit(this, 'sx-stream-more', { scope: this.scope })}>${this.loading ? 'Lade …' : 'Mehr laden'}</button></div>`
-        : ''}`;
+      ${more}`;
   }
 }
 customElements.define('sx-stream', SxStream);

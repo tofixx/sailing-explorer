@@ -160,6 +160,8 @@ export interface Boat extends Linkable {
 export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'lengthM' | 'sailNumber' | 'homePort' | 'description' | 'ownerLabel' | 'visibility'>> & {
   /** Hafen (Konzept 12.2): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
+  /** Lage eines neuen Hafens zu homePort (Pflicht beim Anlegen, F-353) */
+  homePortPos?: { lat: number; lon: number } | null;
   /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
   rotateKey?: boolean;
 };
@@ -491,7 +493,13 @@ export const api = {
   acceptMyInvite: (id: string) => call<InviteAccepted>(`/api/me/invites/${encodeURIComponent(id)}/accept`, { method: 'POST' }),
   declineMyInvite: (id: string) => call<void>(`/api/me/invites/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
-  discover: (limit: number) => call<DiscoverData>(`/api/discover?limit=${limit}`),
+  /** `near`: nur aus der Umgebung, nächste zuerst (F-344) */
+  discover: (limit: number, query = '', near?: { center: NearCenter; r: number } | null) =>
+    call<DiscoverData>(
+      `/api/discover?limit=${limit}${query ? `&q=${encodeURIComponent(query)}` : ''}${
+        near ? `&r=${near.r}&${'harbor' in near.center ? `harbor=${encodeURIComponent(near.center.harbor)}` : `lat=${near.center.lat}&lon=${near.center.lon}`}` : ''
+      }`,
+    ),
 
   /** Lädt den Payload; der Browser entpackt gzip, wir begrenzen die Größe. */
   async shareData(id: string, key?: string | null): Promise<SharePayload> {
@@ -793,6 +801,8 @@ export interface GroupRequest {
 
 export interface GroupPageData {
   group: GroupInfo;
+  /** Ort für die Karte im Hintergrund (Heimathafen mit Position, F-351) */
+  place?: { lat: number; lon: number } | null;
   parent: GroupRef | null;
   teams: GroupRef[];
   stats: { members: number; boats: number; voyages: number; distNm: number; recordedNm?: number; seasonNm: number };
@@ -800,7 +810,7 @@ export interface GroupPageData {
   others: number;
   boats: GroupBoat[];
   social: FollowStats;
-  membership: { role: GroupRole | null; requested: boolean; canRequest: boolean; canJoin?: boolean; canInvite?: boolean; canApprove?: boolean };
+  membership: { role: GroupRole | null; requested: boolean; canRequest: boolean; canJoin?: boolean; canInvite?: boolean; canApprove?: boolean; muted?: boolean };
   /** Titelbild samt Ausschnitt und Galerie (Konzept 13) – fehlen bei älteren Servern */
   cover?: string | null;
   coverY?: number;
@@ -811,6 +821,8 @@ export interface GroupPageData {
 
 export interface MyGroup extends GroupInfo {
   members: number;
+  /** Neuigkeiten stumm geschaltet (F-346) */
+  muted?: boolean;
 }
 
 export interface StreamPage {
@@ -846,15 +858,38 @@ export interface DiscoverGroup {
   cover?: CoverRef | null;
 }
 
+/** Hafen auf /entdecken (F-332): öffentliche Boote und Vereine/Teams dort */
+export interface DiscoverHarbor {
+  slug: string;
+  name: string;
+  boats: number;
+  groups: number;
+  /** Entfernung zum Mittelpunkt (nur mit Umgebung, F-344) */
+  km?: number;
+}
+
 export interface DiscoverData {
   /** Vereine und Teams – fehlt bei älteren Servern */
   groups?: DiscoverGroup[];
+  /** Häfen und Suchschlüssel der Antwort ('' = ohne Suche, F-331) – fehlen bei älteren Servern */
+  harbors?: DiscoverHarbor[];
+  query?: string;
+  /** Antwort gilt für die Umgebung (F-344) */
+  near?: boolean;
+}
+
+/** Mitgliedschaften für die Beitreten-Knöpfe auf /entdecken (F-333): Slugs der Gruppen. */
+export interface DiscoverMembership {
+  member: string[];
+  requested: string[];
 }
 
 export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy'>> & {
   kind?: GroupKind;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
+  /** Lage eines neuen Hafens zu homePort (Pflicht beim Anlegen, F-353) */
+  homePortPos?: { lat: number; lon: number } | null;
   parentId?: string | null;
   rotateKey?: boolean;
 };
@@ -864,7 +899,11 @@ export type FollowKind = 'user' | 'boat' | 'group' | 'harbor';
 const gid = (id: string) => encodeURIComponent(id);
 
 export const groupApi = {
-  mine: () => call<{ groups: MyGroup[]; requests: Array<GroupRef & { createdAt: number }> }>('/api/groups'),
+  mine: () => call<{ groups: MyGroup[]; requests: Array<GroupRef & { id?: string; createdAt: number }> }>('/api/groups'),
+  /** Eigner übergibt an einen Admin (F-347) */
+  transfer: (id: string, userId: string) => call<{ owner: string }>(`/api/groups/${gid(id)}/owner`, jsonInit('POST', { userId })),
+  /** eigene Mitgliedschaft stumm bzw. laut (F-346) */
+  mute: (id: string, muted: boolean) => call<{ muted: boolean }>(`/api/groups/${gid(id)}/mute`, jsonInit('PUT', { muted })),
   create: (g: GroupInput) => call<{ group: GroupInfo }>('/api/groups', jsonInit('POST', g)),
   bySlug: (slug: string, key?: string | null) => call<GroupPageData>(`/api/groups/slug/${encodeURIComponent(slug)}`, keyInit(key)),
   get: (id: string, key?: string | null) => call<GroupPageData>(`/api/groups/${gid(id)}`, keyInit(key)),
@@ -889,7 +928,8 @@ export const groupApi = {
     call<StreamPage>(`/api/groups/${gid(id)}/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, keyInit(key)),
   myStream: (cursor?: string | null) => call<StreamPage>(`/api/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
   /** Community-Badge (F-221): neue Einträge seit dem Gelesen-Zeitpunkt, höchstens 99 (`more`: mehr) */
-  unread: () => call<{ count: number; more: boolean }>('/api/stream/unread'),
+  /** `joins` false: Beitritte nicht mitzählen (auf dem Gerät ausgeblendet, F-350) */
+  unread: (joins = true) => call<{ count: number; more: boolean }>(`/api/stream/unread${joins ? '' : '?joins=0'}`),
   /** Stream bis `at` gelesen (F-222) */
   seen: (at?: number) => call<{ ok: true }>('/api/stream/seen', jsonInit('POST', { at })),
   suggestions: () => call<{ people: Suggestion[] }>('/api/me/suggestions'),
@@ -928,6 +968,14 @@ export interface PublicStreamPage extends StreamPage {
 }
 
 /** Eingrenzung des öffentlichen Streams: Hafen oder öffentliche Gruppe (`club` = Verein oder Team); null = alles */
+/** Umgebung (F-340): Mittelpunkt als gerundeter Standort oder Hafen mit Position */
+export type NearCenter = { lat: number; lon: number } | { harbor: string };
+
+export interface NearStreamPage extends StreamPage {
+  /** nur auf der ersten Seite: Zahl der Orte im Umkreis und der Mittelpunkt-Hafen (null = Standort) */
+  near?: { places: number; center: { slug: string; name: string } | null };
+}
+
 export type StreamFilter = { kind: 'harbor' | 'club'; slug: string } | null;
 
 export interface HarborSearchHit extends HarborRef {
@@ -970,12 +1018,16 @@ const q = (params: Record<string, string | null | undefined>) => {
 
 export const socialApi = {
   searchHarbors: (query: string) => call<{ harbors: HarborSearchHit[] }>(`/api/harbors${q({ q: query })}`),
-  createHarbor: (name: string) => call<{ harbor: HarborRef; created: boolean }>('/api/harbors', jsonInit('POST', { name })),
+  /** `pos`: Lage des neuen Hafens (Pflicht beim Anlegen, F-353) */
+  createHarbor: (name: string, pos?: { lat: number; lon: number } | null) =>
+    call<{ harbor: HarborRef; created: boolean }>('/api/harbors', jsonInit('POST', { name, ...(pos ? { lat: pos.lat, lon: pos.lon } : {}) })),
   harbor: (slug: string) => call<HarborPageData>(`/api/harbors/slug/${encodeURIComponent(slug)}`),
   updateHarbor: (id: string, patch: HarborPatch) => call<{ harbor: HarborPageData['harbor'] }>(`/api/harbors/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
   harborStream: (id: string, cursor?: string | null) => call<StreamPage>(`/api/harbors/${encodeURIComponent(id)}/stream${q({ cursor })}`),
   home: () => call<HomeInfo>('/api/me/home'),
   saveHome: (patch: { clubId?: string | null; harborId?: string | null }) => call<HomeInfo>('/api/me/home', jsonInit('PUT', patch)),
+  nearStream: (cursor: string | null, center: NearCenter, r: number) =>
+    call<NearStreamPage>(`/api/stream/near${q({ cursor, r: String(r), ...('harbor' in center ? { harbor: center.harbor } : { lat: String(center.lat), lon: String(center.lon) }) })}`),
   publicStream: (cursor?: string | null, filter?: StreamFilter) =>
     call<PublicStreamPage>(`/api/stream/public${q({ cursor, harbor: filter?.kind === 'harbor' ? filter.slug : null, club: filter?.kind === 'club' ? filter.slug : null })}`),
   /** kind null = zurücknehmen; Schlüssel für „Nur mit Link“-Törns als X-Share-Key */
