@@ -17,6 +17,8 @@ import './sx-stream';
 import './sx-follow';
 import './sx-harbor-picker';
 import './sx-page-media';
+import './sx-claim';
+import './sx-verified-badge';
 
 /**
  * Gruppenseite `/g/<slug>` und Anlegen `/g/neu` (Konzept 11.1, 11.5, F-163). Rein präsentational: Daten kommen als
@@ -497,7 +499,7 @@ export class SxGroupPage extends LitElement {
     return html`<header class="hero">
       <div class="mark" aria-hidden="true">${icon(g.kind === 'club' ? 'anchor' : 'sail')}</div>
       <div class="head">
-        <h1>${g.name}</h1>
+        <h1>${g.name}${g.verified ? html` <sx-verified-badge kind="group"></sx-verified-badge>` : ''}</h1>
         ${g.description ? html`<div class="lead">${g.description}</div>` : ''}
         <div class="facts">
           <span>${GROUP_KIND_LABEL[g.kind]}</span>
@@ -515,6 +517,9 @@ export class SxGroupPage extends LitElement {
         ${manager
           ? html`<button class="btn" @click=${() => this.startEdit(g)}>${icon('pencil')} Bearbeiten</button>`
           : html`<button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'group', id: g.id, label: `die Gruppe ${g.name}` })}>${icon('flag')} Melden</button>`}
+        ${g.kind === 'club' && !(g.verified && g.role === 'owner')
+          ? html`<sx-claim kind="group" target-id=${g.id} name=${g.name} ?signed-in=${this.signedIn}></sx-claim>`
+          : ''}
       </div>
     </header>`;
   }

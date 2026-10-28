@@ -8,6 +8,7 @@ import { loadLock } from './locks';
 import { harborRef, loadHarbor } from './harbors';
 import { SHARE_ID_RE } from './validate';
 import { funnyName } from '../src/domain/names';
+import { claimTargetCleanup } from './claim-cleanup';
 
 // ---------------------------------------------------------------- Häfen
 
@@ -19,6 +20,8 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
   if (!src || !dst) throw new HttpError(404, 'not_found', 'Diesen Hafen gibt es nicht (mehr).');
   if (src.id === dst.id) throw new HttpError(400, 'same_harbor', 'Ein Hafen lässt sich nicht mit sich selbst zusammenführen.');
   if ((await loadLock(env, 'harbor', src.id)) || (await loadLock(env, 'harbor', dst.id))) throw LOCKED();
+  // Verifizierung (Konzept 20.5): ein verifizierter Hafen geht nicht in einem unverifizierten auf
+  if (src.verified_at && !dst.verified_at) throw new HttpError(409, 'verified', 'Dieser Hafen ist verifiziert – andersherum zusammenführen.');
   const now = Date.now();
   const counts = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM boats WHERE harbor_id = ?1) AS boats, (SELECT COUNT(*) FROM groups WHERE harbor_id = ?1) AS groups,
@@ -52,6 +55,7 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
     env.DB.prepare('UPDATE harbor_redirects SET harbor_id = ? WHERE harbor_id = ?').bind(dst.id, src.id),
     env.DB.prepare('INSERT OR REPLACE INTO harbor_redirects (old_slug, harbor_id, created_at) VALUES (?, ?, ?)').bind(src.slug, dst.id, now),
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'harbor' AND target_id = ?`).bind(src.id),
+    ...claimTargetCleanup(env, 'harbor', src.id),
     env.DB.prepare('DELETE FROM harbors WHERE id = ?').bind(src.id),
     adminLogStmt(env, admin.id, 'merge_harbor', 'harbor', dst.id, `${src.name} (/h/${src.slug}, ${src.id}) → ${dst.name}: ${counts?.boats ?? 0} Boote, ${counts?.groups ?? 0} Gruppen, ${counts?.follows ?? 0} Folgende`, now),
   ]);
@@ -177,6 +181,9 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
       `DELETE FROM group_requests WHERE user_id = ?2 AND (group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1) OR group_id IN (SELECT group_id FROM group_requests WHERE user_id = ?1))`,
     ).bind(A, B),
     db.prepare('UPDATE group_requests SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
+    // Anträge auf Verifizierung (Konzept 20.8): als Antragsteller:in und als Verdrängte:r
+    db.prepare('UPDATE claims SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
+    db.prepare('UPDATE claims SET previous_user_id = ?1 WHERE previous_user_id = ?2').bind(A, B),
     db.prepare('UPDATE group_boats SET added_by = ?1 WHERE added_by = ?2').bind(A, B),
     // Crew: nicht auf eigenen Törns, nicht doppelt
     // Crew-Rollen (Konzept 15): beide am selben Törn – die höhere Rolle gilt. Skipper zuerst vormerken, weil es je Törn

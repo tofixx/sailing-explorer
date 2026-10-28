@@ -29,6 +29,7 @@ import { GROUP_KIND_LABEL } from '../src/domain/groups';
 import { harborVisible, loadHarborByRedirect, loadHarborBySlug } from './harbors';
 // ---- Admin-Bereich (Konzept 18) ----
 import { adminRoutes } from './admin-routes';
+import { createClaim, getClaimState, withdrawClaim } from './claims';
 import { currentUser } from './auth';
 import { isAdmin } from './moderation';
 // ---- Benachrichtigungen (Konzept 17) ----
@@ -128,6 +129,10 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/covers\/([ubg])\/([A-Za-z0-9-]+)$/, (r, env, [k, id]) => deleteCover(r, env, k, id)],
   // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11): worker/group-routes.ts ----
   ...groupRoutes,
+  // ---- Verifizierte Vertretung (Konzept 20): worker/claims.ts ----
+  ['GET', /^\/api\/claims\/(group|harbor)\/([A-Za-z0-9]+)$/, (r, env, [k, id]) => getClaimState(r, env, k, id)],
+  ['POST', /^\/api\/claims$/, (r, env) => createClaim(r, env)],
+  ['DELETE', /^\/api\/claims\/([A-Za-z0-9]+)$/, (r, env, [id]) => withdrawClaim(r, env, id)],
   // ---- Admin-Bereich (Konzept 18): worker/admin-routes.ts ----
   ...adminRoutes,
 ];

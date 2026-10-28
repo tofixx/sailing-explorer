@@ -1,5 +1,6 @@
 import { LitElement, css, html, nothing } from 'lit';
-import type { AdminDetail, AdminItem, AdminLogEntry, AdminOp, MergePreview } from '../services/admin-api';
+import type { AdminClaim, AdminDetail, AdminItem, AdminLogEntry, AdminOp, MergePreview } from '../services/admin-api';
+import './sx-admin-claims';
 import {
   ADMIN_FILTER_LABEL, ADMIN_KINDS, ADMIN_KIND_LABEL, FILTERS_FOR, LOCK_WARN_MS,
   type AdminFilter, type AdminKind,
@@ -9,9 +10,9 @@ import { fmtDate, fmtDateTime } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
 
-export type Tab = AdminKind | 'log';
+export type Tab = AdminKind | 'log' | 'claims';
 /** offene Aktion in der Detailansicht */
-type Form = 'lock' | 'rename' | 'owner' | 'merge' | 'delete' | 'support' | null;
+type Form = 'lock' | 'rename' | 'owner' | 'merge' | 'delete' | 'support' | 'unverify' | null;
 
 /** Abfrage der Übersicht bzw. des Protokolls */
 export interface AdminQuery {
@@ -19,6 +20,8 @@ export interface AdminQuery {
   q: string;
   filter: AdminFilter;
   page: number;
+  /** Reiter „Anträge“ (Konzept 20.3): offene oder entschiedene */
+  claimStatus: 'open' | 'decided';
 }
 
 /**
@@ -43,6 +46,8 @@ export class SxAdminPage extends LitElement {
     busy: { state: true },
     note: { state: true },
     preview: { state: true },
+    claims: { state: true },
+    claimStatus: { state: true },
   };
   declare tab: Tab;
   declare q: string;
@@ -59,10 +64,15 @@ export class SxAdminPage extends LitElement {
   /** Rückmeldung der letzten Aktion */
   declare note: string;
   declare preview: MergePreview | null;
+  declare claims: AdminClaim[];
+  declare claimStatus: 'open' | 'decided';
 
   constructor() {
     super();
-    this.tab = 'users';
+    // Link aus der Glocke: /admin?tab=claims
+    this.tab = new URLSearchParams(location.search).get('tab') === 'claims' ? 'claims' : 'users';
+    this.claims = [];
+    this.claimStatus = 'open';
     this.q = '';
     this.filter = 'all';
     this.page = 1;
@@ -236,16 +246,16 @@ export class SxAdminPage extends LitElement {
   ];
 
   private get kind(): AdminKind | null {
-    return this.tab === 'log' ? null : this.tab;
+    return this.tab === 'log' || this.tab === 'claims' ? null : this.tab;
   }
 
   /** Liste bzw. Protokoll mit dem aktuellen Reiter, Suchbegriff, Filter und der Seite neu anfordern. */
   reload(): void {
-    emit<AdminQuery>(this, 'sx-admin-query', { tab: this.tab, q: this.q, filter: this.filter, page: this.page });
+    emit<AdminQuery>(this, 'sx-admin-query', { tab: this.tab, q: this.q, filter: this.filter, page: this.page, claimStatus: this.claimStatus });
   }
 
   private switchTab(tab: Tab) {
-    Object.assign(this, { tab, filter: 'all', page: 1, q: '', detail: null, form: null, note: '' });
+    Object.assign(this, { tab, filter: 'all', page: 1, q: '', detail: null, form: null, note: '', claimStatus: 'open' });
     this.reload();
   }
 
@@ -271,7 +281,9 @@ export class SxAdminPage extends LitElement {
       ? html`<span class="badge locked ${due ? 'due' : ''}" title=${i.lock.reason}>gesperrt bis ${fmtDate(i.lock.until)}${i.lock.viaUser ? ' (mit Konto)' : ''}</span>`
       : nothing}${i.hidden && !i.lock ? html`<span class="badge hidden">ausgeblendet</span>` : nothing}${i.suspended && !i.lock
       ? html`<span class="badge suspended">suspendiert</span>`
-      : nothing}${i.visibility && i.visibility !== 'public' ? html`<span class="badge">${VISIBILITY_LABEL[i.visibility]}</span>` : nothing}`;
+      : nothing}${i.visibility && i.visibility !== 'public' ? html`<span class="badge">${VISIBILITY_LABEL[i.visibility]}</span>` : nothing}${i.verified
+      ? html`<span class="badge">verifiziert</span>`
+      : nothing}`;
   }
 
   private renderList(kind: AdminKind) {
@@ -358,7 +370,8 @@ export class SxAdminPage extends LitElement {
         return html`<div class="form">
           <label class="label" for="owner">Konto-ID des neuen Eigners (aus dem Reiter „Konten“)</label>
           <input type="text" id="owner" name="owner" />
-          <p class="hint">${kind === 'boats' ? 'Das bisherige Konto bleibt Boots-Admin.' : kind === 'groups' ? 'Das bisherige Konto wird Admin der Gruppe.' : 'Die neue Anleger:in darf Name und Position pflegen.'}</p>
+          <p class="hint">${kind === 'boats' ? 'Das bisherige Konto bleibt Boots-Admin.' : kind === 'groups' ? 'Das bisherige Konto wird Admin der Gruppe.' : 'Die neue Anleger:in darf Name und Position pflegen.'}
+            ${i.verified ? 'Die Verifizierung endet dabei – für eine verifizierte Übertragung einen Antrag annehmen (Reiter „Anträge“).' : ''}</p>
           <div class="row-actions">
             <button class="btn primary" ?disabled=${this.busy} @click=${() => this.act({ kind, id: i.id, type: 'owner', userId: this.value('owner') }, 'Eigner geändert')}>Übertragen</button>
           </div>
@@ -412,6 +425,15 @@ export class SxAdminPage extends LitElement {
             <button class="btn ghost" ?disabled=${this.busy} @click=${() => this.act({ kind, id: i.id, type: 'revokeSupport' }, 'Gutschein entzogen')}>Gutscheine entziehen</button>
           </div>
         </div>`;
+      case 'unverify':
+        return html`<div class="form">
+          <label class="label" for="unverify">Begründung (steht im Protokoll)</label>
+          <textarea id="unverify" name="unverify" maxlength="500"></textarea>
+          <p class="hint">Das Abzeichen verschwindet, die Rechte bleiben beim heutigen Eigner. Die Sperre gegen früher Verdrängte entfällt.</p>
+          <div class="row-actions">
+            <button class="btn danger" ?disabled=${this.busy} @click=${() => this.act({ kind, id: i.id, type: 'unverify', reason: this.value('unverify') }, 'Verifizierung entzogen')}>Entziehen</button>
+          </div>
+        </div>`;
       case 'delete':
         return html`<div class="form">
           <label class="label" for="confirm">Endgültig löschen – zur Bestätigung die ID eingeben: ${i.id}</label>
@@ -457,17 +479,32 @@ export class SxAdminPage extends LitElement {
                 : nothing}
               ${!locked && kind !== 'shares' ? button('rename', 'Umbenennen') : nothing}
               ${!locked && canOwner ? button('owner', 'Eigner ändern') : nothing}
+              ${i.verified ? button('unverify', 'Verifizierung entziehen') : nothing}
               ${!locked && kind === 'users' ? button('support', 'Unterstützer-Gutschein') : nothing}
               ${!locked && (kind === 'harbors' || kind === 'users') ? button('merge', kind === 'users' ? 'Konto verbinden' : 'Zusammenführen') : nothing}
               ${button('delete', 'Endgültig löschen', 'btn small ghost danger')}
             `}
       </div>
       ${this.renderForm(kind, d)}
-      ${this.note ? html`<p class=${this.note.match(/^(Gesperrt|Sperre|Entsperrt|Umbenannt|Eigner|Häfen|Konten|Gelöscht|Gutschein)/) ? 'ok' : 'error'} role="status">${this.note}</p>` : nothing}
+      ${this.note ? html`<p class=${this.note.match(/^(Gesperrt|Sperre|Entsperrt|Umbenannt|Eigner|Häfen|Konten|Gelöscht|Gutschein|Verifizierung)/) ? 'ok' : 'error'} role="status">${this.note}</p>` : nothing}
       ${d.log.length
         ? html`<div><strong>Protokoll</strong><ul class="log">${d.log.map((e) => html`<li>${fmtDateTime(e.createdAt)} · ${e.action}${e.detail ? ` · ${e.detail}` : ''} · ${e.adminId ?? 'System'}</li>`)}</ul></div>`
         : nothing}
     </section>`;
+  }
+
+  private renderClaims() {
+    return html`<div class="chips" role="group" aria-label="Filter">
+        ${(['open', 'decided'] as const).map(
+          (st) => html`<button class="chip" aria-pressed=${this.claimStatus === st} @click=${() => {
+            Object.assign(this, { claimStatus: st, page: 1 });
+            this.reload();
+          }}>${st === 'open' ? 'Offen' : 'Entschieden'}</button>`,
+        )}
+      </div>
+      ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : nothing}
+      ${this.note ? html`<p class=${this.note.startsWith('Antrag') ? 'ok' : 'error'} role="status">${this.note}</p>` : nothing}
+      <sx-admin-claims .claims=${this.claims} ?busy=${this.busy} ?loading=${this.loading}></sx-admin-claims>`;
   }
 
   render() {
@@ -476,9 +513,10 @@ export class SxAdminPage extends LitElement {
       <h1>Admin-Bereich</h1>
       <nav aria-label="Bereiche">
         ${ADMIN_KINDS.map((k) => html`<button class="btn small" aria-current=${this.tab === k ? 'page' : 'false'} @click=${() => this.switchTab(k)}>${ADMIN_KIND_LABEL[k]}</button>`)}
+        <button class="btn small" aria-current=${this.tab === 'claims' ? 'page' : 'false'} @click=${() => this.switchTab('claims')}>Anträge</button>
         <button class="btn small" aria-current=${this.tab === 'log' ? 'page' : 'false'} @click=${() => this.switchTab('log')}>Protokoll</button>
       </nav>
-      <form
+      ${this.tab === 'claims' ? this.renderClaims() : html`<form
         class="search"
         role="search"
         @submit=${(e: Event) => {
@@ -492,7 +530,7 @@ export class SxAdminPage extends LitElement {
       </form>
       ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : nothing}
       ${kind && this.detail ? this.renderDetail(kind, this.detail) : nothing}
-      ${kind ? this.renderList(kind) : this.renderLog()}
+      ${kind ? this.renderList(kind) : this.renderLog()}`}
       <div class="pager">
         <button class="btn small" ?disabled=${this.page <= 1 || this.loading} @click=${() => {
           this.page--;

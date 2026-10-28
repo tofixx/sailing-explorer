@@ -9,6 +9,7 @@ import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../doma
 import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
 import type { CoverKind, CoverRef } from '../domain/cover';
 import type { HarborRef } from '../domain/harbors';
+import type { ClaimKind, MyClaim } from '../domain/claims';
 import type { MapStyleId } from '../domain/map-style';
 import type { VoyageRole } from '../domain/crew-roles';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
@@ -682,6 +683,8 @@ export interface GroupInfo extends Linkable {
   role: GroupRole | null;
   /** nur für Eigner und Admins: bis zur Prüfung ausgeblendet */
   hiddenAt?: number | null;
+  /** verifizierte Vertretung (Konzept 20.4) – nur Vereine, fehlt bei älteren Servern */
+  verified?: boolean;
   createdAt: number;
 }
 
@@ -779,6 +782,8 @@ export interface DiscoverGroup {
   createdAt: number;
   members: number;
   cover?: CoverRef | null;
+  /** verifizierter Verein (Konzept 20.4) – fehlt bei älteren Servern */
+  verified?: boolean;
 }
 
 export interface DiscoverData {
@@ -867,10 +872,12 @@ export type StreamFilter = { kind: 'harbor' | 'club'; slug: string } | null;
 
 export interface HarborSearchHit extends HarborRef {
   boats: number;
+  /** verifizierter Hafen (Konzept 20.4) – fehlt bei älteren Servern */
+  verified?: boolean;
 }
 
 export interface HarborPageData {
-  harbor: HarborRef & { lat: number | null; lon: number | null; canEdit: boolean; hiddenAt?: number | null; createdAt: number };
+  harbor: HarborRef & { lat: number | null; lon: number | null; canEdit: boolean; hiddenAt?: number | null; createdAt: number; verified?: boolean };
   club: GroupRef | null;
   /** Vereine und Teams mit diesem Heimathafen (Konzept 13.3) – fehlt bei älteren Servern */
   groups?: GroupRef[];
@@ -941,6 +948,32 @@ export interface PageMedia {
 }
 
 export type { CoverKind, CoverRef };
+
+/** Stand eines Antrags „Ich vertrete …“ für die angemeldete Person (Konzept 20, GET /api/claims/:kind/:id). */
+export interface ClaimState {
+  verified: boolean;
+  /** die Person vertritt das Objekt schon verifiziert */
+  representing: boolean;
+  /** verdrängt – kein neuer Antrag möglich */
+  blocked: boolean;
+  claim: MyClaim | null;
+  canClaim: boolean;
+}
+
+export interface ClaimRequest {
+  kind: ClaimKind;
+  id: string;
+  role: string;
+  reason: string;
+  contact: string;
+  evidenceUrl: string;
+}
+
+export const claimApi = {
+  state: (kind: ClaimKind, id: string) => call<ClaimState>(`/api/claims/${kind}/${encodeURIComponent(id)}`),
+  create: (req: ClaimRequest) => call<ClaimState>('/api/claims', jsonInit('POST', req)),
+  withdraw: (id: string) => call<void>(`/api/claims/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
 
 export const coverApi = {
   put: (kind: CoverKind, id: string, image: Blob) =>

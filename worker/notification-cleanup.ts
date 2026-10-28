@@ -64,6 +64,7 @@ export function nightlyNotificationCleanup(env: Env, now: number): D1PreparedSta
          OR (n.subject_kind = 'group' AND NOT EXISTS (SELECT 1 FROM groups WHERE id = n.subject_id))
          OR (n.subject_kind = 'invite' AND NOT EXISTS (SELECT 1 FROM invites WHERE id = n.subject_id AND expires_at > ?1 AND uses < max_uses))
          OR (n.subject_kind = 'user' AND NOT EXISTS (SELECT 1 FROM users WHERE id = n.subject_id))
+         OR (n.subject_kind = 'claim' AND NOT EXISTS (SELECT 1 FROM claims WHERE id = n.subject_id))
          LIMIT ?2)`,
     ).bind(now, L.nightlyBatch),
     env.DB.prepare('DELETE FROM push_subscriptions WHERE COALESCE(last_ok_at, created_at) < ?').bind(now - L.pushStaleDays * DAY),

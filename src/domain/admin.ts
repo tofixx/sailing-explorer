@@ -12,15 +12,15 @@ export const LOCK_KIND: Record<AdminKind, LockKind> = { users: 'user', boats: 'b
 export const ADMIN_KIND_LABEL: Record<AdminKind, string> = { users: 'Konten', boats: 'Boote', groups: 'Gruppen', harbors: 'Häfen', shares: 'Törns' };
 
 /** Filter der Übersicht (Konzept 18.5); `suspended` nur bei Konten. */
-export const ADMIN_FILTERS = ['all', 'locked', 'hidden', 'suspended', 'private', 'ownerless'] as const;
+export const ADMIN_FILTERS = ['all', 'locked', 'hidden', 'suspended', 'private', 'ownerless', 'verified'] as const;
 export type AdminFilter = (typeof ADMIN_FILTERS)[number];
 
 /** Welche Filter je Art Sinn ergeben (Häfen sind immer öffentlich, Konten haben keine Eigner). */
 export const FILTERS_FOR: Record<AdminKind, readonly AdminFilter[]> = {
   users: ['all', 'locked', 'hidden', 'suspended', 'private'],
   boats: ['all', 'locked', 'hidden', 'private', 'ownerless'],
-  groups: ['all', 'locked', 'hidden', 'private', 'ownerless'],
-  harbors: ['all', 'locked', 'hidden', 'ownerless'],
+  groups: ['all', 'locked', 'hidden', 'private', 'ownerless', 'verified'],
+  harbors: ['all', 'locked', 'hidden', 'ownerless', 'verified'],
   shares: ['all', 'locked', 'hidden', 'private'],
 };
 
@@ -31,6 +31,7 @@ export const ADMIN_FILTER_LABEL: Record<AdminFilter, string> = {
   suspended: 'Suspendiert',
   private: 'Nicht öffentlich',
   ownerless: 'Ohne Eigner',
+  verified: 'Verifiziert',
 };
 
 export function parseAdminFilter(kind: AdminKind, input: unknown): AdminFilter | null {

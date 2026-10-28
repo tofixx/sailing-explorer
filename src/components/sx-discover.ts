@@ -4,6 +4,7 @@ import { shareImageUrl, type CoverRef, type DiscoverBoat, type DiscoverData, typ
 import { GROUP_KIND_LABEL } from '../domain/groups';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
+import './sx-verified-badge';
 import { base } from './shared';
 
 /**
@@ -415,7 +416,7 @@ export class SxDiscover extends LitElement {
       ${this.cardStart(g.cover)}
       <span class="ic" aria-hidden="true">${icon(g.kind === 'club' ? 'anchor' : 'sail')}</span>
       <span class="txt">
-        <span class="t">${g.name}</span>
+        <span class="t">${g.name}${g.verified ? html` <sx-verified-badge kind="group" compact></sx-verified-badge>` : ''}</span>
         <span class="meta">${[GROUP_KIND_LABEL[g.kind], g.homePort].filter(Boolean).join(' · ')}</span>
         ${g.description ? html`<span class="bio">${g.description}</span>` : ''}
         <span class="meta">${plural(g.members, 'Mitglied', 'Mitglieder')}</span>

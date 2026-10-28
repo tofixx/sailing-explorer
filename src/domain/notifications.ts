@@ -1,16 +1,19 @@
 // Benachrichtigungs-Glocke (Konzept 17, F-250 … F-258): Arten, Grenzen und Texte. Rein, ohne DOM und Netz – Worker
 // (Schreiben, Lesen, Aufräumen) und Oberfläche (Glocke, Liste) nutzen dieselben Regeln.
+import { claimResultText, isClaimStatus } from './claims';
 
 /**
  * Arten: neuer Kommentar auf eigenem oder mitkommentiertem Törn, Reaktion auf Eigenes, neue Follower, Einladung an mich, Beitrittsanfrage in
  * einer Gruppe, deren Anfragen ich bestätige – und Hinweise des Betreibers zum Konto: Törn wird bald gelöscht, neuer
  * Passkey. Gegenstand (`subject_kind`) je Art: comment, expiry → share; reaction → share (auch Fotos des Törns), post,
- * activity; follow, passkey → user (ich selbst); invite → invite; request → group.
+ * activity; follow, passkey → user (ich selbst); invite → invite; request → group. Verifizierung (Konzept 20.8): neuer
+ * Antrag an die Admins (`claim`), Entscheidung an die Antragsteller:in (`claim_result`), Übertragung an die verdrängte
+ * Person (`claim_transfer`) – alle → claim.
  */
-export const NOTIFICATION_KINDS = ['comment', 'reaction', 'follow', 'invite', 'request', 'expiry', 'passkey'] as const;
+export const NOTIFICATION_KINDS = ['comment', 'reaction', 'follow', 'invite', 'request', 'expiry', 'passkey', 'claim', 'claim_result', 'claim_transfer'] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
-export const NOTIFICATION_SUBJECTS = ['share', 'post', 'activity', 'user', 'invite', 'group'] as const;
+export const NOTIFICATION_SUBJECTS = ['share', 'post', 'activity', 'user', 'invite', 'group', 'claim'] as const;
 export type NotificationSubject = (typeof NOTIFICATION_SUBJECTS)[number];
 
 const oneOf =
@@ -25,7 +28,7 @@ export const isNotificationSubject = oneOf(NOTIFICATION_SUBJECTS);
  * Nur zur Kenntnis: gelesen, sobald die Liste sie gezeigt hat. Alles andere (Kommentare lesen, Einladung oder Anfrage
  * entscheiden) gilt erst als gelesen, wenn man den Gegenstand öffnet – aus der Glocke, per Mail-Link oder direkt.
  */
-export const INFORMATIONAL: ReadonlySet<NotificationKind> = new Set(['reaction', 'follow', 'passkey']);
+export const INFORMATIONAL: ReadonlySet<NotificationKind> = new Set(['reaction', 'follow', 'passkey', 'claim_result', 'claim_transfer']);
 
 // ---------------------------------------------------------------- Kanäle (Konzept 17.6)
 
@@ -61,7 +64,7 @@ export function parsePrefs(raw: unknown): NotifyPrefs {
 }
 
 /** Hinweise des Betreibers zum Konto: immer in der Glocke und immer per Mail, nicht abschaltbar. */
-export const MANDATORY: ReadonlySet<NotificationKind> = new Set(['expiry', 'passkey']);
+export const MANDATORY: ReadonlySet<NotificationKind> = new Set(['expiry', 'passkey', 'claim', 'claim_result', 'claim_transfer']);
 export const MANDATORY_HINT = 'Immer per Mail: Anmeldung, Sicherheitshinweise (z. B. neuer Passkey) und Hinweise, bevor Törns gelöscht werden.';
 
 export const NOTIFICATION_LIMITS = {
@@ -166,5 +169,11 @@ export function notificationText(n: Pick<NotificationItem, 'kind' | 'count' | 'a
       return `${quoted(n.title)} wird ${n.what} gelöscht – unterstützen, um ihn zu behalten`;
     case 'passkey':
       return `Neuer Passkey an deinem Konto${n.title ? `: ${quoted(n.title)}` : ''} – warst du das nicht, entferne ihn`;
+    case 'claim':
+      return n.count > 1 ? `${n.count} Anträge, ${quoted(n.title)} zu vertreten` : `${who} beantragt, ${quoted(n.title)} zu vertreten`;
+    case 'claim_result':
+      return claimResultText(isClaimStatus(n.what) ? n.what : 'open', n.title);
+    case 'claim_transfer':
+      return `${quoted(n.title)} wird jetzt von der verifizierten Vertretung verwaltet – ${n.what}`;
   }
 }

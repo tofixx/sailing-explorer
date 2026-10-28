@@ -12,6 +12,7 @@ import { funnyName } from '../src/domain/names';
 import { extendSupport } from '../src/domain/support';
 import { randomId } from './crypto';
 import { clearExpiryNotifications } from './notifications';
+import { unverifyStmt } from './claim-cleanup';
 import { sharePath, type Visibility } from '../src/domain/visibility';
 import {
   ADMIN_LIMITS, LOCK_KIND, isAdminKind, parseAdminFilter, parsePage,
@@ -40,6 +41,8 @@ interface Row {
   lock_at: number | null;
   n1: number;
   n2: number;
+  /** Vereine und Häfen (Konzept 20) */
+  verified_at: number | null;
 }
 
 interface Spec {
@@ -63,7 +66,7 @@ const OWNER_LOCKED = (col: string) => `EXISTS (SELECT 1 FROM users ou WHERE ou.i
 const SPEC: Record<AdminKind, Spec> = {
   users: {
     from: `SELECT x.id, COALESCE(p.display_name, '') AS name, x.email AS sub, p.visibility, p.share_key, x.created_at, p.hidden_at,
-        x.suspended_at, NULL AS owner_id, NULL AS owner_handle, NULL AS owner_name, p.handle AS slug, ${LOCK_COLS},
+        x.suspended_at, NULL AS owner_id, NULL AS owner_handle, NULL AS owner_name, p.handle AS slug, ${LOCK_COLS}, NULL AS verified_at,
         (SELECT COUNT(*) FROM shares WHERE user_id = x.id) AS n1, (SELECT COUNT(*) FROM boats WHERE owner_id = x.id) AS n2
       FROM users x LEFT JOIN profiles p ON p.user_id = x.id ${lockJoin('user')}`,
     search: `x.id = ?1 OR x.email LIKE ?2 ESCAPE '\\' OR p.handle LIKE ?2 ESCAPE '\\' OR p.display_name LIKE ?2 ESCAPE '\\'`,
@@ -78,7 +81,7 @@ const SPEC: Record<AdminKind, Spec> = {
   },
   boats: {
     from: `SELECT x.id, x.name, x.home_port AS sub, x.visibility, x.share_key, x.created_at, x.hidden_at, NULL AS suspended_at,
-        ${OWNER_COLS('x.owner_id')}, NULL AS slug, ${LOCK_COLS},
+        ${OWNER_COLS('x.owner_id')}, NULL AS slug, ${LOCK_COLS}, NULL AS verified_at,
         (SELECT COUNT(*) FROM shares WHERE boat_id = x.id) AS n1, (SELECT COUNT(*) FROM boat_admins WHERE boat_id = x.id) AS n2
       FROM boats x ${OWNER_JOIN('x.owner_id')} ${lockJoin('boat')}`,
     search: `x.id = ?1 OR x.owner_id = ?1 OR x.name LIKE ?2 ESCAPE '\\' OR op.handle LIKE ?2 ESCAPE '\\'`,
@@ -93,7 +96,7 @@ const SPEC: Record<AdminKind, Spec> = {
   },
   groups: {
     from: `SELECT x.id, x.name, x.kind AS sub, x.visibility, x.share_key, x.created_at, x.hidden_at, NULL AS suspended_at,
-        ${OWNER_COLS('x.owner_id')}, x.slug, ${LOCK_COLS},
+        ${OWNER_COLS('x.owner_id')}, x.slug, ${LOCK_COLS}, x.verified_at,
         (SELECT COUNT(*) FROM group_members WHERE group_id = x.id) AS n1, (SELECT COUNT(*) FROM group_boats WHERE group_id = x.id) AS n2
       FROM groups x ${OWNER_JOIN('x.owner_id')} ${lockJoin('group')}`,
     search: `x.id = ?1 OR x.owner_id = ?1 OR x.name LIKE ?2 ESCAPE '\\' OR x.slug LIKE ?2 ESCAPE '\\'`,
@@ -101,6 +104,7 @@ const SPEC: Record<AdminKind, Spec> = {
       locked: 'x.locked_at IS NOT NULL',
       hidden: 'x.hidden_at IS NOT NULL AND x.locked_at IS NULL',
       private: "x.visibility <> 'public'",
+      verified: 'x.verified_at IS NOT NULL',
       ownerless: `(NOT EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = x.id AND m.user_id = x.owner_id AND m.role = 'owner') OR ${OWNER_LOCKED('x.owner_id')})`,
     },
     counts: ['Mitglieder', 'Boote'],
@@ -108,13 +112,14 @@ const SPEC: Record<AdminKind, Spec> = {
   },
   harbors: {
     from: `SELECT x.id, x.name, '' AS sub, 'public' AS visibility, NULL AS share_key, x.created_at, x.hidden_at, NULL AS suspended_at,
-        ${OWNER_COLS('x.created_by')}, x.slug, ${LOCK_COLS},
+        ${OWNER_COLS('x.created_by')}, x.slug, ${LOCK_COLS}, x.verified_at,
         (SELECT COUNT(*) FROM boats WHERE harbor_id = x.id) AS n1, (SELECT COUNT(*) FROM groups WHERE harbor_id = x.id) AS n2
       FROM harbors x ${OWNER_JOIN('x.created_by')} ${lockJoin('harbor')}`,
     search: `x.id = ?1 OR x.name LIKE ?2 ESCAPE '\\' OR x.slug LIKE ?2 ESCAPE '\\'`,
     filters: {
       locked: 'l.target_id IS NOT NULL',
       hidden: 'x.hidden_at IS NOT NULL AND l.target_id IS NULL',
+      verified: 'x.verified_at IS NOT NULL',
       ownerless: 'NOT EXISTS (SELECT 1 FROM users u WHERE u.id = x.created_by)',
     },
     counts: ['Boote', 'Gruppen'],
@@ -122,7 +127,7 @@ const SPEC: Record<AdminKind, Spec> = {
   },
   shares: {
     from: `SELECT x.id, x.title AS name, ROUND(x.dist_nm, 1) || ' sm' AS sub, x.visibility, x.share_key, x.created_at, x.hidden_at,
-        NULL AS suspended_at, ${OWNER_COLS('x.user_id')}, NULL AS slug, ${LOCK_COLS},
+        NULL AS suspended_at, ${OWNER_COLS('x.user_id')}, NULL AS slug, ${LOCK_COLS}, NULL AS verified_at,
         (SELECT COUNT(*) FROM photos WHERE share_id = x.id) AS n1, (SELECT COUNT(*) FROM comments WHERE share_id = x.id) AS n2
       FROM shares x ${OWNER_JOIN('x.user_id')} ${lockJoin('share')}`,
     search: `x.id = ?1 OR x.user_id = ?1 OR x.title LIKE ?2 ESCAPE '\\' OR op.handle LIKE ?2 ESCAPE '\\'`,
@@ -150,6 +155,7 @@ function itemShape(kind: AdminKind, r: Row) {
     lock: r.lock_until ? { until: r.lock_until, reason: r.lock_reason ?? '', since: r.lock_at, viaUser: r.lock_via } : null,
     hidden: !!r.hidden_at,
     suspended: !!r.suspended_at,
+    verified: !!r.verified_at,
     counts: { [SPEC[kind].counts[0]]: r.n1, [SPEC[kind].counts[1]]: r.n2 },
   };
 }
@@ -337,7 +343,8 @@ async function activeUser(env: Env, userId: unknown): Promise<string> {
 
 /**
  * POST /api/admin/:art/:id/owner { userId } – Eigner neu zuweisen (F-237): Boote (altes Konto bleibt Boots-Admin),
- * Gruppen (neues Konto wird Eigner-Mitglied, das alte Admin), Häfen (Anleger:in). Törns nicht (Konzept 18.6).
+ * Gruppen (neues Konto wird Eigner-Mitglied, das alte Admin), Häfen (Anleger:in). Törns nicht (Konzept 18.6). Ohne
+ * Antrag endet dabei die Verifizierung von Vereinen und Häfen (Konzept 20.6).
  */
 export async function adminOwner(request: Request, env: Env, rawKind: string, id: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
@@ -366,6 +373,8 @@ export async function adminOwner(request: Request, env: Env, rawKind: string, id
     ]);
   } else if (kind === 'groups') {
     await env.DB.batch([
+      // ohne Antrag endet die Verifizierung (Konzept 20.6)
+      unverifyStmt(env, 'group', id),
       env.DB.prepare(`UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?`).bind(id, before),
       env.DB.prepare(
         `INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?1, ?2, 'owner', ?3)
@@ -376,7 +385,7 @@ export async function adminOwner(request: Request, env: Env, rawKind: string, id
       log,
     ]);
   } else {
-    await env.DB.batch([env.DB.prepare('UPDATE harbors SET created_by = ?, updated_at = ? WHERE id = ?').bind(to, now, id), log]);
+    await env.DB.batch([env.DB.prepare('UPDATE harbors SET created_by = ?, updated_at = ?, verified_at = NULL WHERE id = ?').bind(to, now, id), log]);
   }
   return json({ item: itemShape(kind, (await loadRow(env, kind, id))!) });
 }

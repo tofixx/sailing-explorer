@@ -9,6 +9,8 @@ import { base, emit } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
 import './sx-stream';
+import './sx-claim';
+import './sx-verified-badge';
 import './sx-page-media';
 import './sx-filter-select';
 
@@ -432,7 +434,7 @@ export class SxProfilePage extends LitElement {
       <header class="hero">
         <div class="mark" aria-hidden="true">${icon('anchor')}</div>
         <div>
-          <h1>${h.name}</h1>
+          <h1>${h.name}${h.verified ? html` <sx-verified-badge kind="harbor"></sx-verified-badge>` : ''}</h1>
           <div class="facts">
             <span>Hafen</span>
             ${pos ? html`<span class="num">${pos}</span>` : ''}
@@ -444,6 +446,7 @@ export class SxProfilePage extends LitElement {
           <button class="btn primary" @click=${() => emit(this, 'sx-page-share', { path: `/h/${h.slug}`, title: h.name })}>${icon('share')} Teilen</button>
           ${this.harborForm(d)}
           <button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'harbor', id: h.id, label: `den Hafen ${h.name}` })}>${icon('flag')} Melden</button>
+          ${h.verified && h.canEdit ? '' : html`<sx-claim kind="harbor" target-id=${h.id} name=${h.name} ?signed-in=${this.signedIn}></sx-claim>`}
         </div>
       </header>
       ${h.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}

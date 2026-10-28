@@ -11,6 +11,7 @@ import { sendPush } from './push';
 import { pingLive } from './live';
 import { EXPIRES_SQL } from './expiry-sql';
 import { WARN_MS } from '../src/domain/support';
+import { transferConsequence } from '../src/domain/claims';
 import {
   NOTIFICATION_LIMITS, isChoosable, isNotificationKind, notificationText, parsePrefs, isNotificationSubject, type NotificationItem, type NotificationKind,
   type NotificationSubject,
@@ -121,6 +122,18 @@ export const notifyRequest = (env: Env, groupId: string, actorId: string) =>
     ),
   );
 
+/** Verifizierung (Konzept 20.3): neuer Antrag – an die Admin-Konten (`ADMIN_USER_IDS`), nicht abschaltbar. */
+export const notifyClaim = (env: Env, claimId: string, actorId: string, adminIds: string[]) =>
+  safely('claim', () =>
+    deliver(env, 'claim', 'claim', claimId, actorId, 'SELECT value AS uid FROM json_each(?6) WHERE value IN (SELECT id FROM users)', JSON.stringify(adminIds)),
+  );
+
+/** Verifizierung (Konzept 20.8): Entscheidung an die Antragsteller:in bzw. Übertragung an die verdrängte Person. */
+export const notifyClaimResult = (env: Env, claimId: string) =>
+  safely('claim result', () => deliver(env, 'claim_result', 'claim', claimId, null, 'SELECT user_id AS uid FROM claims WHERE id = ?3'));
+export const notifyClaimTransfer = (env: Env, claimId: string) =>
+  safely('claim transfer', () => deliver(env, 'claim_transfer', 'claim', claimId, null, 'SELECT previous_user_id AS uid FROM claims WHERE id = ?3'));
+
 /** Hinweis des Betreibers (nicht abschaltbar, zusätzlich zur Mail): Törn wird bald gelöscht – an die Eigentümer:in. */
 export const notifyExpiry = (env: Env, shareId: string) =>
   safely('expiry', () => deliver(env, 'expiry', 'share', shareId, null, 'SELECT user_id AS uid FROM shares WHERE id = ?3'));
@@ -228,6 +241,14 @@ interface Row {
   i_gkind: string | null;
   i_for: number | null;
   i_target: string | null;
+  c_status: string | null;
+  c_user: string | null;
+  c_prev: string | null;
+  c_prev_action: string | null;
+  c_kind: string | null;
+  c_name: string | null;
+  c_slug: string | null;
+  c_public: number | null;
 }
 
 /**
@@ -244,7 +265,10 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
     EXISTS (SELECT 1 FROM group_requests r WHERE r.group_id = g.id) AS g_open,
     i.kind AS i_kind, ig.kind AS i_gkind,
     (i.id IS NOT NULL AND i.expires_at > ?2 AND i.uses < i.max_uses AND (i.invitee_id = ?1 OR i.email = ?3)) AS i_for,
-    COALESCE(ib.name, ishare.title, ig.name) AS i_target
+    COALESCE(ib.name, ishare.title, ig.name) AS i_target,
+    c.status AS c_status, c.user_id AS c_user, c.previous_user_id AS c_prev, c.previous_action AS c_prev_action,
+    c.target_kind AS c_kind, COALESCE(cg.name, ch.name) AS c_name, COALESCE(cg.slug, ch.slug) AS c_slug,
+    (ch.id IS NOT NULL OR cg.visibility = 'public') AS c_public
   FROM notifications n
   LEFT JOIN users au ON au.id = n.actor_id AND au.suspended_at IS NULL AND au.locked_at IS NULL
   LEFT JOIN profiles ap ON ap.user_id = au.id AND ap.visibility = 'public' AND ap.hidden_at IS NULL
@@ -257,6 +281,9 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
   LEFT JOIN boats ib ON ib.id = i.boat_id AND ib.locked_at IS NULL
   LEFT JOIN shares ishare ON ishare.id = i.share_id AND ishare.locked_at IS NULL
   LEFT JOIN groups ig ON ig.id = i.group_id AND ig.locked_at IS NULL
+  LEFT JOIN claims c ON n.subject_kind = 'claim' AND c.id = n.subject_id
+  LEFT JOIN groups cg ON c.target_kind = 'group' AND cg.id = c.target_id AND cg.hidden_at IS NULL AND cg.locked_at IS NULL
+  LEFT JOIN harbors ch ON c.target_kind = 'harbor' AND ch.id = c.target_id AND ch.hidden_at IS NULL
   WHERE n.user_id = ?1
   ORDER BY n.updated_at DESC
   LIMIT ?4`;
@@ -304,6 +331,20 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
       // Anfragen nur, solange es offene gibt, ich sie bestätigen darf und die Gruppe besteht.
       if (!r.g_slug || r.g_locked || !r.g_approve || !r.g_open || !canApprove(r.g_role, r.g_approve)) return null;
       return { ...base, title: r.g_name ?? '', what: '', href: groupHref() };
+    case 'claim': {
+      // Verifizierung (Konzept 20.8): Ziel ausgeblendet, gesperrt oder gelöscht → nichts verraten
+      if (!r.c_status || !r.c_name || !r.c_slug) return null;
+      const target = r.c_kind === 'harbor' ? `/h/${r.c_slug}` : `/g/${r.c_slug}`;
+      if (r.kind === 'claim') return r.c_status === 'open' ? { ...base, title: r.c_name, what: '', href: '/admin?tab=claims' } : null;
+      // Nicht öffentliche Vereine: nur, wer dort jetzt verwaltet bzw. Mitglied ist, kommt ohne Schlüssel hinein
+      if (r.kind === 'claim_result' && r.c_user === userId) {
+        return { ...base, title: r.c_name, what: r.c_status, href: r.c_public || r.c_status === 'accepted' ? target : '/' };
+      }
+      if (r.kind === 'claim_transfer' && r.c_prev === userId) {
+        return { ...base, title: r.c_name, what: transferConsequence(r.c_kind === 'harbor' ? 'harbor' : 'group', r.c_prev_action), href: r.c_public ? target : '/' };
+      }
+      return null;
+    }
     default:
       return null;
   }

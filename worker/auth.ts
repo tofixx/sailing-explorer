@@ -9,6 +9,7 @@ import { deleteKeys, photoKeysForUser, shareFileKeys } from './photo-keys';
 import { boatCleanup, userActivityCleanup } from './activity';
 import { purgeUserGroups } from './groups';
 import { clearBoatConfirmations } from './crew-cleanup';
+import { userClaimCleanup } from './claim-cleanup';
 import { TOKEN_RE, normalizeEmail, timingSafeEqual } from './validate';
 
 const SECURE_COOKIE = '__Host-sx_session';
@@ -275,6 +276,8 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
     ...userActivityCleanup(env, user.id),
     ...boats.flatMap((b) => boatCleanup(env, b.id)),
     ...groupStmts,
+    // Anträge auf Verifizierung (Konzept 20.8), Abzeichen vertretener Häfen
+    ...userClaimCleanup(env, user.id),
     // Speicher der Törns vom globalen Zähler abziehen, bevor sie gelöscht werden (Konzept 5.2).
     subtractUserStmt(env, user.id),
     // Kommentare & Meldungen (Phase D): Meldungen zu eigenen Inhalten zuerst (sie verweisen auf Kommentare),

@@ -11,6 +11,7 @@ import { harborActivityCleanup } from './activity';
 import { LIMITS, SHARE_ID_RE, cleanText } from './validate';
 import { HARBOR_LIMITS, harborKey, harborSlugBase, isHarborSlug, parseHarborPosition, type HarborRef } from '../src/domain/harbors';
 import { canManageGroup } from '../src/domain/groups';
+import { claimTargetCleanup } from './claim-cleanup';
 
 const DAY = 86_400_000;
 
@@ -24,6 +25,8 @@ export interface HarborRow {
   club_id: string | null;
   created_by: string | null;
   hidden_at: number | null;
+  /** verifizierte Vertretung (0026, Konzept 20) */
+  verified_at?: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -118,13 +121,13 @@ export async function searchHarbors(request: Request, env: Env): Promise<Respons
   const like = `%${key.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const prefix = `${key.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const { results } = await env.DB.prepare(
-    `SELECT h.id, h.slug, h.name, (SELECT COUNT(*) FROM boats b WHERE b.harbor_id = h.id) AS boats
+    `SELECT h.id, h.slug, h.name, h.verified_at, (SELECT COUNT(*) FROM boats b WHERE b.harbor_id = h.id) AS boats
      FROM harbors h WHERE h.hidden_at IS NULL AND h.name_key LIKE ?1 ESCAPE '\\'
      ORDER BY (h.name_key LIKE ?2 ESCAPE '\\') DESC, boats DESC, h.name LIMIT ?3`,
   )
     .bind(like, prefix, HARBOR_LIMITS.search)
-    .all<{ id: string; slug: string; name: string; boats: number }>();
-  return json({ harbors: results.map((h) => ({ ...harborRef(h), boats: h.boats })) }, { headers: { 'Cache-Control': 'public, max-age=60' } });
+    .all<{ id: string; slug: string; name: string; verified_at: number | null; boats: number }>();
+  return json({ harbors: results.map((h) => ({ ...harborRef(h), boats: h.boats, verified: !!h.verified_at })) }, { headers: { 'Cache-Control': 'public, max-age=60' } });
 }
 
 /** POST /api/harbors – `{ name }`: vorhandener Hafen (200) oder neuer (201). */
@@ -152,6 +155,8 @@ function harborShape(env: Env, h: HarborRow, viewerId: string | null) {
     lat: h.lat,
     lon: h.lon,
     canEdit: canEditHarbor(env, h, viewerId),
+    // Abzeichen „Verifiziert“ (Konzept 20.4, F-366)
+    verified: !!h.verified_at,
     hiddenAt: isAdmin(env, viewerId) ? h.hidden_at : null,
     createdAt: h.created_at,
   };
@@ -204,6 +209,8 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     .bind(h.id)
     .all<{ slug: string; name: string; kind: 'club' | 'team' }>();
   const ownClub = !!h.club_id && manageable.some((c) => c.id === h.club_id);
+  // Verifizierter Hafen: nur Hafen-Vertretung und Moderation ordnen den Verein zu (Konzept 20.5)
+  const clubLocked = !!h.verified_at && h.created_by !== user?.id && !isAdmin(env, user?.id);
   return json({
     harbor: harborShape(env, h, user?.id ?? null),
     club: club ? { slug: club.slug, name: club.name, kind: club.kind } : null,
@@ -219,8 +226,8 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     voyages: voyages.map((r) => shareShape(r, false)),
     social: await followStats(env, 'harbor', h.id, user?.id ?? null),
     // Verein zuordnen: nur Vereine, die das Konto verwaltet, und nur wenn frei oder schon einer davon
-    clubChoices: !h.club_id || ownClub || isAdmin(env, user?.id) ? manageable.map((c) => ({ id: c.id, slug: c.slug, name: c.name })) : [],
-    canClearClub: !!h.club_id && (ownClub || isAdmin(env, user?.id)),
+    clubChoices: !clubLocked && (!h.club_id || ownClub || isAdmin(env, user?.id)) ? manageable.map((c) => ({ id: c.id, slug: c.slug, name: c.name })) : [],
+    canClearClub: !clubLocked && !!h.club_id && (ownClub || isAdmin(env, user?.id) || h.created_by === user?.id),
   });
 }
 
@@ -252,9 +259,14 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
     h.lat = pos.lat;
     h.lon = pos.lon;
   }
+  // Verifizierter Hafen (Konzept 20.5, F-371): den Verein ordnen nur Hafen-Vertretung und Moderation zu
+  if (input.clubId !== undefined && h.verified_at && h.created_by !== user.id && !admin) {
+    throw new HttpError(403, 'verified_harbor', 'Den Verein dieses verifizierten Hafens ordnet die Hafen-Vertretung zu.');
+  }
   if (input.clubId !== undefined) {
     const role = async (gid: string) => (await env.DB.prepare('SELECT role FROM group_members WHERE group_id = ? AND user_id = ?').bind(gid, user.id).first<{ role: string }>())?.role ?? null;
-    const managesCurrent = !!h.club_id && canManageGroup((await role(h.club_id)) as never);
+    // Die verifizierte Hafen-Vertretung darf den bisherigen Verein lösen bzw. ersetzen (Konzept 20.5)
+    const managesCurrent = (!!h.verified_at && h.created_by === user.id) || (!!h.club_id && canManageGroup((await role(h.club_id)) as never));
     if (input.clubId === null || input.clubId === '') {
       if (h.club_id && !managesCurrent && !admin) throw new HttpError(403, 'forbidden', 'Den Verein lösen Eigner und Admins dieses Vereins.');
       h.club_id = null;
@@ -284,6 +296,7 @@ export async function removeHarbor(env: Env, id: string): Promise<void> {
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'harbor' AND target_id = ?`).bind(id),
     ...harborActivityCleanup(env, id),
+    ...claimTargetCleanup(env, 'harbor', id),
     env.DB.prepare(`UPDATE boats SET harbor_id = NULL, home_port = '' WHERE harbor_id = ?`).bind(id),
     env.DB.prepare(`UPDATE groups SET harbor_id = NULL, home_port = '' WHERE harbor_id = ?`).bind(id),
     env.DB.prepare('UPDATE users SET home_harbor_id = NULL WHERE home_harbor_id = ?').bind(id),

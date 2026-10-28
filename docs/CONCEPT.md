@@ -1971,8 +1971,9 @@ mit dem Fahrtenbuch); Ausnahme M1 (Eckdaten nicht öffentlicher Törns im eigene
 
 ## 20. Verifizierte Vertretung von Vereinen und Häfen
 
-*Entwurf 28.10.2026, Branch `feature/verifizierung`, Migration `0026_verification.sql`, Anforderungen F-360 … F-372.
-Noch nicht gebaut – erst nach Entscheidung der Fragen in 20.9.*
+*Umgesetzt (Oktober 2026, Branch `feature/verifizierung`): `migrations/0026_verification.sql`, `src/domain/claims.ts`,
+`worker/claims.ts`, `worker/claim-cleanup.ts`, `src/controllers/claims.ts`, `sx-claim`, `sx-verified-badge`,
+`sx-admin-claims`; Anforderungen F-360 … F-372. Fragen in 20.9 am 28.10.2026 entschieden.*
 
 Anlass (Betreiber): *„Eigentümerschaft von Vereinen oder Häfen müssen wir nebst Anlage noch eine Verifiziert
 einbauen, die dem Anleger wieder sein Recht nehmen kann, wenn ein echter Besitzer auftaucht.“*
@@ -2015,14 +2016,15 @@ Antrag genannte) und fragt nach. Der Dialog sagt das so und bittet, keine Auswei
 per Mail bleibt im Postfach der Moderation – nicht in Sail Explorer.
 
 Antragstellende sehen den Stand auf der Seite („Antrag in Prüfung seit …“, „abgelehnt am … – Begründung“) und können
-einen offenen Antrag zurückziehen (dann wird er gelöscht).
+einen offenen Antrag zurückziehen (Status `withdrawn`, Angaben sofort geleert; das Gerüst zählt bis zur Wartefrist zur
+Grenze aus 20.7).
 
 ### 20.3 Prüfung durch die Moderation
 
 Der Admin-Bereich (18) bekommt einen Reiter **„Anträge“**: offene zuerst, älteste oben; je Antrag Objekt (Link),
 heutiger Eigner bzw. Anleger:in (Kontoalter, Verifizierungsstand), Antragsteller:in (Kontoalter, Profil-Link),
 Funktion, Begründung, Kontakt, Beleg-Link, Alter, weitere offene Anträge zum selben Objekt. Neue Anträge erscheinen
-den Admins in der **Glocke** (Art `claim`, nicht abschaltbar, gebündelt je Objekt).
+den Admins in der **Glocke** (Art `claim`, nicht abschaltbar, je Antrag; gelesen mit dem Öffnen des Reiters).
 
 Entscheidung (`POST /api/admin/claims/:id { decision, note, previous }`):
 
@@ -2081,7 +2083,7 @@ Die Verdrängung steht im angenommenen Antrag (`claims.previous_user_id`) – ke
 ### 20.8 Datenmodell, Benachrichtigungen, Löschkonzept
 
 `0026_verification.sql`: `groups.verified_at`, `harbors.verified_at`; `claims (id, target_kind ∈ group|harbor,
-target_id, user_id, role_text, reason, contact, evidence_url, status ∈ open|accepted|rejected, decided_by, decided_at,
+target_id, user_id, role_text, reason, contact, evidence_url, status ∈ open|accepted|rejected|expired|withdrawn, decided_by, decided_at,
 decision_note, previous_user_id, previous_action, created_at)` mit Indizes `(target_kind, target_id, status)` und
 `(user_id, created_at)`; Arten ohne SQL-`CHECK` (Architektur 7), geprüft in `src/domain/claims.ts`.
 
@@ -2097,10 +2099,9 @@ Löschkonzept (Prüfpunkt 6) – keine R2-Dateien, kein Speicherzähler:
 
 | Anlass | Was |
 |---|---|
-| Antrag zurückgezogen | Zeile gelöscht |
-| abgelehnt | Funktion, Begründung, Kontakt, Beleg **sofort** geleert; Gerüst bleibt **30 Tage** (Wartefrist), dann gelöscht |
+| zurückgezogen oder abgelehnt | Funktion, Begründung, Kontakt, Beleg **sofort** geleert; Gerüst bleibt **30 Tage** (Wartefrist, Grenze 20.7), dann gelöscht |
 | angenommen | Funktion, Begründung, Kontakt, Beleg nach **30 Tagen** geleert (Widerspruchsfrist); das Gerüst (wer, wann, wer verdrängt) bleibt, solange das Objekt besteht – es trägt die Sperre aus 20.5 |
-| offen, älter als 180 Tage | nächtlich gelöscht, Antragsteller:in bekommt `claim_result` „ohne Entscheidung abgelaufen“ |
+| offen, älter als 180 Tage | nächtlich als `expired` markiert und geleert (höchstens 25 je Nacht), Antragsteller:in bekommt `claim_result` „ohne Entscheidung abgelaufen“; nach 30 Tagen gelöscht |
 | Objekt gelöscht (`removeGroup`, `removeHarbor`) | alle Anträge zum Objekt |
 | Konto gelöscht (`purgeUser`, auch inaktiv) | eigene Anträge; als Verdrängte:r wird die ID geleert (ohne Konto wirkungslos; 20.9 Frage 5) |
 | Konten verbinden (18.8) | `user_id` und `previous_user_id` gehen ans Ziel |
@@ -2114,15 +2115,16 @@ Module: `src/domain/claims.ts` (Arten, Grenzen, Feldprüfung – rein), `worker/
 Admin-Liste, Entscheidung, Entziehen, Aufräumen), Abzeichen in `shared.ts`, Dialog `sx-claim-dialog`, Reiter
 „Anträge“ in `sx-admin-page`.
 
-### 20.9 Fragen an den Betreiber
+### 20.9 Fragen an den Betreiber – entschieden 28.10.2026 (alle Vorschläge übernommen)
 
-1. **Bisherige Person beim Verein:** Standard „bleibt Admin“ – oder „nur Mitglied“? (Die Moderation wählt je Fall
-   Admin / Mitglied / entfernen.)
-2. **Heutige Eigner:in beim Einreichen informieren?** Vorschlag **nein** – sonst könnte sie den Verein vor der
-   Entscheidung löschen; stattdessen ist Löschen während eines offenen Antrags gesperrt. Sie erfährt es bei der
-   Annahme (mit Widerspruch).
-3. **Nachweis:** nur Kontakt + optionaler Link, keine Uploads, Prüfung über Impressum/Vereinsregister – einverstanden?
-4. **Teams** ausgeschlossen – einverstanden?
-5. **Verdrängte nach Kontolöschung:** ID leeren (Vorschlag) oder behalten?
-6. **Verein des verifizierten Hafens:** nur Hafen-Vertretung und Moderation ordnen zu – einverstanden?
-7. **Abzeichen-Text:** „Verifiziert“ – oder „Offiziell“ / „Bestätigt“?
+1. **Bisherige Person beim Verein:** Standard „bleibt Admin“; die Moderation wählt je Fall Admin / Mitglied / entfernen.
+2. **Heutige Eigner:in beim Einreichen:** wird **nicht** informiert; Löschen des Vereins ist während eines offenen
+   Antrags gesperrt. Sie erfährt es bei der Annahme (mit Widerspruch).
+3. **Nachweis:** nur Kontakt + optionaler Link, keine Uploads, Prüfung über Impressum/Vereinsregister.
+4. **Teams** sind ausgeschlossen.
+5. **Verdrängte nach Kontolöschung:** die ID wird geleert.
+6. **Verein des verifizierten Hafens:** nur Hafen-Vertretung und Moderation ordnen zu.
+7. **Abzeichen-Text:** „Verifiziert“.
+
+Hinweis für das Fahrtenbuch (L3, Branch `feature/fahrtenbuch`): Die Regel „wer zuerst die Position setzt, wird
+Anleger:in“ prüft vorher `mayAdoptHarbor` (`worker/claim-cleanup.ts`) – je verifizierte Häfen übernimmt niemand so.
