@@ -16,7 +16,9 @@ import { GROUP_KIND_LABEL, JOIN_ACTION_LABEL, joinAction } from '../domain/group
 import { SEARCH_LIMITS } from '../domain/search';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { base, coverBanner, coverBannerStyles, emit } from './shared';
+import './sx-verified-badge';
+import { base, coverBanner, coverBannerStyles, emit, logbookTag } from './shared';
+import { recordedNote } from '../domain/logbook';
 
 /** Abschnitte der Seite /entdecken – „Alle“ oder einer allein (F-332). */
 export const DISCOVER_SECTIONS = [
@@ -475,11 +477,11 @@ export class SxDiscover extends LitElement {
   private voyage(v: DiscoverVoyage) {
     return html`<article class="voyage">
       <div class="thumb">
-        ${v.hasImage ? html`<img src=${shareImageUrl(v.id)} alt="" loading="lazy" decoding="async" />` : icon('map')}
+        ${v.hasImage ? html`<img src=${shareImageUrl(v.id)} alt="" loading="lazy" decoding="async" />` : icon(v.logbook ? 'book' : 'map')}
       </div>
       <div class="info">
         <a class="main" href="/s/${v.id}" title=${v.title}>${v.title}</a>
-        <span class="meta">${fmtNum(v.distNm, 1)} sm · ${fmtDate(v.startedAt ?? v.createdAt)}</span>
+        <span class="meta">${fmtNum(v.distNm, 1)} sm · ${fmtDate(v.startedAt ?? v.createdAt)}${v.logbook ? html` ${logbookTag()}` : ''}</span>
         <div class="chips">
           ${v.sailor
             ? html`<a class="chip" href="/u/${v.sailor.handle}" title="Profil von ${v.sailor.displayName}">${icon('user')}${v.sailor.displayName}</a>`
@@ -503,7 +505,7 @@ export class SxDiscover extends LitElement {
       <span class="txt">
         <span class="t">${b.name}</span>
         ${facts ? html`<span class="meta">${facts}</span>` : ''}
-        <span class="meta">${plural(b.stats.voyages, 'Törn', 'Törns')} · ${fmtNum(b.stats.distNm, 0)} sm</span>
+        <span class="meta">${plural(b.stats.voyages, 'Törn', 'Törns')} · ${fmtNum(b.stats.distNm, 0)} sm${b.stats.recordedNm !== undefined && recordedNote(b.stats.distNm, b.stats.recordedNm) ? ` (${recordedNote(b.stats.distNm, b.stats.recordedNm)})` : ''}</span>
         <span class="meta">Eigner: ${b.owner.displayName}</span>
       </span>
     </a>`;
@@ -516,7 +518,7 @@ export class SxDiscover extends LitElement {
       <span class="txt">
         <span class="t">${p.displayName}</span>
         ${p.bio ? html`<span class="bio">${p.bio}</span>` : ''}
-        <span class="meta">${plural(p.stats.voyages, 'Törn', 'Törns')} · ${fmtNum(p.stats.distNm, 0)} sm${p.stats.boats ? ` · ${plural(p.stats.boats, 'Boot', 'Boote')}` : ''}</span>
+        <span class="meta">${plural(p.stats.voyages, 'Törn', 'Törns')} · ${fmtNum(p.stats.distNm, 0)} sm${p.stats.recordedNm !== undefined && recordedNote(p.stats.distNm, p.stats.recordedNm) ? ` (${recordedNote(p.stats.distNm, p.stats.recordedNm)})` : ''}${p.stats.boats ? ` · ${plural(p.stats.boats, 'Boot', 'Boote')}` : ''}</span>
       </span>
     </a>`;
   }
@@ -543,7 +545,7 @@ export class SxDiscover extends LitElement {
       ${this.cardStart(g.cover)}
       <span class="ic" aria-hidden="true">${icon(g.kind === 'club' ? 'anchor' : 'sail')}</span>
       <span class="txt">
-        <a class="t main" href="/g/${g.slug}">${g.name}</a>
+        <a class="t main" href="/g/${g.slug}">${g.name}</a>${g.verified ? html` <sx-verified-badge kind="group" compact></sx-verified-badge>` : ''}
         <span class="meta">${[GROUP_KIND_LABEL[g.kind], g.homePort].filter(Boolean).join(' · ')}</span>
         ${g.description ? html`<span class="bio">${g.description}</span>` : ''}
         <span class="meta">${plural(g.members, 'Mitglied', 'Mitglieder')}</span>

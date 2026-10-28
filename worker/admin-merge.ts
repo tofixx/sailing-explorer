@@ -8,6 +8,7 @@ import { loadLock } from './locks';
 import { harborRef, loadHarbor } from './harbors';
 import { SHARE_ID_RE } from './validate';
 import { funnyName } from '../src/domain/names';
+import { claimTargetCleanup } from './claim-cleanup';
 
 // ---------------------------------------------------------------- Häfen
 
@@ -19,6 +20,8 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
   if (!src || !dst) throw new HttpError(404, 'not_found', 'Diesen Hafen gibt es nicht (mehr).');
   if (src.id === dst.id) throw new HttpError(400, 'same_harbor', 'Ein Hafen lässt sich nicht mit sich selbst zusammenführen.');
   if ((await loadLock(env, 'harbor', src.id)) || (await loadLock(env, 'harbor', dst.id))) throw LOCKED();
+  // Verifizierung (Konzept 20.5): ein verifizierter Hafen geht nicht in einem unverifizierten auf
+  if (src.verified_at && !dst.verified_at) throw new HttpError(409, 'verified', 'Dieser Hafen ist verifiziert – andersherum zusammenführen.');
   const now = Date.now();
   const counts = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM boats WHERE harbor_id = ?1) AS boats, (SELECT COUNT(*) FROM groups WHERE harbor_id = ?1) AS groups,
@@ -30,6 +33,9 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
     env.DB.prepare('UPDATE boats SET harbor_id = ?1, home_port = ?2 WHERE harbor_id = ?3').bind(dst.id, dst.name, src.id),
     env.DB.prepare('UPDATE groups SET harbor_id = ?1, home_port = ?2 WHERE harbor_id = ?3').bind(dst.id, dst.name, src.id),
     env.DB.prepare('UPDATE users SET home_harbor_id = ? WHERE home_harbor_id = ?').bind(dst.id, src.id),
+    // Fahrtenbuch: Start- und Zielhafen der Törns (Konzept 19)
+    env.DB.prepare('UPDATE shares SET from_harbor_id = ?1 WHERE from_harbor_id = ?2').bind(dst.id, src.id),
+    env.DB.prepare('UPDATE shares SET to_harbor_id = ?1 WHERE to_harbor_id = ?2').bind(dst.id, src.id),
     // Folgen: wer beiden folgt, folgt danach einmal
     env.DB.prepare(
       `INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at)
@@ -54,6 +60,9 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
     env.DB.prepare('UPDATE harbor_redirects SET harbor_id = ? WHERE harbor_id = ?').bind(dst.id, src.id),
     env.DB.prepare('INSERT OR REPLACE INTO harbor_redirects (old_slug, harbor_id, created_at) VALUES (?, ?, ?)').bind(src.slug, dst.id, now),
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'harbor' AND target_id = ?`).bind(src.id),
+    // offene und entschiedene Anträge zur Dublette gelten für das Ziel (angenommene der Quelle fallen mit ihr weg)
+    env.DB.prepare(`UPDATE OR IGNORE claims SET target_id = ?1 WHERE target_kind = 'harbor' AND target_id = ?2 AND status <> 'accepted'`).bind(dst.id, src.id),
+    ...claimTargetCleanup(env, 'harbor', src.id),
     env.DB.prepare('DELETE FROM harbors WHERE id = ?').bind(src.id),
     adminLogStmt(env, admin.id, 'merge_harbor', 'harbor', dst.id, `${src.name} (/h/${src.slug}, ${src.id}) → ${dst.name}: ${counts?.boats ?? 0} Boote, ${counts?.groups ?? 0} Gruppen, ${counts?.follows ?? 0} Folgende`, now),
   ]);
@@ -179,6 +188,9 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
       `DELETE FROM group_requests WHERE user_id = ?2 AND (group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1) OR group_id IN (SELECT group_id FROM group_requests WHERE user_id = ?1))`,
     ).bind(A, B),
     db.prepare('UPDATE group_requests SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
+    // Anträge auf Verifizierung (Konzept 20.8): als Antragsteller:in und als Verdrängte:r
+    db.prepare('UPDATE claims SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
+    db.prepare('UPDATE claims SET previous_user_id = ?1 WHERE previous_user_id = ?2').bind(A, B),
     db.prepare('UPDATE group_boats SET added_by = ?1 WHERE added_by = ?2').bind(A, B),
     // Törns in Gruppen (share_groups) hängen am Törn, nicht am Konto: sie wandern mit den Törns, und die Mitgliedschaften
     // gehen oben ans Ziel – die Eigentümer:in bleibt Mitglied jeder ausgewählten Gruppe (Konzept 11.12).

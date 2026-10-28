@@ -2,6 +2,7 @@
 import { call, jsonInit } from './api';
 import type { Visibility } from '../domain/visibility';
 import type { AdminFilter, AdminKind } from '../domain/admin';
+import type { ClaimKind, ClaimStatus, PreviousAction } from '../domain/claims';
 
 export interface AdminItem {
   id: string;
@@ -16,8 +17,31 @@ export interface AdminItem {
   lock: { until: number; reason: string; since: number | null; viaUser: string | null } | null;
   hidden: boolean;
   suspended: boolean;
+  /** Vereine und Häfen: verifizierte Vertretung (Konzept 20) */
+  verified?: boolean;
   counts: Record<string, number>;
 }
+
+/** Antrag „Ich vertrete …“ in der Admin-Ansicht (Konzept 20.3) – mit Kontaktdaten, nur für Admins. */
+export interface AdminClaim {
+  id: string;
+  kind: ClaimKind;
+  target: { id: string; name: string; path: string | null; verified: boolean };
+  holder: { id: string; displayName: string; handle: string | null; since: number } | null;
+  applicant: { id: string; displayName: string; handle: string | null; since: number | null } | null;
+  role: string;
+  reason: string;
+  contact: string;
+  evidenceUrl: string;
+  status: ClaimStatus;
+  createdAt: number;
+  decidedAt: number | null;
+  note: string;
+  previousAction: string | null;
+  otherOpen: number;
+}
+
+export type ClaimDecision = { decision: 'accept'; previous: PreviousAction; note: string } | { decision: 'reject'; note: string };
 
 export interface AdminLogEntry {
   id: string;
@@ -54,6 +78,7 @@ export type AdminOp = { kind: AdminKind; id: string } & (
   | { type: 'mergeUsers'; into: string; confirm: string }
   | { type: 'grantSupport'; seasons: number; note: string }
   | { type: 'revokeSupport' }
+  | { type: 'unverify'; reason: string }
 );
 
 const enc = encodeURIComponent;
@@ -76,6 +101,10 @@ export const adminApi = {
   grantSupport: (id: string, seasons: number, note: string) =>
     call<{ supporterUntil: number }>(`/api/admin/users/${enc(id)}/support`, jsonInit('POST', { seasons, note })),
   revokeSupport: (id: string) => call<{ supporterUntil: number | null }>(`/api/admin/users/${enc(id)}/support`, { method: 'DELETE' }),
+  claims: (status: 'open' | 'decided', page: number) =>
+    call<{ claims: AdminClaim[]; page: number; more: boolean }>(`/api/admin/claims?${new URLSearchParams({ status, page: String(page) })}`),
+  decideClaim: (id: string, d: ClaimDecision) => call<{ status: string }>(`/api/admin/claims/${enc(id)}`, jsonInit('POST', d)),
+  unverify: (kind: AdminKind, id: string, reason: string) => call<void>(`${one(kind, id)}/verification`, jsonInit('DELETE', { reason })),
   log: (q: string, page: number) => call<{ entries: AdminLogEntry[]; page: number; more: boolean }>(`/api/admin/log?${new URLSearchParams({ q, page: String(page) })}`),
 };
 
@@ -100,5 +129,7 @@ export function runAdminOp(op: AdminOp): Promise<unknown> {
       return adminApi.grantSupport(op.id, op.seasons, op.note);
     case 'revokeSupport':
       return adminApi.revokeSupport(op.id);
+    case 'unverify':
+      return adminApi.unverify(op.kind, op.id, op.reason);
   }
 }

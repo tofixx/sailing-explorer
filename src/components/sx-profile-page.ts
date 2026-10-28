@@ -6,11 +6,14 @@ import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
-import { base, emit, onMapStyles } from './shared';
+import { base, emit, logbookTag, onMapStyles } from './shared';
+import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
 import './sx-place-picker';
 import './sx-stream';
+import './sx-claim';
+import './sx-verified-badge';
 import './sx-page-media';
 import './sx-filter-select';
 
@@ -262,8 +265,8 @@ export class SxProfilePage extends LitElement {
     return html`<div class="cards">
       ${list.map(
         (v) => html`<a class="card" href="/s/${v.id}">
-          <span class="t">${icon('map')}${v.title}</span>
-          <span class="s">${v.summary || `${fmtNum(v.distNm, 1)} sm`}</span>
+          <span class="t">${icon(v.source === 'manual' ? 'book' : 'map')}${v.title}</span>
+          <span class="s">${v.summary || `${fmtNum(v.distNm, 1)} sm`}${v.source === 'manual' ? html` ${logbookTag()}` : ''}</span>
           <span class="s">${v.boat ? html`${icon('sail')} ${v.boat.name} · ` : ''}${fmtDate(v.startedAt ?? v.createdAt)}${v.crewRole ? ` · als ${VOYAGE_ROLE_SHORT[v.crewRole]}` : ''}</span>
         </a>`,
       )}
@@ -293,7 +296,7 @@ export class SxProfilePage extends LitElement {
   private stats(s: PageStats) {
     const avg = s.voyages ? s.distNm / s.voyages : 0;
     return html`<div class="stats">
-      <div class="stat"><div class="eyebrow">Seemeilen</div><div class="v">${fmtNum(s.distNm, 0)}<small>sm</small></div></div>
+      <div class="stat"><div class="eyebrow">Seemeilen</div><div class="v">${fmtNum(s.distNm, 0)}<small>sm</small></div>${s.recordedNm !== undefined && recordedNote(s.distNm, s.recordedNm) ? html`<div class="hint">${recordedNote(s.distNm, s.recordedNm)}</div>` : ''}</div>
       <div class="stat"><div class="eyebrow">Törns</div><div class="v">${s.voyages}</div></div>
       <div class="stat"><div class="eyebrow">Ø pro Törn</div><div class="v">${fmtNum(avg, 1)}<small>sm</small></div></div>
     </div>`;
@@ -483,7 +486,7 @@ export class SxProfilePage extends LitElement {
       <header class="hero">
         <div class="mark" aria-hidden="true">${icon('anchor')}</div>
         <div>
-          <h1>${h.name}</h1>
+          <h1>${h.name}${h.verified ? html` <sx-verified-badge kind="harbor"></sx-verified-badge>` : ''}</h1>
           <div class="facts">
             <span>Hafen</span>
             ${pos ? html`<span class="num">${pos}</span>` : ''}
@@ -494,13 +497,14 @@ export class SxProfilePage extends LitElement {
           <button class="btn primary" @click=${() => emit(this, 'sx-page-share', { path: `/h/${h.slug}`, title: h.name })}>${icon('share')} Teilen</button>
           ${this.harborForm(d)}
           <button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'harbor', id: h.id, label: `den Hafen ${h.name}` })}>${icon('flag')} Melden</button>
+          ${h.verified && h.canEdit ? '' : html`<sx-claim kind="harbor" target-id=${h.id} name=${h.name} ?signed-in=${this.signedIn}></sx-claim>`}
         </div>
       </header>
       ${h.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       <div class="stats">
         <div class="stat"><div class="eyebrow">Boote</div><div class="v">${d.stats.boats}</div></div>
         <div class="stat"><div class="eyebrow">Törns</div><div class="v">${d.stats.voyages}</div></div>
-        <div class="stat"><div class="eyebrow">Seemeilen</div><div class="v">${fmtNum(d.stats.distNm, 0)}<small>sm</small></div></div>
+        <div class="stat"><div class="eyebrow">Seemeilen</div><div class="v">${fmtNum(d.stats.distNm, 0)}<small>sm</small></div>${d.stats.recordedNm !== undefined && recordedNote(d.stats.distNm, d.stats.recordedNm) ? html`<div class="hint">${recordedNote(d.stats.distNm, d.stats.recordedNm)}</div>` : ''}</div>
         <div class="stat"><div class="eyebrow">Saison</div><div class="v">${fmtNum(d.stats.seasonNm, 0)}<small>sm</small></div></div>
       </div>
       <section>

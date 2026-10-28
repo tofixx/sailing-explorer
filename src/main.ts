@@ -31,6 +31,8 @@ import './components/sx-reactions';
 import './components/sx-harbor-picker';
 import './components/sx-legal-page';
 import './components/sx-notifications';
+import './components/sx-logbook-form';
+import './components/sx-logbook-panel';
 import { App } from './app';
 
 new App().start();

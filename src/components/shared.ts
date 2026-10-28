@@ -1,4 +1,5 @@
 import { css, html } from 'lit';
+import { icon } from './icons';
 import type { CoverRef } from '../domain/cover';
 
 /** Gemeinsame Grundstile aller Komponenten – nutzt ausschließlich Tokens. */
@@ -153,7 +154,29 @@ export const base = css`
     color: var(--text-3);
     margin-top: var(--s-1);
   }
+  /* Abzeichen „Fahrtenbuch“ (Konzept 19, F-302) */
+  .logtag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 0 6px;
+    border-radius: 999px;
+    border: 1px solid var(--border-soft);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    color: var(--text-2);
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .logtag svg {
+    width: 12px;
+    height: 12px;
+  }
 `;
+
+/** Abzeichen „Fahrtenbuch“: Törn ohne GPS-Aufzeichnung (F-302) – Stil `.logtag` aus `base`. */
+export const logbookTag = () =>
+  html`<span class="logtag" title="Ohne GPS-Aufzeichnung – Strecke vom Segler angegeben">${icon('book')} Fahrtenbuch</span>`;
 
 /**
  * Seite über der Karte (F-351, Hafen- und Vereinsseite mit Ort): Hintergrund durchsichtig, der Inhalt als Tafel mit

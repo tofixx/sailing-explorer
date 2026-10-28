@@ -1,4 +1,5 @@
 import { computeTrackStats } from './domain/stats';
+import { routeTrack } from './domain/logbook';
 import { GpxError, parseGpx } from './domain/gpx';
 import { METRICS, METRIC_KEYS, metricRange, type MetricDef } from './domain/metrics';
 import type { VoyageRole } from './domain/crew-roles';
@@ -9,7 +10,7 @@ import { median } from './domain/geo';
 import type { MetricKey, Track, TrackPoint } from './domain/types';
 import { MapView } from './map/map-view';
 import { MAP_STYLES, type MapStyleId } from './domain/map-style';
-import { ApiError, api, coverApi, type CoverKind, type PageMedia } from './services/api';
+import { ApiError, api, coverApi, type CoverKind, type PageMedia, type ShareMeta } from './services/api';
 import { PhotoError, processCover } from './services/photo-process';
 import type { SxCover } from './components/sx-page-media';
 import { inflateFromBase64Url } from './services/compress';
@@ -26,6 +27,8 @@ import type { ChartSeries, SxTimeChart } from './components/sx-time-chart';
 import type { SxConditions } from './components/sx-conditions';
 import type { SxCrew } from './components/sx-crew';
 import type { SxVoyageByline } from './components/sx-voyage-byline';
+import type { LogbookSave, SxLogbookForm } from './components/sx-logbook-form';
+import type { SxLogbookPanel } from './components/sx-logbook-panel';
 import type { SxInviteDialog } from './components/sx-invite-dialog';
 import type { SxDiscover } from './components/sx-discover';
 import type { SxEmptyState } from './components/sx-empty-state';
@@ -46,6 +49,7 @@ import type { AdminAction } from './services/api';
 import type { CommentsMode, NotifyMode, ReportReason } from './domain/comment-text';
 // ---- Fotos (Phase C) ----
 import { PhotosController } from './controllers/photos';
+import { LogbookController } from './controllers/logbook';
 import type { SxPhotoStrip } from './components/sx-photo-strip';
 import type { SxPhotoLightbox } from './components/sx-photo-lightbox';
 import type { SxPhotoUpload } from './components/sx-photo-upload';
@@ -76,6 +80,10 @@ import type { SxNotifications } from './components/sx-notifications';
 import type { NotificationItem } from './services/api';
 import type { Channel, ChoosableKind } from './domain/notifications';
 import { disablePush, enablePush, pushKey } from './services/push';
+import { ClaimController } from './controllers/claims';
+import type { SxClaim } from './components/sx-claim';
+import type { ClaimRequest } from './services/api';
+import type { ClaimKind } from './domain/claims';
 
 /** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
 const TRACK_COLORS = ['--c-track-1', '--c-track-2', '--c-track-3', '--c-track-4', '--c-track-5', '--c-track-6'];
@@ -141,6 +149,9 @@ export class App {
     photosPanel: $<HTMLElement>('#photos-panel'),
     lightbox: $<SxPhotoLightbox>('sx-photo-lightbox'),
     photoUpload: $<SxPhotoUpload>('sx-photo-upload'),
+    logbookForm: $<SxLogbookForm>('sx-logbook-form'),
+    logbookPanel: $<SxLogbookPanel>('sx-logbook-panel'),
+    logbookBox: $<HTMLElement>('#logbook-panel'),
     groupPage: $<SxGroupPage>('sx-group-page'),
     homeFeed: $<SxHomeFeed>('sx-home-feed'),
     join: $<SxJoinCard>('sx-join-card'),
@@ -152,9 +163,11 @@ export class App {
   private session: SessionController;
   private community: CommunityController;
   private photos: PhotosController;
+  private logbook: LogbookController;
   private groups: GroupsController;
   private discover: DiscoverController;
   private social: SocialController;
+  private claims = new ClaimController((msg, ms) => this.toast(msg, ms));
   private unread: UnreadController;
   /** angezeigte Seite statt Karte (Entdecken bzw. Profil, Gruppe …) – für die Bereiche in der Kopfzeile */
   private pageSection: 'discover' | 'page' | null = null;
@@ -200,6 +213,13 @@ export class App {
       openLogin: (reason) => this.session.openLogin(reason),
       openSupport: () => this.session.openAccount('shares'),
       onPhotos: (photos) => this.setPhotoMarks(photos),
+    });
+    this.logbook = new LogbookController({
+      form: this.ui.logbookForm,
+      panel: this.ui.logbookPanel,
+      box: this.ui.logbookBox,
+      requireLogin: (reason, then) => this.session.requireLogin(reason, then),
+      open: (path) => location.assign(path),
     });
     this.map.photos.callbacks = { onOpen: (id) => this.photos.open(id), onHover: (id) => this.photoHover(id) };
     this.discover = new DiscoverController(this.store, this.ui.discoverPage);
@@ -422,7 +442,8 @@ export class App {
     }
     if (dataChanged) {
       this.timelinePts = timeline(vis);
-      this.ui.kpis.items = kpis(vis);
+      // Fahrtenbuch ohne GPX: Distanz mit Herkunft, keine Speed-Werte (F-302)
+      this.ui.kpis.items = kpis(vis, s.mode.kind === 'share' ? s.mode.share.distSource : undefined);
       this.ui.trackList.tracks = s.tracks;
       this.ui.trackList.readonly = s.mode.kind !== 'local';
       this.ui.tracksAside.textContent = s.mode.kind === 'local' ? 'Alle entfernen' : 'Schließen';
@@ -435,6 +456,8 @@ export class App {
       const byline = s.mode.kind === 'share' ? s.mode.share : null;
       this.ui.byline.share = byline;
       this.ui.byline.hidden = !byline?.sailor && !byline?.groups?.length;
+      // Fahrtenbuch-Angaben (Konzept 19)
+      this.logbook.show(byline);
       if (s.mode.kind === 'share') void this.session.loadCrew(s.mode.share, s.mode.key);
       else this.session.hideCrew();
       // Kommentare des geteilten Törns (Phase D)
@@ -703,6 +726,11 @@ export class App {
     // Willkommens-Karte der Startseite (Konzept 14.3)
     on<{ id: string; name: string }>('sx-home-join', (d) => g.join(d.id, { name: d.name }));
     on<{ email: string | null }>('sx-friend-invite', (d) => this.social.inviteFriend(d.email));
+    // Fahrtenbuch (Konzept 19)
+    on('sx-logbook-start', () => this.logbook.start());
+    on<ShareMeta>('sx-logbook-edit', (share) => this.logbook.start(share));
+    on<LogbookSave>('sx-logbook-save', (d) => void this.logbook.save(d));
+    on('sx-logbook-close', () => this.logbook.close());
     on<{ harbor: HarborChoice }>('sx-home-harbor', async (d) => {
       if (await so.saveHomeHarbor(d.harbor)) await g.loadHome(true);
     });
@@ -737,6 +765,11 @@ export class App {
     on<{ id: string; patch: HarborPatch }>('sx-harbor-save', (d) => so.saveHarbor(d));
     on<{ clubId: string | null; harbor: HarborChoice }>('sx-home-save', (d) => so.saveHome(d));
     on('sx-account-opened', () => so.loadHome());
+
+    // ---- Verifizierte Vertretung (Konzept 20) ----
+    on<{ kind: ClaimKind; id: string; el: SxClaim }>('sx-claim-load', (d) => this.claims.load(d));
+    on<{ req: ClaimRequest; el: SxClaim }>('sx-claim-submit', (d) => this.claims.submit(d));
+    on<{ claimId: string; kind: ClaimKind; id: string; el: SxClaim }>('sx-claim-withdraw', (d) => this.claims.withdraw(d));
   }
 
   private wireDragDrop() {
@@ -891,8 +924,11 @@ export class App {
     this.setLoading('Lade geteilten Törn …');
     try {
       const [{ share }, payload] = await Promise.all([api.shareMeta(id, key), api.shareData(id, key)]);
-      const tracks = this.build(payload.tracks.map((t) => ({ name: t.name, text: t.gpx })));
-      const view = { ...parseView(share.view), ...parseView(location.search.slice(1)) };
+      // Fahrtenbuch-Eintrag ohne GPX: schematische Linie aus der Route (Konzept 19)
+      const tracks = payload.route && !payload.tracks.length
+        ? [routeTrack(payload.route, { id: localId(), name: share.title, color: TRACK_COLORS[0], distNm: share.distNm, startedAt: share.startedAt, endedAt: share.endedAt ?? null, timed: !!share.log?.timed })]
+        : this.build(payload.tracks.map((t) => ({ name: t.name, text: t.gpx })));
+      const view ={ ...parseView(share.view), ...parseView(location.search.slice(1)) };
       this.store.set({ metric: view.metric ?? this.store.get().metric, layers: view.layers ?? this.store.get().layers });
       document.title = `${share.title} · Sail Explorer`;
       await this.setTracks(tracks, { mode: key ? { kind: 'share', share, key } : { kind: 'share', share }, fit: true, weather: payload.weather });

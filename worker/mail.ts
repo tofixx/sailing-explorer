@@ -106,6 +106,52 @@ export function lockNoticeMail(env: Env, to: string, m: { what: string; name: st
   return { to, subject: `${app}: Sperre – ${m.what.replace(/^dein(e)? /, '')}`, text, html };
 }
 
+/**
+ * Entscheidung über einen Antrag „Ich vertrete diesen Verein/Hafen“ (Konzept 20.8): angenommen, abgelehnt (mit
+ * Begründung der Moderation) oder ohne Entscheidung abgelaufen. Name und Begründung sind Nutzer- bzw. Admin-Text → escaped.
+ */
+export function claimResultMail(env: Env, to: string, m: { status: 'accepted' | 'rejected' | 'expired'; kind: 'Verein' | 'Hafen'; name: string; note: string; url: string; contact?: string }): Mail {
+  const app = env.APP_NAME;
+  const the = m.kind === 'Verein' ? 'den Verein' : 'den Hafen';
+  const head = { accepted: 'wurde angenommen', rejected: 'wurde abgelehnt', expired: 'ist ohne Entscheidung abgelaufen' }[m.status];
+  const after = {
+    accepted: `Du verwaltest ${the} jetzt, und er trägt das Abzeichen „Verifiziert“.`,
+    rejected: 'Einen neuen Antrag kannst du frühestens in 30 Tagen stellen.',
+    expired: 'Du kannst jederzeit einen neuen Antrag stellen.',
+  }[m.status];
+  const contact = m.contact?.trim() ? ` oder schreib an ${m.contact.trim()}` : '';
+  const ask = `Fragen dazu? Antworte einfach auf diese Mail${contact}.`;
+  const note = m.status === 'rejected' && m.note.trim() ? m.note.trim() : '';
+  const text = `Hallo,\n\ndein Antrag, ${the} „${m.name}“ bei ${app} zu vertreten, ${head}.\n\n${note ? `Begründung:\n${note}\n\n` : ''}${after}\n\n${m.url}\n\n${ask}\n`;
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
+<p>Hallo,</p><p>dein Antrag, ${the} <b>„${escapeHtml(m.name)}“</b> bei <b>${app}</b> zu vertreten, ${head}.</p>
+${note ? `<p><b>Begründung:</b><br>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
+<p>${after}</p>
+<p><a href="${escapeHtml(m.url)}">${escapeHtml(m.url)}</a></p>
+<p>${escapeHtml(ask)}</p>
+</body></html>`;
+  return { to, subject: `${app}: Antrag ${head.replace(/^(wurde|ist) /, '')} – ${m.kind}`, text, html };
+}
+
+/**
+ * An die verdrängte Eigner:in bzw. Anleger:in (Konzept 20.8, wie F-296): was übertragen wurde, die neue Rolle und der
+ * Hinweis auf Widerspruch.
+ */
+export function claimTransferMail(env: Env, to: string, m: { kind: 'Verein' | 'Hafen'; name: string; consequence: string; contact?: string }): Mail {
+  const app = env.APP_NAME;
+  const the = m.kind === 'Verein' ? 'den Verein' : 'den Hafen';
+  const contact = m.contact?.trim() ? ` oder schreib an ${m.contact.trim()}` : '';
+  const why = `Die Moderation hat bestätigt, dass ein anderes Konto ${the} offiziell vertritt (z. B. der Vorstand bzw. die Hafenmeisterei). Die Verwaltung liegt deshalb jetzt dort – ${m.consequence}.`;
+  const object = `Du bist nicht einverstanden? Antworte einfach auf diese Mail${contact} – wir prüfen die Entscheidung dann erneut.`;
+  const text = `Hallo,\n\n${the} „${m.name}“ bei ${app} wird jetzt von seiner verifizierten Vertretung verwaltet.\n\n${why}\n\n${object}\n`;
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
+<p>Hallo,</p><p>${the} <b>„${escapeHtml(m.name)}“</b> bei <b>${app}</b> wird jetzt von seiner verifizierten Vertretung verwaltet.</p>
+<p>${escapeHtml(why)}</p>
+<p>${escapeHtml(object)}</p>
+</body></html>`;
+  return { to, subject: `${app}: Verwaltung übertragen – ${m.kind}`, text, html };
+}
+
 export interface LockReminderItem {
   /** feste Bezeichnung der Art (Konto, Törn, …) */
   kind: string;

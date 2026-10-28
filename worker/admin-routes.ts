@@ -3,6 +3,7 @@
 import type { Env } from './env';
 import { adminDelete, adminDetail, adminGrantSupport, adminList, adminLock, adminLogList, adminOwner, adminRename, adminRevokeSupport, adminUnlock } from './admin';
 import { mergeHarbor, mergeUserPreview, mergeUsers } from './admin-merge';
+import { adminClaims, adminUnverify, decideClaim } from './claims';
 
 type Handler = (request: Request, env: Env, params: string[]) => Promise<Response>;
 
@@ -12,6 +13,10 @@ const ID = '([A-Za-z0-9]+)';
 export const adminRoutes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', new RegExp(`^/api/admin/list/([a-z]+)$`), (r, env, [k]) => adminList(r, env, k)],
   ['GET', /^\/api\/admin\/log$/, (r, env) => adminLogList(r, env)],
+  // Verifizierung (Konzept 20): Anträge prüfen, Verifizierung entziehen
+  ['GET', /^\/api\/admin\/claims$/, (r, env) => adminClaims(r, env)],
+  ['POST', new RegExp(`^/api/admin/claims/${ID}$`), (r, env, [id]) => decideClaim(r, env, id)],
+  ['DELETE', new RegExp(`^/api/admin/(groups|harbors)/${ID}/verification$`), (r, env, [k, id]) => adminUnverify(r, env, k, id)],
   ['POST', new RegExp(`^/api/admin/harbors/${ID}/merge$`), (r, env, [id]) => mergeHarbor(r, env, id)],
   ['GET', new RegExp(`^/api/admin/users/${ID}/merge$`), (r, env, [id]) => mergeUserPreview(r, env, id)],
   ['POST', new RegExp(`^/api/admin/users/${ID}/merge$`), (r, env, [id]) => mergeUsers(r, env, id)],

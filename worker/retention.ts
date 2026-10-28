@@ -15,6 +15,8 @@ import { deleteShareActivity, deleteShareGroups, nightlyActivityCleanup } from '
 import { deleteShareReactions } from './reaction-cleanup';
 import { sendGroupDigests } from './group-digest';
 import { sweepOrphanCovers } from './covers';
+import { expireClaims } from './claims';
+import { nightlyClaimCleanup } from './claim-cleanup';
 import { GRACE_MS, INACTIVE_ACCOUNT_MS, SEASON_MAIL_MONTH, WARN_MS, seasonEnd } from '../src/domain/support';
 import { LOG_ACTION_MS, LOG_VIEW_MS } from '../src/domain/admin';
 
@@ -50,6 +52,8 @@ export interface RetentionResult {
   failed: string[];
   /** verschickte Sammelmails über neue Kommentare */
   digests: number;
+  /** offene Anträge auf Verifizierung, die ohne Entscheidung abgelaufen sind (Konzept 20.8) */
+  claimsExpired: number;
   /** verschickte wöchentliche Sammelmails aus Vereinen und Teams (Konzept 11.7) */
   groupDigests: number;
   /** nach Ablauf der Sperrfrist endgültig gelöschte Objekte (Konzept 18.4) */
@@ -223,6 +227,10 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     ...nightlyActivityCleanup(env, now),
   ]), []);
   // Benachrichtigungen (Konzept 17.5) als eigener Schritt – nach dem Aufräumen oben, damit verwaiste gleich mitgehen
+  // Verifizierung (Konzept 20.8): offene Anträge ablaufen lassen (mit Hinweis), Angaben und alte Anträge löschen –
+  // vor dem Aufräumen der Benachrichtigungen, damit Hinweise zu gelöschten Anträgen gleich mitgehen
+  const claimsExpired = await step('claims_expire', expireClaims(env, now), 0);
+  await step('claims', env.DB.batch(nightlyClaimCleanup(env, now)), []);
   await step('notifications', env.DB.batch(nightlyNotificationCleanup(env, now)), []);
   // Datenschutz-Fristen als eigener Batch (scheitert einer, läuft der andere trotzdem)
   await step('privacy', env.DB.batch([
@@ -250,5 +258,5 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   // fehlende Zeile wieder an (bis dahin gelten Uploads als pausiert).
   const counted = await step('count', storageTotal(env), null);
   const storageBytes = await recomputeStorage(env);
-  return { deleted, warned, seasonMails, purged, digests, groupDigests, lockExpired, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted, failed };
+  return { deleted, warned, seasonMails, purged, digests, claimsExpired, groupDigests, lockExpired, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted, failed };
 }

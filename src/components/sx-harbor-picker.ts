@@ -2,6 +2,7 @@ import { LitElement, css, html, type PropertyValues } from 'lit';
 import type { HarborRef, HarborSearchHit } from '../services/api';
 import { HARBOR_LIMITS, harborKey } from '../domain/harbors';
 import { icon } from './icons';
+import './sx-verified-badge';
 import { base, emit } from './shared';
 import './sx-place-picker';
 
@@ -28,7 +29,8 @@ export class SxHarborPicker extends LitElement {
     open: { state: true },
     active: { state: true },
   };
-  declare value: HarborRef | null;
+  /** Vorbelegung; im Fahrtenbuch mit Position */
+  declare value: (HarborRef & { lat?: number | null; lon?: number | null }) | null;
   /** Lage eines neuen Hafens (F-353) */
   declare pos: { lat: number; lon: number } | null;
   declare results: HarborSearchHit[];
@@ -129,11 +131,22 @@ export class SxHarborPicker extends LitElement {
     return hit ? { harborId: hit.id } : { name: t, pos: this.pos };
   }
 
+  /** Position der aktuellen Wahl, soweit bekannt (Fahrtenbuch, L3): vorhandener Hafen oder die Lage eines neuen (F-353). */
+  get position(): { lat: number; lon: number } | null {
+    const c = this.choice;
+    if ('name' in c) return c.pos;
+    if (!c.harborId) return null;
+    const known: Array<{ id: string; lat?: number | null; lon?: number | null }> = [...this.results, ...(this.value ? [this.value] : [])];
+    const h = known.find((r) => r.id === c.harborId);
+    return h && h.lat != null && h.lon != null ? { lat: h.lat, lon: h.lon } : null;
+  }
+
   private onInput(e: Event) {
     this.text = (e.target as HTMLInputElement).value;
     this.selected = null;
     this.active = -1;
     this.open = true;
+    emit(this, 'sx-harbor-change');
     if (this.timer) clearTimeout(this.timer);
     const query = this.text.trim();
     if (harborKey(query).length < HARBOR_LIMITS.queryMin) {
@@ -147,6 +160,7 @@ export class SxHarborPicker extends LitElement {
     this.selected = { id: h.id, slug: h.slug, name: h.name };
     this.text = h.name;
     this.open = false;
+    emit(this, 'sx-harbor-change');
   }
 
   private onKey(e: KeyboardEvent) {
@@ -178,7 +192,7 @@ export class SxHarborPicker extends LitElement {
         ? html`<ul id=${listId} role="listbox" aria-label="Vorhandene Häfen">
             ${this.results.map(
               (h, i) => html`<li id="${listId}-${i}" role="option" aria-selected=${i === this.active ? 'true' : 'false'} @mousedown=${(e: Event) => e.preventDefault()} @click=${() => this.pick(h)}>
-                ${icon('anchor')}<span>${h.name}</span><span class="n">${h.boats === 1 ? '1 Boot' : `${h.boats} Boote`}</span>
+                ${icon('anchor')}<span>${h.name}${h.verified ? html` <sx-verified-badge kind="harbor" compact></sx-verified-badge>` : ''}</span><span class="n">${h.boats === 1 ? '1 Boot' : `${h.boats} Boote`}</span>
               </li>`,
             )}
           </ul>`

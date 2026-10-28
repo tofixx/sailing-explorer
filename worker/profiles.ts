@@ -131,11 +131,12 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
     .all();
   const voyages = await publicShares(env, 'user', p.user_id);
   const distNm = voyages.reduce((s, v) => s + v.distNm, 0);
+  const recordedNm = voyages.reduce((s, v) => s + (v.distSource === 'track' ? v.distNm : 0), 0);
   return json({
     profile: profileShape(p, isSelf),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     boats: boats.map((b: any) => boatShape(b, isSelf ? 'owner' : null)),
-    stats: { voyages: voyages.length, distNm },
+    stats: { voyages: voyages.length, distNm, recordedNm },
     voyages,
     // öffentliche Törns anderer, auf denen die Person Crew ist – zählen nicht in die Kennzahlen
     crewVoyages: await crewShares(env, p.user_id),

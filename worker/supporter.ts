@@ -9,6 +9,7 @@ import { SHARE_ID_RE, parseFreeShares, storageThresholds, parseStripeSignature, 
 import { SUPPORT_TIERS, formatEuro, seasonOf, tierFor, type SupportTier } from '../src/domain/support';
 import { boatLimitMessage, brakeBlocks, brakeLevel, limitsFor, quotaVerdict, tierOf, type Tier, type TierLimits } from '../src/domain/limits';
 import { fmtMB } from '../src/domain/format';
+import { LOG_LIMITS, seasonRange } from '../src/domain/logbook';
 import { STORAGE_COUNTER, USER_BYTES_SQL } from './storage';
 import { VISIBILITY_LABEL, canChooseVisibility, type Visibility } from '../src/domain/visibility';
 
@@ -37,7 +38,11 @@ export interface SupportStatus {
   supporter: boolean;
   /** Ende des Unterstützer-Status (ms) – auch wenn abgelaufen; null = nie unterstützt */
   supporterUntil: number | null;
+  /** Törns mit GPX – Fahrtenbuch-Einträge ohne GPX zählen getrennt (L1) */
   sharesUsed: number;
+  /** Fahrtenbuch-Einträge mit Abfahrt in der laufenden Saison und ihre Grenze – für alle Stufen gleich (L1) */
+  logEntriesUsed: number;
+  logEntriesMax: number;
   /** kostenlose Törns (FREE_SHARES) */
   sharesFree: number;
   /** Grenzen der aktuellen Stufe (kostenlos bzw. Unterstützer), siehe limits */
@@ -60,15 +65,16 @@ export interface SupportStatus {
 
 export async function supportStatus(env: Env, userId: string, now = Date.now()): Promise<SupportStatus> {
   const row = await env.DB.prepare(
-    `SELECT (SELECT COUNT(*) FROM shares WHERE user_id = ?1) AS n,
+    `SELECT (SELECT COUNT(*) FROM shares WHERE user_id = ?1 AND source = 'gpx') AS n,
+       (SELECT COUNT(*) FROM shares WHERE user_id = ?1 AND source = 'manual' AND started_at >= ?3 AND started_at < ?4) AS logs,
        ${USER_BYTES_SQL} AS bytes,
        (SELECT COUNT(*) FROM boats WHERE owner_id = ?1) AS boats,
        (SELECT COUNT(*) FROM photos WHERE user_id = ?1) AS photos,
        (SELECT MAX(valid_until) FROM supports WHERE user_id = ?1) AS until,
        (SELECT value FROM counters WHERE name = ?2) AS total`,
   )
-    .bind(userId, STORAGE_COUNTER)
-    .first<{ n: number; bytes: number; boats: number; photos: number; until: number | null; total: number | null }>();
+    .bind(userId, STORAGE_COUNTER, ...seasonRange(seasonOf(now)))
+    .first<{ n: number; logs: number; bytes: number; boats: number; photos: number; until: number | null; total: number | null }>();
   const until = row?.until ?? null;
   const supporter = until !== null && until > now;
   const free = freeShares(env);
@@ -80,6 +86,8 @@ export async function supportStatus(env: Env, userId: string, now = Date.now()):
     supporterUntil: until,
     sharesUsed: row?.n ?? 0,
     sharesFree: free,
+    logEntriesUsed: row?.logs ?? 0,
+    logEntriesMax: LOG_LIMITS.perSeason,
     sharesMax: current.shares,
     bytesUsed: row?.bytes ?? 0,
     bytesMax: current.bytes,

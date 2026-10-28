@@ -26,10 +26,10 @@ export function smooth(values: Array<number | null>, half: number): Array<number
  * Ausreißer-Erkennung per Median + MAD der geglätteten Geschwindigkeit: GPS-Sprünge liegen weit
  * über der bootsspezifischen Streuung und werden verworfen; echte Surf-Spitzen bleiben erhalten.
  * Die Grenze skaliert automatisch mit dem Track (schnelleres Boot → größere Streuung).
+ * Ausreißer-Punkte zählen auch nicht zur Distanz (L8, F-04): gemessen wird von gültigem zu gültigem Punkt.
  */
 export function computeTrackStats(pts: TrackPoint[]): TrackStats {
   const n = pts.length;
-  let dist = 0;
   let movingS = 0;
   const raw = new Array<number | null>(n).fill(null);
 
@@ -37,7 +37,6 @@ export function computeTrackStats(pts: TrackPoint[]): TrackStats {
     const a = pts[i - 1];
     const b = pts[i];
     const d = haversine(a.lat, a.lon, b.lat, b.lon);
-    dist += d;
     let sp: number | null = null;
     if (a.time != null && b.time != null) {
       const dt = (b.time - a.time) / 1000;
@@ -78,6 +77,15 @@ export function computeTrackStats(pts: TrackPoint[]): TrackStats {
       nSp++;
       if (ss != null && ss > maxSp) maxSp = ss;
     }
+  }
+
+  // Distanz ohne Ausreißer: Sprünge zu einem falschen Punkt und zurück fallen weg
+  let dist = 0;
+  let last: TrackPoint | null = null;
+  for (const p of pts) {
+    if (p.glitch) continue;
+    if (last) dist += haversine(last.lat, last.lon, p.lat, p.lon);
+    last = p;
   }
 
   const times = pts.map((p) => p.time).filter((t): t is number => t != null);

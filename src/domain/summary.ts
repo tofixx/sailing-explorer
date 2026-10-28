@@ -1,6 +1,7 @@
 import { circularMean, mean } from './geo';
 import { fmtDate, fmtDuration, fmtNum } from './format';
 import type { Conditions, Track, TrackPoint } from './types';
+import { DIST_SOURCE_LABEL, type DistSource } from './logbook';
 
 export interface Kpi {
   key: string;
@@ -10,10 +11,16 @@ export interface Kpi {
   /** Punkt, an dem das Maximum auftrat – für Hover-Verknüpfung mit der Karte */
   point?: TrackPoint;
   colorVar?: string;
+  /** Unterzeile, z. B. Herkunft der Distanz („Angabe“) */
+  note?: string;
 }
 
-/** Kennzahlen über alle sichtbaren Tracks. */
-export function kpis(tracks: Track[]): Kpi[] {
+/**
+ * Kennzahlen über alle sichtbaren Tracks. Fahrtenbuch-Einträge ohne GPX (`estimated`): Distanz mit Herkunft, Dauer
+ * und ein geschätzter Mittelwert aus Strecke/Dauer – nie Speed-Werte aus Punkten (Konzept 19.2.2, F-302).
+ */
+export function kpis(tracks: Track[], distSource?: DistSource): Kpi[] {
+  if (tracks.length && tracks.every((t) => t.estimated)) return estimatedKpis(tracks, distSource ?? 'stated');
   let dist = 0, moving = 0, sumSp = 0, nSp = 0;
   let maxSpPt: TrackPoint | undefined;
   const wind = new Agg(), gust = new Agg(), wave = new Agg();
@@ -53,6 +60,19 @@ export function kpis(tracks: Track[]): Kpi[] {
     { key: 'avgWave', label: 'Ø Wellen', value: fmtNum(wave.avg(), 1), unit: 'm', colorVar: '--c-wave' },
     { key: 'maxWave', label: 'Max. Wellen', value: fmtNum(wave.max, 1), unit: 'm', point: wave.at, colorVar: '--c-wave' },
   );
+  return out;
+}
+
+function estimatedKpis(tracks: Track[], distSource: DistSource): Kpi[] {
+  const dist = tracks.reduce((s, t) => s + t.stats.distNm, 0);
+  const hours = tracks.reduce((s, t) => s + t.stats.movingH, 0);
+  const out: Kpi[] = [{ key: 'dist', label: 'Distanz', value: fmtNum(dist, 1), unit: 'sm', note: DIST_SOURCE_LABEL[distSource] }];
+  if (hours > 0) {
+    out.push(
+      { key: 'time', label: 'Dauer', value: fmtDuration(hours), unit: 'h', note: 'Angabe' },
+      { key: 'avgSpeed', label: 'Ø Fahrt', value: `≈ ${fmtNum(dist / hours, 1)}`, unit: 'kn', colorVar: '--c-speed', note: 'geschätzt' },
+    );
+  }
   return out;
 }
 

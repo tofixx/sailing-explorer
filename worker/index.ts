@@ -3,6 +3,7 @@ import { canonicalRedirect } from './canonical';
 import { deleteAccount, logout, me, peekLink, requestLink, verifyCode, verifyLink } from './auth';
 import { HttpError, errorResponse, json } from './http';
 import { listShareGroupChoices } from './share-groups';
+import { createManualShare } from './logbook';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
@@ -30,6 +31,7 @@ import { GROUP_KIND_LABEL } from '../src/domain/groups';
 import { harborVisible, loadHarborByRedirect, loadHarborBySlug } from './harbors';
 // ---- Admin-Bereich (Konzept 18) ----
 import { adminRoutes } from './admin-routes';
+import { createClaim, getClaimState, withdrawClaim } from './claims';
 import { currentUser } from './auth';
 import { isAdmin } from './moderation';
 // ---- Benachrichtigungen (Konzept 17) ----
@@ -101,6 +103,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/shares$/, (r, env) => listShares(r, env)],
   ['GET', /^\/api\/me\/share-groups$/, (r, env) => listShareGroupChoices(r, env)],
   ['POST', /^\/api\/shares$/, (r, env) => createShare(r, env)],
+  ['POST', /^\/api\/shares\/manual$/, (r, env) => createManualShare(r, env)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => getShareMeta(r, env, id)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/data$/, (r, env, [id]) => getShareData(r, env, id)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/image$/, (r, env, [id]) => getShareImage(r, env, id)],
@@ -130,6 +133,10 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/covers\/([ubg])\/([A-Za-z0-9-]+)$/, (r, env, [k, id]) => deleteCover(r, env, k, id)],
   // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11): worker/group-routes.ts ----
   ...groupRoutes,
+  // ---- Verifizierte Vertretung (Konzept 20): worker/claims.ts ----
+  ['GET', /^\/api\/claims\/(group|harbor)\/([A-Za-z0-9]+)$/, (r, env, [k, id]) => getClaimState(r, env, k, id)],
+  ['POST', /^\/api\/claims$/, (r, env) => createClaim(r, env)],
+  ['DELETE', /^\/api\/claims\/([A-Za-z0-9]+)$/, (r, env, [id]) => withdrawClaim(r, env, id)],
   // ---- Admin-Bereich (Konzept 18): worker/admin-routes.ts ----
   ...adminRoutes,
 ];

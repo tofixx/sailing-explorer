@@ -216,6 +216,11 @@ export class SxEmptyState extends LitElement {
         cursor: pointer;
         text-decoration: underline;
       }
+      .hint .link svg {
+        width: 14px;
+        height: 14px;
+        vertical-align: -2px;
+      }
       .samples {
         margin-top: var(--s-4);
         padding-top: var(--s-3);
@@ -392,6 +397,11 @@ export class SxEmptyState extends LitElement {
     return html`<div class="privacy">${icon('lock')} Dateien werden lokal im Browser ausgewertet.</div>`;
   }
 
+  /** Fahrtenbuch (Konzept 19, F-300): Törn ohne GPX eintragen – Gäste melden sich dafür erst an (L5). */
+  private logbookLink() {
+    return html`<div class="hint">Kein Track? <button class="link" @click=${() => emit(this, 'sx-logbook-start')}>${icon('book')} Ins Fahrtenbuch eintragen</button></div>`;
+  }
+
   /** Große Einstiegskarte (ohne Community). */
   private bigCard() {
     return html`<section class="card" aria-labelledby="t">
@@ -403,7 +413,7 @@ export class SxEmptyState extends LitElement {
             <div class="hint">${this.trackCount === 1 ? '1 Track geladen' : `${this.trackCount} Tracks geladen`} · <button class="link" @click=${() => pickGpx(this)}>weitere GPX hinzufügen</button></div>`
         : html`<button class="btn primary" @click=${() => pickGpx(this)}>${icon('upload')} GPX-Dateien wählen</button>
             <div class="hint drag-hint">oder einfach auf die Karte ziehen</div>`}
-      ${this.samplesRow()} ${this.privacy()}
+      ${this.logbookLink()} ${this.samplesRow()} ${this.privacy()}
     </section>`;
   }
 
@@ -420,7 +430,7 @@ export class SxEmptyState extends LitElement {
         <button class="btn" @click=${() => pickGpx(this)}>${icon('upload')} ${this.trackCount ? 'Weitere GPX' : 'GPX-Datei wählen'}</button>
       </div>
       <div class="hint drag-hint">oder einfach auf die Seite ziehen</div>
-      ${this.samplesRow()} ${this.privacy()}
+      ${this.logbookLink()} ${this.samplesRow()} ${this.privacy()}
     </section>`;
   }
 

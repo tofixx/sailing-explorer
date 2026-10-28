@@ -1,6 +1,7 @@
 // Vereine und Teams (Konzept 11.1, F-150 … F-157): anlegen, Rollen, Sichtbarkeit, Beitrittsanfragen, Boote,
 // Gruppenseite. Einladungen laufen über worker/invites.ts, Beiträge über worker/posts.ts, Neuigkeiten über stream.ts.
 import type { Env } from './env';
+import { RECORDED_NM_SQL } from './logbook-sql';
 import { currentUser, requireUser, type User } from './auth';
 import { roleFor } from './boats';
 import { randomId } from './crypto';
@@ -24,6 +25,7 @@ import {
 import { funnyName } from '../src/domain/names';
 import { coverRef } from '../src/domain/cover';
 import { notifyRequest } from './notifications';
+import { claimTargetCleanup, displacedSql } from './claim-cleanup';
 
 const DAY = 86_400_000;
 
@@ -50,6 +52,8 @@ export interface GroupRow {
   hidden_at: number | null;
   /** gesperrt (0023, Konzept 18.2): niemand hat dann eine Rolle */
   locked_at?: number | null;
+  /** verifizierte Vertretung (0026, Konzept 20), nur Vereine */
+  verified_at?: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -140,6 +144,8 @@ export function groupShape(g: GroupRow, role: GroupRole | null) {
     link: manager ? sharePath('g', g.slug, g.visibility, g.share_key) : null,
     role,
     hiddenAt: manager ? g.hidden_at : null,
+    // Abzeichen „Verifiziert“ (Konzept 20.4, F-366) – nur Vereine
+    verified: g.kind === 'club' && !!g.verified_at,
     createdAt: g.created_at,
   };
 }
@@ -302,6 +308,8 @@ export async function removeGroup(env: Env, id: string): Promise<void> {
          OR (target_kind = 'post' AND target_id IN (SELECT id FROM posts WHERE group_id = ?1))`,
     ).bind(id),
     ...groupActivityCleanup(env, id),
+    // Anträge auf Verifizierung (Konzept 20.8)
+    ...claimTargetCleanup(env, 'group', id),
     env.DB.prepare('DELETE FROM invites WHERE group_id = ?').bind(id),
     // Teams eines gelöschten Vereins bleiben eigenständig.
     env.DB.prepare('UPDATE groups SET parent_id = NULL WHERE parent_id = ?').bind(id),
@@ -317,6 +325,10 @@ export async function removeGroup(env: Env, id: string): Promise<void> {
 /** DELETE /api/groups/:id – nur der Eigner. */
 export async function deleteGroup(request: Request, env: Env, id: string): Promise<Response> {
   const { group } = await memberGroup(request, env, id, 'owner');
+  // Offener Antrag auf Verifizierung (Konzept 20.5): niemand löscht den Verein vor der Entscheidung – neutral formuliert
+  if (await env.DB.prepare(`SELECT 1 AS x FROM claims WHERE target_kind = 'group' AND target_id = ? AND status = 'open'`).bind(group.id).first()) {
+    throw new HttpError(409, 'claim_pending', 'Das Löschen ist gerade nicht möglich – bitte wende dich an die Moderation.');
+  }
   await removeGroup(env, group.id);
   return new Response(null, { status: 204 });
 }
@@ -324,13 +336,16 @@ export async function deleteGroup(request: Request, env: Env, id: string): Promi
 /**
  * Konto löschen (Konzept 11.9, 13.4): eigene Gruppen gehen an den dienstältesten Admin, ohne Admin an das
  * dienstälteste Mitglied – eine Gruppe bleibt, solange sie Mitglieder hat. Nur Gruppen ohne weitere Mitglieder fallen.
+ * Verifizierte Vereine (Konzept 20.5) verlieren das Abzeichen, und Verdrängte werden bei der Nachfolge übersprungen.
  * Liefert die Anweisungen für Mitgliedschaften, Anfragen und Beiträge des Kontos (für den Batch in purgeUser).
  */
 export async function purgeUserGroups(env: Env, userId: string): Promise<D1PreparedStatement[]> {
   await env.DB.batch([
+    env.DB.prepare('UPDATE groups SET verified_at = NULL WHERE owner_id = ? AND verified_at IS NOT NULL').bind(userId),
     env.DB.prepare(
       `UPDATE group_members SET role = 'owner' WHERE rowid IN (
          SELECT (SELECT m.rowid FROM group_members m WHERE m.group_id = g.id AND m.user_id <> ?1
+                   AND NOT ${displacedSql('group', 'g.id', 'm.user_id')}
                  ORDER BY m.role = 'admin' DESC, m.created_at, m.user_id LIMIT 1)
          FROM groups g WHERE g.owner_id = ?1)`,
     ).bind(userId),
@@ -385,13 +400,13 @@ async function groupStats(env: Env, groupId: string, now = Date.now()) {
   const row = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM group_members WHERE group_id = ?1) AS members,
        (SELECT COUNT(*) FROM group_boats gb JOIN boats b ON b.id = gb.boat_id WHERE gb.group_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats,
-       COUNT(s.id) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist,
+       COUNT(s.id) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec,
        COALESCE(SUM(CASE WHEN COALESCE(s.started_at, s.created_at) >= ?2 THEN s.dist_nm END), 0) AS season
      FROM shares s WHERE ${PUBLIC_SHARE} AND ${GROUP_SHARES}`,
   )
     .bind(groupId, yearStart)
-    .first<{ members: number; boats: number; voyages: number; dist: number; season: number }>();
-  return { members: row?.members ?? 0, boats: row?.boats ?? 0, voyages: row?.voyages ?? 0, distNm: row?.dist ?? 0, seasonNm: row?.season ?? 0 };
+    .first<{ members: number; boats: number; voyages: number; dist: number; rec: number; season: number }>();
+  return { members: row?.members ?? 0, boats: row?.boats ?? 0, voyages: row?.voyages ?? 0, distNm: row?.dist ?? 0, recordedNm: row?.rec ?? 0, seasonNm: row?.season ?? 0 };
 }
 
 interface MemberRow {
@@ -546,7 +561,8 @@ export async function setMemberRole(request: Request, env: Env, id: string, who:
 
 /**
  * Eigner wechseln (F-347, auch Admin-Bereich F-236): neuer Eigner (Mitgliedschaft angelegt bzw. hochgestuft), der
- * bisherige bleibt Admin, eine offene Anfrage des neuen entfällt.
+ * bisherige bleibt Admin, eine offene Anfrage des neuen entfällt. Ohne Antrag endet dabei eine Verifizierung
+ * (Konzept 20.6) – der angenommene Antrag (worker/claims.ts) setzt sie danach neu.
  */
 export const transferGroupStmts = (env: Env, groupId: string, from: string | null, to: string, now: number) => [
   // ohne bisherigen Eigner (Admin-Bereich: verwaiste Gruppe) bleibt nur das Einsetzen
@@ -556,7 +572,7 @@ export const transferGroupStmts = (env: Env, groupId: string, from: string | nul
      ON CONFLICT(group_id, user_id) DO UPDATE SET role = 'owner'`,
   ).bind(groupId, to, now),
   env.DB.prepare('DELETE FROM group_requests WHERE group_id = ? AND user_id = ?').bind(groupId, to),
-  env.DB.prepare('UPDATE groups SET owner_id = ?, updated_at = ? WHERE id = ?').bind(to, now, groupId),
+  env.DB.prepare('UPDATE groups SET owner_id = ?, updated_at = ?, verified_at = NULL WHERE id = ?').bind(to, now, groupId),
 ];
 
 /**
@@ -568,6 +584,10 @@ export async function transferGroup(request: Request, env: Env, id: string): Pro
   const { userId } = await readJson<{ userId?: unknown }>(request);
   if (typeof userId !== 'string' || userId === user.id) throw new HttpError(400, 'invalid_user', 'Wähle einen Admin der Gruppe.');
   if ((await roleIn(env, userId, group.id)) !== 'admin') throw new HttpError(400, 'not_admin', 'Übergeben geht nur an einen Admin der Gruppe.');
+  // Sperre gegen Rückübernahme (Konzept 20.5, F-367)
+  if (await env.DB.prepare(`SELECT 1 AS x WHERE ${displacedSql('group', '?1', '?2')}`).bind(group.id, userId).first()) {
+    throw new HttpError(409, 'claim_blocked', 'Dieser Person wurde die Verwaltung nach einer Prüfung entzogen – Übergabe nicht möglich.');
+  }
   const target = await env.DB.prepare('SELECT suspended_at, locked_at FROM users WHERE id = ?').bind(userId).first<{ suspended_at: number | null; locked_at: number | null }>();
   if (!target || target.suspended_at || target.locked_at) throw new HttpError(400, 'invalid_user', 'Dieses Konto kann die Gruppe nicht übernehmen.');
   await env.DB.batch(transferGroupStmts(env, group.id, user.id, userId, Date.now()));
@@ -591,17 +611,20 @@ export async function removeMember(request: Request, env: Env, id: string, who: 
   if (!targetRole) throw new HttpError(404, 'not_found', 'Diese Person ist kein Mitglied.');
   if (target === user.id && role === 'owner') throw new HttpError(400, 'owner_cannot_leave', 'Übergib die Gruppe zuerst an einen Admin – oder lösche sie.');
   if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigentümer.');
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(group.id, target),
-    // „Mein Verein“ fällt mit (F-170), ebenso die Beitritts-Neuigkeit (sonst stünde sie bis zu 12 Monate im Stream)
-    clearHomeClub(env, target, group.id),
-    env.DB.prepare('DELETE FROM activity WHERE bucket = ?').bind(`member:${group.id}:${target}`),
-    // Törns in Gruppen (F-377): nur Mitglieder zeigen Törns in der Gruppe – ihre Törns verlassen sie mit ihnen.
-    env.DB.prepare('DELETE FROM share_groups WHERE group_id = ? AND share_id IN (SELECT id FROM shares WHERE user_id = ?)').bind(group.id, target),
-    memberShareTargetsCleanup(env, group.id, target),
-  ]);
+  await env.DB.batch(leaveGroupStmts(env, group.id, target));
   return new Response(null, { status: 204 });
 }
+
+/** Mitgliedschaft beenden (Austritt, Entfernen, Verdrängung nach Konzept 20.3). */
+export const leaveGroupStmts = (env: Env, groupId: string, userId: string): D1PreparedStatement[] => [
+  env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(groupId, userId),
+  // „Mein Verein“ fällt mit (F-170), ebenso die Beitritts-Neuigkeit (sonst stünde sie bis zu 12 Monate im Stream)
+  clearHomeClub(env, userId, groupId),
+  env.DB.prepare('DELETE FROM activity WHERE bucket = ?').bind(`member:${groupId}:${userId}`),
+  // Törns in Gruppen (F-377): nur Mitglieder zeigen Törns in der Gruppe – ihre Törns verlassen sie mit ihnen.
+  env.DB.prepare('DELETE FROM share_groups WHERE group_id = ? AND share_id IN (SELECT id FROM shares WHERE user_id = ?)').bind(groupId, userId),
+  memberShareTargetsCleanup(env, groupId, userId),
+];
 
 // ---------------------------------------------------------------- Beitrittsanfragen
 
@@ -701,7 +724,7 @@ export async function removeGroupBoat(request: Request, env: Env, id: string, bo
  */
 export async function publicGroups(env: Env, limit: number, search?: { where: string; like: string }, near?: string | null) {
   const stmt = env.DB.prepare(
-    `SELECT g.id, g.slug, g.name, g.kind, g.home_port, g.description, g.join_mode, g.created_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members,
+    `SELECT g.id, g.slug, g.name, g.kind, g.home_port, g.description, g.join_mode, g.created_at, g.verified_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members,
        c.ver AS cover_ver, c.focus_y AS cover_y
      FROM groups g LEFT JOIN covers c ON c.kind = 'g' AND c.object_id = g.id
      WHERE g.visibility = 'public' AND g.hidden_at IS NULL
@@ -710,9 +733,9 @@ export async function publicGroups(env: Env, limit: number, search?: { where: st
      ORDER BY ${near ? `${nearRank('g.harbor_id')}, ` : ''}g.created_at DESC, g.id LIMIT ?1`,
   );
   const { results } = await (near ? stmt.bind(limit, search?.like ?? '', near) : search ? stmt.bind(limit, search.like) : stmt.bind(limit))
-    .all<{ id: string; slug: string; name: string; kind: GroupKind; home_port: string; description: string; join_mode: JoinMode; created_at: number; members: number; cover_ver: string | null; cover_y: number | null }>();
+    .all<{ id: string; slug: string; name: string; kind: GroupKind; home_port: string; description: string; join_mode: JoinMode; created_at: number; verified_at: number | null; members: number; cover_ver: string | null; cover_y: number | null }>();
   return results.map((g) => ({
-    id: g.id, slug: g.slug, name: g.name, kind: g.kind, homePort: g.home_port, description: g.description, joinMode: g.join_mode, createdAt: g.created_at, members: g.members,
+    id: g.id, slug: g.slug, name: g.name, kind: g.kind, homePort: g.home_port, description: g.description, joinMode: g.join_mode, createdAt: g.created_at, members: g.members, verified: g.kind === 'club' && !!g.verified_at,
     cover: coverRef('g', g.id, g.cover_ver, g.cover_y),
   }));
 }

@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { RECORDED_NM_SQL } from './logbook-sql';
 import { json } from './http';
 import { nearRank, publicGroups } from './groups';
 import { coverRef } from '../src/domain/cover';
@@ -41,7 +42,7 @@ const NEAR = {
   harbor: `AND h.id IN (SELECT value FROM json_each(?3))`,
 };
 
-const VOYAGES = (m: string) => `SELECT s.id, s.title, s.summary, s.dist_nm, s.started_at, s.created_at, s.has_image, s.track_count,
+const VOYAGES = (m: string) => `SELECT s.id, s.title, s.summary, s.dist_nm, s.source, s.started_at, s.created_at, s.has_image, s.track_count,
     b.id AS boat_id, b.name AS boat_name, b.visibility AS boat_visibility,
     p.handle, p.display_name
   FROM shares s
@@ -53,7 +54,8 @@ const VOYAGES = (m: string) => `SELECT s.id, s.title, s.summary, s.dist_nm, s.st
 
 const BOATS = (m: string) => `SELECT b.id, b.name, b.boat_type, b.length_m, b.home_port, b.created_at, p.handle, p.display_name, c.ver AS cover_ver, c.focus_y AS cover_y,
     (SELECT COUNT(*) FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS voyages,
-    (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS dist_nm
+    (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS dist_nm,
+    (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS dist_rec
   FROM boats b
   JOIN profiles p ON p.user_id = b.owner_id AND p.visibility = 'public' AND p.hidden_at IS NULL
   LEFT JOIN covers c ON c.kind = 'b' AND c.object_id = b.id
@@ -65,6 +67,7 @@ const PEOPLE = (m: string) => `SELECT * FROM (
     SELECT p.handle, p.display_name, p.bio, p.created_at, c.ver AS cover_ver, c.focus_y AS cover_y,
       (SELECT COUNT(*) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED}) AS voyages,
       (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED}) AS dist_nm,
+      (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.user_id = p.user_id AND ${LISTED}) AS dist_rec,
       (SELECT COUNT(*) FROM boats b WHERE b.owner_id = p.user_id AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats
     FROM profiles p
     LEFT JOIN covers c ON c.kind = 'u' AND c.object_id = p.user_id
@@ -102,6 +105,7 @@ interface VoyageRow {
   title: string;
   summary: string;
   dist_nm: number;
+  source: string;
   started_at: number | null;
   created_at: number;
   has_image: number;
@@ -125,6 +129,7 @@ interface BoatRow {
   display_name: string;
   voyages: number;
   dist_nm: number;
+  dist_rec: number;
   cover_ver: string | null;
   cover_y: number | null;
 }
@@ -136,6 +141,7 @@ interface PersonRow {
   created_at: number;
   voyages: number;
   dist_nm: number;
+  dist_rec: number;
   boats: number;
   cover_ver: string | null;
   cover_y: number | null;
@@ -152,6 +158,7 @@ const voyageShape = (r: VoyageRow) => ({
   title: r.title,
   summary: r.summary,
   distNm: r.dist_nm,
+  ...(r.source === 'manual' ? { logbook: true } : {}),
   startedAt: r.started_at,
   createdAt: r.created_at,
   trackCount: r.track_count,
@@ -170,7 +177,7 @@ const boatShape = (r: BoatRow) => ({
   homePort: r.home_port,
   createdAt: r.created_at,
   owner: { handle: r.handle, displayName: r.display_name },
-  stats: { voyages: r.voyages, distNm: r.dist_nm },
+  stats: { voyages: r.voyages, distNm: r.dist_nm, recordedNm: r.dist_rec },
   cover: coverRef('b', r.id, r.cover_ver, r.cover_y),
 });
 
@@ -179,7 +186,7 @@ const personShape = (r: PersonRow) => ({
   displayName: r.display_name,
   bio: r.bio,
   createdAt: r.created_at,
-  stats: { voyages: r.voyages, distNm: r.dist_nm, boats: r.boats },
+  stats: { voyages: r.voyages, distNm: r.dist_nm, recordedNm: r.dist_rec, boats: r.boats },
   cover: coverRef('u', r.handle, r.cover_ver, r.cover_y),
 });
 
