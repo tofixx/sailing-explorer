@@ -113,6 +113,14 @@ export class SxHarborPicker extends LitElement {
   }
 
   /** Aktuelle Wahl für das Formular. */
+  /** Fehler vor dem Absenden (F-353/F-354): neuer Hafen ohne Lage bzw. `required` ohne Hafen – sonst null. */
+  problem(required = false): string | null {
+    const c = this.choice;
+    if ('name' in c && !c.pos) return 'Bitte die Lage des neuen Hafens auf der Karte antippen.';
+    if (required && !('name' in c) && !c.harborId) return 'Ein Verein braucht einen Heimathafen.';
+    return null;
+  }
+
   get choice(): HarborChoice {
     if (this.selected && this.selected.name === this.text) return { harborId: this.selected.id };
     const t = this.text.trim();

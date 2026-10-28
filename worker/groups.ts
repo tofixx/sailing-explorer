@@ -265,6 +265,8 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
     throw FORBIDDEN('Beitritt und wer Anfragen bestätigt, legt der Eigentümer fest.');
   }
   await applyHarbor(env, user, g, input);
+  // Bestehende Vereine ohne Hafen dürfen weiter bearbeitet werden – nur ausdrücklich entfernen geht nicht (F-354)
+  if (g.kind === 'club' && !g.harbor_id && (input.harborId === null || input.harborId === '')) throw new HttpError(400, 'harbor_required', 'Ein Verein braucht einen Heimathafen.');
   if (next && next !== previous) {
     if (role !== 'owner') throw FORBIDDEN('Die Sichtbarkeit ändert nur der Eigentümer.');
     await checkVisibilityChoice(env, g.owner_id, next, previous);

@@ -381,7 +381,7 @@ export class SxGroupPage extends LitElement {
         <div class="row"><span class="faint">/g/</span><input type="text" maxlength="30" pattern="[a-z0-9-]{3,30}" .value=${d.slug ?? ''} aria-describedby="slug-hint"
           @input=${(e: Event) => this.set({ slug: (e.target as HTMLInputElement).value.toLowerCase() })} /></div>
         <span class="hint" id="slug-hint">3–30 Zeichen: a–z, 0–9 und Bindestrich.</span></label>
-      <div><label class="label" for="gh">Heimathafen (optional)</label>
+      <div><label class="label" for="gh">Heimathafen${(create ? d.kind : g?.kind) === 'club' ? ' (Pflicht für Vereine – sein Ort auf der Karte)' : ' (optional)'}</label>
         <sx-harbor-picker input-id="gh" label="Heimathafen" .value=${g?.harbor ?? null}></sx-harbor-picker></div>
       <label><span class="label">Beschreibung (optional)</span>
         <textarea maxlength="1000" .value=${d.description ?? ''} @input=${(e: Event) => this.set({ description: (e.target as HTMLTextAreaElement).value })}></textarea></label>
@@ -422,6 +422,8 @@ export class SxGroupPage extends LitElement {
       ${this.signedIn
         ? html`<form class="box" @submit=${(e: Event) => {
             e.preventDefault();
+            const problem = this.harborProblem(this.draft.kind === 'club');
+            if (problem) return void (this.formError = problem);
             emit(this, 'sx-group-create', { ...this.draft, ...this.harborInput() });
           }}>
             ${this.fields(true, null)}
@@ -440,6 +442,11 @@ export class SxGroupPage extends LitElement {
     return 'name' in c ? { homePort: c.name, homePortPos: c.pos } : { harborId: c.harborId };
   }
 
+  /** Hafen-Pflicht vorab prüfen (F-353/F-354), statt erst auf den Fehler des Servers zu warten. */
+  private harborProblem(required: boolean): string | null {
+    return this.renderRoot.querySelector<SxHarborPicker>('sx-harbor-picker')?.problem(required) ?? null;
+  }
+
   /** Bearbeiten öffnen: Entwurf aus der aktuellen Gruppe. */
   private startEdit(g: GroupInfo) {
     this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode, approveBy: g.approveBy ?? 'admins' };
@@ -449,6 +456,9 @@ export class SxGroupPage extends LitElement {
   private editForm(g: GroupInfo) {
     return html`<form class="box" aria-label="Gruppe bearbeiten" @submit=${(e: Event) => {
         e.preventDefault();
+        // Bearbeiten: nur die Lage eines neuen Hafens prüfen – bestehende Vereine ohne Hafen bleiben bearbeitbar
+        const problem = this.harborProblem(false);
+        if (problem) return void (this.formError = problem);
         const patch: GroupInput = { ...this.draft, ...this.harborInput() };
         if (g.role !== 'owner' || patch.visibility === g.visibility) delete patch.visibility;
         if (g.role !== 'owner') delete patch.approveBy;

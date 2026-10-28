@@ -26,6 +26,7 @@ export class SxPlacePicker extends LitElement {
 
   private map: L.Map | null = null;
   private marker: L.Marker | null = null;
+  private resize: ResizeObserver | null = null;
 
   constructor() {
     super();
@@ -70,7 +71,8 @@ export class SxPlacePicker extends LitElement {
     this.map.on('click', (e: L.LeafletMouseEvent) => this.pick(e.latlng.lat, e.latlng.lng));
     this.placeMarker();
     // in Dialogen/Formularen ist die Größe beim ersten Zeichnen oft noch 0
-    new ResizeObserver(() => this.map?.invalidateSize()).observe(el);
+    this.resize = new ResizeObserver(() => this.map?.invalidateSize());
+    this.resize.observe(el);
   }
 
   updated(changed: PropertyValues<this>): void {
@@ -79,8 +81,10 @@ export class SxPlacePicker extends LitElement {
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
+    this.resize?.disconnect();
     this.map?.remove();
     this.map = null;
+    this.marker = null;
   }
 
   /** Punkt setzen (gerundet) und melden. */

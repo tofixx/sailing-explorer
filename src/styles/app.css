@@ -301,7 +301,8 @@ body {
 }
 .app[data-page][data-place] .sidebar,
 .app[data-page][data-place] sx-empty-state,
-.app[data-page][data-place] .leaflet-control-container {
+.app[data-page][data-place] .leaflet-control-container .leaflet-top {
+  /* Zoom und Ebenen weg – die Quellenangabe (Lizenz) bleibt sichtbar */
   display: none;
 }
 .app[data-page][data-place] > sx-profile-page,

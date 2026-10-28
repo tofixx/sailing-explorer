@@ -343,8 +343,16 @@ describe('sx-group-page', () => {
     const vis = [...root.querySelectorAll('input[name="vis"]')] as HTMLInputElement[];
     expect(vis.map((v) => v.disabled)).toEqual([false, true, true]);
     expect(text(root)).toContain('Nur für Unterstützer');
+    // ohne Heimathafen blockiert das Formular vorab (F-354)
     (root.querySelector('form') as HTMLFormElement).requestSubmit();
-    expect(creates[0]).toMatchObject({ kind: 'club', name: 'Segelclub Möwe', slug: 'segelclub-moewe', visibility: 'public', joinMode: 'request' });
+    await el.updateComplete;
+    expect(creates).toHaveLength(0);
+    expect(text(root)).toContain('Ein Verein braucht einen Heimathafen');
+    const hp = root.querySelector('sx-harbor-picker') as unknown as LitEl & { value: unknown };
+    hp.value = { id: 'H1', slug: 'potsdam', name: 'Potsdam' };
+    await hp.updateComplete;
+    (root.querySelector('form') as HTMLFormElement).requestSubmit();
+    expect(creates[0]).toMatchObject({ kind: 'club', name: 'Segelclub Möwe', slug: 'segelclub-moewe', visibility: 'public', joinMode: 'request', harborId: 'H1' });
     const anon = await mount('sx-group-page', { mode: 'create', signedIn: false });
     expect(text(anon.shadowRoot)).toContain('Zum Gründen bitte anmelden');
   });

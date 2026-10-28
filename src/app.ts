@@ -104,6 +104,10 @@ const series = (m: MetricDef, axis: 'left' | 'right', value: (p: TrackPoint) => 
 export class App {
   private store = new Store(initialState);
   private map: MapView;
+  /** Navigationsnummer (F-351: veraltete Seiten setzen keinen Ort) */
+  private navSeq = 0;
+  /** nach einer Ort-Ansicht beim Zurück zur Karte die Tracks neu einpassen */
+  private refitAfterPlace = false;
   private ui = {
     app: $<HTMLElement>('.app'),
     topbar: $<SxTopbar>('sx-topbar'),
@@ -928,6 +932,8 @@ export class App {
   ) {
     this.ui.app.setAttribute('data-page', '');
     this.clearPlace();
+    // jede Navigation hat ihre Nummer – eine veraltete Seite setzt danach keinen Ort mehr (F-351)
+    const nav = ++this.navSeq;
     this.pageSection = route.kind === 'discover' ? 'discover' : 'page';
     this.ui.topbar.section = this.pageSection;
     if (route.kind === 'discover') return this.discover.open();
@@ -940,6 +946,7 @@ export class App {
     }
     if (route.kind === 'harbor') {
       await this.social.openHarbor(route.slug);
+      if (nav !== this.navSeq) return;
       const d = this.ui.page.data;
       const h = d?.kind === 'harbor' ? d.harbor : null;
       return this.showPlace(this.ui.page, h && h.lat != null && h.lon != null ? { lat: h.lat, lon: h.lon } : null);
@@ -947,7 +954,7 @@ export class App {
     if (route.kind === 'group') {
       this.community.setPageKey(route.key);
       await this.groups.openGroup(route.slug, route.key);
-      this.showPlace(this.ui.groupPage, this.ui.groupPage.data?.place ?? null);
+      if (nav === this.navSeq) this.showPlace(this.ui.groupPage, this.ui.groupPage.data?.place ?? null);
       // Gruppenseite geöffnet: Beitrittsanfragen dazu gelesen (F-253)
       const group = this.ui.groupPage.data?.group;
       if (group) this.notifications.viewing({ subjectKind: 'group', subjectId: group.id });
@@ -1065,15 +1072,17 @@ export class App {
     requestAnimationFrame(() => this.map.showPlace(place, Math.min(window.innerHeight * 0.34, 300)));
   }
 
-  /** Ort-Ansicht verlassen: Markierung weg, Tracks wieder einpassen. */
+  /**
+   * Ort-Ansicht verlassen: Markierung weg. Die Tracks werden erst wieder eingepasst, wenn die Karte sichtbar ist
+   * (leavePage) – auf der versteckten Karte (Wechsel zu einer anderen Seite) wäre ihre Größe 0.
+   */
   private clearPlace() {
     if (!this.ui.app.hasAttribute('data-place')) return;
     this.ui.app.removeAttribute('data-place');
     this.ui.page.removeAttribute('on-map');
     this.ui.groupPage.removeAttribute('on-map');
     this.map.showPlace(null);
-    const tracks = this.store.get().tracks.filter((t) => !t.hidden);
-    if (tracks.length) requestAnimationFrame(() => this.map.fit(tracks));
+    this.refitAfterPlace = true;
   }
 
   /** Zurück von Profil-/Boots-/Entdecken-Seite zur Kartenansicht. */
@@ -1081,6 +1090,11 @@ export class App {
     if (!this.ui.app.hasAttribute('data-page')) return;
     this.clearPlace();
     this.ui.app.removeAttribute('data-page');
+    if (this.refitAfterPlace) {
+      this.refitAfterPlace = false;
+      const tracks = this.store.get().tracks.filter((t) => !t.hidden);
+      if (tracks.length) requestAnimationFrame(() => this.map.fit(tracks));
+    }
     this.pageSection = null;
     this.ui.page.hidden = true;
     this.ui.discoverPage.hidden = true;
