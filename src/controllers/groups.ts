@@ -357,7 +357,7 @@ export class GroupsController {
         filters = page.filters ?? filters;
       }
       this.shown = chosen === 'near' && near?.state === 'ok' ? 'near' : chosen === 'mine' ? 'mine' : 'all';
-      Object.assign(home, { stream, personal, mode: chosen, shown: this.shown, radius: prefs.radius, near, filters, filter: this.filter });
+      Object.assign(home, { stream, personal, mode: chosen, shown: this.shown, radius: prefs.radius, joins: prefs.joins, near, filters, filter: this.filter });
       home.hidden = false;
       this.ui.onCommunity?.(true);
       // „Gelesen“ (F-222) nur, wenn der persönliche Stream wirklich angezeigt wird
@@ -391,6 +391,12 @@ export class GroupsController {
       return Promise.resolve();
     }
     return this.savePrefs({ mode });
+  }
+
+  /** Beitrittsmeldungen ein-/ausblenden (F-350) – nur Anzeige, kein Neuladen. */
+  setJoins(show: boolean): void {
+    writeNearPrefs({ ...readNearPrefs(), joins: show });
+    this.ui.home.joins = show;
   }
 
   setRadius(radius: NearRadius): Promise<void> {

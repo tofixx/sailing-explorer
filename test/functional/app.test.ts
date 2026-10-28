@@ -1638,7 +1638,7 @@ describe('F-343 Startseite: Umgebung als Standard', () => {
     localStorage.setItem('sx-near', JSON.stringify({ mode: 'near', radius: 25, geo: { lat: 52.4, lon: 13 } }));
     emit('sx-near-radius', { radius: 50 });
     await vi.waitFor(() => expect(server.calls.some((c) => c.url === '/api/stream/near?r=50&lat=52.4&lon=13')).toBe(true));
-    expect(JSON.parse(localStorage.getItem('sx-near')!)).toEqual({ mode: 'near', radius: 50, geo: { lat: 52.4, lon: 13 } });
+    expect(JSON.parse(localStorage.getItem('sx-near')!)).toEqual({ mode: 'near', radius: 50, geo: { lat: 52.4, lon: 13 }, joins: true });
   });
 
   it('[F-342] gespeicherter Standort (gerundet) ist der Mittelpunkt', async () => {

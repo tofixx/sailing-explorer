@@ -9,17 +9,20 @@ export interface NearPrefs {
   radius: NearRadius;
   /** auf 0,1° gerundeter Standort, nur nach Klick auf „Meine Umgebung“ */
   geo: LatLon | null;
+  /** Beitrittsmeldungen im Stream zeigen (F-350), Standard ja */
+  joins: boolean;
 }
 
 export function readNearPrefs(): NearPrefs {
-  const fallback: NearPrefs = { mode: 'near', radius: DEFAULT_RADIUS, geo: null };
+  const fallback: NearPrefs = { mode: 'near', radius: DEFAULT_RADIUS, geo: null, joins: true };
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<{ mode: unknown; radius: unknown; geo: { lat?: unknown; lon?: unknown } | null }> | null;
+    const raw = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<{ mode: unknown; radius: unknown; geo: { lat?: unknown; lon?: unknown } | null; joins: unknown }> | null;
     if (!raw) return fallback;
     return {
       mode: isStreamMode(raw.mode) ? raw.mode : fallback.mode,
       radius: isNearRadius(raw.radius) ? (Number(raw.radius) as NearRadius) : fallback.radius,
       geo: raw.geo ? parseCenter(raw.geo.lat, raw.geo.lon) : null,
+      joins: raw.joins !== false,
     };
   } catch {
     return fallback;

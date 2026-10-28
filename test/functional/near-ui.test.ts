@@ -2,6 +2,7 @@
 // Startseite: Modus-Wahl „Umgebung | Alles | Mitgliedschaften“, Umkreis und Standort (F-340, F-342, F-343).
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import '../../src/components/sx-home-feed';
+import '../../src/components/sx-stream';
 import '../../src/components/sx-discover';
 import '../../src/components/sx-profile-page';
 import { readNearPrefs, writeNearPrefs } from '../../src/services/near-prefs';
@@ -100,11 +101,11 @@ describe('F-343 Startseite: Modus, Umkreis, Standort', () => {
   });
 
   it('[F-342] Wahl nur auf diesem Gerät: Modus, Umkreis und grober Standort in localStorage, Standard Umgebung 25 km', () => {
-    expect(readNearPrefs()).toEqual({ mode: 'near', radius: 25, geo: null });
-    writeNearPrefs({ mode: 'all', radius: 50, geo: { lat: 52.4, lon: 13 } });
-    expect(readNearPrefs()).toEqual({ mode: 'all', radius: 50, geo: { lat: 52.4, lon: 13 } });
+    expect(readNearPrefs()).toEqual({ mode: 'near', radius: 25, geo: null, joins: true });
+    writeNearPrefs({ mode: 'all', radius: 50, geo: { lat: 52.4, lon: 13 }, joins: false });
+    expect(readNearPrefs()).toEqual({ mode: 'all', radius: 50, geo: { lat: 52.4, lon: 13 }, joins: false });
     localStorage.setItem('sx-near', JSON.stringify({ mode: 'x', radius: 7, geo: { lat: 52.4567, lon: 13.0123 } }));
-    expect(readNearPrefs()).toEqual({ mode: 'near', radius: 25, geo: { lat: 52.5, lon: 13 } });
+    expect(readNearPrefs()).toEqual({ mode: 'near', radius: 25, geo: { lat: 52.5, lon: 13 }, joins: true });
   });
 });
 
@@ -139,5 +140,30 @@ describe('F-344/F-345 Entdecken in der Nähe, Hafen-Position', () => {
     await vi.waitFor(() => expect((el.shadowRoot.querySelector('input[name="lat"]') as HTMLInputElement).value).toBe('52,39123'));
     expect((el.shadowRoot.querySelector('input[name="lon"]') as HTMLInputElement).value).toBe('13,06543');
     expect(text(el)).toContain('Position übernommen');
+  });
+});
+
+describe('F-349/F-350 Beitrittsmeldungen', () => {
+  const T = Date.UTC(2026, 9, 28);
+  const join = { id: 'm1', kind: 'member', createdAt: T, actor: { handle: 'anna', displayName: 'Anna' }, group: { slug: 'mi', name: 'Mittwochsregatta', kind: 'team' } };
+  const anon = { id: 'm2', kind: 'member', createdAt: T, actor: null, alias: 'Mutige Krabbe', group: { slug: 'mi', name: 'Mittwochsregatta', kind: 'team' } };
+  const voyage = { id: 'v1', kind: 'voyage', createdAt: T, actor: null, group: null, voyage: { id: 'S1', title: 'Rund Werder', distNm: 9, startedAt: T, hasImage: false, boat: null } };
+
+  it('[F-349] „<Name> ist dem Team <Gruppe> beigetreten“, ohne öffentliches Profil der Spaßname mit Schloss', async () => {
+    const el = await mount({ items: [join, anon] }, 'sx-stream');
+    await el.updateComplete;
+    expect(text(el)).toContain('Anna ist dem Team Mittwochsregatta beigetreten');
+    expect(text(el)).toContain('Mutige Krabbe ist dem Team Mittwochsregatta beigetreten');
+    expect(el.shadowRoot.querySelector('.pseudo')?.getAttribute('title')).toContain('Spaßname');
+    expect(el.shadowRoot.querySelector('a[href="/g/mi"]')).not.toBeNull();
+  });
+
+  it('[F-350] Schalter „Beitritte“ blendet Beitrittsmeldungen aus und meldet sx-stream-joins', async () => {
+    const joins = listen('sx-stream-joins');
+    const el = await mount({ signedIn: false, mode: 'all', shown: 'all', joins: false, stream: { items: [join, voyage], cursor: null } });
+    const stream = el.shadowRoot.querySelector('sx-stream') as unknown as { items: Array<{ kind: string }> };
+    expect(stream.items.map((i) => i.kind)).toEqual(['voyage']);
+    button(el, /Beitritte/)!.click();
+    expect(joins).toEqual([{ show: true }]);
   });
 });

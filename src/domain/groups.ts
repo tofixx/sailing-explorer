@@ -189,6 +189,8 @@ export interface StreamItem {
   createdAt: number;
   /** Handelnde Person – nur mit öffentlichem Profil, sonst null */
   actor: { handle: string; displayName: string } | null;
+  /** Beitritt ohne öffentliches Profil: Spaßname statt Name (F-349, wie F-134) – nie der gewählte Name */
+  alias?: string;
   /** Gruppe als Kontext (Beitrag, Mitglied, Boot) */
   group: { slug: string; name: string; kind: GroupKind } | null;
   voyage?: { id: string; title: string; distNm: number; startedAt: number | null; hasImage: boolean; boat: { id: string; name: string } | null };
@@ -217,7 +219,7 @@ export function reactionSubjectOf(i: Pick<StreamItem, 'id' | 'kind' | 'voyage' |
   return { subject: 'activity', id: i.id };
 }
 
-const who = (i: StreamItem, fallback: string) => i.actor?.displayName || fallback;
+const who = (i: StreamItem, fallback: string) => i.actor?.displayName || i.alias || fallback;
 
 /** Kurzer Satz zu einem Eintrag (ohne Beitragstext) – gleich in App, RSS und Mail. */
 export function streamHeadline(i: StreamItem): string {

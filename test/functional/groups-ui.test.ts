@@ -54,7 +54,7 @@ const items: StreamItem[] = [
   { id: 'a1', kind: 'voyage', createdAt: T, actor: { handle: 'anna', displayName: 'Anna' }, group: null, voyage: { id: 'S1', title: '<b>Rügen</b>', distNm: 42.5, startedAt: T, hasImage: false, boat: { id: 'B1', name: 'Möwe' } } },
   { id: 'a2', kind: 'post', createdAt: T, actor: null, group: { slug: 'sc', name: 'SC Kiel', kind: 'club' }, post: { id: 'P1', body: 'Absegeln <img src=x onerror=alert(1)> https://example.org/termine', link: 'https://example.org/x', canDelete: true } },
   { id: 'a3', kind: 'post', createdAt: T, actor: null, group: { slug: 'sc', name: 'SC Kiel', kind: 'club' }, post: { id: 'P2', body: 'Fremd', link: null, canDelete: false } },
-  { id: 'a4', kind: 'member', createdAt: T, actor: null, group: { slug: 'sc', name: 'SC Kiel', kind: 'club' } },
+  { id: 'a4', kind: 'member', createdAt: T, actor: null, alias: 'Mutige Krabbe', group: { slug: 'sc', name: 'SC Kiel', kind: 'club' } },
   { id: 'a5', kind: 'photos', createdAt: T, actor: null, group: null, voyage: { id: 'S2', title: 'Fotos', distNm: 1, startedAt: null, hasImage: false, boat: null }, photos: { count: 3, thumbs: ['F1', 'F2'] } },
   { id: 'a6', kind: 'milestone', createdAt: T, actor: null, group: null, boat: { id: 'B1', name: 'Möwe' }, milestone: { nm: 500, year: 2026, subject: 'boat', name: 'Möwe', path: '/b/B1' } },
 ];
@@ -67,7 +67,7 @@ describe('sx-stream', () => {
     const t = text(el.shadowRoot);
     expect(t).toContain('hat einen Törn geteilt: <b>Rügen</b>');
     expect(t).toContain('42,5 sm');
-    expect(t).toContain('Ein neues Mitglied ist beigetreten');
+    expect(t).toContain('Mutige Krabbe ist dem Verein SC Kiel beigetreten'); // F-349: Spaßname statt „Ein neues Mitglied“
     expect(t).toContain('3 neue Fotos zu');
     expect(t).toContain('Möwe hat 500 Seemeilen in der Saison 2026 erreicht');
     expect(el.shadowRoot.querySelector('b')).toBeNull();

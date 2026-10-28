@@ -54,6 +54,17 @@ export class SxStream extends LitElement {
     base,
     coverBannerStyles,
     css`
+      /* Spaßname (F-349): kursiv mit Schloss, nicht mit einem echten Namen verwechselbar */
+      .pseudo {
+        font-style: italic;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .pseudo svg {
+        width: 14px;
+        height: 14px;
+      }
       :host {
         display: block;
       }
@@ -217,8 +228,16 @@ export class SxStream extends LitElement {
           <p class="body">${this.text(p.body)}</p>
           ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}`;
       }
-      case 'member':
-        return html`<div class="head">${i.actor ? this.who(i) : html`<span>Ein neues Mitglied</span>`} <span class="what">ist beigetreten</span> ${this.groupLink(i)}</div>`;
+      case 'member': {
+        // „<Name> ist dem Team <Gruppe> beigetreten“ (F-349); ohne öffentliches Profil der Spaßname mit Schloss
+        const name = i.actor
+          ? this.who(i)
+          : html`<span class="pseudo" title="Spaßname – das Profil ist nicht öffentlich">${icon('lock')}${i.alias ?? 'Ein neues Mitglied'}</span>`;
+        const g = i.group;
+        return html`<div class="head">${name} <span class="what">ist${g && !this.inGroup
+            ? html` ${g.kind === 'club' ? 'dem Verein' : 'dem Team'} <a href="/g/${g.slug}">${g.name}</a>`
+            : ''} beigetreten</span></div>`;
+      }
       case 'boat':
         return html`<div class="head"><span class="what">Neues Boot: <a href="/b/${i.boat!.id}">${i.boat!.name}</a></span> ${this.groupLink(i)}</div>`;
       case 'milestone': {

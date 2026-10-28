@@ -106,3 +106,22 @@ describe('F-348 Meine Gruppen', () => {
     expect((await mine(owner)).groups.find((x) => x.slug === g.slug)).toMatchObject({ role: 'owner', muted: false });
   });
 });
+
+describe('F-349 Beitrittsmeldung mit Namen', () => {
+  it('[F-349] öffentliches Profil: Name; sonst Spaßname – nie der gewählte Anzeigename, keine Konto-ID', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const g = await s.group(owner, { name: 'Namensclub' });
+    const pub = await s.person({ profile: 'public' });
+    const priv = await s.person({ profile: 'private', supporter: true });
+    await s.join(owner, g, pub);
+    await s.join(owner, g, priv);
+    const res = await h.fetch(`/api/groups/${g.id}/stream`);
+    const items = ((await res.json()) as { items: Array<{ kind: string; actor: { handle: string } | null; alias?: string }> }).items.filter((i) => i.kind === 'member');
+    expect(items.some((i) => i.actor?.handle === pub.handle)).toBe(true);
+    const anon = items.find((i) => !i.actor)!;
+    expect(anon.alias).toBeTruthy();
+    const raw = JSON.stringify(items);
+    expect(raw).not.toContain(`Name ${priv.handle}`);
+    expect(raw).not.toContain(priv.user.id);
+  });
+});

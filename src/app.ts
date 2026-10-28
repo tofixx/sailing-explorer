@@ -721,6 +721,7 @@ export class App {
     on<{ filter: StreamFilter }>('sx-stream-filter', (d) => g.setFilter(d.filter));
     on<{ mode: StreamMode }>('sx-stream-mode', (d) => g.setMode(d.mode));
     on<{ radius: NearRadius }>('sx-near-radius', (d) => g.setRadius(d.radius));
+    on<{ show: boolean }>('sx-stream-joins', (d) => g.setJoins(d.show));
     on('sx-near-locate', () => g.useLocation());
     on('sx-near-forget', () => g.forgetLocation());
     on<ReactDetail>('sx-react', (d) => so.react(d));

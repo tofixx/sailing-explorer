@@ -51,6 +51,7 @@ export class SxHomeFeed extends LitElement {
     shown: { attribute: false },
     radius: { attribute: false },
     near: { attribute: false },
+    joins: { attribute: false },
     filters: { attribute: false },
     filter: { attribute: false },
     groups: { attribute: false },
@@ -73,6 +74,8 @@ export class SxHomeFeed extends LitElement {
   declare shown: StreamMode;
   declare radius: NearRadius;
   declare near: NearInfo | null;
+  /** Beitrittsmeldungen zeigen (F-350, gemerkt auf dem Gerät) */
+  declare joins: boolean;
   /** Filter-Chips des öffentlichen Streams */
   declare filters: StreamFilters | null;
   /** aktiver Filter (null = alle) */
@@ -99,6 +102,7 @@ export class SxHomeFeed extends LitElement {
     this.shown = 'all';
     this.radius = 25;
     this.near = null;
+    this.joins = true;
     this.filters = null;
     this.filter = null;
     this.groups = [];
@@ -216,6 +220,11 @@ export class SxHomeFeed extends LitElement {
         color: var(--text-2);
         font: 600 var(--fs-s) / 1 var(--font);
         cursor: pointer;
+      }
+      .modes .joins {
+        margin-left: var(--s-2);
+        border-left: 1px solid var(--border-soft);
+        border-radius: 0 calc(var(--radius) - 2px) calc(var(--radius) - 2px) 0;
       }
       .modes button[aria-pressed='true'] {
         background: var(--surface);
@@ -468,10 +477,18 @@ export class SxHomeFeed extends LitElement {
     </div>`;
   }
 
+  /** Einträge ohne Beitrittsmeldungen, wenn sie ausgeblendet sind (F-350). */
+  private visibleItems() {
+    const items = this.stream?.items ?? [];
+    return this.joins ? items : items.filter((i) => i.kind !== 'member');
+  }
+
   private modeTabs() {
     const modes: StreamMode[] = this.signedIn ? ['near', 'all', 'mine'] : ['near', 'all'];
     return html`<div class="modes" role="toolbar" aria-label="Was zeigen?">
       ${modes.map((m) => html`<button type="button" aria-pressed=${this.mode === m ? 'true' : 'false'} @click=${() => this.mode !== m && emit(this, 'sx-stream-mode', { mode: m })}>${m === 'near' ? icon('anchor') : ''}${MODE_LABEL[m]}</button>`)}
+      <button type="button" class="joins" aria-pressed=${this.joins ? 'true' : 'false'} title=${this.joins ? 'Beitrittsmeldungen ausblenden' : 'Beitrittsmeldungen zeigen'}
+        @click=${() => emit(this, 'sx-stream-joins', { show: !this.joins })}>${icon('user')}Beitritte</button>
     </div>`;
   }
 
@@ -544,7 +561,7 @@ export class SxHomeFeed extends LitElement {
             : ''}`
         : ''}
       ${this.signedIn ? this.welcome(hasGroups) : ''}
-      <sx-stream scope=${mine ? 'home' : 'public'} .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.loading}
+      <sx-stream scope=${mine ? 'home' : 'public'} .items=${this.visibleItems()} .cursor=${this.stream?.cursor ?? null} ?loading=${this.loading}
         empty-text=${t.empty}></sx-stream>
       ${this.signedIn ? this.people() : ''}
     </section>`;

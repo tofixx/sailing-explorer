@@ -1,4 +1,5 @@
 // Prüfung einer Aktivität beim Lesen (Konzept 11.3, F-160) – rein, ohne Worker-APIs, damit unit-testbar.
+import { funnyName } from '../src/domain/names';
 import { canManageGroup, isActivityKind, type GroupKind, type GroupRole, type StreamItem } from '../src/domain/groups';
 import { coverRef } from '../src/domain/cover';
 
@@ -108,7 +109,8 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [])
     }
     case 'member':
       if (!group) return null;
-      return withCover({ ...base, group }, actor ? coverRef('u', actor.handle, r.cu_ver, r.cu_y) : null);
+      // Ohne öffentliches Profil der Spaßname (F-349) – „Ein neues Mitglied“ sagte zu wenig, der echte Name zu viel
+      return withCover({ ...base, group, ...(!actor && r.actor_id ? { alias: funnyName(r.actor_id) } : {}) }, actor ? coverRef('u', actor.handle, r.cu_ver, r.cu_y) : null);
     case 'boat': {
       const boat = publicBoat(r);
       if (!group || !boat) return null;
