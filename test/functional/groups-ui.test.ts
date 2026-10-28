@@ -131,7 +131,10 @@ describe('sx-home-feed', () => {
   it('[F-163] mit Gruppen: eigene Gruppen und Neuigkeiten', async () => {
     const el = await mount('sx-home-feed', {
       signedIn: true,
+      mode: 'mine',
+      shown: 'mine',
       stream: { items, cursor: 'c', hasGroups: true },
+      personal: { items, cursor: 'c', hasGroups: true },
       groups: [{ id: 'G1', slug: 'sc-kiel', name: 'SC Kiel', kind: 'club', role: 'member', members: 3 }],
     });
     await settle(el);
@@ -150,7 +153,8 @@ describe('sx-home-feed', () => {
       { id: 'GREQ', slug: 'anfrage', name: 'Anfrage', kind: 'club', homePort: '', description: '', createdAt: T, members: 2, joinMode: 'request' },
       { id: 'GINV', slug: 'einladung', name: 'Einladung', kind: 'club', homePort: '', description: '', createdAt: T, members: 2, joinMode: 'invite' },
     ];
-    const el = await mount('sx-home-feed', { signedIn: true, stream: { items: [], cursor: null, hasGroups: false, home: { club: null, harbor: { slug: 'potsdam', name: 'Potsdam' } } }, groups: [], publicGroups: groups });
+    const personal = { items: [], cursor: null, hasGroups: false, home: { club: null, harbor: { slug: 'potsdam', name: 'Potsdam' } } };
+    const el = await mount('sx-home-feed', { signedIn: true, mode: 'mine', shown: 'mine', stream: personal, personal, groups: [], publicGroups: groups });
     expect(text(el.shadowRoot)).not.toContain('Dein Heimathafen');
     button(el.shadowRoot, /Beitreten/)!.click();
     button(el.shadowRoot, /Anfragen/)!.click();
@@ -262,6 +266,18 @@ describe('sx-group-page', () => {
     expect(text(el.shadowRoot)).toContain('Beitritt nur auf Einladung');
   });
 
+  it('[F-333] Gäste: „Anmelden und beitreten“ öffnet die Anmeldung; „Nur auf Einladung“ als Hinweis', async () => {
+    const logins = listen('sx-login');
+    const el = await mount('sx-group-page', { data: pageData(), signedIn: false });
+    button(el.shadowRoot, /Anmelden und beitreten/)!.click();
+    expect(logins).toHaveLength(1);
+    const d = pageData();
+    d.group.joinMode = 'invite';
+    const inv = await mount('sx-group-page', { data: d, signedIn: false });
+    expect(button(inv.shadowRoot, /beitreten/i)).toBeUndefined();
+    expect(text(inv.shadowRoot)).toContain('Beitritt nur auf Einladung');
+  });
+
   it('[F-163] Eigner: Beitrag schreiben, Anfragen, Einladen (Link einmal), Rollen, Boot zuordnen', async () => {
     const posts = listen('sx-post-create');
     const reqs = listen('sx-group-request');
@@ -348,7 +364,7 @@ describe('Entdecken und Einladungsdialog', () => {
       variant: 'page',
       data: { voyages: [], boats: [], people: [], groups: [{ slug: 'sc-kiel', name: 'SC Kiel', kind: 'club', homePort: 'Kiel', description: 'Hallo', createdAt: T, members: 1 }] },
     });
-    expect(el.shadowRoot.querySelector('#vereine a[href="/g/sc-kiel"]')!.textContent).toContain('1 Mitglied');
+    expect(el.shadowRoot.querySelector('#vereine a[href="/g/sc-kiel"]')!.closest('.card')!.textContent).toContain('1 Mitglied');
   });
 
   it('[F-153] Einladung in eine Gruppe: Wortlaut und Ergebnis', async () => {

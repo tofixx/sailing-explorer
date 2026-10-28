@@ -124,6 +124,8 @@ describe('Startseite (F-182)', () => {
     const filter = listen('sx-stream-filter');
     const el = await mount('sx-home-feed', {
       signedIn: false,
+      mode: 'all',
+      shown: 'all',
       stream: { items: [voyage], cursor: null },
       filters: { harbors: [{ slug: 'potsdam', name: 'Potsdam', boats: 3 }], clubs: [{ slug: 'pyc', name: 'PYC', members: 9 }] },
       filter: null,
@@ -132,7 +134,7 @@ describe('Startseite (F-182)', () => {
     expect(text(el.shadowRoot)).toContain('Neues aus der Community');
     expect(text(el.shadowRoot)).not.toContain('Neuigkeiten aus deinem Verein');
     expect(button(el.shadowRoot, /Anmelden & mitmachen/)).toBeUndefined();
-    expect(button(el.shadowRoot, /^ *Alle/)!.getAttribute('aria-pressed')).toBe('true');
+    expect(button(el.shadowRoot, /^ *Alle *$/)!.getAttribute('aria-pressed')).toBe('true');
     button(el.shadowRoot, /Potsdam/)!.click();
     expect(filter).toEqual([{ filter: { kind: 'harbor', slug: 'potsdam' } }]);
     el.filter = { kind: 'club', slug: 'pyc' };
@@ -145,11 +147,12 @@ describe('Startseite (F-182)', () => {
 
   it('[F-182] Angemeldete: „Neuigkeiten aus deinem Verein, Hafen und Team“, Heimat verlinkt bzw. Hinweis zum Wählen', async () => {
     const acc = listen('sx-account');
-    const el = await mount('sx-home-feed', { signedIn: true, stream: { items: [voyage], cursor: null, hasGroups: false, home: { club: null, harbor: null } } });
+    const personal = { items: [voyage], cursor: null, hasGroups: false, home: { club: null, harbor: null } };
+    const el = await mount('sx-home-feed', { signedIn: true, mode: 'mine', shown: 'mine', stream: personal, personal });
     expect(text(el.shadowRoot)).toContain('Neuigkeiten aus deinem Verein, Hafen und Team');
     button(el.shadowRoot, /deinen Verein und Heimathafen/)!.click();
     expect(acc).toEqual(['profile']);
-    el.stream = { items: [], cursor: null, hasGroups: true, home: { club: { slug: 'pyc', name: 'PYC' }, harbor: { slug: 'potsdam', name: 'Potsdam' } } };
+    el.stream = el.personal = { items: [], cursor: null, hasGroups: true, home: { club: { slug: 'pyc', name: 'PYC' }, harbor: { slug: 'potsdam', name: 'Potsdam' } } };
     await el.updateComplete;
     expect(el.shadowRoot.querySelector('a[href="/g/pyc"]')).not.toBeNull();
     expect(el.shadowRoot.querySelector('a[href="/h/potsdam"]')).not.toBeNull();

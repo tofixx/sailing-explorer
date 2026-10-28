@@ -34,6 +34,24 @@ export function effectiveJoinMode(g: { join_mode: JoinMode; visibility: string; 
   return g.join_mode === 'open' && (g.visibility !== 'public' || g.hidden_at) ? 'request' : g.join_mode;
 }
 
+/** Was eine Gruppenkarte anbietet (F-333): beitreten, anfragen – oder nur einen Hinweis. */
+export type JoinAction = 'join' | 'request' | 'requested' | 'member' | 'invite';
+export const JOIN_ACTION_LABEL: Record<JoinAction, string> = {
+  join: 'Beitreten',
+  request: 'Anfragen',
+  requested: 'Angefragt',
+  member: 'Mitglied',
+  invite: 'Nur auf Einladung',
+};
+
+/** Knopf bzw. Hinweis je Beitrittsstufe und eigenem Stand; null ohne Stufe (ältere Server). */
+export function joinAction(mode: JoinMode | undefined, state: { member: boolean; requested: boolean }): JoinAction | null {
+  if (!mode) return null;
+  if (state.member) return 'member';
+  if (state.requested) return 'requested';
+  return mode === 'open' ? 'join' : mode === 'request' ? 'request' : 'invite';
+}
+
 /**
  * Wird eine angenommene Einladung sofort zur Mitgliedschaft? Ja, wenn die Gruppe (effektiv) offen ist oder die
  * einladende Person Anfragen bestätigen darf; sonst entsteht eine Beitrittsanfrage. `mode` = effectiveJoinMode.

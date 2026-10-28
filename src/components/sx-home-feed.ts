@@ -1,6 +1,7 @@
 import { LitElement, css, html } from 'lit';
 import type { DiscoverGroup, MyGroup, StreamFilter, StreamFilters, StreamPage, Suggestion } from '../services/api';
 import { GROUP_KIND_LABEL } from '../domain/groups';
+import { NEAR_RADII, type NearRadius, type StreamMode } from '../domain/near';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-harbor-picker';
 import { plural } from '../util/html';
@@ -9,14 +10,16 @@ import { base, emit } from './shared';
 import './sx-stream';
 
 /**
- * Herzstück der Startseite (Konzept 12.6, F-182): der Community-Stream.
+ * Herzstück der Startseite (Konzept 12.6, F-182): der Community-Stream – wahlweise „Umgebung“ (Standard, Umkreis um
+ * Standort oder Heimathafen), „Alles“ oder „Mitgliedschaften“ (angemeldet; F-340 … F-343).
  * - Gäste: „Neues aus der Community“ (öffentlicher Stream) mit Filter-Chips nach Hafen und Verein; „Anmelden &
  *   mitmachen“ steht in der Seitenleiste (sx-join-card, F-261).
  * - Angemeldete: „Neuigkeiten aus deinem Verein, Hafen und Team“, Heimat (Verein, Hafen), eigene Gruppen,
  *   „Leute, die du kennen könntest“; ohne Gruppen „Tritt deinem Verein bei“.
  * - Nach der Anmeldung (ohne Gruppe oder ohne Heimathafen) eine Willkommens-Karte (Konzept 14.3): Heimathafen wählen,
  *   Verein oder Team beitreten bzw. gründen, Freunde einladen.
- * Rein präsentational; meldet `sx-stream-more`, `sx-stream-filter`, `sx-follow`, `sx-account`,
+ * Rein präsentational; meldet `sx-stream-mode` { mode }, `sx-near-radius` { radius }, `sx-near-locate`, `sx-near-forget`,
+ * `sx-stream-more`, `sx-stream-filter`, `sx-follow`, `sx-account`,
  * `sx-home-harbor` { harbor }, `sx-home-join` { id, name }, `sx-friend-invite` { email | null }, `sx-invite-copy`.
  */
 const WELCOME_KEY = 'sx-welcome-dismissed';
@@ -28,10 +31,26 @@ function readDismissed(): boolean {
   }
 }
 
+/** Zustand der Umgebung: ok, kein Mittelpunkt (weder Standort noch Heimathafen) oder Heimathafen ohne Position. */
+export interface NearInfo {
+  state: 'ok' | 'missing' | 'no_position';
+  source: 'geo' | 'harbor' | null;
+  places: number;
+  /** Name des Mittelpunkt-Hafens (null = Standort) */
+  center: string | null;
+}
+
+const MODE_LABEL: Record<StreamMode, string> = { near: 'Umgebung', all: 'Alles', mine: 'Mitgliedschaften' };
+
 export class SxHomeFeed extends LitElement {
   static properties = {
     signedIn: { type: Boolean, attribute: 'signed-in' },
     stream: { attribute: false },
+    personal: { attribute: false },
+    mode: { attribute: false },
+    shown: { attribute: false },
+    radius: { attribute: false },
+    near: { attribute: false },
     filters: { attribute: false },
     filter: { attribute: false },
     groups: { attribute: false },
@@ -46,6 +65,14 @@ export class SxHomeFeed extends LitElement {
   declare signedIn: boolean;
   /** persönlicher (angemeldet) bzw. öffentlicher Stream (Gäste) */
   declare stream: StreamPage | null;
+  /** persönlicher Stream (angemeldet) – Heimat und Gruppen-Hinweis, auch wenn ein anderer Modus gezeigt wird */
+  declare personal: StreamPage | null;
+  /** gewählter Modus */
+  declare mode: StreamMode;
+  /** gezeigter Modus (Umgebung ohne Mittelpunkt zeigt „Alles“) */
+  declare shown: StreamMode;
+  declare radius: NearRadius;
+  declare near: NearInfo | null;
   /** Filter-Chips des öffentlichen Streams */
   declare filters: StreamFilters | null;
   /** aktiver Filter (null = alle) */
@@ -67,6 +94,11 @@ export class SxHomeFeed extends LitElement {
     super();
     this.signedIn = false;
     this.stream = null;
+    this.personal = null;
+    this.mode = 'near';
+    this.shown = 'all';
+    this.radius = 25;
+    this.near = null;
     this.filters = null;
     this.filter = null;
     this.groups = [];
@@ -163,6 +195,49 @@ export class SxHomeFeed extends LitElement {
       }
       .filters .chip {
         flex: none;
+      }
+      /* Modus-Wahl (F-340): Umgebung | Alles | Mitgliedschaften */
+      .modes {
+        display: inline-flex;
+        padding: 3px;
+        gap: 2px;
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        max-width: 100%;
+        overflow-x: auto;
+      }
+      .modes button {
+        flex: none;
+        min-height: var(--control-h-s);
+        padding: 0 var(--s-3);
+        border: 0;
+        border-radius: calc(var(--radius) - 2px);
+        background: transparent;
+        color: var(--text-2);
+        font: 600 var(--fs-s) / 1 var(--font);
+        cursor: pointer;
+      }
+      .modes button[aria-pressed='true'] {
+        background: var(--surface);
+        color: var(--text);
+        box-shadow: var(--shadow-1);
+      }
+      .nearbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--s-2);
+        font-size: var(--fs-s);
+        color: var(--text-2);
+      }
+      .nearbar .link {
+        border: 0;
+        padding: 0;
+        background: none;
+        color: var(--accent);
+        font: inherit;
+        cursor: pointer;
+        text-decoration: underline;
       }
       .cta {
         display: grid;
@@ -285,7 +360,7 @@ export class SxHomeFeed extends LitElement {
    * Freunde einladen. Erledigte Schritte verschwinden; „Später“ blendet die Karte auf diesem Gerät aus.
    */
   private welcome(hasGroups: boolean) {
-    const needHarbor = !this.stream?.home?.harbor;
+    const needHarbor = !this.personal?.home?.harbor;
     if (this.dismissed || (hasGroups && !needHarbor)) return '';
     const groups = this.publicGroups.slice(0, 6);
     let email = '';
@@ -364,7 +439,7 @@ export class SxHomeFeed extends LitElement {
 
   /** Heimatverein und Heimathafen – oder der Hinweis, sie zu wählen. */
   private homeLine() {
-    const home = this.stream?.home;
+    const home = this.personal?.home;
     if (!home) return '';
     const set = () => emit(this, 'sx-account', 'profile');
     if (!home.club && !home.harbor) {
@@ -393,42 +468,86 @@ export class SxHomeFeed extends LitElement {
     </div>`;
   }
 
-  private guest() {
-    return html`<section class="wrap" aria-labelledby="feed-t">
-      <header>
-        <div>
-          <h2 id="feed-t">Neues aus der Community</h2>
-          <p class="intro">Was Seglerinnen und Segler aus Vereinen, Häfen und Teams gerade teilen.</p>
-        </div>
-      </header>
-      ${this.filterChips()}
-      <sx-stream scope="public" .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.loading}
-        empty-text="Hier ist noch nichts los. Teile den ersten öffentlichen Törn – er erscheint sofort in der Community."></sx-stream>
-    </section>`;
+  private modeTabs() {
+    const modes: StreamMode[] = this.signedIn ? ['near', 'all', 'mine'] : ['near', 'all'];
+    return html`<div class="modes" role="toolbar" aria-label="Was zeigen?">
+      ${modes.map((m) => html`<button type="button" aria-pressed=${this.mode === m ? 'true' : 'false'} @click=${() => this.mode !== m && emit(this, 'sx-stream-mode', { mode: m })}>${m === 'near' ? icon('anchor') : ''}${MODE_LABEL[m]}</button>`)}
+    </div>`;
   }
 
-  private member() {
-    const hasGroups = this.groups.length > 0 || !!this.stream?.hasGroups;
-    return html`<section class="wrap" aria-labelledby="feed-t">
-      <header>
-        <h2 id="feed-t">Neuigkeiten aus deinem Verein, Hafen und Team</h2>
-        ${hasGroups ? html`<a class="btn small ghost" href="/g/neu">${icon('pennant')} Gruppe gründen</a>` : ''}
-      </header>
-      ${this.homeLine()}
-      ${hasGroups
-        ? html`<div class="chips" aria-label="Deine Gruppen">
-            ${this.groups.map((g) => html`<a class="chip" href="/g/${g.slug}" title=${GROUP_KIND_LABEL[g.kind]}>${icon(g.kind === 'club' ? 'anchor' : 'sail')} ${g.name}</a>`)}
-          </div>`
-        : ''}
-      ${this.welcome(hasGroups)}
-      <sx-stream scope="home" .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.loading}
-        empty-text="Noch nichts Neues. Sobald jemand aus deinem Verein, Hafen oder Team segelt oder postet, steht es hier."></sx-stream>
-      ${this.people()}
-    </section>`;
+  /** Umkreis und Mittelpunkt der Umgebung – bzw. wie sie möglich wird. */
+  private nearBar() {
+    const n = this.near;
+    if (!n) return '';
+    const locateBtn = html`<button class="link" type="button" @click=${() => emit(this, 'sx-near-locate')}>meinen Standort verwenden</button>`;
+    if (n.state !== 'ok') {
+      const why =
+        n.state === 'no_position'
+          ? html`Für deinen Heimathafen ${n.center ?? ''} ist noch keine Position eingetragen.`
+          : html`Für deine Umgebung brauchen wir einen Ort.`;
+      return html`<p class="nearbar" role="status">${icon('info')} ${why} ${locateBtn}${this.signedIn
+          ? html` oder <button class="link" type="button" @click=${() => emit(this, 'sx-account', 'profile')}>Heimathafen wählen</button>`
+          : ''} – bis dahin siehst du alles.</p>`;
+    }
+    return html`<div class="nearbar">
+      <div class="filters" role="toolbar" aria-label="Umkreis">
+        ${NEAR_RADII.map((r) => html`<button class="chip" aria-pressed=${this.radius === r ? 'true' : 'false'} @click=${() => this.radius !== r && emit(this, 'sx-near-radius', { radius: r })}>${r} km</button>`)}
+      </div>
+      <span>um ${n.source === 'geo' ? 'deinen Standort' : (n.center ?? 'deinen Heimathafen')} · ${plural(n.places, 'Ort', 'Orte')}</span>
+      ${n.source === 'geo'
+        ? html`<button class="link" type="button" @click=${() => emit(this, 'sx-near-forget')}>Standort vergessen</button>`
+        : locateBtn}
+    </div>`;
+  }
+
+  private heading(): { h: string; intro: string; empty: string } {
+    if (this.shown === 'mine')
+      return {
+        h: 'Neuigkeiten aus deinem Verein, Hafen und Team',
+        intro: '',
+        empty: 'Noch nichts Neues. Sobald jemand aus deinem Verein, Hafen oder Team segelt oder postet, steht es hier.',
+      };
+    if (this.shown === 'near')
+      return {
+        h: 'Neues aus deiner Umgebung',
+        intro: 'Törns, Fotos und Beiträge aus Häfen, Vereinen und Teams in der Nähe.',
+        empty: 'In diesem Umkreis ist noch nichts los – vergrößere ihn oder schau unter „Alles“.',
+      };
+    return {
+      h: 'Neues aus der Community',
+      intro: 'Was Seglerinnen und Segler aus Vereinen, Häfen und Teams gerade teilen.',
+      empty: 'Hier ist noch nichts los. Teile den ersten öffentlichen Törn – er erscheint sofort in der Community.',
+    };
   }
 
   render() {
-    return this.signedIn ? this.member() : this.guest();
+    const t = this.heading();
+    const mine = this.shown === 'mine';
+    const hasGroups = this.groups.length > 0 || !!this.personal?.hasGroups;
+    return html`<section class="wrap" aria-labelledby="feed-t">
+      <header>
+        <div>
+          <h2 id="feed-t">${t.h}</h2>
+          ${t.intro ? html`<p class="intro">${t.intro}</p>` : ''}
+        </div>
+        ${this.signedIn && hasGroups ? html`<a class="btn small ghost" href="/g/neu">${icon('pennant')} Gruppe gründen</a>` : ''}
+      </header>
+      ${this.modeTabs()}
+      ${this.mode === 'near' ? this.nearBar() : ''}
+      ${this.shown === 'all' ? this.filterChips() : ''}
+      ${this.signedIn && mine
+        ? html`${this.homeLine()}
+          ${hasGroups
+            ? html`<div class="chips" aria-label="Deine Gruppen">
+                ${this.groups.map((g) => html`<a class="chip" href="/g/${g.slug}" title=${GROUP_KIND_LABEL[g.kind]}>${icon(g.kind === 'club' ? 'anchor' : 'sail')} ${g.name}</a>`)}
+              </div>`
+            : ''}`
+        : ''}
+      ${this.signedIn ? this.welcome(hasGroups) : ''}
+      <sx-stream scope=${mine ? 'home' : 'public'} .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.loading}
+        empty-text=${t.empty}></sx-stream>
+      ${this.signedIn ? this.people() : ''}
+    </section>`;
   }
 }
 customElements.define('sx-home-feed', SxHomeFeed);

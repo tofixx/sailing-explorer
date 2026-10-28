@@ -397,6 +397,30 @@ export class SxProfilePage extends LitElement {
     this.editing = false;
   }
 
+  /**
+   * Hafen-Position aus dem Gerät übernehmen (F-345) – nur in die Felder des Formulars; gespeichert wird erst mit
+   * „Speichern“. Häfen sind öffentliche Orte, deshalb hier genau (5 Stellen wie parseHarborPosition).
+   */
+  private fillPosition(e: Event) {
+    const form = (e.currentTarget as HTMLElement).closest('form');
+    if (!form || typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const set = (name: string, v: number) => {
+          const input = form.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+          if (input) input.value = String(Math.round(v * 1e5) / 1e5).replace('.', ',');
+        };
+        set('lat', pos.coords.latitude);
+        set('lon', pos.coords.longitude);
+      },
+      () => {
+        const hint = form.querySelector('.pos-hint');
+        if (hint) hint.textContent = 'Standort nicht verfügbar – Position bitte von Hand eintragen.';
+      },
+      { enableHighAccuracy: true, timeout: 15_000 },
+    );
+  }
+
   /** Bearbeiten: Name und Position (Anleger:in), Verein (Verwalter eines Vereins) – sonst kein Knopf. */
   private harborForm(d: Extract<PageData, { kind: 'harbor' }>) {
     const h = d.harbor;
@@ -409,6 +433,10 @@ export class SxProfilePage extends LitElement {
             <div class="row">
               <span><label class="label" for="hlat">Breite</label><input id="hlat" name="lat" type="text" inputmode="decimal" placeholder="52,4" .value=${h.lat == null ? '' : String(h.lat).replace('.', ',')} /></span>
               <span><label class="label" for="hlon">Länge</label><input id="hlon" name="lon" type="text" inputmode="decimal" placeholder="13,05" .value=${h.lon == null ? '' : String(h.lon).replace('.', ',')} /></span>
+            </div>
+            <div class="row">
+              <button class="btn small" type="button" @click=${(e: Event) => this.fillPosition(e)}>${icon('anchor')} Position von hier übernehmen</button>
+              <span class="hint pos-hint" role="status">Am besten im Hafen. Ohne Position erscheint der Hafen nicht unter „Umgebung“.</span>
             </div>`
         : ''}
       ${clubs.length || d.canClearClub

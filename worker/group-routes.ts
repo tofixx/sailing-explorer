@@ -12,7 +12,7 @@ import { follow, getSuggestions, unfollow } from './follows';
 import { createHarbor, getHarbor, searchHarbors, updateHarbor } from './harbors';
 import { getMyHome, putMyHome } from './home';
 import { deleteReaction, getReactions, putReaction } from './reactions';
-import { harborStream, publicStream } from './stream';
+import { harborStream, nearStream, publicStream } from './stream';
 
 type Handler = (request: Request, env: Env, params: string[]) => Promise<Response>;
 
@@ -45,6 +45,7 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['DELETE', /^\/api\/follows\/(user|boat|group|harbor)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => unfollow(r, env, kind, id)],
   // ---- Konzept 12: öffentlicher Stream, Häfen, Heimat, Reaktionen ----
   ['GET', /^\/api\/stream\/public$/, (r, env) => publicStream(r, env)],
+  ['GET', /^\/api\/stream\/near$/, (r, env) => nearStream(r, env)],
   ['GET', /^\/api\/harbors$/, (r, env) => searchHarbors(r, env)],
   ['POST', /^\/api\/harbors$/, (r, env) => createHarbor(r, env)],
   ['GET', /^\/api\/harbors\/slug\/([a-z0-9-]{1,100})$/, (r, env, [slug]) => getHarbor(r, env, slug)],

@@ -1,4 +1,7 @@
-import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamFilter, type StreamPage } from '../services/api';
+import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type NearCenter, type StreamFilter, type StreamPage } from '../services/api';
+import { locate, readNearPrefs, writeNearPrefs } from '../services/near-prefs';
+import type { NearRadius, StreamMode } from '../domain/near';
+import type { NearInfo } from '../components/sx-home-feed';
 import type { Store } from '../services/store';
 import type { SxGroupPage } from '../components/sx-group-page';
 import type { SxHomeFeed } from '../components/sx-home-feed';
@@ -31,6 +34,12 @@ export class GroupsController {
   private filter: StreamFilter = null;
   /** laufendes Laden der Startseite (Schlüssel: angemeldet und Filter) */
   private homeLoading: { key: string; p: Promise<void> } | null = null;
+  /** gewählter Modus, Umkreis und grober Standort (nur dieses Gerät, F-342) */
+  private prefs = readNearPrefs();
+  /** Heimathafen (aus dem persönlichen Stream) – Mittelpunkt der Umgebung ohne Standort */
+  private homeHarbor: string | null = null;
+  /** tatsächlich gezeigter Modus (Umgebung ohne Mittelpunkt fällt auf „Alles“ zurück) – fürs Nachladen */
+  private shown: StreamMode = 'all';
 
   constructor(
     private store: Store,
@@ -232,7 +241,13 @@ export class GroupsController {
     if (!home.stream?.cursor) return;
     home.loading = true;
     try {
-      const next = scope === 'public' ? await socialApi.publicStream(home.stream.cursor, this.filter) : await groupApi.myStream(home.stream.cursor);
+      const center = this.nearCenter();
+      const next =
+        scope !== 'public'
+          ? await groupApi.myStream(home.stream.cursor)
+          : this.shown === 'near' && center
+            ? await socialApi.nearStream(home.stream.cursor, center, this.prefs.radius)
+            : await socialApi.publicStream(home.stream.cursor, this.filter);
       home.stream = { ...next, items: [...home.stream.items, ...next.items] };
     } catch (e) {
       this.ui.toast(errorText(e));
@@ -259,7 +274,7 @@ export class GroupsController {
     }
     if (this.homeLoaded && !force) return;
     const signedIn = this.signedIn();
-    const key = `${signedIn}:${JSON.stringify(this.filter)}`;
+    const key = `${signedIn}:${JSON.stringify(this.filter)}:${JSON.stringify(this.prefs)}`;
     // Gleiche Anfrage läuft schon (z. B. Backend und Konto melden sich kurz nacheinander) – nicht doppelt laden.
     if (this.homeLoading?.key === key) return this.homeLoading.p;
     const p = this.fetchHome(signedIn);
@@ -276,16 +291,47 @@ export class GroupsController {
     this.homeLoaded = true;
     Object.assign(home, { loading: true, signedIn });
     try {
+      // Angemeldet: der persönliche Stream liefert auch Heimathafen, Gruppen-Hinweis und den Gelesen-Stand.
+      let personal: StreamPage | null = null;
       if (signedIn) {
         const [stream, mine, sugg] = await Promise.all([groupApi.myStream(), groupApi.mine(), groupApi.suggestions().catch(() => ({ people: [] }))]);
-        Object.assign(home, { stream, groups: mine.groups, suggestions: sugg.people, filters: null, filter: null });
+        personal = stream;
+        this.homeHarbor = stream.home?.harbor?.slug ?? null;
+        Object.assign(home, { groups: mine.groups, suggestions: sugg.people });
       } else {
-        const page = await socialApi.publicStream(null, this.filter);
-        Object.assign(home, { stream: page, filters: page.filters ?? home.filters ?? null, filter: this.filter, groups: [], suggestions: [] });
+        Object.assign(home, { groups: [], suggestions: [] });
       }
+      const chosen: StreamMode = this.prefs.mode === 'mine' && !signedIn ? 'near' : this.prefs.mode;
+      let stream: StreamPage | null = chosen === 'mine' ? personal : null;
+      let near: NearInfo | null = null;
+      if (chosen === 'near') {
+        const center = this.nearCenter();
+        if (!center) near = { state: 'missing', source: null, places: 0, center: null };
+        else {
+          const source = 'harbor' in center ? 'harbor' : 'geo';
+          try {
+            const page = await socialApi.nearStream(null, center, this.prefs.radius);
+            stream = page;
+            near = { state: 'ok', source, places: page.near?.places ?? 0, center: page.near?.center?.name ?? null };
+          } catch (e) {
+            // Heimathafen ohne Position: Hinweis; sonst (Netz, Server) still „Alles“ statt einer leeren Startseite
+            near = e instanceof ApiError && e.status === 422 ? { state: 'no_position', source, places: 0, center: personal?.home?.harbor?.name ?? null } : null;
+          }
+        }
+      }
+      // Ohne Umgebung (kein Mittelpunkt) zeigt die Startseite alles – mit Hinweis, wie die Umgebung möglich wird.
+      let filters = home.filters ?? null;
+      if (!stream) {
+        const page = await socialApi.publicStream(null, this.filter);
+        stream = page;
+        filters = page.filters ?? filters;
+      }
+      this.shown = chosen === 'near' && near?.state === 'ok' ? 'near' : chosen === 'mine' ? 'mine' : 'all';
+      Object.assign(home, { stream, personal, mode: chosen, shown: this.shown, radius: this.prefs.radius, near, filters, filter: this.filter });
       home.hidden = false;
       this.ui.onCommunity?.(true);
-      if (signedIn) this.ui.onPersonalStream?.(home.stream?.at);
+      // „Gelesen“ (F-222) nur, wenn der persönliche Stream wirklich angezeigt wird
+      if (signedIn && this.shown === 'mine') this.ui.onPersonalStream?.(personal?.at);
     } catch {
       home.hidden = true;
       this.homeLoaded = false;
@@ -293,6 +339,47 @@ export class GroupsController {
     } finally {
       home.loading = false;
     }
+  }
+
+  // ---------------------------------------------------------------- Stream-Modus und Umgebung (F-340 … F-343)
+
+  /** Mittelpunkt der Umgebung: grober Standort dieses Geräts, sonst der Heimathafen. */
+  private nearCenter(): NearCenter | null {
+    return this.prefs.geo ?? (this.homeHarbor ? { harbor: this.homeHarbor } : null);
+  }
+
+  private async savePrefs(patch: Partial<typeof this.prefs>): Promise<void> {
+    this.prefs = { ...this.prefs, ...patch };
+    writeNearPrefs(this.prefs);
+    await this.loadHome(true);
+  }
+
+  /** Umgebung, Alles oder Mitgliedschaften (gemerkt auf diesem Gerät). */
+  setMode(mode: StreamMode): Promise<void> {
+    if (mode === 'mine' && !this.signedIn()) {
+      this.ui.openLogin('Für deine Mitgliedschaften bitte anmelden.');
+      return Promise.resolve();
+    }
+    return this.savePrefs({ mode });
+  }
+
+  setRadius(radius: NearRadius): Promise<void> {
+    return this.savePrefs({ radius, mode: 'near' });
+  }
+
+  /** „Meine Umgebung“: Standort einmalig holen, grob runden, nur auf diesem Gerät merken. */
+  async useLocation(): Promise<void> {
+    try {
+      const geo = await locate();
+      await this.savePrefs({ geo, mode: 'near' });
+    } catch (e) {
+      this.ui.toast(`${errorText(e)} Alternativ: Heimathafen im Konto wählen.`, 6000);
+    }
+  }
+
+  /** Standort vergessen – danach gilt wieder der Heimathafen (falls gewählt). */
+  forgetLocation(): Promise<void> {
+    return this.savePrefs({ geo: null });
   }
 
   /** Eingrenzung im öffentlichen Stream (Hafen, Verein, Team oder alles). */

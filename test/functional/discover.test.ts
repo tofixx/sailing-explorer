@@ -273,3 +273,79 @@ describe('F-74 Entdecken: Grenzen, Sortierung, Link-Vorschau', () => {
     expect((await h.fetch('/entdecken/')).status).toBe(200);
   });
 });
+
+// ---------------------------------------------------------------- F-331 / F-332 Suche und Häfen
+
+interface Found { query?: string; boats: Array<{ id: string }>; people: Array<{ handle: string }>; voyages: Array<{ id: string }>; harbors?: Array<{ slug: string; name: string; boats: number; groups: number }>; groups?: Array<{ slug: string; joinMode?: string }> }
+
+async function find(q: string): Promise<Found> {
+  const res = await h.fetch(`/api/discover?limit=24&q=${encodeURIComponent(q)}`);
+  expect(res.status).toBe(200);
+  return (await res.json()) as Found;
+}
+
+async function newHarbor(cookie: string, name: string): Promise<{ id: string; slug: string }> {
+  const res = await send('POST', '/api/harbors', cookie, { name });
+  expect(res.status).toBeLessThan(300);
+  return ((await res.json()) as { harbor: { id: string; slug: string } }).harbor;
+}
+
+describe('F-331 Entdecken: Suche', () => {
+  it('[F-331] findet Boote, Segler und Törns unabhängig von Groß-/Kleinschreibung und Akzenten', async () => {
+    const tag = uniq('zq').replace(/-/g, '');
+    const s = await sailor('public', `Jörg ${tag}`);
+    const boat = await newBoat(s.cookie, { name: `Möwe ${tag}`, visibility: 'public' });
+    const v = await newShare(s.cookie, { title: `Törn über ${tag}`, listed: true });
+    await newBoat(s.cookie, { name: 'Andere', visibility: 'public' });
+    for (const q of [`mowe ${tag}`, `MÖWE ${tag.toUpperCase()}`]) {
+      const d = await find(q);
+      expect(d.boats.map((b) => b.id)).toEqual([boat.id]);
+    }
+    expect((await find(`jorg ${tag}`)).people.map((p) => p.handle)).toEqual([s.handle]);
+    expect((await find(`torn uber ${tag}`)).voyages.map((x) => x.id)).toEqual([v.id]);
+    expect((await find(tag)).query).toBe(tag);
+  });
+
+  it('[F-331] Suche bleibt bei öffentlichen Inhalten: private Boote führen nicht zu ihren Törns', async () => {
+    const tag = uniq('pv').replace(/-/g, '');
+    const s = await sailor('public');
+    const secret = await newBoat(s.cookie, { name: `Geheim ${tag}`, visibility: 'private' });
+    await newShare(s.cookie, { title: 'Ohne Treffer', listed: true, boatId: secret.id });
+    const d = await find(tag);
+    expect(d.boats).toEqual([]);
+    expect(d.voyages).toEqual([]);
+  });
+
+  it('[F-331] kurze Eingaben suchen nicht; % und _ sind keine Platzhalter', async () => {
+    expect((await find('a')).query).toBe('');
+    const d = await find('%%');
+    expect(d.query).toBe('%%');
+    expect([...d.boats, ...d.people, ...d.voyages, ...(d.harbors ?? []), ...(d.groups ?? [])]).toEqual([]);
+  });
+
+  it('[F-331] findet Vereine und Teams nach Name und Heimathafen, mit Beitrittsstufe', async () => {
+    const tag = uniq('cl').replace(/-/g, '');
+    const s = await sailor('public');
+    const slug = uniq('sc');
+    expect((await send('POST', '/api/groups', s.cookie, { kind: 'club', name: `Segelclub Ästuar ${tag}`, slug, joinMode: 'open' })).status).toBe(201);
+    const d = await find(`astuar ${tag}`);
+    expect(d.groups).toEqual([expect.objectContaining({ slug, joinMode: 'open' })]);
+  });
+});
+
+describe('F-332 Entdecken: Häfen', () => {
+  it('[F-332] ohne Suche nur Häfen mit öffentlichen Booten oder Vereinen; mit Suche jeder passende', async () => {
+    const tag = uniq('hb').replace(/-/g, '');
+    const s = await sailor('public');
+    const busy = await newHarbor(s.cookie, `Überlingen ${tag}`);
+    const quiet = await newHarbor(s.cookie, `Stillhafen ${tag}`);
+    await newBoat(s.cookie, { name: 'Hafenboot', visibility: 'public', harborId: busy.id });
+    await newBoat(s.cookie, { name: 'Privatboot', visibility: 'private', harborId: quiet.id });
+    const all = await discover();
+    const slugs = (all as unknown as Found).harbors!.map((x) => x.slug);
+    expect(slugs).toContain(busy.slug);
+    expect(slugs).not.toContain(quiet.slug);
+    expect((await find(`uberlingen ${tag}`)).harbors).toEqual([{ slug: busy.slug, name: `Überlingen ${tag}`, boats: 1, groups: 0 }]);
+    expect((await find(`stillhafen ${tag}`)).harbors).toEqual([expect.objectContaining({ slug: quiet.slug, boats: 0 })]);
+  });
+});

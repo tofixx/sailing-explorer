@@ -37,6 +37,7 @@ import type { SxShareDialog } from './components/sx-share-dialog';
 import type { SxToast } from './components/sx-toast';
 import type { SxTopbar, TopbarSection } from './components/sx-topbar';
 import type { SxTrackList } from './components/sx-track-list';
+import type { NearRadius, StreamMode } from './domain/near';
 // ---- Kommentare & Melden (Phase D) ----
 import { CommunityController } from './controllers/community';
 import type { SxComments } from './components/sx-comments';
@@ -52,6 +53,7 @@ import type { Photo } from './services/api';
 import type { PhotoVisibility } from './domain/visibility';
 // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11) ----
 import { GroupsController } from './controllers/groups';
+import { DiscoverController } from './controllers/discover';
 import type { SxGroupPage } from './components/sx-group-page';
 import type { SxHomeFeed } from './components/sx-home-feed';
 import type { SxJoinCard } from './components/sx-join-card';
@@ -147,6 +149,7 @@ export class App {
   private community: CommunityController;
   private photos: PhotosController;
   private groups: GroupsController;
+  private discover: DiscoverController;
   private social: SocialController;
   private unread: UnreadController;
   /** angezeigte Seite statt Karte (Entdecken bzw. Profil, Gruppe …) – für die Bereiche in der Kopfzeile */
@@ -195,6 +198,8 @@ export class App {
       onPhotos: (photos) => this.setPhotoMarks(photos),
     });
     this.map.photos.callbacks = { onOpen: (id) => this.photos.open(id), onHover: (id) => this.photoHover(id) };
+    this.discover = new DiscoverController(this.store, this.ui.discoverPage);
+    this.discover.toast = (msg) => this.toast(msg, 6000);
     this.groups = new GroupsController(this.store, {
       page: this.ui.groupPage,
       home: this.ui.homeFeed,
@@ -387,6 +392,7 @@ export class App {
       if (prev) {
         if (this.homeRoute) void this.groups.loadHome(true);
         void this.groups.userChanged();
+        this.discover.userChanged();
         void this.social.userChanged();
       }
       void this.unread.refresh(true);
@@ -679,7 +685,12 @@ export class App {
     on<GroupInput>('sx-group-create', (d) => g.create(d));
     on<{ id: string; patch: GroupInput }>('sx-group-save', (d) => g.save(d.id, d.patch));
     on<{ id: string }>('sx-group-delete', (d) => g.remove(d.id));
-    on<{ id: string }>('sx-group-join', (d) => g.join(d.id));
+    // Gruppenseite und Vereinskarten auf /entdecken (F-333) – derselbe Ablauf, dort danach Mitgliedschaften neu
+    on<{ id: string }>('sx-group-join', (d) => (this.ui.discoverPage.hidden ? g.join(d.id) : this.discover.join(d.id, () => g.join(d.id))));
+    on<{ query: string }>('sx-discover-search', (d) => this.discover.search(d.query));
+    on<{ on: boolean }>('sx-discover-near', (d) => this.discover.setNear(d.on));
+    on<{ radius: NearRadius }>('sx-discover-radius', (d) => this.discover.setRadius(d.radius));
+    on('sx-discover-locate', () => this.discover.useLocation());
     // Willkommens-Karte der Startseite (Konzept 14.3)
     on<{ id: string; name: string }>('sx-home-join', (d) => g.join(d.id, { name: d.name }));
     on<{ email: string | null }>('sx-friend-invite', (d) => this.social.inviteFriend(d.email));
@@ -703,6 +714,10 @@ export class App {
     // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
     const so = this.social;
     on<{ filter: StreamFilter }>('sx-stream-filter', (d) => g.setFilter(d.filter));
+    on<{ mode: StreamMode }>('sx-stream-mode', (d) => g.setMode(d.mode));
+    on<{ radius: NearRadius }>('sx-near-radius', (d) => g.setRadius(d.radius));
+    on('sx-near-locate', () => g.useLocation());
+    on('sx-near-forget', () => g.forgetLocation());
     on<ReactDetail>('sx-react', (d) => so.react(d));
     on<{ subject: ReactionSubject; id: string; key?: string | null; el: SxReactions }>('sx-react-who', (d) => so.who(d));
     on<{ query: string; el: SxHarborPicker }>('sx-harbor-search', (d) => so.searchHarbors(d));
@@ -906,7 +921,7 @@ export class App {
     this.ui.app.setAttribute('data-page', '');
     this.pageSection = route.kind === 'discover' ? 'discover' : 'page';
     this.ui.topbar.section = this.pageSection;
-    if (route.kind === 'discover') return this.openDiscover();
+    if (route.kind === 'discover') return this.discover.open();
     if (route.kind === 'legal') {
       // Impressum und Datenschutz kommen aus src/content/legal.ts – ohne Backend (Konzept 12.7).
       this.ui.legalPage.page = route.page;
@@ -994,23 +1009,6 @@ export class App {
       this.toast(errorText(err), 6000);
     } finally {
       el.busy = false;
-    }
-  }
-
-  /** Seite /entdecken: neueste öffentliche Törns, Boote und Segler. */
-  private async openDiscover() {
-    const page = this.ui.discoverPage;
-    page.hidden = false;
-    Object.assign(page, { loading: true, error: '', data: null });
-    document.title = 'Entdecken · Sail Explorer';
-    try {
-      page.data = await api.discover(24);
-      // Anker /entdecken#vereine („Alle Vereine“)
-      if (location.hash === '#vereine') requestAnimationFrame(() => page.shadowRoot?.getElementById('vereine')?.scrollIntoView());
-    } catch (e) {
-      page.error = e instanceof ApiError && e.code === 'no_backend' ? 'Entdecken ist auf dieser Installation nicht verfügbar.' : errorText(e);
-    } finally {
-      page.loading = false;
     }
   }
 

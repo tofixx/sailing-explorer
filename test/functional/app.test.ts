@@ -87,7 +87,7 @@ interface Server {
   /** Antwort von /api/shares/:id/crew (fehlt = 404) */
   crew?: Record<string, unknown>;
   /** Vereine, Teams, Neuigkeiten (Konzept 11): Gruppenseite, Gruppen-Stream, eigene Gruppen, persönlicher Stream, Vorschläge */
-  groups?: { page?: Record<string, unknown>; stream?: unknown; mine?: unknown; myStream?: unknown; suggestions?: unknown; publicStream?: unknown; unread?: { count: number; more: boolean } };
+  groups?: { page?: Record<string, unknown>; stream?: unknown; mine?: unknown; myStream?: unknown; suggestions?: unknown; publicStream?: unknown; nearStream?: unknown; unread?: { count: number; more: boolean } };
   /** Verein, Hafen, Reaktionen (Konzept 12): Hafenseite, Hafen-Stream, Heimat, Reaktionen eines Törns */
   social?: { harbor?: Record<string, unknown>; harborStream?: unknown; home?: Record<string, unknown>; reactions?: Record<string, unknown> };
 }
@@ -150,6 +150,7 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     if (/^\/api\/groups\/[A-Za-z0-9]+\/stream/.test(url)) return json(gr.stream ?? { items: [], cursor: null });
     if (/^\/api\/groups\/[A-Za-z0-9]+\/posts$/.test(url) && method === 'POST') return json({ post: { id: 'P1' } }, 201);
     if (url === '/api/groups' && method === 'GET') return server.user ? json(gr.mine ?? { groups: [], requests: [] }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
+    if (url.startsWith('/api/stream/near')) return gr.nearStream ? json(gr.nearStream) : json({ error: 'no_position', message: 'keine Position' }, 422);
     if (url.startsWith('/api/stream/public')) return json(gr.publicStream ?? { items: [], cursor: null, filters: { harbors: [], clubs: [] } });
     if (url === '/api/stream/unread') return server.user ? json(gr.unread ?? { count: 0, more: false }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
     if (url === '/api/stream/seen' && method === 'POST') return json({ ok: true });
@@ -1321,6 +1322,8 @@ describe('F-139 Crew in der Törn-Ansicht', () => {
 });
 
 describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
+  // Diese Tests prüfen den persönlichen Stream – auf dem Gerät „Mitgliedschaften“ gewählt (Standard ist „Umgebung“, F-343)
+  beforeEach(() => localStorage.setItem('sx-near', JSON.stringify({ mode: 'mine', radius: 25, geo: null })));
   const T = Date.UTC(2026, 9, 20);
   const groupPage = () => el<{ hidden: boolean; mode: string; loading: boolean; error: string; data: { group: { id: string } } | null; stream: { items: unknown[] } | null }>('sx-group-page');
   const home = () => el<{ hidden: boolean; stream: { items: unknown[]; hasGroups?: boolean } | null; groups: unknown[]; suggestions: Array<{ handle: string }>; publicGroups: unknown[] }>('sx-home-feed');
@@ -1593,5 +1596,42 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     const sent = server.calls.find((c) => c.url === '/api/groups/G1/posts');
     expect(JSON.parse(String(sent?.body))).toEqual({ body: 'Absegeln', link: '' });
     expect(toasts()).toContain('Veröffentlicht');
+  });
+});
+
+describe('F-343 Startseite: Umgebung als Standard', () => {
+  beforeEach(() => localStorage.removeItem('sx-near'));
+  const feed = () => el<{ hidden: boolean; mode: string; shown: string; near: { state: string; source: string | null } | null }>('sx-home-feed');
+
+  it('[F-343] angemeldet mit Heimathafen: Umgebung um den Hafen (25 km), nicht als gelesen markiert', async () => {
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = {
+      myStream: { items: [], cursor: null, hasGroups: true, at: 5, home: { club: null, harbor: { slug: 'potsdam', name: 'Potsdam' } } },
+      mine: { groups: [], requests: [] },
+      nearStream: { items: [], cursor: null, near: { places: 4, center: { slug: 'potsdam', name: 'Potsdam' } } },
+    };
+    await startApp();
+    await vi.waitFor(() => expect(feed().hidden).toBe(false));
+    expect(server.calls.some((c) => c.url === '/api/stream/near?r=25&harbor=potsdam')).toBe(true);
+    expect(feed().shown).toBe('near');
+    expect(feed().near).toMatchObject({ state: 'ok', source: 'harbor' });
+    expect(server.calls.some((c) => c.url === '/api/stream/seen')).toBe(false);
+  });
+
+  it('[F-343] Gast ohne Standort: Hinweis, „Alles“ als Ersatz', async () => {
+    server.groups = { publicStream: { items: [], cursor: null, filters: { harbors: [], clubs: [] } } };
+    await startApp();
+    await vi.waitFor(() => expect(feed().hidden).toBe(false));
+    expect(feed().near).toMatchObject({ state: 'missing' });
+    expect(feed().shown).toBe('all');
+    expect(server.calls.some((c) => c.url.startsWith('/api/stream/public'))).toBe(true);
+  });
+
+  it('[F-342] gespeicherter Standort (gerundet) ist der Mittelpunkt', async () => {
+    localStorage.setItem('sx-near', JSON.stringify({ mode: 'near', radius: 50, geo: { lat: 52.4, lon: 13 } }));
+    server.groups = { nearStream: { items: [], cursor: null, near: { places: 1, center: null } } };
+    await startApp();
+    await vi.waitFor(() => expect(feed().shown).toBe('near'));
+    expect(server.calls.some((c) => c.url === '/api/stream/near?r=50&lat=52.4&lon=13')).toBe(true);
   });
 });

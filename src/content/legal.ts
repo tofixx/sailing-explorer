@@ -174,6 +174,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
           h3('Lokal in deinem Browser'),
           ul(
             'Gast-Sitzung: Geladene GPX-Dateien und Wetterdaten speichert die App in der IndexedDB deines Browsers, damit sie beim nächsten Besuch wieder da sind. Sie verlassen dein Gerät nicht, solange du nicht teilst. Löschen: „Alle entfernen“ oder Website-Daten im Browser löschen.',
+            'Umgebung in der Community: Erst wenn du „meinen Standort verwenden“ anklickst, fragt dein Browser nach dem Standort. Die App rundet ihn sofort auf etwa 11 km (0,1°) und merkt ihn mit Umkreis und gewählter Ansicht nur im localStorage dieses Geräts („Standort vergessen“ löscht ihn). An unseren Server geht nur der gerundete Wert, um die Neuigkeiten der Häfen und Vereine im Umkreis zu laden; gespeichert wird er dort nicht.',
             'Einstellungen für das Teilen-Bild (Format, Inhalt) liegen im localStorage. Einen als Standard gesetzten Kartenstil speichern wir in deinem Konto; er wird mit dem Konto gelöscht.',
           ),
         ],

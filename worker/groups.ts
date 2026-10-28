@@ -636,22 +636,30 @@ export async function removeGroupBoat(request: Request, env: Env, id: string, bo
 
 // ---------------------------------------------------------------- Liste für /entdecken
 
-/** Öffentliche Vereine und Teams (nicht ausgeblendet, Eigner nicht gesperrt), neueste zuerst. */
-export async function publicGroups(env: Env, limit: number) {
-  const { results } = await env.DB.prepare(
+/**
+ * Öffentliche Vereine und Teams (nicht ausgeblendet, Eigner nicht gesperrt), neueste zuerst. `search`: zusätzliche
+ * Bedingung mit Platzhalter ?2 (Suche auf /entdecken, F-331). `near`: Hafen-IDs (JSON, nächste zuerst) – nur Gruppen
+ * mit Heimathafen dort, nach Nähe sortiert (F-344).
+ */
+export async function publicGroups(env: Env, limit: number, search?: { where: string; like: string }, near?: string | null) {
+  const stmt = env.DB.prepare(
     `SELECT g.id, g.slug, g.name, g.kind, g.home_port, g.description, g.join_mode, g.created_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members,
        c.ver AS cover_ver, c.focus_y AS cover_y
      FROM groups g LEFT JOIN covers c ON c.kind = 'g' AND c.object_id = g.id
      WHERE g.visibility = 'public' AND g.hidden_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL)
-     ORDER BY g.created_at DESC, g.id LIMIT ?`,
-  )
-    .bind(limit)
+       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL) ${search?.where ?? ''}
+       ${near ? `AND g.harbor_id IN (SELECT value FROM json_each(?3))` : ''}
+     ORDER BY ${near ? `${nearRank('g.harbor_id')}, ` : ''}g.created_at DESC, g.id LIMIT ?1`,
+  );
+  const { results } = await (near ? stmt.bind(limit, search?.like ?? '', near) : search ? stmt.bind(limit, search.like) : stmt.bind(limit))
     .all<{ id: string; slug: string; name: string; kind: GroupKind; home_port: string; description: string; join_mode: JoinMode; created_at: number; members: number; cover_ver: string | null; cover_y: number | null }>();
   return results.map((g) => ({
     id: g.id, slug: g.slug, name: g.name, kind: g.kind, homePort: g.home_port, description: g.description, joinMode: g.join_mode, createdAt: g.created_at, members: g.members,
     cover: coverRef('g', g.id, g.cover_ver, g.cover_y),
   }));
 }
+
+/** Rang eines Hafens in der Nähe-Liste ?3 (JSON-Array, nächste zuerst) – für ORDER BY. */
+export const nearRank = (col: string) => `(SELECT CAST(key AS INTEGER) FROM json_each(?3) WHERE value = ${col})`;
 
 export type { User };

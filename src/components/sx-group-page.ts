@@ -481,7 +481,8 @@ export class SxGroupPage extends LitElement {
   private joinActions(d: GroupPageData) {
     const g = d.group;
     const m = d.membership;
-    if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : '';
+    // Gäste: erst anmelden; bei „Nur auf Einladung“ nur der Hinweis wie für Angemeldete (F-333)
+    if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : html`<span class="faint">Beitritt nur auf Einladung</span>`;
     if (m.role) return m.role === 'owner' ? '' : html`<button class="btn ghost" @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id })}>${icon('logout')} Austreten</button>`;
     if (m.requested) return html`<span class="faint">Anfrage gestellt</span><button class="btn ghost" @click=${() => emit(this, 'sx-group-withdraw', { id: g.id })}>Anfrage zurückziehen</button>`;
     if (m.canJoin) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitreten</button>`;
