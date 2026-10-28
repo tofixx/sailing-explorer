@@ -1,5 +1,5 @@
-import { ApiError, api, groupApi, socialApi, type DiscoverMembership, type NearCenter } from '../services/api';
-import { locate, readNearPrefs, writeNearPrefs } from '../services/near-prefs';
+import { ApiError, api, groupApi, socialApi, type DiscoverMembership } from '../services/api';
+import { locate, nearCenter, readNearPrefs, writeNearPrefs } from '../services/near-prefs';
 import type { NearRadius } from '../domain/near';
 import type { Store } from '../services/store';
 import type { SxDiscover } from '../components/sx-discover';
@@ -79,17 +79,14 @@ export class DiscoverController {
     this.showNear();
   }
 
-  private center(): { center: NearCenter; label: string } | null {
-    const geo = readNearPrefs().geo;
-    if (geo) return { center: geo, label: 'deinen Standort' };
-    return this.home ? { center: { harbor: this.home.slug }, label: this.home.name } : null;
+  private center() {
+    return nearCenter(this.home ?? null);
   }
 
+  /** Ohne Mittelpunkt zeigt „In der Nähe“ den Standort-Knopf, die Listen bleiben „Überall“. */
   private showNear(): void {
     const c = this.center();
-    this.page.near = { on: this.nearOn && !!c, radius: readNearPrefs().radius, center: c?.label ?? null };
-    // Ohne Mittelpunkt zeigt „In der Nähe“ den Standort-Knopf, die Listen bleiben „Überall“
-    if (!c && this.nearOn) this.page.near = { ...this.page.near, on: true };
+    this.page.near = { on: this.nearOn, radius: readNearPrefs().radius, center: c?.label ?? null };
   }
 
   private reload(): Promise<void> {

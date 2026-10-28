@@ -1,4 +1,5 @@
 import { LitElement, css, html } from 'lit';
+import { currentPosition } from '../services/near-prefs';
 import type { Boat, CrewVoyage, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, Profile, PublicHome, ShareMeta, StreamPage } from '../services/api';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
@@ -401,24 +402,23 @@ export class SxProfilePage extends LitElement {
    * Hafen-Position aus dem Gerät übernehmen (F-345) – nur in die Felder des Formulars; gespeichert wird erst mit
    * „Speichern“. Häfen sind öffentliche Orte, deshalb hier genau (5 Stellen wie parseHarborPosition).
    */
-  private fillPosition(e: Event) {
+  private async fillPosition(e: Event) {
     const form = (e.currentTarget as HTMLElement).closest('form');
-    if (!form || typeof navigator === 'undefined' || !navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const set = (name: string, v: number) => {
-          const input = form.querySelector<HTMLInputElement>(`input[name="${name}"]`);
-          if (input) input.value = String(Math.round(v * 1e5) / 1e5).replace('.', ',');
-        };
-        set('lat', pos.coords.latitude);
-        set('lon', pos.coords.longitude);
-      },
-      () => {
-        const hint = form.querySelector('.pos-hint');
-        if (hint) hint.textContent = 'Standort nicht verfügbar – Position bitte von Hand eintragen.';
-      },
-      { enableHighAccuracy: true, timeout: 15_000 },
-    );
+    const hint = form?.querySelector('.pos-hint');
+    if (!form || !hint) return;
+    hint.textContent = 'Standort wird bestimmt …';
+    try {
+      const pos = await currentPosition(true);
+      const set = (name: string, v: number) => {
+        const input = form.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+        if (input) input.value = String(Math.round(v * 1e5) / 1e5).replace('.', ',');
+      };
+      set('lat', pos.lat);
+      set('lon', pos.lon);
+      hint.textContent = 'Position übernommen – mit „Speichern“ sichern.';
+    } catch (err) {
+      hint.textContent = `${err instanceof Error ? err.message : 'Standort nicht verfügbar.'} Position bitte von Hand eintragen.`;
+    }
   }
 
   /** Bearbeiten: Name und Position (Anleger:in), Verein (Verwalter eines Vereins) – sonst kein Knopf. */

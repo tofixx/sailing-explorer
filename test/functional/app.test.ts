@@ -1605,6 +1605,8 @@ describe('F-343 Startseite: Umgebung als Standard', () => {
 
   it('[F-343] angemeldet mit Heimathafen: Umgebung um den Hafen (25 km), nicht als gelesen markiert', async () => {
     server.user = { id: 'U1', email: 'a@example.org' };
+    // Heimathafen aus /api/me/home – den persönlichen Stream braucht „Umgebung“ nicht
+    server.social = { home: { club: null, harbor: { id: 'H1', slug: 'potsdam', name: 'Potsdam' }, harborExplicit: true, clubs: [] } };
     server.groups = {
       myStream: { items: [], cursor: null, hasGroups: true, at: 5, home: { club: null, harbor: { slug: 'potsdam', name: 'Potsdam' } } },
       mine: { groups: [], requests: [] },
@@ -1616,6 +1618,7 @@ describe('F-343 Startseite: Umgebung als Standard', () => {
     expect(feed().shown).toBe('near');
     expect(feed().near).toMatchObject({ state: 'ok', source: 'harbor' });
     expect(server.calls.some((c) => c.url === '/api/stream/seen')).toBe(false);
+    expect(server.calls.some((c) => c.url === '/api/stream')).toBe(false);
   });
 
   it('[F-343] Gast ohne Standort: Hinweis, „Alles“ als Ersatz', async () => {
@@ -1625,6 +1628,17 @@ describe('F-343 Startseite: Umgebung als Standard', () => {
     expect(feed().near).toMatchObject({ state: 'missing' });
     expect(feed().shown).toBe('all');
     expect(server.calls.some((c) => c.url.startsWith('/api/stream/public'))).toBe(true);
+  });
+
+  it('[F-342] Startseite und Entdecken teilen die Wahl: ein dort gesetzter Standort bleibt beim Ändern des Umkreises erhalten', async () => {
+    server.groups = { publicStream: { items: [], cursor: null, filters: { harbors: [], clubs: [] } }, nearStream: { items: [], cursor: null, near: { places: 1, center: null } } };
+    await startApp();
+    await vi.waitFor(() => expect(feed().hidden).toBe(false));
+    // wie „Meinen Standort verwenden“ auf /entdecken (DiscoverController schreibt nur in near-prefs)
+    localStorage.setItem('sx-near', JSON.stringify({ mode: 'near', radius: 25, geo: { lat: 52.4, lon: 13 } }));
+    emit('sx-near-radius', { radius: 50 });
+    await vi.waitFor(() => expect(server.calls.some((c) => c.url === '/api/stream/near?r=50&lat=52.4&lon=13')).toBe(true));
+    expect(JSON.parse(localStorage.getItem('sx-near')!)).toEqual({ mode: 'near', radius: 50, geo: { lat: 52.4, lon: 13 } });
   });
 
   it('[F-342] gespeicherter Standort (gerundet) ist der Mittelpunkt', async () => {

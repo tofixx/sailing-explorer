@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // Startseite: Modus-Wahl „Umgebung | Alles | Mitgliedschaften“, Umkreis und Standort (F-340, F-342, F-343).
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import '../../src/components/sx-home-feed';
 import '../../src/components/sx-discover';
 import '../../src/components/sx-profile-page';
@@ -136,7 +136,8 @@ describe('F-344/F-345 Entdecken in der Nähe, Hafen-Position', () => {
     const btn = button(el, /Position von hier übernehmen/);
     expect(btn).toBeDefined();
     btn!.click();
-    expect((el.shadowRoot.querySelector('input[name="lat"]') as HTMLInputElement).value).toBe('52,39123');
+    await vi.waitFor(() => expect((el.shadowRoot.querySelector('input[name="lat"]') as HTMLInputElement).value).toBe('52,39123'));
     expect((el.shadowRoot.querySelector('input[name="lon"]') as HTMLInputElement).value).toBe('13,06543');
+    expect(text(el)).toContain('Position übernommen');
   });
 });

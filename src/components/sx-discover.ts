@@ -611,13 +611,13 @@ export class SxDiscover extends LitElement {
     if (!n) return '';
     const locate = html`<button class="chip" type="button" @click=${() => emit(this, 'sx-discover-locate')}>${icon('anchor')} Meinen Standort verwenden</button>`;
     return html`<div class="tabs" role="group" aria-label="Umgebung">
-      <button class="chip" aria-pressed=${n.on ? 'true' : 'false'} @click=${() => !n.on && emit(this, 'sx-discover-near', { on: true })}>In der Nähe</button>
-      <button class="chip" aria-pressed=${n.on ? 'false' : 'true'} @click=${() => n.on && emit(this, 'sx-discover-near', { on: false })}>Überall</button>
+      <button class="chip" type="button" aria-pressed=${n.on ? 'true' : 'false'} @click=${() => !n.on && emit(this, 'sx-discover-near', { on: true })}>In der Nähe</button>
+      <button class="chip" type="button" aria-pressed=${n.on ? 'false' : 'true'} @click=${() => n.on && emit(this, 'sx-discover-near', { on: false })}>Überall</button>
       ${n.on
-        ? n.center
-          ? html`${NEAR_RADII.map((r) => html`<button class="chip" aria-pressed=${n.radius === r ? 'true' : 'false'} @click=${() => n.radius !== r && emit(this, 'sx-discover-radius', { radius: r })}>${r} km</button>`)}
+        ? n.center && this.data?.near !== false
+          ? html`${NEAR_RADII.map((r) => html`<button class="chip" type="button" aria-pressed=${n.radius === r ? 'true' : 'false'} @click=${() => n.radius !== r && emit(this, 'sx-discover-radius', { radius: r })}>${r} km</button>`)}
               <span class="faint near-at">um ${n.center}</span>`
-          : locate
+          : html`${n.center ? html`<span class="faint near-at">Für ${n.center} ist noch keine Position eingetragen – hier steht alles.</span>` : ''}${locate}`
         : ''}
     </div>`;
   }

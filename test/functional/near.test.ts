@@ -74,6 +74,16 @@ describe('F-340 Umgebung', () => {
     expect((await near('')).res.status).toBe(400);
   });
 
+  it('[F-340] ausgeblendete Häfen zählen nicht zur Umgebung', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const hidden = await harborAt(owner, 'Versteckt', 5.0, 5.0);
+    const v = await s.share(owner, { boatId: (await s.boat(owner, { harborId: hidden.id })).id });
+    await (await s.db()).prepare('UPDATE harbors SET hidden_at = ? WHERE id = ?').bind(Date.now(), hidden.id).run();
+    const { body } = await near('lat=5.0&lon=5.0');
+    expect(voyageIds(body!)).not.toContain(v.id);
+    expect(body!.near?.places).toBe(0);
+  });
+
   it('[F-342] Standort wird gerundet: feinere Koordinaten ergeben dieselbe gecachte Seite', async () => {
     const a = await near('lat=3.04123&lon=3.01987');
     const b = await near('lat=3.0&lon=3.0');

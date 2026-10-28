@@ -390,9 +390,11 @@ export async function placesNear(env: Env, center: LatLon, km: number) {
     ? (
         await env.DB.prepare(
           `SELECT g.id FROM json_each(?1) AS h JOIN groups g ON g.harbor_id = h.value
-           WHERE g.visibility = 'public' AND g.hidden_at IS NULL LIMIT ?2`,
+           WHERE g.visibility = 'public' AND g.hidden_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL)
+           ORDER BY h.key LIMIT ?2`,
         )
-          .bind(JSON.stringify(harbors.map((h) => h.id)), NEAR_MAX_PLACES)
+          .bind(JSON.stringify(harbors.map((h) => h.id)), Math.max(0, NEAR_MAX_PLACES - harbors.length))
           .all<{ id: string }>()
       ).results
     : [];

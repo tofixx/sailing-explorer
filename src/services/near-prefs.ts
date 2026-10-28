@@ -1,5 +1,6 @@
 // Gewählter Stream-Modus, Umkreis und grober Standort – nur auf diesem Gerät (localStorage), nie auf dem Server (F-342).
 import { DEFAULT_RADIUS, isNearRadius, isStreamMode, parseCenter, roundCoord, type LatLon, type NearRadius, type StreamMode } from '../domain/near';
+import type { NearCenter } from './api';
 
 const KEY = 'sx-near';
 
@@ -33,14 +34,30 @@ export function writeNearPrefs(p: NearPrefs): void {
   }
 }
 
-/** Standort einmalig vom Browser holen (Dialog des Browsers) und sofort grob runden. */
-export function locate(): Promise<LatLon> {
+/**
+ * Gerätestandort einmal vom Browser (Dialog des Browsers). `precise`: genau (Hafen-Position, F-345), sonst grob für
+ * die Umgebung einer Person.
+ */
+export function currentPosition(precise = false): Promise<LatLon> {
   return new Promise((resolve, reject) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) return reject(new Error('Dein Browser kann keinen Standort bestimmen.'));
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: roundCoord(pos.coords.latitude), lon: roundCoord(pos.coords.longitude) }),
+      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
       (err) => reject(new Error(err.code === err.PERMISSION_DENIED ? 'Standort nicht freigegeben.' : 'Standort nicht ermittelbar.')),
-      { enableHighAccuracy: false, maximumAge: 600_000, timeout: 10_000 },
+      precise ? { enableHighAccuracy: true, timeout: 15_000 } : { enableHighAccuracy: false, maximumAge: 600_000, timeout: 10_000 },
     );
   });
+}
+
+/** Standort für die Umgebung (F-342): sofort grob gerundet. */
+export async function locate(): Promise<LatLon> {
+  const p = await currentPosition();
+  return { lat: roundCoord(p.lat), lon: roundCoord(p.lon) };
+}
+
+/** Mittelpunkt der Umgebung (F-343, F-344): Standort dieses Geräts, sonst der Heimathafen – für Startseite und Entdecken. */
+export function nearCenter(home: { slug: string; name: string } | null): { center: NearCenter; label: string; source: 'geo' | 'harbor' } | null {
+  const geo = readNearPrefs().geo;
+  if (geo) return { center: geo, label: 'deinen Standort', source: 'geo' };
+  return home ? { center: { harbor: home.slug }, label: home.name, source: 'harbor' } : null;
 }

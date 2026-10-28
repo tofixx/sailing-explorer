@@ -491,7 +491,7 @@ export class SxHomeFeed extends LitElement {
     }
     return html`<div class="nearbar">
       <div class="filters" role="toolbar" aria-label="Umkreis">
-        ${NEAR_RADII.map((r) => html`<button class="chip" aria-pressed=${this.radius === r ? 'true' : 'false'} @click=${() => this.radius !== r && emit(this, 'sx-near-radius', { radius: r })}>${r} km</button>`)}
+        ${NEAR_RADII.map((r) => html`<button class="chip" type="button" aria-pressed=${this.radius === r ? 'true' : 'false'} @click=${() => this.radius !== r && emit(this, 'sx-near-radius', { radius: r })}>${r} km</button>`)}
       </div>
       <span>um ${n.source === 'geo' ? 'deinen Standort' : (n.center ?? 'deinen Heimathafen')} · ${plural(n.places, 'Ort', 'Orte')}</span>
       ${n.source === 'geo'
