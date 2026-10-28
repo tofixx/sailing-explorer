@@ -28,7 +28,7 @@ export interface AdminClaim {
   kind: ClaimKind;
   target: { id: string; name: string; path: string | null; verified: boolean };
   holder: { id: string; displayName: string; handle: string | null; since: number } | null;
-  applicant: { id: string; displayName: string; handle: string | null; since: number | null };
+  applicant: { id: string; displayName: string; handle: string | null; since: number | null } | null;
   role: string;
   reason: string;
   contact: string;

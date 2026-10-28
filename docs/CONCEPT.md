@@ -2031,6 +2031,7 @@ Entscheidung (`POST /api/admin/claims/:id { decision, note, previous }`):
 | Entscheidung | Wirkung |
 |---|---|
 | **annehmen** | in **einem** D1-Batch: `verified_at = jetzt`; Antragsteller:in wird Eigner (Verein: wie 18.6, wird Mitglied falls nötig) bzw. Anleger:in (Hafen); weitere offene Anträge zum Objekt werden abgelehnt („ein anderer Antrag wurde angenommen“); Protokoll `claim_accept` |
+| ↳ gleichzeitig | Der Batch nimmt nur an, wenn der Antrag noch offen ist und Eigner bzw. Anleger:in noch dieselbe wie gelesen; sonst rollt eine Zusicherung den ganzen Batch zurück (409) – zwei Admins übertragen nie doppelt. Die Sichtbarkeit des Vereins zählt beim Entscheiden nicht (der Eigner kann die Annahme nicht durch „geschlossen“ blockieren) |
 | ↳ bisherige Person (`previous`) | Verein: **`admin`** (bleibt Admin, Standard) · **`member`** (nur noch Mitglied) · **`remove`** (verlässt die Gruppe). Hafen: verliert das Bearbeitungsrecht immer (Häfen haben keine Admins). War sie selbst die Antragsteller:in, entfällt das |
 | **ablehnen** | Begründung Pflicht (10–500 Zeichen), geht an die Antragsteller:in; Protokoll `claim_reject` |
 
@@ -2052,7 +2053,7 @@ Die Verwaltung eines verifizierten Objekts wechselt nur noch über die Moderatio
 | Eigner neu zuweisen durch Admins (18.6) | bleibt möglich; ohne Antrag endet dabei die Verifizierung (Dialog warnt) |
 | Häfen zusammenführen (18.7) | verifizierte Quelle in nicht verifiziertes Ziel → 409 `verified` (andersherum zusammenführen) |
 | neuer Antrag einer verdrängten Person auf dasselbe Objekt | 409 `claim_blocked` – aufheben kann das nur die Moderation (Verifizierung entziehen, 20.6) |
-| Verein des Hafens (`harbors.club_id`, 12.2) | bei verifiziertem Hafen setzen und lösen nur Hafen-Vertretung und Moderation (20.9 Frage 6) |
+| Verein des Hafens (`harbors.club_id`, 12.2) | bei verifiziertem Hafen setzen, ersetzen und lösen nur Hafen-Vertretung (setzen: Vereine, die sie verwaltet) und Moderation (20.9 Frage 6) |
 | Gruppe löschen, solange ein Antrag offen ist | 409 `claim_pending` mit neutralem Hinweis „gerade nicht möglich – bitte an die Moderation wenden“ (niemand löscht den Verein vor der Entscheidung, 20.9 Frage 2) |
 
 Die Verdrängung steht im angenommenen Antrag (`claims.previous_user_id`) – keine eigene Sperrliste.
@@ -2103,7 +2104,8 @@ Löschkonzept (Prüfpunkt 6) – keine R2-Dateien, kein Speicherzähler:
 | angenommen | Funktion, Begründung, Kontakt, Beleg nach **30 Tagen** geleert (Widerspruchsfrist); das Gerüst (wer, wann, wer verdrängt) bleibt, solange das Objekt besteht – es trägt die Sperre aus 20.5 |
 | offen, älter als 180 Tage | nächtlich als `expired` markiert und geleert (höchstens 25 je Nacht), Antragsteller:in bekommt `claim_result` „ohne Entscheidung abgelaufen“; nach 30 Tagen gelöscht |
 | Objekt gelöscht (`removeGroup`, `removeHarbor`) | alle Anträge zum Objekt |
-| Konto gelöscht (`purgeUser`, auch inaktiv) | eigene Anträge; als Verdrängte:r wird die ID geleert (ohne Konto wirkungslos; 20.9 Frage 5) |
+| Häfen zusammengeführt (18.7) | nicht angenommene Anträge der Dublette gelten für das Ziel; angenommene fallen mit der Dublette weg |
+| Konto gelöscht (`purgeUser`, auch inaktiv) | eigene offene und entschiedene Anträge; **angenommene bleiben ohne Konto-ID** (`user_id` NULL) – sie tragen die Sperre gegen Verdrängte; als Verdrängte:r wird die ID geleert (ohne Konto wirkungslos; 20.9 Frage 5) |
 | Konten verbinden (18.8) | `user_id` und `previous_user_id` gehen ans Ziel |
 | Verifizierung entzogen | angenommene Anträge zum Objekt gelöscht |
 | Benachrichtigungen | wie 17.5; ohne Gegenstand nächtlich weg |

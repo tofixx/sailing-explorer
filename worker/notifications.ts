@@ -12,6 +12,7 @@ import { pingLive } from './live';
 import { EXPIRES_SQL } from './expiry-sql';
 import { WARN_MS } from '../src/domain/support';
 import { transferConsequence } from '../src/domain/claims';
+import { isAdmin } from './validate';
 import {
   NOTIFICATION_LIMITS, isChoosable, isNotificationKind, notificationText, parsePrefs, isNotificationSubject, type NotificationItem, type NotificationKind,
   type NotificationSubject,
@@ -284,6 +285,7 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
   LEFT JOIN claims c ON n.subject_kind = 'claim' AND c.id = n.subject_id
   LEFT JOIN groups cg ON c.target_kind = 'group' AND cg.id = c.target_id AND cg.hidden_at IS NULL AND cg.locked_at IS NULL
   LEFT JOIN harbors ch ON c.target_kind = 'harbor' AND ch.id = c.target_id AND ch.hidden_at IS NULL
+    AND NOT EXISTS (SELECT 1 FROM locks hl WHERE hl.target_kind = 'harbor' AND hl.target_id = ch.id)
   WHERE n.user_id = ?1
   ORDER BY n.updated_at DESC
   LIMIT ?4`;
@@ -371,7 +373,8 @@ export async function loadNotifications(env: Env, user: { id: string; email: str
   const items: NotificationItem[] = [];
   const stale: string[] = [];
   for (const r of results) {
-    const item = shape(r, user.id);
+    // Hinweise auf neue Anträge nur, solange das Konto Admin ist (Konzept 20.3)
+    const item = r.kind === 'claim' && !isAdmin(env, user.id) ? null : shape(r, user.id);
     if (item) items.push({ ...item, text: notificationText(item) });
     else if (r.read_at === null) stale.push(r.id);
   }

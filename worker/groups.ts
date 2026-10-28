@@ -550,14 +550,17 @@ export async function removeMember(request: Request, env: Env, id: string, who: 
   if (!targetRole) throw new HttpError(404, 'not_found', 'Diese Person ist kein Mitglied.');
   if (target === user.id && role === 'owner') throw new HttpError(400, 'owner_cannot_leave', 'Der Eigner kann die Gruppe nicht verlassen – nur löschen.');
   if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigner.');
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(group.id, target),
-    // „Mein Verein“ fällt mit (F-170), ebenso die Beitritts-Neuigkeit (sonst stünde sie bis zu 12 Monate im Stream)
-    clearHomeClub(env, target, group.id),
-    env.DB.prepare('DELETE FROM activity WHERE bucket = ?').bind(`member:${group.id}:${target}`),
-  ]);
+  await env.DB.batch(leaveGroupStmts(env, group.id, target));
   return new Response(null, { status: 204 });
 }
+
+/** Mitgliedschaft beenden (Austritt, Entfernen, Verdrängung nach Konzept 20.3). */
+export const leaveGroupStmts = (env: Env, groupId: string, userId: string): D1PreparedStatement[] => [
+  env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(groupId, userId),
+  // „Mein Verein“ fällt mit (F-170), ebenso die Beitritts-Neuigkeit (sonst stünde sie bis zu 12 Monate im Stream)
+  clearHomeClub(env, userId, groupId),
+  env.DB.prepare('DELETE FROM activity WHERE bucket = ?').bind(`member:${groupId}:${userId}`),
+];
 
 // ---------------------------------------------------------------- Beitrittsanfragen
 

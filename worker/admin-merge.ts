@@ -55,6 +55,8 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
     env.DB.prepare('UPDATE harbor_redirects SET harbor_id = ? WHERE harbor_id = ?').bind(dst.id, src.id),
     env.DB.prepare('INSERT OR REPLACE INTO harbor_redirects (old_slug, harbor_id, created_at) VALUES (?, ?, ?)').bind(src.slug, dst.id, now),
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'harbor' AND target_id = ?`).bind(src.id),
+    // offene und entschiedene Anträge zur Dublette gelten für das Ziel (angenommene der Quelle fallen mit ihr weg)
+    env.DB.prepare(`UPDATE OR IGNORE claims SET target_id = ?1 WHERE target_kind = 'harbor' AND target_id = ?2 AND status <> 'accepted'`).bind(dst.id, src.id),
     ...claimTargetCleanup(env, 'harbor', src.id),
     env.DB.prepare('DELETE FROM harbors WHERE id = ?').bind(src.id),
     adminLogStmt(env, admin.id, 'merge_harbor', 'harbor', dst.id, `${src.name} (/h/${src.slug}, ${src.id}) → ${dst.name}: ${counts?.boats ?? 0} Boote, ${counts?.groups ?? 0} Gruppen, ${counts?.follows ?? 0} Folgende`, now),

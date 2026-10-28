@@ -210,7 +210,8 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     .all<{ slug: string; name: string; kind: 'club' | 'team' }>();
   const ownClub = !!h.club_id && manageable.some((c) => c.id === h.club_id);
   // Verifizierter Hafen: nur Hafen-Vertretung und Moderation ordnen den Verein zu (Konzept 20.5)
-  const clubLocked = !!h.verified_at && h.created_by !== user?.id && !isAdmin(env, user?.id);
+  const isRep = !!user && !!h.verified_at && h.created_by === user.id;
+  const clubLocked = !!h.verified_at && !isRep && !isAdmin(env, user?.id);
   return json({
     harbor: harborShape(env, h, user?.id ?? null),
     club: club ? { slug: club.slug, name: club.name, kind: club.kind } : null,
@@ -226,8 +227,8 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     voyages: voyages.map((r) => shareShape(r, false)),
     social: await followStats(env, 'harbor', h.id, user?.id ?? null),
     // Verein zuordnen: nur Vereine, die das Konto verwaltet, und nur wenn frei oder schon einer davon
-    clubChoices: !clubLocked && (!h.club_id || ownClub || isAdmin(env, user?.id)) ? manageable.map((c) => ({ id: c.id, slug: c.slug, name: c.name })) : [],
-    canClearClub: !clubLocked && !!h.club_id && (ownClub || isAdmin(env, user?.id) || h.created_by === user?.id),
+    clubChoices: !clubLocked && (!h.club_id || ownClub || isAdmin(env, user?.id) || isRep) ? manageable.map((c) => ({ id: c.id, slug: c.slug, name: c.name })) : [],
+    canClearClub: !clubLocked && !!h.club_id && (ownClub || isAdmin(env, user?.id) || isRep),
   });
 }
 

@@ -120,6 +120,10 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
       expect((await s.send('DELETE', `/api/claims/${id}`, q.cookie)).status).toBe(204);
     }
     expect(await s.errorOf(await claim(q, 'group', clubs[0].id))).toBe('claim_limit');
+    // Doppelklick: zwei gleichzeitige Anträge – nur einer wird angelegt
+    const dbl = await s.person();
+    const both = await Promise.all([claim(dbl, 'group', clubs[1].id), claim(dbl, 'group', clubs[1].id)]);
+    expect(both.map((r) => r.status).sort()).toEqual([201, 409]);
     // Wartefrist nach Ablehnung
     const r = await s.person();
     const rid = await claimId(r, 'group', clubs[3].id);
@@ -131,7 +135,7 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
     // je Objekt höchstens 10 offene
     const busy = await harbor(owner);
     for (let i = 0; i < CLAIM_LIMITS.openPerTarget; i++) {
-      await run(`INSERT INTO claims (id, target_kind, target_id, user_id, status, created_at) VALUES (?, 'harbor', ?, ?, 'open', ?)`, `Busy${i}x${busy.id}`.slice(0, 30), busy.id, owner.user.id, Date.now());
+      await run(`INSERT INTO claims (id, target_kind, target_id, user_id, status, created_at) VALUES (?, 'harbor', ?, NULL, 'open', ?)`, `Busy${i}x${busy.id}`.slice(0, 30), busy.id, Date.now());
     }
     expect(await s.errorOf(await claim(await s.person(), 'harbor', busy.id))).toBe('claim_busy');
   });
@@ -216,6 +220,30 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
     expect(await one('SELECT owner_id FROM groups WHERE id = ?', club.id)).toEqual({ owner_id: owner.user.id });
   });
 
+  it('[F-364] geschlossener Verein blockiert die Annahme nicht; gleichzeitige Entscheidungen übertragen nur einmal', async () => {
+    const owner = await s.person({ supporter: true });
+    const a = await s.person();
+    const b = await s.person();
+    const club = await s.group(owner);
+    const ida = await claimId(a, 'group', club.id);
+    const idb = await claimId(b, 'group', club.id);
+    await ok(await s.send('PATCH', `/api/groups/${club.id}`, owner.cookie, { visibility: 'private' }));
+    const res = await Promise.all([decide(ida, { decision: 'accept' }), decide(idb, { decision: 'accept' })]);
+    expect(res.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(await one(`SELECT COUNT(*) AS n FROM group_members WHERE group_id = ? AND role = 'owner'`, club.id)).toEqual({ n: 1 });
+    expect(await one(`SELECT COUNT(*) AS n FROM claims WHERE target_id = ? AND status = 'accepted'`, club.id)).toEqual({ n: 1 });
+    const winner = res[0].status === 200 ? a : b;
+    expect(await one('SELECT owner_id FROM groups WHERE id = ?', club.id)).toEqual({ owner_id: winner.user.id });
+    // Annehmen und Ablehnen desselben Antrags gleichzeitig: nur eins greift
+    const c = await s.person();
+    const club2 = await s.group(owner);
+    const idc = await claimId(c, 'group', club2.id);
+    const two = await Promise.all([decide(idc, { decision: 'accept' }), decide(idc, { decision: 'reject', note: 'Gleichzeitig abgelehnt.' })]);
+    expect(two.map((r) => r.status).sort()).toEqual([200, 409]);
+    const st = await one<{ status: string }>('SELECT status FROM claims WHERE id = ?', idc);
+    expect(await one('SELECT owner_id FROM groups WHERE id = ?', club2.id)).toEqual({ owner_id: st!.status === 'accepted' ? c.user.id : owner.user.id });
+  });
+
   it('[F-365] Ablehnen nur mit Begründung; Angaben sofort geleert', async () => {
     const owner = await s.person();
     const p = await s.person();
@@ -264,17 +292,23 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
     expect((await s.send('DELETE', '/api/account', rep.cookie)).status).toBe(200);
     expect(await one('SELECT owner_id, verified_at FROM groups WHERE id = ?', club.id)).toEqual({ owner_id: member.user.id, verified_at: null });
     expect(await role(club, squatter)).toBe('admin');
+    // … und die Sperre bleibt: kein neuer Antrag, und auch der nächste Wechsel überspringt ihn
+    expect(await s.errorOf(await claim(squatter, 'group', club.id))).toBe('claim_blocked');
+    expect((await s.send('DELETE', '/api/account', member.cookie)).status).toBe(200);
+    expect(await one('SELECT COUNT(*) AS n FROM groups WHERE id = ? AND owner_id = ?', club.id, squatter.user.id)).toEqual({ n: 0 });
     // Hafen: kein Übernehmen per „Position zuerst“ bei je verifizierten Häfen
-    const { mayAdoptHarbor } = await import('../../worker/claim-cleanup');
-    const db = await s.db();
-    const env = { DB: db } as never;
+    // (mayAdoptHarbor in worker/claim-cleanup.ts fragt genau diese SQL ab)
+    const { ADOPTABLE_HARBOR_SQL } = await import('../../worker/claim-sql');
+    const adoptable = async (id: string) => !!(await one(ADOPTABLE_HARBOR_SQL, id));
     const hb = await harbor(squatter);
-    expect(await mayAdoptHarbor(env, { id: hb.id, verified_at: null })).toBe(true);
+    expect(await adoptable(hb.id)).toBe(true);
     const hrep = await s.person();
     await ok(await decide(await claimId(hrep, 'harbor', hb.id), { decision: 'accept' }));
-    expect(await mayAdoptHarbor(env, { id: hb.id, verified_at: Date.now() })).toBe(false);
-    await run('UPDATE harbors SET verified_at = NULL WHERE id = ?', hb.id);
-    expect(await mayAdoptHarbor(env, { id: hb.id, verified_at: null })).toBe(false);
+    expect(await adoptable(hb.id)).toBe(false);
+    // auch nachdem die Vertretung ihr Konto gelöscht hat (Abzeichen weg) bleibt er „je verifiziert“
+    expect((await s.send('DELETE', '/api/account', hrep.cookie)).status).toBe(200);
+    expect(await one('SELECT verified_at FROM harbors WHERE id = ?', hb.id)).toEqual({ verified_at: null });
+    expect(await adoptable(hb.id)).toBe(false);
   });
 
   it('[F-368] Glocke für Admins, Antragsteller:in und Verdrängte; Mails mit Begründung und Widerspruch', async () => {
@@ -299,6 +333,12 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
     const q = await s.person();
     await ok(await decide(await claimId(q, 'group', club.id), { decision: 'reject', note: 'Leider nicht bestätigt.' }));
     expect(mails(q.email).find((m) => m.includes('abgelehnt'))).toMatch(/Leider nicht bestätigt/);
+    // gesperrter Hafen erscheint nicht in der Glocke
+    const hb = await harbor(owner);
+    await ok(await decide(await claimId(q, 'harbor', hb.id), { decision: 'reject', note: 'Hafen nicht bestätigt.' }));
+    expect((await bell(q)).some((n) => n.kind === 'claim_result' && n.href === `/h/${hb.slug}`)).toBe(true);
+    await ok(await A('PUT', `/api/admin/harbors/${hb.id}/lock`, { reason: 'Prüfung' }));
+    expect((await bell(q)).some((n) => n.href === `/h/${hb.slug}`)).toBe(false);
     // gelesen mit dem Reiter (kind)
     const r = await s.person();
     await claimId(r, 'group', (await s.group(owner)).id);
@@ -363,6 +403,12 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
     expect((await s.send('DELETE', `/api/groups/${club4.id}`, owner.cookie)).status).toBe(204);
     expect(await one('SELECT id FROM claims WHERE id = ?', qid)).toBeNull();
     const hb = await harbor(owner);
+    // Zusammenführen: offene Anträge der Dublette gelten für das Ziel
+    const dup = await harbor(owner);
+    const did = await claimId(q, 'harbor', dup.id);
+    await ok(await A('POST', `/api/admin/harbors/${dup.id}/merge`, { into: hb.id }));
+    expect(await one('SELECT target_id, status FROM claims WHERE id = ?', did)).toEqual({ target_id: hb.id, status: 'open' });
+    await s.send('DELETE', `/api/claims/${did}`, q.cookie);
     const hid = await claimId(q, 'harbor', hb.id);
     await ok(await A('DELETE', `/api/admin/harbors/${hb.id}`, { confirm: hb.id }));
     expect(await one('SELECT id FROM claims WHERE id = ?', hid)).toBeNull();
@@ -378,6 +424,10 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
     expect(await one('SELECT previous_user_id FROM claims WHERE id = ?', accepted)).toEqual({ previous_user_id: null });
     expect((await s.send('DELETE', '/api/account', p.cookie)).status).toBe(200);
     expect(await one('SELECT COUNT(*) AS n FROM claims WHERE user_id = ? OR id = ?', p.user.id, pid)).toEqual({ n: 0 });
+    // p war letztes Mitglied des übernommenen Vereins: Verein und Antrag sind weg (dass angenommene Anträge sonst ohne
+    // Konto-ID bleiben, prüft F-367 mit echter Kontolöschung)
+    expect(await one('SELECT id FROM groups WHERE id = ?', club.id)).toBeNull();
+    expect(await one('SELECT id FROM claims WHERE id = ?', accepted)).toBeNull();
   });
 
   it('[F-371] Verein eines verifizierten Hafens ordnen nur Vertretung und Moderation zu', async () => {
@@ -392,6 +442,14 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
     await ok(await A('PATCH', `/api/harbors/${hb.id}`, { clubId: null }));
     // Vertretung, die einen Verein verwaltet, ordnet zu und löst
     const repClub = await s.group(rep);
+    await run('UPDATE harbors SET club_id = ? WHERE id = ?', club.id, hb.id);
+    const repPage = await ok<{ clubChoices: Array<{ id: string }>; canClearClub: boolean }>(await s.send('GET', `/api/harbors/slug/${hb.slug}`, rep.cookie));
+    expect(repPage.clubChoices.map((c) => c.id)).toEqual([repClub.id]);
+    expect(repPage.canClearClub).toBe(true);
+    // nicht verifizierter Hafen: die Anleger:in allein bekommt kein „lösen“, das der Server ablehnen würde
+    const plain = await harbor(rep);
+    await run('UPDATE harbors SET club_id = ? WHERE id = ?', club.id, plain.id);
+    expect((await ok<{ canClearClub: boolean }>(await s.send('GET', `/api/harbors/slug/${plain.slug}`, rep.cookie))).canClearClub).toBe(false);
     await ok(await s.send('PATCH', `/api/harbors/${hb.id}`, rep.cookie, { clubId: repClub.id }));
     await run('UPDATE harbors SET club_id = ? WHERE id = ?', club.id, hb.id);
     await ok(await s.send('PATCH', `/api/harbors/${hb.id}`, rep.cookie, { clubId: null }));

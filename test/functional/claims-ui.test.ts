@@ -123,6 +123,17 @@ describe('Verifizierte Vertretung – Oberfläche', () => {
     expect(c.shadowRoot.querySelector('span')!.getAttribute('aria-label')).toMatch(/Verifiziert: Von Sail Explorer bestätigt/);
   });
 
+  it('[F-372] Eingaben bleiben beim Antrag – nach dem Neuladen nie im nächsten', async () => {
+    await import('../../src/components/sx-admin-claims');
+    const list = await mount('sx-admin-claims', { claims: [CLAIM] });
+    (list.shadowRoot.querySelector('select') as HTMLSelectElement).value = 'remove';
+    (list.shadowRoot.querySelector('textarea') as HTMLTextAreaElement).value = 'Notiz zu Antrag 1';
+    list.claims = [{ ...CLAIM, id: 'Claim00000000002', applicant: { ...CLAIM.applicant, id: 'User000000000003' } }];
+    await list.updateComplete;
+    expect((list.shadowRoot.querySelector('select') as HTMLSelectElement).value).toBe('admin');
+    expect((list.shadowRoot.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
+  });
+
   it('[F-372] Admin-Reiter „Anträge“: Liste, Annehmen mit Wahl für den bisherigen Eigner, Ablehnen', async () => {
     history.replaceState(null, '', '/admin?tab=claims');
     const page = await mount('sx-admin-page');

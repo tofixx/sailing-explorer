@@ -1,27 +1,17 @@
-// Verifizierung (Konzept 20.5, 20.8): SQL-Bausteine für Nachfolge-Sperre und Aufräumen – ohne weitere Abhängigkeiten,
+// Verifizierung (Konzept 20.5, 20.8): Bausteine für Nachfolge-Sperre und Aufräumen – ohne Abhängigkeiten zu anderen Modulen,
 // damit Gruppen, Häfen, Konten, Admin-Werkzeuge und der nächtliche Lauf sie in ihre Batches aufnehmen können.
 import type { Env } from './env';
 import { CLAIM_LIMITS, type ClaimKind } from '../src/domain/claims';
+import { ADOPTABLE_HARBOR_SQL } from './claim-sql';
+
+export { displacedSql } from './claim-sql';
 
 /**
- * SQL-Bedingung „Konto :user ist für Objekt :kind/:id verdrängt“ (angenommener Antrag mit ihm als bisheriger
- * Eigner:in). `user` und `id` sind SQL-Ausdrücke (Spalten oder Parameter), `kind` ein fester Wert.
+ * Darf ein Hafen ohne Anleger:in über „wer zuerst die Position setzt“ (Fahrtenbuch L3) übernommen werden? Nicht bei
+ * verifizierten oder je verifizierten Häfen (Konzept 20.5, `ADOPTABLE_HARBOR_SQL`).
  */
-export const displacedSql = (kind: ClaimKind, id: string, user: string): string =>
-  `EXISTS (SELECT 1 FROM claims dc WHERE dc.target_kind = '${kind === 'group' ? 'group' : 'harbor'}' AND dc.target_id = ${id}
-     AND dc.status = 'accepted' AND dc.previous_user_id = ${user})`;
-
-/**
- * Darf `userId` einen Hafen ohne Anleger:in übernehmen (Fahrtenbuch L3: wer zuerst die Position setzt)? Nie bei einem
- * verifizierten oder je verifizierten Hafen (angenommener Antrag besteht) – damit auch nie für Verdrängte, die es nur
- * dort gibt. Dort setzt nur die Moderation eine neue Anleger:in (Konzept 20.5).
- */
-export async function mayAdoptHarbor(env: Env, harbor: { id: string; verified_at?: number | null }): Promise<boolean> {
-  if (harbor.verified_at) return false;
-  const row = await env.DB.prepare(`SELECT 1 AS x FROM claims WHERE target_kind = 'harbor' AND target_id = ? AND status = 'accepted' LIMIT 1`)
-    .bind(harbor.id)
-    .first();
-  return !row;
+export async function mayAdoptHarbor(env: Env, harborId: string): Promise<boolean> {
+  return !!(await env.DB.prepare(ADOPTABLE_HARBOR_SQL).bind(harborId).first());
 }
 
 /** Objekt gelöscht (Gruppe, Hafen, auch Zusammenführen): Anträge dazu und ihre Benachrichtigungen. */
@@ -31,13 +21,15 @@ export const claimTargetCleanup = (env: Env, kind: ClaimKind, id: string): D1Pre
 ];
 
 /**
- * Konto gelöscht (`purgeUser`, auch inaktiv): eigene Anträge mit ihren Benachrichtigungen; als Verdrängte:r wird die ID
+ * Konto gelöscht (`purgeUser`, auch inaktiv): eigene offene und entschiedene Anträge mit ihren Benachrichtigungen;
+ * angenommene bleiben ohne Konto-ID – sie tragen die Sperre gegen Verdrängte (20.5, 20.6). Als Verdrängte:r wird die ID
  * geleert (ohne Konto wirkungslos, 20.9 Frage 5). Häfen, die das Konto verifiziert vertrat, verlieren das Abzeichen
  * (Gruppen: `purgeUserGroups`).
  */
 export const userClaimCleanup = (env: Env, userId: string): D1PreparedStatement[] => [
   env.DB.prepare(`DELETE FROM notifications WHERE subject_kind = 'claim' AND subject_id IN (SELECT id FROM claims WHERE user_id = ?)`).bind(userId),
-  env.DB.prepare('DELETE FROM claims WHERE user_id = ?').bind(userId),
+  env.DB.prepare(`DELETE FROM claims WHERE user_id = ? AND status <> 'accepted'`).bind(userId),
+  env.DB.prepare(`UPDATE claims SET user_id = NULL WHERE user_id = ?`).bind(userId),
   env.DB.prepare('UPDATE claims SET previous_user_id = NULL WHERE previous_user_id = ?').bind(userId),
   env.DB.prepare('UPDATE harbors SET verified_at = NULL WHERE created_by = ? AND verified_at IS NOT NULL').bind(userId),
 ];

@@ -6,7 +6,7 @@ import { HttpError, json, readJson } from './http';
 import { requireUser } from './auth';
 import { randomId } from './crypto';
 import { adminIds, adminLogStmt, isLockedTarget, requireActiveUser, requireAdmin } from './moderation';
-import { loadGroup, roleIn } from './groups';
+import { leaveGroupStmts, loadGroup, roleIn } from './groups';
 import { harborVisible, loadHarbor } from './harbors';
 import { claimResultMail, claimTransferMail, sendMail } from './mail';
 import { notifyClaim, notifyClaimResult, notifyClaimTransfer } from './notifications';
@@ -32,14 +32,15 @@ interface Target {
 
 /**
  * Ziel eines Antrags: ein Verein (Gruppe der Art `club`), den das Konto sehen darf (öffentlich oder Mitglied), bzw. ein
- * Hafen – jeweils nicht ausgeblendet und nicht gesperrt. Alles andere wie „gibt es nicht“ (F-361).
+ * Hafen – jeweils nicht ausgeblendet und nicht gesperrt. Alles andere wie „gibt es nicht“ (F-361). Beim Entscheiden
+ * (`userId` null) zählt die Sichtbarkeit nicht – sonst könnte der Eigner die Annahme durch „geschlossen“ blockieren.
  */
-async function loadTarget(env: Env, kind: unknown, id: unknown, userId: string): Promise<Target> {
+async function loadTarget(env: Env, kind: unknown, id: unknown, userId: string | null): Promise<Target> {
   if (!isClaimKind(kind) || typeof id !== 'string' || !SHARE_ID_RE.test(id)) throw NOT_FOUND();
   if (kind === 'group') {
     const g = await loadGroup(env, id);
     if (!g || g.kind !== 'club' || g.hidden_at || g.locked_at) throw NOT_FOUND();
-    if (g.visibility !== 'public' && !(await roleIn(env, userId, g.id))) throw NOT_FOUND();
+    if (userId && g.visibility !== 'public' && !(await roleIn(env, userId, g.id))) throw NOT_FOUND();
     return { kind, id: g.id, name: g.name, slug: g.slug, holder: g.owner_id, verified: !!g.verified_at };
   }
   const h = await loadHarbor(env, id);
@@ -57,7 +58,8 @@ interface ClaimRow {
   id: string;
   target_kind: ClaimKind;
   target_id: string;
-  user_id: string;
+  /** NULL, wenn das Konto gelöscht ist (angenommene Anträge bleiben als Sperre, 20.8) */
+  user_id: string | null;
   role_text: string;
   reason: string;
   contact: string;
@@ -136,12 +138,18 @@ export async function createClaim(request: Request, env: Env): Promise<Response>
   if ((c?.user_recent ?? 0) >= L.perWindow) throw new HttpError(429, 'claim_limit', `Höchstens ${L.perWindow} Anträge in 30 Tagen.`);
   if ((c?.target_open ?? 0) >= L.openPerTarget) throw new HttpError(429, 'claim_busy', 'Hierzu liegen schon viele Anträge vor – bitte wende dich direkt an die Moderation.');
   const id = randomId();
-  await env.DB.prepare(
-    `INSERT INTO claims (id, target_kind, target_id, user_id, role_text, reason, contact, evidence_url, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
-  )
-    .bind(id, t.kind, t.id, user.id, input.role, input.reason, input.contact, input.evidenceUrl, now)
-    .run();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO claims (id, target_kind, target_id, user_id, role_text, reason, contact, evidence_url, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+    )
+      .bind(id, t.kind, t.id, user.id, input.role, input.reason, input.contact, input.evidenceUrl, now)
+      .run();
+  } catch (err) {
+    // Doppelklick: der Teil-Index „ein offener Antrag je Konto und Objekt“ (0026) schlägt an
+    if (String(err).includes('UNIQUE')) throw new HttpError(409, 'claim_open', 'Dein Antrag ist schon in Prüfung.');
+    throw err;
+  }
   await notifyClaim(env, id, user.id, [...adminIds(env)]);
   return json(await claimState(env, t, user.id), { status: 201 });
 }
@@ -173,7 +181,8 @@ export interface AdminClaim {
   kind: ClaimKind;
   target: { id: string; name: string; path: string | null; verified: boolean };
   holder: { id: string; displayName: string; handle: string | null; since: number } | null;
-  applicant: { id: string; displayName: string; handle: string | null; since: number | null };
+  /** null: Konto gelöscht (angenommener Antrag bleibt als Sperre gegen Rückübernahme) */
+  applicant: { id: string; displayName: string; handle: string | null; since: number | null } | null;
   role: string;
   reason: string;
   contact: string;
@@ -224,7 +233,7 @@ export async function adminClaims(request: Request, env: Env): Promise<Response>
       verified: !!r.t_verified,
     },
     holder: r.h_id ? { id: r.h_id, displayName: r.h_name || funnyName(r.h_id), handle: r.h_handle, since: r.h_since ?? 0 } : null,
-    applicant: { id: r.user_id, displayName: r.a_name || funnyName(r.user_id), handle: r.a_handle, since: r.a_since },
+    applicant: r.user_id ? { id: r.user_id, displayName: r.a_name || funnyName(r.user_id), handle: r.a_handle, since: r.a_since } : null,
     role: r.role_text,
     reason: r.reason,
     contact: r.contact,
@@ -254,10 +263,7 @@ function transferStmts(env: Env, t: Target, to: string, before: string | null, p
   const prev = !before
     ? []
     : previous === 'remove'
-      ? [
-          env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(t.id, before),
-          env.DB.prepare('UPDATE users SET home_club_id = NULL WHERE id = ? AND home_club_id = ?').bind(before, t.id),
-        ]
+      ? leaveGroupStmts(env, t.id, before)
       : [env.DB.prepare('UPDATE group_members SET role = ? WHERE group_id = ? AND user_id = ?').bind(previous, t.id, before)];
   return [
     ...prev,
@@ -270,53 +276,72 @@ function transferStmts(env: Env, t: Target, to: string, before: string | null, p
   ];
 }
 
+/** Fehlertext der Zusicherung in `decideClaim` (NOT-NULL-Verletzung an `claims.status`). */
+const CLAIM_RACE = 'NOT NULL constraint failed: claims.status';
+
 /**
  * POST /api/admin/claims/:id { decision: 'accept'|'reject', note, previous } – Entscheidung (F-364, F-365). Annehmen
  * überträgt in einem Batch, verifiziert und lehnt weitere offene Anträge zum Objekt ab; Ablehnen verlangt eine
  * Begründung. Danach Glocke und Mail an die Beteiligten (F-368).
+ *
+ * Gleichzeitige Entscheidungen (zwei Admins, zwei Tabs): Der Batch nimmt den Antrag nur an, wenn er noch offen ist und
+ * Eigner bzw. Anleger:in noch dieselbe ist wie gelesen; eine Zusicherung direkt danach setzt sonst `status` auf NULL –
+ * die NOT-NULL-Verletzung rollt den ganzen Batch zurück (D1-Batches sind Transaktionen) → 409.
  */
 export async function decideClaim(request: Request, env: Env, id: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
   const claim = SHARE_ID_RE.test(id) ? await env.DB.prepare('SELECT * FROM claims WHERE id = ?').bind(id).first<ClaimRow>() : null;
   if (!claim) throw new HttpError(404, 'not_found', 'Diesen Antrag gibt es nicht (mehr).');
-  if (claim.status !== 'open') throw new HttpError(409, 'claim_decided', 'Über diesen Antrag ist schon entschieden.');
+  const DECIDED = () => new HttpError(409, 'claim_decided', 'Über diesen Antrag ist inzwischen entschieden oder der Eigner hat gewechselt – bitte neu laden.');
+  if (claim.status !== 'open' || !claim.user_id) throw DECIDED();
   const body = await readJson<{ decision?: unknown; note?: unknown; previous?: unknown }>(request);
   const now = Date.now();
   if (body.decision === 'reject') {
     const note = parseDecisionNote(body.note);
     if (!note) throw new HttpError(400, 'invalid_note', `Begründung: ${CLAIM_LIMITS.noteMin}–${CLAIM_LIMITS.noteMax} Zeichen (geht an die Antragsteller:in).`);
-    await env.DB.batch([rejectStmt(env, 'id = ?4', admin.id, note, now, claim.id), adminLogStmt(env, admin.id, 'claim_reject', claim.target_kind, claim.target_id, note, now)]);
+    const [res] = await env.DB.batch([rejectStmt(env, 'id = ?4', admin.id, note, now, claim.id)]);
+    if (!res.meta.changes) throw DECIDED();
+    await adminLogStmt(env, admin.id, 'claim_reject', claim.target_kind, claim.target_id, note, now).run();
     await announceResult(env, claim.id);
     return json({ status: 'rejected' });
   }
   if (body.decision !== 'accept') throw new HttpError(400, 'invalid_decision', 'Bitte annehmen oder ablehnen.');
   const previous: unknown = body.previous ?? 'admin';
   if (!isPreviousAction(previous)) throw new HttpError(400, 'invalid_previous', 'Unbekannte Wahl für die bisherige Eigner:in.');
-  // Ziel aus Sicht der Antragsteller:in prüfen (ausgeblendet, gesperrt, kein Verein mehr → 409)
+  // Ziel prüfen (ausgeblendet, gesperrt, kein Verein mehr → 409) – Sichtbarkeit zählt hier nicht
   let t: Target;
   try {
-    t = await loadTarget(env, claim.target_kind, claim.target_id, claim.user_id);
+    t = await loadTarget(env, claim.target_kind, claim.target_id, null);
   } catch {
-    throw new HttpError(409, 'target_unavailable', 'Das Objekt ist ausgeblendet, gesperrt oder nicht mehr sichtbar – erst klären.');
+    throw new HttpError(409, 'target_unavailable', 'Das Objekt ist ausgeblendet, gesperrt oder kein Verein mehr – erst klären.');
   }
-  const applicant = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND locked_at IS NULL AND suspended_at IS NULL').bind(claim.user_id).first();
+  const userId = claim.user_id;
+  const applicant = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND locked_at IS NULL AND suspended_at IS NULL').bind(userId).first();
   if (!applicant) throw new HttpError(409, 'applicant_inactive', 'Das Konto der Antragsteller:in ist gesperrt oder suspendiert.');
   const holderExists = t.holder ? await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(t.holder).first() : null;
   const before = holderExists ? t.holder : null;
-  const displaced = before && before !== claim.user_id ? before : null;
+  const displaced = before && before !== userId ? before : null;
   const action = displaced ? (t.kind === 'harbor' ? 'none' : previous) : null;
+  const holderSql = t.kind === 'group' ? 'SELECT owner_id FROM groups WHERE id = ?8' : 'SELECT created_by FROM harbors WHERE id = ?8';
   const { results: others } = await env.DB.prepare(`SELECT id FROM claims WHERE target_kind = ? AND target_id = ? AND status = 'open' AND id <> ?`)
     .bind(t.kind, t.id, claim.id)
     .all<{ id: string }>();
-  await env.DB.batch([
-    ...transferStmts(env, t, claim.user_id, before, previous, now),
-    env.DB.prepare(
-      `UPDATE claims SET status = 'accepted', decided_by = ?1, decided_at = ?2, decision_note = ?3, previous_user_id = ?4, previous_action = ?5
-       WHERE id = ?6 AND status = 'open'`,
-    ).bind(admin.id, now, parseDecisionNote(body.note) ?? '', displaced, action, claim.id),
-    rejectStmt(env, 'target_kind = ?4 AND target_id = ?5 AND id <> ?6', admin.id, 'Ein anderer Antrag wurde angenommen.', now, t.kind, t.id, claim.id),
-    adminLogStmt(env, admin.id, 'claim_accept', t.kind, t.id, `${before ?? '–'} → ${claim.user_id}${action ? ` (${action})` : ''}`, now),
-  ]);
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE claims SET status = 'accepted', decided_by = ?1, decided_at = ?2, decision_note = ?3, previous_user_id = ?4, previous_action = ?5
+         WHERE id = ?6 AND status = 'open' AND (${holderSql}) IS ?7`,
+      ).bind(admin.id, now, parseDecisionNote(body.note) ?? '', displaced, action, claim.id, t.holder, t.id),
+      // Zusicherung: nur weiter, wenn genau diese Entscheidung gegriffen hat (sonst Rollback, siehe oben)
+      env.DB.prepare(`UPDATE claims SET status = NULL WHERE id = ?1 AND NOT (status = 'accepted' AND decided_at IS ?2 AND decided_by IS ?3)`).bind(claim.id, now, admin.id),
+      ...transferStmts(env, t, userId, before, previous, now),
+      rejectStmt(env, 'target_kind = ?4 AND target_id = ?5 AND id <> ?6', admin.id, 'Ein anderer Antrag wurde angenommen.', now, t.kind, t.id, claim.id),
+      adminLogStmt(env, admin.id, 'claim_accept', t.kind, t.id, `${before ?? '–'} → ${userId}${action ? ` (${action})` : ''}`, now),
+    ]);
+  } catch (err) {
+    if (String(err).includes(CLAIM_RACE)) throw DECIDED();
+    throw err;
+  }
   await announceResult(env, claim.id);
   for (const o of others) await announceResult(env, o.id);
   if (displaced) await announceTransfer(env, claim.id);
