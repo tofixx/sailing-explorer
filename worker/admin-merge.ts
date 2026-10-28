@@ -180,6 +180,8 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     ).bind(A, B),
     db.prepare('UPDATE group_requests SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('UPDATE group_boats SET added_by = ?1 WHERE added_by = ?2').bind(A, B),
+    // Törns in Gruppen (share_groups) hängen am Törn, nicht am Konto: sie wandern mit den Törns, und die Mitgliedschaften
+    // gehen oben ans Ziel – die Eigentümer:in bleibt Mitglied jeder ausgewählten Gruppe (Konzept 11.12).
     // Crew: nicht auf eigenen Törns, nicht doppelt
     // Crew-Rollen (Konzept 15): beide am selben Törn – die höhere Rolle gilt. Skipper zuerst vormerken, weil es je Törn
     // nur einen gibt (share_crew_one_skipper); nach dem Löschen der Quellzeile wird die Vormerkung zur Rolle.

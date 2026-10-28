@@ -8,7 +8,7 @@ import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
 import { assertActive, isAdmin, logLockedView } from './moderation';
 import { checkVisibilityChoice, isSupporter, supportConfigured, visibilityRequiresSupport } from './supporter';
-import { groupActivityCleanup, recordBoat, recordMember } from './activity';
+import { groupActivityCleanup, memberShareTargetsCleanup, recordBoat, recordMember } from './activity';
 import { followStats } from './follows';
 import { clearHomeClub } from './home';
 import { loadCover, pageCover, removeCoverOf } from './covers';
@@ -307,6 +307,7 @@ export async function removeGroup(env: Env, id: string): Promise<void> {
     env.DB.prepare('UPDATE groups SET parent_id = NULL WHERE parent_id = ?').bind(id),
     env.DB.prepare('DELETE FROM posts WHERE group_id = ?').bind(id),
     env.DB.prepare('DELETE FROM group_boats WHERE group_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM share_groups WHERE group_id = ?').bind(id),
     env.DB.prepare('DELETE FROM group_requests WHERE group_id = ?').bind(id),
     env.DB.prepare('DELETE FROM group_members WHERE group_id = ?').bind(id),
     env.DB.prepare('DELETE FROM groups WHERE id = ?').bind(id),
@@ -346,6 +347,7 @@ export async function purgeUserGroups(env: Env, userId: string): Promise<D1Prepa
     env.DB.prepare('DELETE FROM posts WHERE author_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM group_requests WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM group_members WHERE user_id = ?').bind(userId),
+    env.DB.prepare('DELETE FROM share_groups WHERE share_id IN (SELECT id FROM shares WHERE user_id = ?)').bind(userId),
     env.DB.prepare('UPDATE group_boats SET added_by = NULL WHERE added_by = ?').bind(userId),
     env.DB.prepare('DELETE FROM group_boats WHERE boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(userId),
   ];
@@ -374,9 +376,10 @@ export async function listMyGroups(request: Request, env: Env): Promise<Response
 }
 
 const PUBLIC_SHARE = `s.visibility = 'public' AND s.hidden_at IS NULL`;
-const GROUP_SHARES = `(s.user_id IN (SELECT user_id FROM group_members WHERE group_id = ?1) OR s.boat_id IN (SELECT boat_id FROM group_boats WHERE group_id = ?1))`;
+/** Törns der Gruppe = die in ihr ausgewählten (share_groups, F-376) – nicht mehr alle der Mitglieder und Boote. */
+const GROUP_SHARES = `s.id IN (SELECT share_id FROM share_groups WHERE group_id = ?1)`;
 
-/** Kennzahlen: Mitglieder, öffentliche Boote, öffentliche Törns der Mitglieder und Gruppen-Boote, Saison (Kalenderjahr). */
+/** Kennzahlen: Mitglieder, öffentliche Boote, öffentliche in der Gruppe ausgewählte Törns, Saison (Kalenderjahr). */
 async function groupStats(env: Env, groupId: string, now = Date.now()) {
   const yearStart = Date.UTC(new Date(now).getUTCFullYear(), 0, 1);
   const row = await env.DB.prepare(
@@ -459,7 +462,7 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     others: members.length - named.length,
     boats: boatList,
     social: await followStats(env, 'group', group.id, user?.id ?? null),
-    // Titelbild und neueste öffentliche Fotos aus Törns der Boote und Mitglieder (Konzept 13)
+    // Titelbild und neueste öffentliche Fotos aus den in der Gruppe gezeigten Törns (Konzept 13, 11.12)
     ...pageCover('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request)),
     photos: await galleryPhotos(env, 'group', group.id),
     // Ort für die Karte im Hintergrund (F-351): Position des Heimathafens, sonst null
@@ -593,6 +596,9 @@ export async function removeMember(request: Request, env: Env, id: string, who: 
     // „Mein Verein“ fällt mit (F-170), ebenso die Beitritts-Neuigkeit (sonst stünde sie bis zu 12 Monate im Stream)
     clearHomeClub(env, target, group.id),
     env.DB.prepare('DELETE FROM activity WHERE bucket = ?').bind(`member:${group.id}:${target}`),
+    // Törns in Gruppen (F-377): nur Mitglieder zeigen Törns in der Gruppe – ihre Törns verlassen sie mit ihnen.
+    env.DB.prepare('DELETE FROM share_groups WHERE group_id = ? AND share_id IN (SELECT id FROM shares WHERE user_id = ?)').bind(group.id, target),
+    memberShareTargetsCleanup(env, group.id, target),
   ]);
   return new Response(null, { status: 204 });
 }

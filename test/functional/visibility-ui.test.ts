@@ -157,7 +157,7 @@ describe('sx-share-dialog: Sichtbarkeit', () => {
     expect(option(p, 'public').getAttribute('aria-checked')).toBe('true');
     expect(el.shadowRoot.querySelector('.consequence')!.textContent).toMatch(/für alle sichtbar.*Profil.*Entdecken/);
     el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
-    expect(submits).toEqual([{ title: 'Törn', visibility: 'public', boatId: null, includeView: true }]);
+    expect(submits).toEqual([{ title: 'Törn', visibility: 'public', boatId: null, includeView: true, groupIds: null }]);
   });
 
   it('kostenlos: gesperrte Stufe zeigt das Unterstützen-Angebot, die Wahl bleibt „Öffentlich“', async () => {

@@ -9,7 +9,8 @@ import { deleteKeys, photoKeysForShares, previewKey, shareKey } from './photo-ke
 import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
 import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, subtractShareStmt } from './storage';
 import { deleteShareNotifications } from './notification-cleanup';
-import { deleteShareActivity, recordVoyage } from './activity';
+import { deleteShareActivity, deleteShareGroups, recordVoyage } from './activity';
+import { checkGroupIds, insertShareGroupsStmt, presetShareGroupsStmt, replaceShareGroups, selectedGroupIds, selectedGroupsOf } from './share-groups';
 import { deleteShareReactions } from './reaction-cleanup';
 import { quotaVerdict } from '../src/domain/limits';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseCommentsMode, parseVisibility } from './validate';
@@ -170,6 +171,14 @@ async function checkPayload(bytes: Uint8Array): Promise<void> {
   if (!head.startsWith(PAYLOAD_PREFIX)) throw new HttpError(400, 'invalid_payload', 'Ungültiges Upload-Format.');
 }
 
+function parseJsonHeader(v: string): unknown {
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+}
+
 function decodeHeader(v: string | null): string {
   if (!v) return '';
   try {
@@ -203,6 +212,9 @@ export async function createShare(request: Request, env: Env): Promise<Response>
   if (!canChooseVisibility(visibility, usage.supporter)) throw visibilityRequiresSupport(env);
 
   const boatId = await checkBoat(env, user.id, h.get('X-Share-Boat'));
+  // „In Gruppen zeigen“ (F-373): JSON-Liste der Gruppen-IDs (`[]` = keine); fehlt der Header, gelten die Gruppen des Boots.
+  const rawGroups = h.get('X-Share-Groups');
+  const groupIds = rawGroups === null ? null : await checkGroupIds(env, user.id, parseJsonHeader(rawGroups));
 
   const bytes = await readBodyCapped(request, Math.min(LIMITS.uploadBytes, remaining)).catch((e: unknown) => {
     if (e instanceof HttpError && e.status === 413) throw new HttpError(413, 'too_large', 'Upload zu groß (max. 12 MB komprimiert) oder Kontingent erschöpft.');
@@ -245,6 +257,7 @@ export async function createShare(request: Request, env: Env): Promise<Response>
       row.visibility === 'public' ? 1 : 0, row.dist_nm, row.started_at,
     ),
     addStorageStmt(env, row.size_bytes),
+    ...(groupIds ? [insertShareGroupsStmt(env, row.id, groupIds, now)] : boatId ? [presetShareGroupsStmt(env, row.id, user.id, boatId, now)] : []),
   ]).catch(async (err: unknown) => {
     // nur aufräumen, wenn die Zeile wirklich fehlt (ein Timeout kann trotz Schreiben einen Fehler melden)
     if (!(await env.DB.prepare('SELECT 1 AS x FROM shares WHERE id = ?').bind(row.id).first())) await deleteKeys(env, [shareKey(row.id)]);
@@ -253,20 +266,26 @@ export async function createShare(request: Request, env: Env): Promise<Response>
   const saved = await getShareRow(env, row.id);
   // Neuigkeiten (Konzept 11.3): nur öffentliche Törns kommen ins Log.
   if (row.visibility === 'public') await recordVoyage(env, row, now);
-  return json({ share: shareShape(saved ?? row, true) }, { status: 201 });
+  return json({ share: { ...shareShape(saved ?? row, true), groupIds: await selectedGroupIds(env, row.id) } }, { status: 201 });
 }
 
 /** GET /api/shares – eigene Freigaben. */
 export async function listShares(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const { results } = await env.DB.prepare(`${SHARE_SELECT} WHERE s.user_id = ? AND s.locked_at IS NULL ORDER BY s.created_at DESC`).bind(user.id).all<ShareRow>();
-  return json({ shares: results.map((r) => shareShape(r, true)) });
+  // je Törn die Auswahl „In Gruppen zeigen“ (F-375) – für den Hinweis beim Umstellen auf öffentlich
+  const groups = await selectedGroupsOf(env, user.id);
+  return json({ shares: results.map((r) => ({ ...shareShape(r, true), groupIds: groups.get(r.id) ?? [] })) });
 }
 
-/** Metadaten der Einzelansicht: dazu Eigentümer-Profil und Gruppen, soweit sichtbar (F-228). */
+/**
+ * Metadaten der Einzelansicht: dazu Eigentümer-Profil und Gruppen, soweit sichtbar (F-228); die Eigentümer:in
+ * bekommt zusätzlich ihre Auswahl „In Gruppen zeigen“ (`groupIds`, F-375).
+ */
 const shareDetail = async (env: Env, row: ShareRow, isOwner: boolean, viewerId: string | null) => ({
   ...shareShape(row, isOwner),
   ...(await shareContext(env, row, viewerId)),
+  ...(isOwner ? { groupIds: await selectedGroupIds(env, row.id) } : {}),
 });
 
 /** GET /api/shares/:id – Metadaten. */
@@ -292,10 +311,10 @@ export async function getShareData(request: Request, env: Env, id: string): Prom
   return withApiHeaders(new Response(obj.body, { headers, encodeBody: 'manual' }));
 }
 
-/** PATCH /api/shares/:id – Titel, Sichtbarkeit, Link erneuern (rotateKey), Boot, gespeicherte Ansicht. */
+/** PATCH /api/shares/:id – Titel, Sichtbarkeit, Link erneuern (rotateKey), Boot, gespeicherte Ansicht, Gruppen. */
 export async function updateShare(request: Request, env: Env, id: string): Promise<Response> {
   const { row, user } = await ownedShare(request, env, id);
-  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown; commentsMode?: unknown }>(request);
+  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown; commentsMode?: unknown; groupIds?: unknown }>(request);
   const previous = row.visibility;
   const previousBoat = row.boat_id;
   if (body.title !== undefined) {
@@ -318,6 +337,8 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
     if (!mode) throw new HttpError(400, 'invalid_comments_mode', 'Unbekannte Einstellung für Kommentare.');
     row.comments_mode = mode;
   }
+  // „In Gruppen zeigen“ (F-375) – geprüft vor dem Schreiben; ein anderes Boot ändert die Auswahl nicht.
+  const groupIds = body.groupIds === undefined ? null : await checkGroupIds(env, user.id, body.groupIds);
   const boatChanged = body.boatId !== undefined && row.boat_id !== previousBoat;
   row.updated_at = Date.now();
   // Ein anderes Boot ändert, was der Skipper bestätigt hat (Konzept 15): Bestätigungen fallen.
@@ -325,6 +346,7 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
   await env.DB.prepare('UPDATE shares SET title = ?, visibility = ?, share_key = ?, listed = ?, boat_id = ?, view = ?, comments_mode = ?, updated_at = ? WHERE id = ?')
     .bind(row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.comments_mode ?? 'on', row.updated_at, row.id)
     .run();
+  if (groupIds) await env.DB.batch(replaceShareGroups(env, row.id, user.id, groupIds, row.updated_at));
   const saved = await getShareRow(env, row.id);
   // Erst öffentlich geschaltet: jetzt (einmal je Törn) in die Neuigkeiten.
   if (previous !== 'public' && row.visibility === 'public') await recordVoyage(env, row, row.updated_at);
@@ -344,7 +366,7 @@ export async function removeShare(env: Env, id: string): Promise<void> {
   // Datei zurück statt einer Datei, die niemand mehr findet. Die Foto-Zeilen fallen per ON DELETE CASCADE.
   await deleteKeys(env, [shareKey(id), previewKey(id), ...(await photoKeysForShares(env, [id]))]);
   // Speicher vom globalen Zähler abziehen (vor dem Löschen der Zeile), Meldungen entfernen, Törn löschen – ein Batch.
-  await env.DB.batch([subtractShareStmt(env, id), deleteShareReports(env, id), deleteShareReactions(env, id), deleteShareActivity(env, id), deleteShareNotifications(env, id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id)]);
+  await env.DB.batch([subtractShareStmt(env, id), deleteShareReports(env, id), deleteShareReactions(env, id), deleteShareActivity(env, id), deleteShareGroups(env, id), deleteShareNotifications(env, id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id)]);
 }
 
 /**

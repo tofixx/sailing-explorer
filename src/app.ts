@@ -620,6 +620,7 @@ export class App {
     on<{ kind: CoverKind; id: string; focusY: number; previous: number }>('sx-cover-focus', (d, e) => this.moveCover(d, e));
     on<{ id: string; patch: Parameters<SessionController['updateShare']>[1] }>('sx-share-update', (d) => s.updateShare(d.id, d.patch));
     on<string>('sx-share-delete', (id) => s.deleteShare(id));
+    on<{ id: string; groupIds: string[] }>('sx-share-groups-save', (d) => s.saveShareGroups(d.id, d.groupIds));
     on<Parameters<SessionController['saveProfile']>[0]>('sx-profile-save', (p) => s.saveProfile(p));
     on<{ id: string | null; input: Parameters<SessionController['saveBoat']>[1] }>('sx-boat-save', (d) => s.saveBoat(d.id, d.input));
     on<string>('sx-boat-delete', (id) => s.deleteBoat(id));

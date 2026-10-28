@@ -77,8 +77,10 @@ export function social(h: Harness) {
     return ((await res.json()) as { boat: { id: string; name: string } }).boat;
   }
 
-  async function share(owner: Person, o: { visibility?: string; title?: string; boatId?: string; distNm?: number; startedAt?: number } = {}) {
+  /** `groups`: „In Gruppen zeigen“ (F-373); ohne Angabe gelten die Gruppen des Boots. */
+  async function share(owner: Person, o: { visibility?: string; title?: string; boatId?: string; distNm?: number; startedAt?: number; groups?: string[] } = {}) {
     const headers: Record<string, string> = {};
+    if (o.groups) headers['X-Share-Groups'] = JSON.stringify(o.groups);
     if (o.boatId) headers['X-Share-Boat'] = o.boatId;
     if (o.distNm !== undefined) headers['X-Share-Distance'] = String(o.distNm);
     if (o.startedAt !== undefined) headers['X-Share-Started'] = String(o.startedAt);

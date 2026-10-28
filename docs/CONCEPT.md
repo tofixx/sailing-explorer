@@ -1009,7 +1009,7 @@ bleiben seine Teams als eigenständige Gruppen bestehen.
 | Sichtbarkeit | wie überall (Abschnitt 1): `public` gelistet und indexierbar; `unlisted` nur mit Schlüssel; `private` („geschlossen“) nur für Mitglieder. E1: kostenlos nur öffentlich, „Nur mit Link“ und „geschlossen“ verlangen laufenden Unterstützer-Status des **Eigners** (402), E4: bestehende Stufe bleibt nach Ende der Unterstützung |
 | Mitgliedschaft öffnet nichts | Mitglieder sehen weiterhin nur öffentliche Törns anderer (Abschnitt 1.2, 10.6). Die Gruppe selbst sehen Mitglieder unabhängig von ihrer Stufe |
 | Boote | Eigner und Admins eines Boots ordnen es Gruppen zu, in denen sie Mitglied sind (`group_boats`, ein Boot in mehreren Gruppen). Entfernen: Boot-Verwalter oder Gruppen-Admins. Die Gruppenseite nennt nur öffentliche, nicht ausgeblendete Boote |
-| Gruppenseite | Kopf (Name, Art, Heimathafen, Beschreibung, Verein bzw. Teams), Kennzahlen (Mitglieder, Boote, sm und Törns – nur öffentliche, nicht ausgeblendete Törns der Mitglieder und der Gruppen-Boote; „Saison“ = Kalenderjahr), Mitglieder (namentlich nur mit öffentlichem Profil, sonst „+ n weitere“; Admins sehen alle Anzeigenamen), Boote, Neuigkeiten. Link-Vorschau wie `/u` und `/b` |
+| Gruppenseite | Kopf (Name, Art, Heimathafen, Beschreibung, Verein bzw. Teams), Kennzahlen (Mitglieder, Boote, sm und Törns – nur öffentliche, nicht ausgeblendete Törns, die in der Gruppe gezeigt werden (11.12); „Saison“ = Kalenderjahr), Mitglieder (namentlich nur mit öffentlichem Profil, sonst „+ n weitere“; Admins sehen alle Anzeigenamen), Boote, Neuigkeiten. Link-Vorschau wie `/u` und `/b` |
 | Moderation | `hidden_at` an `groups` und `posts`; Meldearten `group` und `post`. Ausgeblendete Gruppen verhalten sich wie nicht existent außer für Eigner/Admins der Gruppe und die Moderation. Gesperrte Konten legen keine Gruppen an, laden nicht ein, fragen nicht an, schreiben keine Beiträge und folgen niemandem; Gruppen gesperrter Eigner verschwinden aus /entdecken, Aktivitäten gesperrter Konten aus den Neuigkeiten |
 
 ### 11.2 Folgen
@@ -1028,7 +1028,7 @@ Wenn etwas passiert, schreibt der Worker **eine** Zeile `activity` (`kind`, `act
 
 | Ereignis | `kind` | Ziele (`activity_target`) |
 |---|---|---|
-| Törn wird öffentlich (Anlegen oder Wechsel, einmal je Törn) | `voyage` | Segler (`user`), Boot, alle Gruppen des Boots und des Seglers |
+| Törn wird öffentlich (Anlegen oder Wechsel, einmal je Törn) | `voyage` | Segler (`user`), Boot, Hafen des Boots (12.4), die **ausgewählten** Gruppen des Törns (`share_groups`, 11.12) |
 | Fotos zu einem öffentlichen Törn (gebündelt „n neue Fotos“ pro Törn und Tag, `bucket = photos:<törn>:<tag>`) | `photos` | wie `voyage` |
 | Neues Mitglied (Einladung oder Anfrage angenommen) | `member` | Gruppe |
 | Boot einer Gruppe zugeordnet | `boat` | Gruppe, Boot |
@@ -1116,9 +1116,9 @@ verhindert Doppelversand. Ohne Neues keine Mail. Einschalten zählt erst ab dann
 | Anlass | Was |
 |---|---|
 | Konto löschen (`purgeUser`) | Mitgliedschaften, Anfragen, Folgen (eigene und auf das Konto), Beiträge, Aktivitäten des Kontos und seiner Törns. Eigene Gruppen gehen an den dienstältesten Admin über; ohne Admin an das dienstälteste Mitglied, nur ohne weitere Mitglieder gelöscht (13.4) |
-| Törn löschen/ablaufen | Aktivitäten mit dem Törn als Gegenstand |
+| Törn löschen/ablaufen | Aktivitäten mit dem Törn als Gegenstand, seine Gruppen-Auswahl (`share_groups`) |
 | Boot löschen | Gruppen-Zuordnungen, Folgen, Aktivitäten des Boots, Ziele `boat` |
-| Gruppe löschen | Mitglieder, Anfragen, Boots-Zuordnungen, Beiträge, Einladungen, Folgen, Aktivitäten der Gruppe, Ziele `group`, Meldungen |
+| Gruppe löschen | Mitglieder, Anfragen, Boots-Zuordnungen, gezeigte Törns (`share_groups`), Beiträge, Einladungen, Folgen, Aktivitäten der Gruppe, Ziele `group`, Meldungen |
 | Nächtlich | Aktivitäten älter als **12 Monate** (in Portionen), Ziele ohne Objekt, Aktivitäten ohne Ziel, Foto-Bündel ohne Fotos, Anfragen älter als 90 Tage, Folgen auf nicht mehr existierende Ziele, Beitrags-Zähler älter als 24 h |
 
 ### 11.10 Nächste Phase (nur vorbereitet, nicht gebaut)
@@ -1132,6 +1132,42 @@ Das Datenmodell trägt die nächsten Schritte ohne Tabellenneubau:
   Prüfung beim Lesen wird um „Autor-Profil öffentlich“ ergänzt.
 - **Benachrichtigungs-Glocke:** umgesetzt in Abschnitt 17 (Oktober 2026).
 - `activity.kind`, `subject_kind` und `activity_target.target_kind` sind Text ohne `CHECK` (Prinzip Architektur 7).
+
+### 11.12 Törns in Gruppen: beim Teilen auswählen (Entscheidung 28.10.2026)
+
+Betreiber: „derzeit werden Fotos und Seemeilen der Mitglieder z. B. im Hafen gepostet oder Gruppe Mittwochsregatta,
+ideal wäre: jemand veröffentlicht einen Törn da in der Gruppe und dann taucht das dort auf … das ist so herum
+verwirrend.“ Gewählt: **beim Teilen auswählen** (F-373 … F-378).
+
+- **Auswahl:** Beim Speichern bzw. Teilen zeigt der Dialog „In Gruppen zeigen“ mit einem Haken je Gruppe, in der die
+  Eigentümer:in Mitglied ist (nicht ausgeblendet, nicht gesperrt). Vorausgewählt sind die Gruppen, denen das Boot des
+  Törns zugeordnet ist; ohne Boot keine. Ein Boot in einer Gruppe, in der man nicht Mitglied ist (z. B. als
+  Boots-Admin), wählt dort nichts vor. Ohne Angabe (ältere Oberflächen) gilt dieselbe Vorauswahl.
+- **Wirkung:** Nur ausgewählte **öffentliche** Törns erscheinen im Gruppen-Stream und zählen in Kennzahlen (Seemeilen,
+  Törns, Saison), Meilensteinen, Galerie, Wochenmail und „in <Gruppe>“ am Törn (F-228). Andere Törns der Mitglieder
+  erscheinen dort nicht mehr; im persönlichen Stream bleiben sie über Segler, Boot, Teammitglieder und Gefolgtes (12.4).
+- **Hafen bleibt automatisch:** Törns öffentlicher Boote mit Heimathafen erscheinen weiter im Hafen (12.4).
+- **Später ändern:** am gespeicherten Törn im Teilen-Dialog (`PATCH /api/shares/:id { groupIds }`); die Gruppen-Ziele
+  der Törn- und Foto-Aktivitäten werden angeglichen (neue Ziele mit der Zeit der Aktivität – nichts springt nach oben
+  oder zählt erneut). Ein Bootswechsel ändert die Auswahl nicht. Zeilen ausgeblendeter oder gesperrter Gruppen bleiben
+  beim Ersetzen stehen (nicht wählbar, Sperre umkehrbar). Meilensteine werden nur beim Veröffentlichen geprüft, nicht
+  beim späteren Ändern der Auswahl.
+  Im Dialog gilt die Auswahl sofort (optimistisch); die Änderungen gehen nacheinander als ganze Liste an den Server,
+  ein Fehler setzt auf den Server-Stand zurück und erscheint im Dialog. Gecachte öffentliche Gruppen-Streams (60 s)
+  und RSS-Feeds (600 s) folgen mit dieser Verzögerung. In „Konto → Freigaben“ nennt die Sichtbarkeit, in welchen
+  Gruppen der Törn (öffentlich) erscheint.
+- **Daten:** `share_groups (share_id, group_id, created_at)` (`0028_share_groups.sql`). Invariante: die Eigentümer:in
+  ist Mitglied der Gruppe.
+- **Bestand (Migration):** jeder Törn bekommt die Gruppen seines Boots, in denen die Eigentümer:in Mitglied ist – nicht
+  mehr alle Gruppen der Segler:in. Auch nicht öffentliche Törns, damit ein späteres Veröffentlichen sie wie bisher in
+  den Boots-Gruppen zeigt. Gruppen-Ziele bestehender Törn- und Foto-Aktivitäten werden darauf angeglichen. Anders als
+  die Vorauswahl beim Anlegen übernimmt die Migration auch ausgeblendete und gesperrte Gruppen (Bestand bleibt
+  erhalten, gelesen wird ohnehin nur Sichtbares).
+- **Löschen:** Törn gelöscht oder abgelaufen, Gruppe gelöscht, Konto gelöscht (auch inaktiv entfernt) → Zeilen weg.
+  **Austreten bzw. Entfernen** nimmt die eigenen Törns aus der Gruppe (Zeilen und Stream-Ziele) – ein Wiedereintritt
+  stellt sie nicht wieder her. Konten zusammenführen: die Zeilen hängen am Törn und wandern mit, die Mitgliedschaft
+  geht ans Ziel. Moderation: gesperrte Törns und Gruppen behalten ihre Zeilen (Sperre umkehrbar), beim endgültigen
+  Löschen fallen sie mit.
 
 ### 11.11 Offene Fragen an den Betreiber
 
@@ -1372,7 +1408,7 @@ Verein/Team zeigen **keine Kopien**, sondern eine Abfrage: die 12 neuesten Fotos
 |---|---|
 | Person | eigene und solche, auf denen die Person Crew ist |
 | Boot | Törns mit diesem Boot |
-| Verein/Team | Törns der zugeordneten Boote und der Mitglieder |
+| Verein/Team | Törns, die in der Gruppe gezeigt werden (11.12) |
 
 Nur **effektiv öffentliche** Fotos: Foto „wie der Törn“, Törn öffentlich, beides nicht ausgeblendet, Konto nicht
 gesperrt. Ein Klick öffnet den Törn mit dem Foto in der Lightbox (`/s/<id>?foto=<photoId>`). Die Galerie macht nichts
