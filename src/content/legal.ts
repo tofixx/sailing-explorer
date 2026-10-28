@@ -166,13 +166,13 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
           p('Diese Abrufe macht dein Browser selbst; die Anbieter sehen dabei deine IP-Adresse und was angefragt wird. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (Darstellung von Karte und Wetter).'),
           ul(
             'Wetter: Beim Einstellen eines Törns fragt dein Browser Wind und Seegang bei Open-Meteo (open-meteo.com) ab – mit einigen Positionen entlang des Tracks und den Tagen des Törns. Die Ergebnisse werden mit dem Törn gespeichert und später nicht erneut abgerufen.',
-            'Kartenkacheln: Esri (server.arcgisonline.com, Seekarte/Satellit), OpenStreetMap (tile.openstreetmap.org, tile.openstreetmap.de, wenn gewählt), OpenSeaMap (tiles.openseamap.org, Seezeichen) und EMODnet Bathymetry (ows.emodnet-bathymetry.eu, Wassertiefen). Übertragen wird der angezeigte Kartenausschnitt.',
+            'Kartenkacheln: OpenStreetMap Deutschland (tile.openstreetmap.de, betrieben vom FOSSGIS e.V., Tageskarte und Teilen-Bild), Esri (server.arcgisonline.com, Nachtkarte und Seekarte), OpenStreetMap (tile.openstreetmap.org, wenn gewählt), OpenSeaMap (tiles.openseamap.org, Seezeichen) und EMODnet Bathymetry (ows.emodnet-bathymetry.eu, Wassertiefen). Übertragen wird der angezeigte Kartenausschnitt.',
             'Bot-Schutz bei der Anmeldung: Cloudflare Turnstile (siehe Abschnitt 3).',
           ),
           h3('Lokal in deinem Browser'),
           ul(
             'Gast-Sitzung: Geladene GPX-Dateien und Wetterdaten speichert die App in der IndexedDB deines Browsers, damit sie beim nächsten Besuch wieder da sind. Sie verlassen dein Gerät nicht, solange du nicht teilst. Löschen: „Alle entfernen“ oder Website-Daten im Browser löschen.',
-            'Einstellungen für das Teilen-Bild (Format, Inhalt) liegen im localStorage.',
+            'Einstellungen für das Teilen-Bild (Format, Inhalt) liegen im localStorage. Einen als Standard gesetzten Kartenstil speichern wir in deinem Konto; er wird mit dem Konto gelöscht.',
           ),
         ],
       },

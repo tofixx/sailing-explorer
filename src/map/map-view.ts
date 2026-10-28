@@ -1,11 +1,13 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { METRICS, rampColor, smoothedMetric, type Range } from '../domain/metrics';
+import { BASE_MAPS, MAP_LANG, defaultBaseMap } from '../domain/basemaps';
 import { compassName } from '../domain/geo';
+import { MAP_STYLES, type MapStyle } from '../domain/map-style';
 import type { MetricKey, Track, TrackPoint } from '../domain/types';
 import type { Layers } from '../services/store';
 import { cssVar, escapeHtml, fmtDateTime, fmtNum } from '../util/html';
-import { endpointPin, waveChevron, windBadge } from './glyphs';
+import { endpointPin, waveChevron, waveChevronSize, windBadge, windBadgeSize } from './glyphs';
 import { PhotoLayer } from './photo-layer';
 
 export interface MapCallbacks {
@@ -37,6 +39,7 @@ export class MapView {
   private trackGroups = new Map<Track, L.LayerGroup>();
   private pointTrack = new WeakMap<TrackPoint, Track>();
   private focused: Track | null = null;
+  private style: MapStyle = MAP_STYLES.classic;
   private raf = 0;
   /** Ebene „Fotos“ (Phase C) – Callbacks setzt die Verdrahtung */
   readonly photos: PhotoLayer;
@@ -48,29 +51,21 @@ export class MapView {
     this.map = L.map(el, { zoomControl: false, preferCanvas: true, attributionControl: true }).setView([54.4, 12.7], 8);
     L.control.zoom({ position: 'topleft', zoomInTitle: 'Hineinzoomen', zoomOutTitle: 'Herauszoomen' }).addTo(this.map);
 
-    // Grundkarten. Standard folgt dem Farbschema: ruhige Tageskarte bzw. Nachtkarte,
-    // damit die Daten (Track, Wind, Wellen) im Vordergrund stehen.
-    const esri = (service: string, maxNativeZoom: number) =>
-      L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/{z}/{y}/{x}`, {
-        maxZoom: 19,
-        maxNativeZoom,
-        attribution: 'Kacheln © Esri, GEBCO, NOAA, Garmin, HERE',
-      });
-    const bases: Record<string, L.TileLayer> = {
-      'Tag (Seekarte)': esri('Ocean/World_Ocean_Base', 13),
-      'Nacht': esri('Canvas/World_Dark_Gray_Base', 16),
-      OpenStreetMap: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }),
-      'OSM Deutschland': L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap DE' }),
-    };
+    // Grundkarten (src/domain/basemaps.ts). Standard folgt dem Farbschema und der Sprache der Beschriftung (MAP_LANG):
+    // tagsüber deutsch beschriftet, nachts ohne Beschriftung – die Daten (Track, Wind, Wellen) bleiben im Vordergrund.
+    const layers = new Map(
+      BASE_MAPS.map((m) => [m.key, L.tileLayer(m.url, { maxZoom: m.maxZoom, maxNativeZoom: m.maxNativeZoom, attribution: m.attribution })]),
+    );
+    const bases = Object.fromEntries(BASE_MAPS.map((m) => [m.label, layers.get(m.key)!]));
+    const auto = (isDark: boolean) => layers.get(defaultBaseMap(MAP_LANG, isDark).key)!;
     const dark = matchMedia('(prefers-color-scheme: dark)');
-    let current = bases[dark.matches ? 'Nacht' : 'Tag (Seekarte)'].addTo(this.map);
+    let current = auto(dark.matches).addTo(this.map);
     this.map.on('baselayerchange', (e: L.LayersControlEvent) => (current = e.layer as L.TileLayer));
     // Folgt dem Systemschema, solange der Nutzer keine eigene Wahl getroffen hat.
     dark.addEventListener('change', () => {
-      const auto = [bases['Tag (Seekarte)'], bases['Nacht']];
-      if (!auto.includes(current)) return;
+      if (current !== auto(true) && current !== auto(false)) return;
       current.remove();
-      current = bases[dark.matches ? 'Nacht' : 'Tag (Seekarte)'].addTo(this.map);
+      current = auto(dark.matches).addTo(this.map);
     });
     L.control.layers(bases, undefined, { position: 'topright' }).addTo(this.map);
     L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(this.map);
@@ -111,8 +106,10 @@ export class MapView {
     if (!on && this.map.hasLayer(layer)) layer.remove();
   }
 
-  render(tracks: Track[], metric: MetricKey, range: Range | null): void {
+  render(tracks: Track[], metric: MetricKey, range: Range | null, style: MapStyle = MAP_STYLES.classic): void {
     this.tracks = tracks;
+    this.style = style;
+    const weight = style.lineWeight;
     this.trackLayer.clearLayers();
     this.trackGroups.clear();
     this.focused = null;
@@ -133,24 +130,24 @@ export class MapView {
         const v = a != null && b != null ? (a + b) / 2 : (b ?? a);
         if (v == null) return noData;
         const step = Math.round(((v - range.lo) / (range.hi - range.lo)) * (COLOR_STEPS - 1));
-        return rampColor(Math.max(0, Math.min(COLOR_STEPS - 1, step)) / (COLOR_STEPS - 1));
+        return rampColor(Math.max(0, Math.min(COLOR_STEPS - 1, step)) / (COLOR_STEPS - 1), style.ramp);
       };
 
       // Halo unter der Linie für Kontrast auf jeder Grundkarte
-      L.polyline(pts.map((p) => [p.lat, p.lon] as L.LatLngTuple), { color: halo, weight: 7, opacity: 0.7, interactive: false }).addTo(group);
+      L.polyline(pts.map((p) => [p.lat, p.lon] as L.LatLngTuple), { color: halo, weight: weight + 3, opacity: 0.7, interactive: false }).addTo(group);
 
       let run: L.LatLngTuple[] = [[pts[0].lat, pts[0].lon]];
       let runColor = pts.length > 1 ? colorAt(1) : trackColor;
       for (let i = 1; i < pts.length; i++) {
         const c = colorAt(i);
         if (c !== runColor) {
-          L.polyline(run, { color: runColor, weight: 4, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(group);
+          L.polyline(run, { color: runColor, weight, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(group);
           run = [run[run.length - 1]];
           runColor = c;
         }
         run.push([pts[i].lat, pts[i].lon]);
       }
-      L.polyline(run, { color: runColor, weight: 4, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(group);
+      L.polyline(run, { color: runColor, weight, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(group);
 
       const name = escapeHtml(t.name);
       const s = pts[0];
@@ -190,11 +187,18 @@ export class MapView {
         }
       }
     };
-    place(this.windLayer, 90, 0, (p) =>
-      p.wx?.wind != null && p.wx.dir != null ? L.divIcon({ className: 'sx-marker', html: windBadge(p.wx.dir, p.wx.wind), iconSize: [44, 44], iconAnchor: [22, 22] }) : null,
+    const style = this.style;
+    const wind = windBadgeSize(style);
+    const wave = waveChevronSize(style);
+    place(this.windLayer, 90 * style.symbolScale, 0, (p) =>
+      p.wx?.wind != null && p.wx.dir != null
+        ? L.divIcon({ className: 'sx-marker', html: windBadge(p.wx.dir, p.wx.wind, style), iconSize: [wind, wind], iconAnchor: [wind / 2, wind / 2] })
+        : null,
     );
-    place(this.waveLayer, 60, 0.5, (p) =>
-      p.wx?.wave != null && p.wx.wdir != null ? L.divIcon({ className: 'sx-marker', html: waveChevron(p.wx.wdir, p.wx.wave), iconSize: [30, 30], iconAnchor: [15, 15] }) : null,
+    place(this.waveLayer, 60 * style.symbolScale, 0.5, (p) =>
+      p.wx?.wave != null && p.wx.wdir != null
+        ? L.divIcon({ className: 'sx-marker', html: waveChevron(p.wx.wdir, p.wx.wave, style), iconSize: [wave, wave], iconAnchor: [wave / 2, wave / 2] })
+        : null,
     );
   }
 

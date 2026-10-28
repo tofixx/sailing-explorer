@@ -1,3 +1,4 @@
+import { MAP_STYLES } from '../domain/map-style';
 import { metricRange } from '../domain/metrics';
 import type { SharePurpose } from '../components/sx-share-dialog';
 import { PasskeyExistsError, PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
@@ -730,6 +731,7 @@ export class SessionController {
       range: metricRange(tracks, s.metric),
       format: opts.format,
       content: opts.content,
+      ramp: MAP_STYLES[s.mapStyle].ramp,
     });
   }
 

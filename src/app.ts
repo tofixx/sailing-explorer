@@ -7,6 +7,7 @@ import { attachConditions, parseWeatherData, type WeatherData } from './domain/w
 import { median } from './domain/geo';
 import type { MetricKey, Track, TrackPoint } from './domain/types';
 import { MapView } from './map/map-view';
+import { MAP_STYLES, type MapStyleId } from './domain/map-style';
 import { ApiError, api, coverApi, type CoverKind, type PageMedia } from './services/api';
 import { PhotoError, processCover } from './services/photo-process';
 import type { SxCover } from './components/sx-page-media';
@@ -57,6 +58,9 @@ import type { FollowKind, GroupInput } from './services/api';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
 import { UnreadController } from './controllers/unread';
+
+import { MapStyleController } from './controllers/map-style';
+import type { MapStyleScope, SxMapStyle } from './components/sx-map-style';
 import type { SxLegalPage } from './components/sx-legal-page';
 import type { SxAdminPage } from './components/sx-admin-page';
 import type { ReactDetail, SxReactions } from './components/sx-reactions';
@@ -101,6 +105,7 @@ export class App {
     conditions: $<SxConditions>('sx-conditions'),
     conditionsCtx: $<HTMLElement>('#conditions-ctx'),
     metric: $<SxMetricPicker>('sx-metric-picker'),
+    mapStyle: $<SxMapStyle>('sx-map-style'),
     kpis: $<SxKpis>('sx-kpis'),
     weatherChart: $<SxTimeChart>('#weather-chart'),
     speedChart: $<SxTimeChart>('#speed-chart'),
@@ -144,6 +149,8 @@ export class App {
   private wantCommunity = false;
   /** start() ist durch – vorher ist offen, welcher Bereich gezeigt wird */
   private started = false;
+
+  private mapStyle: MapStyleController;
   /** Startseite als Einstieg (nicht Profil-, Boots-, Gruppen- oder Entdecken-Seite) – nur dort lädt die Startseite Neuigkeiten */
   private homeRoute = false;
   private timelinePts: TimedPoint[] = [];
@@ -208,6 +215,8 @@ export class App {
       openLogin: (reason) => this.session.openLogin(reason),
     });
     this.unread = new UnreadController(this.store, { show: (label) => (this.ui.topbar.unread = label), visible: () => this.markSeen() });
+
+    this.mapStyle = new MapStyleController(this.store, { picker: this.ui.mapStyle, toast: (msg, ms) => this.toast(msg, ms) });
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
     this.store.subscribe((s, prev) => this.render(s, prev));
@@ -336,11 +345,12 @@ export class App {
     }
     this.ui.toast.loading = s.loading;
 
-    if (dataChanged || changed('metric')) {
+    if (dataChanged || changed('metric') || changed('mapStyle')) {
       const range = metricRange(vis, s.metric);
-      this.map.render(vis, s.metric, range);
+      const style = MAP_STYLES[s.mapStyle];
+      this.map.render(vis, s.metric, range, style);
       const available = Object.fromEntries(METRIC_KEYS.map((k) => [k, vis.some((t) => t.points.some((p) => METRICS[k].get(p) != null))])) as Record<MetricKey, boolean>;
-      Object.assign(this.ui.metric, { metric: s.metric, range, available });
+      Object.assign(this.ui.metric, { metric: s.metric, range, available, ramp: style.ramp });
     }
     if (changed('layers')) {
       this.map.setLayers(s.layers);
@@ -468,6 +478,7 @@ export class App {
     const s = this.session;
 
     // Tracks & Karte
+    on<{ id: MapStyleId; scope: MapStyleScope }>('sx-map-style-apply', (d) => void this.mapStyle.choose(d.id, d.scope));
     on<FileList>('sx-files', (files) => this.addFiles(files));
     on<string>('sx-sample', (file) => this.loadSample(file));
     on<MetricKey>('sx-metric', (metric) => this.store.set({ metric }));

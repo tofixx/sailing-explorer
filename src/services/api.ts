@@ -9,6 +9,7 @@ import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../doma
 import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
 import type { CoverKind, CoverRef } from '../domain/cover';
 import type { HarborRef } from '../domain/harbors';
+import type { MapStyleId } from '../domain/map-style';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 
 export type { Visibility };
@@ -464,6 +465,8 @@ export interface AccountSettings {
   notifyComments: NotifyMode;
   /** wöchentliche Sammelmail aus Vereinen und Teams (fehlt bei älteren Servern) */
   notifyGroups?: GroupNotifyMode;
+  /** Kartenstil als Profil-Standard (null: keiner; fehlt bei älteren Servern) */
+  mapStyle?: MapStyleId | null;
   suspended: boolean;
   hasProfile: boolean;
   isAdmin: boolean;
@@ -514,7 +517,7 @@ export const communityApi = {
   setCommentsMode: (shareId: string, commentsMode: CommentsMode) =>
     call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(shareId)}`, jsonInit('PATCH', { commentsMode })),
   settings: () => call<AccountSettings>('/api/me/settings'),
-  saveSettings: (s: { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode }) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
+  saveSettings: (s: { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode; mapStyle?: MapStyleId | null }) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
   report: (r: ReportInput, key?: string | null) =>
     call<{ ok: true; already: boolean }>('/api/reports', {
       ...jsonInit('POST', r),
