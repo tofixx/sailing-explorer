@@ -55,6 +55,21 @@ describe('F-346 Neuigkeiten einer Gruppe stumm schalten', () => {
   });
 });
 
+describe('F-346 stummer Heimatverein', () => {
+  it('[F-346] stumm geschalteter Heimatverein liefert auch die Beiträge seiner Teams nicht mehr', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const club = await s.group(owner, { name: 'Heimatclub' });
+    const team = await s.group(owner, { kind: 'team', name: 'Clubteam', parentId: club.id });
+    const reader = await s.person();
+    await s.join(owner, club, reader);
+    expect((await s.send('PUT', '/api/me/home', reader.cookie, { clubId: club.id })).status).toBe(200);
+    const p = await post(owner, team, 'Teambeitrag');
+    expect(postIds(await stream(reader))).toContain(p);
+    await s.send('PUT', `/api/groups/${club.id}/mute`, reader.cookie, { muted: true });
+    expect(postIds(await stream(reader))).not.toContain(p);
+  });
+});
+
 describe('F-347 Gruppe übergeben', () => {
   it('[F-347] Eigner übergibt nur an einen Admin; danach ist er Admin und kann austreten', async () => {
     const owner = await s.person({ profile: 'public' });

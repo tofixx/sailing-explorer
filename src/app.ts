@@ -211,7 +211,9 @@ export class App {
         this.ui.empty.community = visible;
         this.ui.join.hidden = !visible;
       },
-      onMembership: () => void this.session.refreshMyGroups(),
+      // „Meine Gruppen“ nur nachladen, wenn das Konto offen ist
+      onMembership: () => void (this.ui.account.open && this.session.refreshMyGroups()),
+      onMembershipBusy: (busy) => (this.ui.account.busy = busy),
       onPersonalStream: (at) => {
         this.pendingSeen = { at };
         this.markSeen();

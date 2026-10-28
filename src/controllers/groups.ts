@@ -22,6 +22,8 @@ export interface GroupsUi {
   ready?: () => Promise<void>;
   /** Mitgliedschaften geändert (Austreten, stumm, übergeben) – z. B. „Meine Gruppen“ im Konto neu laden */
   onMembership?: () => void;
+  /** Anfrage läuft (sperrt die Knöpfe in „Meine Gruppen“ gegen Doppelklicks) */
+  onMembershipBusy?: (busy: boolean) => void;
 }
 
 /**
@@ -183,7 +185,8 @@ export class GroupsController {
 
   /** Mitgliedschaft geändert: Seite (falls offen) und Startseite neu, „Meine Gruppen“ benachrichtigen. */
   private async membership(fn: () => Promise<unknown>, done: string) {
-    const ok = await this.act(fn, done);
+    this.ui.onMembershipBusy?.(true);
+    const ok = await this.act(fn, done).finally(() => this.ui.onMembershipBusy?.(false));
     if (ok) {
       this.homeLoaded = false;
       this.ui.onMembership?.();

@@ -14,13 +14,13 @@ export const TARGET_SQL = {
   boats: `SELECT 'boat' AS k, id FROM boats WHERE owner_id = ?1 UNION SELECT 'boat', boat_id FROM boat_admins WHERE user_id = ?1`,
   follows: `SELECT target_kind AS k, target_id AS id FROM follows WHERE user_id = ?1 LIMIT 1000`,
   clubTeams: `SELECT 'group' AS k, g.id FROM users u
-      JOIN group_members hm ON hm.group_id = u.home_club_id AND hm.user_id = u.id
+      JOIN group_members hm ON hm.group_id = u.home_club_id AND hm.user_id = u.id AND hm.muted_at IS NULL
       JOIN groups g ON g.parent_id = u.home_club_id AND g.hidden_at IS NULL
     WHERE u.id = ?1 LIMIT 100`,
   teamMates: `SELECT DISTINCT 'user' AS k, m2.user_id AS id FROM group_members m1
       JOIN groups g ON g.id = m1.group_id AND g.kind = 'team'
       JOIN group_members m2 ON m2.group_id = g.id
-    WHERE m1.user_id = ?1 LIMIT 500`,
+    WHERE m1.user_id = ?1 AND m1.muted_at IS NULL LIMIT 500`,
 } as const;
 
 /**
