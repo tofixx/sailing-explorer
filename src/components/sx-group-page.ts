@@ -393,7 +393,7 @@ export class SxGroupPage extends LitElement {
             </select></sx-filter-select></label>`
         : ''}
       ${this.visibilityOptions(g?.visibility, owner)}
-      ${!owner ? html`<p class="hint">Die Sichtbarkeit ändert nur der Eigner.</p>` : ''}
+      ${!owner ? html`<p class="hint">Die Sichtbarkeit ändert nur der Eigentümer.</p>` : ''}
       <fieldset class="opts" style="border:0;padding:0;margin:0">
         <legend class="label">Beitreten</legend>
         ${(JOIN_MODES as readonly JoinMode[]).map(
@@ -433,11 +433,11 @@ export class SxGroupPage extends LitElement {
   }
 
   /** Hafen aus der Auswahl (Konzept 13.3): vorhandener per ID, neuer Name als Text – der Server erkennt Dubletten. */
-  private harborInput(): Pick<GroupInput, 'harborId' | 'homePort'> {
+  private harborInput(): Pick<GroupInput, 'harborId' | 'homePort' | 'homePortPos'> {
     const picker = this.renderRoot.querySelector<SxHarborPicker>('sx-harbor-picker');
     if (!picker) return {};
     const c = picker.choice;
-    return 'name' in c ? { homePort: c.name } : { harborId: c.harborId };
+    return 'name' in c ? { homePort: c.name, homePortPos: c.pos } : { harborId: c.harborId };
   }
 
   /** Bearbeiten öffnen: Entwurf aus der aktuellen Gruppe. */
@@ -492,7 +492,7 @@ export class SxGroupPage extends LitElement {
     // Gäste: erst anmelden; bei „Nur auf Einladung“ nur der Hinweis wie für Angemeldete (F-333)
     if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : html`<span class="faint">Beitritt nur auf Einladung</span>`;
     if (m.role) return html`${this.muteButton(g.id, !!m.muted)}${m.role === 'owner'
-        ? html`<span class="faint" title="Übergib die Gruppe in der Mitgliederliste an einen Admin – danach kannst du austreten.">Eigner</span>`
+        ? html`<span class="faint" title="Übergib die Gruppe in der Mitgliederliste an einen Admin – danach kannst du austreten.">Eigentümer</span>`
         : html`<button class="btn ghost" @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id })}>${icon('logout')} Austreten</button>`}`;
     if (m.requested) return html`<span class="faint">Anfrage gestellt</span><button class="btn ghost" @click=${() => emit(this, 'sx-group-withdraw', { id: g.id })}>Anfrage zurückziehen</button>`;
     if (m.canJoin) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitreten</button>`;

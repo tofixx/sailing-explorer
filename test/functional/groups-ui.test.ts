@@ -320,7 +320,7 @@ describe('sx-group-page', () => {
     await admin.updateComplete;
     const radios = [...admin.shadowRoot.querySelectorAll('input[name="vis"]')] as HTMLInputElement[];
     expect(radios.every((r) => r.disabled)).toBe(true);
-    expect(text(admin.shadowRoot)).toContain('Die Sichtbarkeit ändert nur der Eigner.');
+    expect(text(admin.shadowRoot)).toContain('Die Sichtbarkeit ändert nur der Eigentümer.');
     expect(button(admin.shadowRoot, /Gruppe löschen/)).toBeUndefined();
     (admin.shadowRoot.querySelector('form[aria-label="Gruppe bearbeiten"]') as HTMLFormElement).requestSubmit();
     expect(saves[0]).toMatchObject({ id: 'G1', patch: { name: 'SC <Kiel>', slug: 'sc-kiel' } });

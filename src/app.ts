@@ -725,6 +725,7 @@ export class App {
     on<{ show: boolean }>('sx-stream-joins', (d) => g.setJoins(d.show));
     on('sx-near-locate', () => g.useLocation());
     on('sx-near-forget', () => g.forgetLocation());
+    on<{ lat: number; lon: number }>('sx-near-place', (d) => g.usePlace(d));
     on<ReactDetail>('sx-react', (d) => so.react(d));
     on<{ subject: ReactionSubject; id: string; key?: string | null; el: SxReactions }>('sx-react-who', (d) => so.who(d));
     on<{ query: string; el: SxHarborPicker }>('sx-harbor-search', (d) => so.searchHarbors(d));

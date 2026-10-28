@@ -122,6 +122,8 @@ export interface Boat extends Linkable {
 export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'lengthM' | 'sailNumber' | 'homePort' | 'description' | 'ownerLabel' | 'visibility'>> & {
   /** Hafen (Konzept 12.2): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
+  /** Lage eines neuen Hafens zu homePort (Pflicht beim Anlegen, F-353) */
+  homePortPos?: { lat: number; lon: number } | null;
   /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
   rotateKey?: boolean;
 };
@@ -821,6 +823,8 @@ export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description'
   kind?: GroupKind;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
+  /** Lage eines neuen Hafens zu homePort (Pflicht beim Anlegen, F-353) */
+  homePortPos?: { lat: number; lon: number } | null;
   parentId?: string | null;
   rotateKey?: boolean;
 };
@@ -946,7 +950,9 @@ const q = (params: Record<string, string | null | undefined>) => {
 
 export const socialApi = {
   searchHarbors: (query: string) => call<{ harbors: HarborSearchHit[] }>(`/api/harbors${q({ q: query })}`),
-  createHarbor: (name: string) => call<{ harbor: HarborRef; created: boolean }>('/api/harbors', jsonInit('POST', { name })),
+  /** `pos`: Lage des neuen Hafens (Pflicht beim Anlegen, F-353) */
+  createHarbor: (name: string, pos?: { lat: number; lon: number } | null) =>
+    call<{ harbor: HarborRef; created: boolean }>('/api/harbors', jsonInit('POST', { name, ...(pos ? { lat: pos.lat, lon: pos.lon } : {}) })),
   harbor: (slug: string) => call<HarborPageData>(`/api/harbors/slug/${encodeURIComponent(slug)}`),
   updateHarbor: (id: string, patch: HarborPatch) => call<{ harbor: HarborPageData['harbor'] }>(`/api/harbors/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
   harborStream: (id: string, cursor?: string | null) => call<StreamPage>(`/api/harbors/${encodeURIComponent(id)}/stream${q({ cursor })}`),

@@ -8,6 +8,7 @@ import { plural } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
 import './sx-stream';
+import './sx-place-picker';
 
 /**
  * Herzstück der Startseite (Konzept 12.6, F-182): der Community-Stream – wahlweise „Umgebung“ (Standard, Umkreis um
@@ -52,6 +53,7 @@ export class SxHomeFeed extends LitElement {
     radius: { attribute: false },
     near: { attribute: false },
     joins: { attribute: false },
+    choosing: { state: true },
     filters: { attribute: false },
     filter: { attribute: false },
     groups: { attribute: false },
@@ -76,6 +78,8 @@ export class SxHomeFeed extends LitElement {
   declare near: NearInfo | null;
   /** Beitrittsmeldungen zeigen (F-350, gemerkt auf dem Gerät) */
   declare joins: boolean;
+  /** Karte zum Wählen eines Ortes offen (F-355) */
+  declare choosing: boolean;
   /** Filter-Chips des öffentlichen Streams */
   declare filters: StreamFilters | null;
   /** aktiver Filter (null = alle) */
@@ -103,6 +107,7 @@ export class SxHomeFeed extends LitElement {
     this.radius = 25;
     this.near = null;
     this.joins = true;
+    this.choosing = false;
     this.filters = null;
     this.filter = null;
     this.groups = [];
@@ -220,6 +225,14 @@ export class SxHomeFeed extends LitElement {
         color: var(--text-2);
         font: 600 var(--fs-s) / 1 var(--font);
         cursor: pointer;
+        /* Symbol und Text auf einer Linie (Anker saß zu hoch) */
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .modes button svg {
+        width: 16px;
+        height: 16px;
       }
       .modebar {
         display: flex;
@@ -500,24 +513,32 @@ export class SxHomeFeed extends LitElement {
     const n = this.near;
     if (!n) return '';
     const locateBtn = html`<button class="link" type="button" @click=${() => emit(this, 'sx-near-locate')}>meinen Standort verwenden</button>`;
+    // Beliebiger Ort (F-355): z. B. auf Reisen Neues aus der Nähe eines anderen Hafens
+    const chooseBtn = html`<button class="link" type="button" aria-expanded=${this.choosing ? 'true' : 'false'} @click=${() => (this.choosing = !this.choosing)}>Ort auf der Karte wählen</button>`;
+    const chooser = this.choosing
+      ? html`<sx-place-picker label="Ort für deine Umgebung antippen" @sx-place-pick=${(e: CustomEvent<{ lat: number; lon: number }>) => {
+          e.stopPropagation();
+          this.choosing = false;
+          emit(this, 'sx-near-place', e.detail);
+        }}></sx-place-picker>`
+      : '';
     if (n.state !== 'ok') {
       const why =
         n.state === 'no_position'
           ? html`Für deinen Heimathafen ${n.center ?? ''} ist noch keine Position eingetragen.`
           : html`Für deine Umgebung brauchen wir einen Ort.`;
-      return html`<p class="nearbar" role="status">${icon('info')} ${why} ${locateBtn}${this.signedIn
+      return html`<p class="nearbar" role="status">${icon('info')} ${why} ${locateBtn}, ${chooseBtn}${this.signedIn
           ? html` oder <button class="link" type="button" @click=${() => emit(this, 'sx-account', 'profile')}>Heimathafen wählen</button>`
-          : ''} – bis dahin siehst du alles.</p>`;
+          : ''} – bis dahin siehst du alles.</p>${chooser}`;
     }
     return html`<div class="nearbar">
       <div class="filters" role="toolbar" aria-label="Umkreis">
         ${NEAR_RADII.map((r) => html`<button class="chip" type="button" aria-pressed=${this.radius === r ? 'true' : 'false'} @click=${() => this.radius !== r && emit(this, 'sx-near-radius', { radius: r })}>${r} km</button>`)}
       </div>
-      <span>um ${n.source === 'geo' ? 'deinen Standort' : (n.center ?? 'deinen Heimathafen')} · ${plural(n.places, 'Ort', 'Orte')}</span>
-      ${n.source === 'geo'
-        ? html`<button class="link" type="button" @click=${() => emit(this, 'sx-near-forget')}>Standort vergessen</button>`
-        : locateBtn}
-    </div>`;
+      <span>um ${n.center ?? (n.source === 'geo' ? 'deinen Standort' : 'deinen Heimathafen')} · ${plural(n.places, 'Ort', 'Orte')}</span>
+      ${locateBtn} ${chooseBtn}
+      ${n.source === 'geo' ? html`<button class="link" type="button" @click=${() => emit(this, 'sx-near-forget')}>${this.signedIn ? 'zurück zum Heimathafen' : 'Ort vergessen'}</button>` : ''}
+    </div>${chooser}`;
   }
 
   private heading(): { h: string; intro: string; empty: string } {

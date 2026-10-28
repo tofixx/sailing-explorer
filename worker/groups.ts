@@ -55,7 +55,7 @@ export interface GroupRow {
 }
 
 export const GROUP_NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Gruppe gibt es nicht oder sie ist geschlossen.');
-const FORBIDDEN = (msg = 'Das dürfen nur Eigner und Admins der Gruppe.') => new HttpError(403, 'forbidden', msg);
+const FORBIDDEN = (msg = 'Das dürfen nur Eigentümer und Admins der Gruppe.') => new HttpError(403, 'forbidden', msg);
 
 export const GROUP_ID_RE = SHARE_ID_RE;
 
@@ -118,7 +118,7 @@ async function memberGroup(request: Request, env: Env, id: string, need: 'member
   }
   if (g.hidden_at && !canManageGroup(role)) throw GROUP_NOT_FOUND();
   if (need === 'manager' && !canManageGroup(role)) throw FORBIDDEN();
-  if (need === 'owner' && role !== 'owner') throw FORBIDDEN('Das darf nur der Eigner der Gruppe.');
+  if (need === 'owner' && role !== 'owner') throw FORBIDDEN('Das darf nur der Eigentümer der Gruppe.');
   return { user, group: g, role };
 }
 
@@ -154,6 +154,8 @@ interface GroupInput {
   slug?: unknown;
   description?: unknown;
   homePort?: unknown;
+  /** Lage eines neuen Hafens zu `homePort` (F-353) */
+  homePortPos?: unknown;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort (Freitext, alte Clients) */
   harborId?: unknown;
   visibility?: unknown;
@@ -230,6 +232,8 @@ export async function createGroup(request: Request, env: Env): Promise<Response>
     g.parent_id = parent.id;
   }
   await applyHarbor(env, user, g, input);
+  // Ein Verein hat seinen Ort über den Heimathafen (F-354) – ohne ihn erschiene er nirgends in „Umgebung“
+  if (g.kind === 'club' && !g.harbor_id) throw new HttpError(400, 'harbor_required', 'Ein Verein braucht einen Heimathafen – wähle ihn aus oder lege ihn mit seiner Lage an.');
   if (await slugTaken(env, g.slug, null)) throw SLUG_TAKEN();
   try {
     await env.DB.batch([
@@ -258,11 +262,11 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   const before = { approveBy: g.approve_by, joinMode: g.join_mode };
   const next = applyInput(g, input);
   if ((g.approve_by !== before.approveBy || g.join_mode !== before.joinMode) && role !== 'owner') {
-    throw FORBIDDEN('Beitritt und wer Anfragen bestätigt, legt der Eigner fest.');
+    throw FORBIDDEN('Beitritt und wer Anfragen bestätigt, legt der Eigentümer fest.');
   }
   await applyHarbor(env, user, g, input);
   if (next && next !== previous) {
-    if (role !== 'owner') throw FORBIDDEN('Die Sichtbarkeit ändert nur der Eigner.');
+    if (role !== 'owner') throw FORBIDDEN('Die Sichtbarkeit ändert nur der Eigentümer.');
     await checkVisibilityChoice(env, g.owner_id, next, previous);
     g.visibility = next;
   }
@@ -531,7 +535,7 @@ export async function setMemberRole(request: Request, env: Env, id: string, who:
   const { role } = await readJson<{ role?: unknown }>(request);
   if (role !== 'admin' && role !== 'member') throw new HttpError(400, 'invalid_role', 'Rolle: Admin oder Mitglied.');
   const res = await env.DB.prepare(`UPDATE group_members SET role = ? WHERE group_id = ? AND user_id = ? AND role <> 'owner'`).bind(role, group.id, who).run();
-  if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Diese Person ist kein Mitglied (oder der Eigner).');
+  if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Diese Person ist kein Mitglied (oder der Eigentümer).');
   return json({ role });
 }
 
@@ -581,7 +585,7 @@ export async function removeMember(request: Request, env: Env, id: string, who: 
   const targetRole = target === user.id ? role : await roleIn(env, target, group.id);
   if (!targetRole) throw new HttpError(404, 'not_found', 'Diese Person ist kein Mitglied.');
   if (target === user.id && role === 'owner') throw new HttpError(400, 'owner_cannot_leave', 'Übergib die Gruppe zuerst an einen Admin – oder lösche sie.');
-  if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigner.');
+  if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigentümer.');
   await env.DB.batch([
     env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(group.id, target),
     // „Mein Verein“ fällt mit (F-170), ebenso die Beitritts-Neuigkeit (sonst stünde sie bis zu 12 Monate im Stream)

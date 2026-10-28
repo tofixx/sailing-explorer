@@ -285,7 +285,7 @@ async function find(q: string): Promise<Found> {
 }
 
 async function newHarbor(cookie: string, name: string): Promise<{ id: string; slug: string }> {
-  const res = await send('POST', '/api/harbors', cookie, { name });
+  const res = await send('POST', '/api/harbors', cookie, { name, lat: -45, lon: -170 });
   expect(res.status).toBeLessThan(300);
   return ((await res.json()) as { harbor: { id: string; slug: string } }).harbor;
 }
@@ -327,7 +327,7 @@ describe('F-331 Entdecken: Suche', () => {
     const tag = uniq('cl').replace(/-/g, '');
     const s = await sailor('public');
     const slug = uniq('sc');
-    expect((await send('POST', '/api/groups', s.cookie, { kind: 'club', name: `Segelclub Ästuar ${tag}`, slug, joinMode: 'open' })).status).toBe(201);
+    expect((await send('POST', '/api/groups', s.cookie, { kind: 'club', name: `Segelclub Ästuar ${tag}`, slug, joinMode: 'open', homePort: `Ästuarhafen ${tag}`, homePortPos: { lat: -45, lon: -170 } })).status).toBe(201);
     const d = await find(`astuar ${tag}`);
     expect(d.groups).toEqual([expect.objectContaining({ slug, joinMode: 'open' })]);
   });

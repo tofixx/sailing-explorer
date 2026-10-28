@@ -7,21 +7,24 @@ const KEY = 'sx-near';
 export interface NearPrefs {
   mode: StreamMode;
   radius: NearRadius;
-  /** auf 0,1° gerundeter Standort, nur nach Klick auf „Meine Umgebung“ */
+  /** auf 0,1° gerundeter Ort: Gerätestandort (nur nach Klick) oder auf der Karte gewählt (F-355) */
   geo: LatLon | null;
+  /** woher `geo` stammt – „deinen Standort“ bzw. „den gewählten Ort“ */
+  geoFrom?: 'device' | 'map';
   /** Beitrittsmeldungen im Stream zeigen (F-350), Standard ja */
   joins: boolean;
 }
 
 export function readNearPrefs(): NearPrefs {
-  const fallback: NearPrefs = { mode: 'near', radius: DEFAULT_RADIUS, geo: null, joins: true };
+  const fallback: NearPrefs = { mode: 'near', radius: DEFAULT_RADIUS, geo: null, geoFrom: 'device', joins: true };
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<{ mode: unknown; radius: unknown; geo: { lat?: unknown; lon?: unknown } | null; joins: unknown }> | null;
+    const raw = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<{ mode: unknown; radius: unknown; geo: { lat?: unknown; lon?: unknown } | null; geoFrom: unknown; joins: unknown }> | null;
     if (!raw) return fallback;
     return {
       mode: isStreamMode(raw.mode) ? raw.mode : fallback.mode,
       radius: isNearRadius(raw.radius) ? (Number(raw.radius) as NearRadius) : fallback.radius,
       geo: raw.geo ? parseCenter(raw.geo.lat, raw.geo.lon) : null,
+      geoFrom: raw.geoFrom === 'map' ? 'map' : 'device',
       joins: raw.joins !== false,
     };
   } catch {
@@ -60,7 +63,7 @@ export async function locate(): Promise<LatLon> {
 
 /** Mittelpunkt der Umgebung (F-343, F-344): Standort dieses Geräts, sonst der Heimathafen – für Startseite und Entdecken. */
 export function nearCenter(home: { slug: string; name: string } | null): { center: NearCenter; label: string; source: 'geo' | 'harbor' } | null {
-  const geo = readNearPrefs().geo;
-  if (geo) return { center: geo, label: 'deinen Standort', source: 'geo' };
+  const { geo, geoFrom } = readNearPrefs();
+  if (geo) return { center: geo, label: geoFrom === 'map' ? 'den gewählten Ort' : 'deinen Standort', source: 'geo' };
   return home ? { center: { harbor: home.slug }, label: home.name, source: 'harbor' } : null;
 }

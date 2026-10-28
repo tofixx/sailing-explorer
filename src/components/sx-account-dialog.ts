@@ -657,7 +657,7 @@ export class SxAccountDialog extends LitElement {
       boatType: String(d.get('boatType') || ''),
       lengthM: len ? Number(len) : null,
       sailNumber: String(d.get('sailNumber') || ''),
-      ...('name' in harbor ? { homePort: harbor.name } : { harborId: harbor.harborId }),
+      ...('name' in harbor ? { homePort: harbor.name, homePortPos: harbor.pos } : { harborId: harbor.harborId }),
       description: String(d.get('description') || ''),
       ownerLabel: String(d.get('ownerLabel') || ''),
       visibility: this.boatVis,

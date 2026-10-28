@@ -40,7 +40,7 @@ const voyageIds = (o: Page) => o.items.filter((i) => i.voyage).map((i) => i.voya
 const postIds = (o: Page) => o.items.filter((i) => i.post).map((i) => i.post!.id);
 
 async function harbor(p: Person, name: string): Promise<{ res: Response; harbor: HarborOut; created: boolean }> {
-  const res = await s.send('POST', '/api/harbors', p.cookie, { name });
+  const res = await s.send('POST', '/api/harbors', p.cookie, { name, lat: -45, lon: -170 });
   const body = (await res.clone().json()) as { harbor: HarborOut; created: boolean };
   return { res, ...body };
 }

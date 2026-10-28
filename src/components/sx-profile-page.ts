@@ -9,6 +9,7 @@ import { icon } from './icons';
 import { base, emit, onMapStyles } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
+import './sx-place-picker';
 import './sx-stream';
 import './sx-page-media';
 import './sx-filter-select';
@@ -403,6 +404,16 @@ export class SxProfilePage extends LitElement {
    * Hafen-Position aus dem Gerät übernehmen (F-345) – nur in die Felder des Formulars; gespeichert wird erst mit
    * „Speichern“. Häfen sind öffentliche Orte, deshalb hier genau (5 Stellen wie parseHarborPosition).
    */
+  /** Auf der Karte gewählte Lage (F-353) in die Felder übernehmen – gespeichert wird erst mit „Speichern“. */
+  private setPosition(e: CustomEvent<{ lat: number; lon: number }>) {
+    e.stopPropagation();
+    const form = (e.currentTarget as HTMLElement).closest('form');
+    for (const [name, v] of [['lat', e.detail.lat], ['lon', e.detail.lon]] as const) {
+      const input = form?.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+      if (input) input.value = String(v).replace('.', ',');
+    }
+  }
+
   private async fillPosition(e: Event) {
     const form = (e.currentTarget as HTMLElement).closest('form');
     const hint = form?.querySelector('.pos-hint');
@@ -435,9 +446,11 @@ export class SxProfilePage extends LitElement {
               <span><label class="label" for="hlat">Breite</label><input id="hlat" name="lat" type="text" inputmode="decimal" placeholder="52,4" .value=${h.lat == null ? '' : String(h.lat).replace('.', ',')} /></span>
               <span><label class="label" for="hlon">Länge</label><input id="hlon" name="lon" type="text" inputmode="decimal" placeholder="13,05" .value=${h.lon == null ? '' : String(h.lon).replace('.', ',')} /></span>
             </div>
+            <sx-place-picker label="Lage des Hafens auf der Karte antippen" .value=${h.lat != null && h.lon != null ? { lat: h.lat, lon: h.lon } : null}
+              @sx-place-pick=${(e: CustomEvent<{ lat: number; lon: number }>) => this.setPosition(e)}></sx-place-picker>
             <div class="row">
               <button class="btn small" type="button" @click=${(e: Event) => this.fillPosition(e)}>${icon('anchor')} Position von hier übernehmen</button>
-              <span class="hint pos-hint" role="status">Am besten im Hafen. Ohne Position erscheint der Hafen nicht unter „Umgebung“.</span>
+              <span class="hint pos-hint" role="status">Ohne Position erscheint der Hafen nicht unter „Umgebung“.</span>
             </div>`
         : ''}
       ${clubs.length || d.canClearClub

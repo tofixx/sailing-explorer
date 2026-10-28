@@ -3,9 +3,13 @@ import type { HarborRef, HarborSearchHit } from '../services/api';
 import { HARBOR_LIMITS, harborKey } from '../domain/harbors';
 import { icon } from './icons';
 import { base, emit } from './shared';
+import './sx-place-picker';
 
-/** Auswahl: vorhandener Hafen, neuer Name (legt der Server an bzw. erkennt die Dublette) oder keiner. */
-export type HarborChoice = { harborId: string } | { name: string } | { harborId: null };
+/**
+ * Auswahl: vorhandener Hafen, neuer Name mit Lage (legt der Server an bzw. erkennt die Dublette) oder keiner. Einen
+ * neuen Hafen legt der Server nur mit Lage an (F-353).
+ */
+export type HarborChoice = { harborId: string } | { name: string; pos: { lat: number; lon: number } | null } | { harborId: null };
 
 /**
  * Hafen wählen (Konzept 12.2): Eingabefeld mit Vorschlägen aus vorhandenen Häfen (Combobox nach ARIA). Tippen meldet
@@ -14,6 +18,7 @@ export type HarborChoice = { harborId: string } | { name: string } | { harborId:
  */
 export class SxHarborPicker extends LitElement {
   static properties = {
+    pos: { state: true },
     value: { attribute: false },
     results: { attribute: false },
     label: { type: String },
@@ -24,6 +29,8 @@ export class SxHarborPicker extends LitElement {
     active: { state: true },
   };
   declare value: HarborRef | null;
+  /** Lage eines neuen Hafens (F-353) */
+  declare pos: { lat: number; lon: number } | null;
   declare results: HarborSearchHit[];
   declare label: string;
   declare inputId: string;
@@ -35,6 +42,7 @@ export class SxHarborPicker extends LitElement {
 
   constructor() {
     super();
+    this.pos = null;
     this.value = null;
     this.results = [];
     this.label = 'Hafen';
@@ -110,7 +118,7 @@ export class SxHarborPicker extends LitElement {
     const t = this.text.trim();
     if (!t) return { harborId: null };
     const hit = this.results.find((r) => harborKey(r.name) === harborKey(t));
-    return hit ? { harborId: hit.id } : { name: t };
+    return hit ? { harborId: hit.id } : { name: t, pos: this.pos };
   }
 
   private onInput(e: Event) {
@@ -167,7 +175,13 @@ export class SxHarborPicker extends LitElement {
             )}
           </ul>`
         : ''}
-      <div class="state" aria-live="polite">${'name' in c ? `Neuer Hafen „${c.name}“ wird angelegt.` : c.harborId ? 'Vorhandener Hafen gewählt.' : ''}</div>`;
+      <div class="state" aria-live="polite">${'name' in c ? `Neuer Hafen „${c.name}“ wird angelegt – bitte seine Lage auf der Karte antippen.` : c.harborId ? 'Vorhandener Hafen gewählt.' : ''}</div>
+      ${'name' in c
+        ? html`<sx-place-picker label="Lage des neuen Hafens antippen" .value=${this.pos} @sx-place-pick=${(e: CustomEvent<{ lat: number; lon: number }>) => {
+            e.stopPropagation();
+            this.pos = e.detail;
+          }}></sx-place-picker>`
+        : ''}`;
   }
 }
 customElements.define('sx-harbor-picker', SxHarborPicker);
