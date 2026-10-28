@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-// Handy-Breite: Dialoge als Vollbild, Community-Startseite scrollt per Touch, Kopfzeile passt (F-291).
+// Handy-Breite: Dialoge als Vollbild, Community-Startseite scrollt per Touch, Kopfzeile passt (F-291); Toasts (F-292).
 import { describe, expect, it } from 'vitest';
 import { dialogStyles } from '../../src/components/shared';
 import { SxEmptyState } from '../../src/components/sx-empty-state';
 import { SxTopbar } from '../../src/components/sx-topbar';
+import { SxToast } from '../../src/components/sx-toast';
 
 const cssOf = (styles: unknown): string =>
   ([styles].flat(Infinity) as { cssText: string }[]).map((s) => s.cssText).join('\n').replace(/\s+/g, ' ');
@@ -40,5 +41,36 @@ describe('F-291 Handy-Layout', () => {
   it('Kopfzeile zeigt „Teilen“ auf schmalen Displays nur als Symbol', () => {
     const m = media(cssOf(SxTopbar.styles), '(max-width: 420px)');
     expect(m).toMatch(/\.share \.label-text \{ display: none/);
+  });
+});
+
+describe('F-292 Meldungen (Toasts)', () => {
+  // nur die eigenen Stile, ohne den geteilten Grundbaustein
+  const toastCss = () => cssOf((SxToast.styles as unknown[])[1]);
+
+  it('Desktop: oben mittig über dem Kartenbereich unter der Kopfzeile, nie unter der Seitenleiste', () => {
+    const host = toastCss().match(/^.*?:host \{([^}]*)\}/)![1];
+    expect(host).toMatch(/inset: calc\(var\(--topbar-h\) \+ var\(--s-3\)\) auto auto calc\(\(100vw - var\(--sidebar-w\)\) \/ 2\)/);
+    expect(host).toMatch(/max-width: calc\(100vw - var\(--sidebar-w\)/);
+  });
+
+  it('Handy: unten über dem FAB samt Safe Area, volle Breite mit Rand, Text bricht um', () => {
+    const m = media(toastCss(), '(max-width: 760px)');
+    expect(m).toMatch(/inset: auto auto calc\(env\(safe-area-inset-bottom, 0px\) \+ 56px/);
+    expect(m).toMatch(/max-width: calc\(100vw - 2 \* var\(--s-3\)/);
+    expect(toastCss()).toMatch(/\.pill \{[^}]*max-width: 100%[^}]*white-space: normal[^}]*overflow-wrap: anywhere/);
+    expect(toastCss()).not.toMatch(/nowrap|text-overflow/);
+  });
+
+  it('liegt als Popover in der Top-Layer – auch über modalen Dialogen', async () => {
+    const t = document.createElement('sx-toast') as SxToast;
+    document.body.append(t);
+    expect(t.getAttribute('popover')).toBe('manual');
+    const raised: string[] = [];
+    t.showPopover = () => void raised.push('show');
+    t.show('Gespeichert');
+    await t.updateComplete;
+    expect(raised).toEqual(['show']);
+    t.remove();
   });
 });

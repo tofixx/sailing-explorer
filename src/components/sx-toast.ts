@@ -17,9 +17,11 @@ export class SxToast extends LitElement {
   static styles = [
     base,
     css`
+      /* Desktop (F-292): oben mittig über dem Kartenbereich, knapp unter der Kopfzeile – nie unter der Seitenleiste,
+         nie über Attribution, Maßstab oder der Statuspille in der Kopfzeile. */
       :host {
         position: fixed;
-        inset: auto auto var(--s-5) 50%;
+        inset: calc(var(--topbar-h) + var(--s-3)) auto auto calc((100vw - var(--sidebar-w)) / 2);
         margin: 0;
         padding: 0;
         border: 0;
@@ -32,20 +34,39 @@ export class SxToast extends LitElement {
         justify-items: center;
         pointer-events: none;
         width: max-content;
-        max-width: calc(100vw - 32px);
+        height: auto;
+        /* seitlich Platz für Zoom- und Ebenen-Knöpfe der Karte */
+        max-width: calc(100vw - var(--sidebar-w) - 2 * (var(--s-6) + var(--s-5)));
       }
       .pill {
         display: inline-flex;
         align-items: center;
         gap: var(--s-2);
+        max-width: 100%;
         padding: var(--s-2) var(--s-4);
         border-radius: 999px;
         background: var(--text);
         color: var(--surface);
         font-size: var(--fs-m);
         font-weight: 550;
+        line-height: 1.35;
+        text-align: center;
+        white-space: normal;
+        overflow-wrap: anywhere;
         box-shadow: var(--shadow-2);
         animation: in 0.2s var(--ease);
+      }
+      /* Handy (F-292): unten über die volle Breite (mit Rand), über dem runden „Track anlegen“-Knopf und der
+         Home-Leiste; oben steht schon die Statuspille unter der Kopfzeile. Lange Meldungen brechen um. */
+      @media (max-width: 760px) {
+        :host {
+          inset: auto auto calc(env(safe-area-inset-bottom, 0px) + 56px + var(--s-4) + var(--s-3)) 50%;
+          width: max-content;
+          max-width: calc(100vw - 2 * var(--s-3) - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+        }
+        .pill {
+          border-radius: var(--radius-l);
+        }
       }
       .loading {
         background: var(--surface);
