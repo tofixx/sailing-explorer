@@ -21,6 +21,8 @@ export class SxTopbar extends LitElement {
     saved: { type: Boolean },
     section: { attribute: false },
     unread: { attribute: false },
+    bell: { attribute: false },
+    bellOpen: { attribute: false },
   };
   declare user: User | null;
   declare mode: Mode;
@@ -33,6 +35,10 @@ export class SxTopbar extends LitElement {
   declare section: TopbarSection;
   /** Badge an „Community“ (F-221): leer = keins, sonst Zahl bzw. „99+“ */
   declare unread: string;
+  /** Badge an der Glocke (Konzept 17, F-252): leer = keins, sonst Zahl bzw. „99+“ */
+  declare bell: string;
+  /** Liste der Benachrichtigungen offen (aria-expanded) */
+  declare bellOpen: boolean;
 
   constructor() {
     super();
@@ -44,6 +50,8 @@ export class SxTopbar extends LitElement {
     this.saved = false;
     this.section = 'track';
     this.unread = '';
+    this.bell = '';
+    this.bellOpen = false;
   }
 
   static styles = [
@@ -185,6 +193,17 @@ export class SxTopbar extends LitElement {
           padding: 0;
           width: var(--control-h);
         }
+        }
+      }
+      /* Glocke (Konzept 17): Zähler oben rechts am Knopf */
+      .bell {
+        position: relative;
+      }
+      .bell .badge {
+        position: absolute;
+        top: 2px;
+        right: 0;
+        pointer-events: none;
       }
       .actions {
         display: flex;
@@ -411,7 +430,17 @@ export class SxTopbar extends LitElement {
           : nothing}
         ${this.backend
           ? this.user
-            ? html`<button class="btn ghost icon" @click=${() => emit(this, 'sx-account')} title="Konto & Freigaben (${this.user.email})" aria-label="Konto & Freigaben">
+            ? html`<button
+                  class="btn ghost icon bell"
+                  data-bell
+                  aria-expanded=${this.bellOpen ? 'true' : 'false'}
+                  @click=${() => emit(this, 'sx-notifications')}
+                  title="Benachrichtigungen"
+                  aria-label=${this.bell ? `Benachrichtigungen, ${this.bell} ungelesen` : 'Benachrichtigungen'}
+                >
+                  ${icon('bell')}${this.bell ? html`<span class="badge" aria-hidden="true">${this.bell}</span>` : nothing}
+                </button>
+                <button class="btn ghost icon" @click=${() => emit(this, 'sx-account')} title="Konto & Freigaben (${this.user.email})" aria-label="Konto & Freigaben">
                 <span class="avatar">${this.user.email[0]}</span>
               </button>`
             : html`<button class="btn login keep" @click=${() => emit(this, 'sx-login')} title="Per E-Mail-Link anmelden – Tracks speichern und teilen">

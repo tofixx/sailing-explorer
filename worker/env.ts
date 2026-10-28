@@ -40,4 +40,12 @@ export interface Env {
   ADMIN_USER_IDS?: string;
   /** Kontaktadresse für Meldungen ohne Konto (Impressum, Art. 16 DSA) – erscheint im Melden-Dialog. */
   REPORT_CONTACT?: string;
+
+  // ---- Benachrichtigungen (Konzept 17) ----
+  /** Durable Object je Konto für Live-Benachrichtigungen (WebSocket); fehlt es, lädt die Seite den Zähler wie vorher. */
+  NOTIFY_HUB?: DurableObjectNamespace;
+  /** Web Push: öffentlicher VAPID-Schlüssel (65 Byte, base64url) – ohne beide Schlüssel ist Push aus. */
+  VAPID_PUBLIC_KEY?: string;
+  /** Web Push: privater VAPID-Schlüssel (`d`, base64url, Worker-Secret). */
+  VAPID_PRIVATE_KEY?: string;
 }

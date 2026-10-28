@@ -187,6 +187,10 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     // Reaktionen: die des Ziels gewinnen
     db.prepare(`INSERT OR IGNORE INTO reactions (subject_kind, subject_id, user_id, kind, created_at) SELECT subject_kind, subject_id, ?1, kind, created_at FROM reactions WHERE user_id = ?2`).bind(A, B),
     db.prepare('DELETE FROM reactions WHERE user_id = ?').bind(B),
+    // Benachrichtigungen (Konzept 17): die der Quelle sind kurzlebig und fallen weg; als Auslöser und Push-Gerät zählt das Ziel
+    db.prepare('UPDATE notifications SET actor_id = ?1 WHERE actor_id = ?2').bind(A, B),
+    db.prepare('DELETE FROM notifications WHERE user_id = ?').bind(B),
+    db.prepare('UPDATE push_subscriptions SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     // Anmeldung, Zahlungen, Einladungen, eigene Meldungen
     db.prepare('UPDATE passkeys SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('DELETE FROM webauthn_challenges WHERE user_id = ?').bind(B),

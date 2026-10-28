@@ -1,6 +1,7 @@
 import { inviteWhat } from '../domain/invite-text';
 import { passkeysSupported } from '../services/passkey';
 import { LitElement, html, css, type PropertyValues } from 'lit';
+import { live } from 'lit/directives/live.js';
 import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, HomeInfo, Linkable, MyInvite, Profile, ShareMeta, SupportStatus, User, PasskeyInfo } from '../services/api';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-harbor-picker';
@@ -9,6 +10,7 @@ import { boatLimitText, usageText } from '../domain/limits';
 import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
+import { CHANNELS, CHANNEL_LABEL, CHOOSABLE, CHOOSABLE_LABEL, DEFAULT_CHANNELS, MANDATORY_HINT, type Channel } from '../domain/notifications';
 import { base, dialogStyles, emit, inviteTarget, pendingLabel } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
@@ -54,6 +56,7 @@ export class SxAccountDialog extends LitElement {
     boatVis: { state: true },
     profileVis: { state: true },
     settings: { attribute: false },
+    pushAvailable: { attribute: false },
     reports: { attribute: false },
     home: { attribute: false },
   };
@@ -98,6 +101,8 @@ export class SxAccountDialog extends LitElement {
   declare profileVis: Visibility | null;
   /** Mail-Einstellung, Sperre, Admin (Kommentare & Melden); null = lädt */
   declare settings: AccountSettings | null;
+  /** Push auf diesem Gerät möglich und auf dem Server eingerichtet (Konzept 17.7) */
+  declare pushAvailable: boolean;
   /** offene Meldungen (nur Admins); null = lädt */
   declare reports: AdminReport[] | null;
 
@@ -128,6 +133,7 @@ export class SxAccountDialog extends LitElement {
     this.boatVis = DEFAULT_VISIBILITY;
     this.profileVis = null;
     this.settings = null;
+    this.pushAvailable = false;
     this.reports = null;
     this.home = null;
   }
@@ -322,6 +328,28 @@ export class SxAccountDialog extends LitElement {
         gap: var(--s-2);
         align-items: center;
         cursor: pointer;
+      }
+      /* Kanäle je Art (Konzept 17.6): Name links, Auswahl rechts */
+      .channels {
+        display: grid;
+        gap: var(--s-1);
+        margin: var(--s-2) 0;
+      }
+      .channel {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--s-3);
+        min-height: 40px;
+      }
+      .channel select {
+        min-height: 40px;
+        padding: 0 var(--s-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
       }
       .check input {
         accent-color: var(--accent);
@@ -938,12 +966,24 @@ export class SxAccountDialog extends LitElement {
       ${st.suspended ? html`<div class="note warn" role="status">${icon('lock')}<span>Dein Konto ist gesperrt: Hochladen, Kommentieren, Melden und Einladen sind nicht möglich. Ansehen, Löschen und Abmelden gehen weiter.</span></div>` : ''}
       <div>
         <div class="label" id="notify-h">Benachrichtigungen</div>
-        <label class="check">
-          <input type="checkbox" aria-describedby="notify-hint" .checked=${st.notifyComments === 'daily'} ?disabled=${this.busy}
-            @change=${(e: Event) => emit(this, 'sx-settings-save', { notifyComments: (e.target as HTMLInputElement).checked ? 'daily' : 'off' })} />
-          <span>Tägliche Sammelmail bei neuen Kommentaren auf meinen Törns</span>
-        </label>
-        <p class="hint" id="notify-hint">Höchstens eine Mail pro Tag, nur wenn es Neues gibt – mit Törn und Anzahl, ohne Kommentartexte.</p>
+        <p class="hint" id="notify-hint">
+          In der Glocke oben siehst du immer alles. Zusätzlich: <b>Mail</b> = eine Sammelmail am Tag mit dem, was du noch
+          nicht gelesen hast (ohne Namen und Texte; Einladungen sofort), <b>Push</b> = Mitteilung auf diesem Gerät.
+          ${this.pushAvailable ? '' : 'Push ist in diesem Browser nicht möglich – auf iPhone und iPad nur in der App vom Home-Bildschirm.'}
+        </p>
+        <div class="channels" role="group" aria-labelledby="notify-h" aria-describedby="notify-hint">
+          ${CHOOSABLE.map(
+            (k) => html`<label class="channel">
+              <span>${CHOOSABLE_LABEL[k]}</span>
+              <select .value=${live(st.notify?.[k] ?? DEFAULT_CHANNELS[k])} ?disabled=${this.busy} @change=${(e: Event) => emit(this, 'sx-notify-channel', { kind: k, channel: (e.target as HTMLSelectElement).value as Channel })}>
+                ${CHANNELS.map(
+                  (c) => html`<option value=${c} ?disabled=${c === 'push' && !this.pushAvailable} ?selected=${(st.notify?.[k] ?? DEFAULT_CHANNELS[k]) === c}>${CHANNEL_LABEL[c]}</option>`,
+                )}
+              </select>
+            </label>`,
+          )}
+        </div>
+        <p class="hint">${icon('lock')} ${MANDATORY_HINT}</p>
         <label class="check">
           <input type="checkbox" aria-describedby="notify-groups-hint" .checked=${st.notifyGroups === 'weekly'} ?disabled=${this.busy}
             @change=${(e: Event) => emit(this, 'sx-settings-save', { notifyGroups: (e.target as HTMLInputElement).checked ? 'weekly' : 'off' })} />

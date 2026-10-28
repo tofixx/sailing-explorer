@@ -30,6 +30,7 @@ import './components/sx-photo-upload';
 import './components/sx-reactions';
 import './components/sx-harbor-picker';
 import './components/sx-legal-page';
+import './components/sx-notifications';
 import { App } from './app';
 
 new App().start();

@@ -7,6 +7,7 @@ import { assertActive } from './moderation';
 import { BOAT_ID_RE, SHARE_ID_RE, normalizeHandle } from './validate';
 import { GROUP_LIMITS } from '../src/domain/limits';
 import { isFollowKind, suggestionReasonText, type FollowKind, type SuggestionReason } from '../src/domain/groups';
+import { notifyFollow } from './notifications';
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Das gibt es nicht (mehr) oder es ist nicht öffentlich.');
 
@@ -78,7 +79,9 @@ export async function addFollow(env: Env, userId: string, kind: FollowKind, targ
   if (exists) return true;
   const n = (await env.DB.prepare('SELECT COUNT(*) AS n FROM follows WHERE user_id = ?').bind(userId).first<{ n: number }>())?.n ?? 0;
   if (n >= GROUP_LIMITS.follows) return false;
-  await env.DB.prepare('INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) VALUES (?, ?, ?, ?)').bind(userId, kind, targetId, Date.now()).run();
+  const res = await env.DB.prepare('INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) VALUES (?, ?, ?, ?)').bind(userId, kind, targetId, Date.now()).run();
+  // Neue Follower:in eines Profils erfährt die Person über die Glocke (Konzept 17, F-250).
+  if (kind === 'user' && res.meta.changes) await notifyFollow(env, targetId, userId);
   return true;
 }
 

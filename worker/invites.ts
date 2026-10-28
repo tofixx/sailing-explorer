@@ -14,6 +14,9 @@ import { GROUP_LIMITS } from '../src/domain/limits';
 import { canManageGroup, effectiveJoinMode, inviteJoinsDirectly, type Approvers, type JoinMode } from '../src/domain/groups';
 import { BOAT_ID_RE, TOKEN_RE, normalizeEmail, normalizeHandle, parseInviteKind, type InviteKind } from './validate';
 import { funnyName } from '../src/domain/names';
+import { notifyInvite, readInviteNotification } from './notifications';
+import { deleteInviteNotifications } from './notification-cleanup';
+import { prefsOf } from './notification-mail';
 
 const DAY = 86_400_000;
 
@@ -173,8 +176,13 @@ async function createInvite(request: Request, env: Env, user: User, o: NewInvite
     if ((await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE (email IS NOT NULL OR invitee_id IS NOT NULL) AND created_at > ?', now - DAY)) >= INVITE_LIMITS.mailsPerDay) {
       throw new HttpError(429, 'mail_budget', 'Heute wurden schon sehr viele Einladungen verschickt. Bitte morgen erneut versuchen.');
     }
-    // Profilname: die Adresse des Kontos holt nur der Server – sie erscheint nie in einer Antwort.
-    mailTo = 'email' in to ? to.email : ((await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(to.userId).first<{ email: string }>())?.email ?? null);
+    // Profilname: die Adresse des Kontos holt nur der Server – sie erscheint nie in einer Antwort. Ob eine Mail kommt,
+    // entscheidet das eingeladene Konto (Konzept 17.6: Einladungen keine/Mail/Push); in der Glocke steht sie immer.
+    // An eine Adresse geht immer eine Mail – sie ist die Einladung selbst.
+    if ('email' in to) mailTo = to.email;
+    else if ((await prefsOf(env, to.userId)).invite === 'mail') {
+      mailTo = (await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(to.userId).first<{ email: string }>())?.email ?? null;
+    }
   }
   const token = randomToken();
   const row: InviteRow = {
@@ -198,6 +206,8 @@ async function createInvite(request: Request, env: Env, user: User, o: NewInvite
       throw err;
     }
   }
+  // Bestehende Konten sehen die Einladung zusätzlich in der Glocke (Konzept 17, F-250).
+  if (to) await notifyInvite(env, row.id, 'email' in to ? { email: to.email } : { userId: to.userId }, user.id);
   const shaped = inviteShape(to && 'userId' in to ? { ...row, invitee_name: to.name, invitee_handle: to.handle } : row);
   return { invite: shaped, link };
 }
@@ -474,6 +484,8 @@ const isFor = (inv: InviteRow, user: User) => (inv.invitee_id ? inv.invitee_id =
 export async function peekInvite(request: Request, env: Env): Promise<Response> {
   const inv = await loadInvite(request, env, (await readJson<{ token?: unknown }>(request)).token);
   const user = await currentUser(request, env);
+  // Einladung angesehen (Link aus der Mail): die Benachrichtigung dazu ist gelesen (F-253).
+  if (user && isBound(inv) && isFor(inv, user)) await readInviteNotification(env, user.id, inv.id);
   return json({
     kind: inv.kind,
     target: targetOf(inv),
@@ -581,7 +593,7 @@ export async function acceptInvite(request: Request, env: Env): Promise<Response
   const user = await requireUser(request, env);
   await assertActive(env, user);
   const inv = await loadInvite(request, env, (await readJson<{ token?: unknown }>(request)).token);
-  return json(await acceptLoaded(env, user, inv));
+  return json(await acceptAndForget(env, user, inv));
 }
 
 // ---------------------------------------------------------------- Posteingang: Einladungen an mich
@@ -622,7 +634,14 @@ export async function acceptMyInvite(request: Request, env: Env, id: string): Pr
   const user = await requireUser(request, env);
   const [inv] = await myInvites(env, user, id);
   if (!inv) throw new HttpError(404, 'not_found', 'Diese Einladung gibt es nicht (mehr).');
-  return json(await acceptLoaded(env, user, inv));
+  return json(await acceptAndForget(env, user, inv));
+}
+
+/** Annehmen; eine gebundene Einladung ist danach erledigt – ihre Benachrichtigung verschwindet (F-255). */
+async function acceptAndForget(env: Env, user: User, inv: LoadedInvite) {
+  const result = await acceptLoaded(env, user, inv);
+  if (isBound(inv)) await deleteInviteNotifications(env, inv.id).run();
+  return result;
 }
 
 /** DELETE /api/me/invites/:id – Einladung an mich ablehnen (sie verschwindet auch beim Einladenden). */
@@ -630,6 +649,7 @@ export async function declineMyInvite(request: Request, env: Env, id: string): P
   const user = await requireUser(request, env);
   const res = await env.DB.prepare('DELETE FROM invites WHERE id = ? AND (invitee_id = ? OR email = ?)').bind(id, user.id, user.email).run();
   if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Diese Einladung gibt es nicht (mehr).');
+  await deleteInviteNotifications(env, id).run();
   return new Response(null, { status: 204 });
 }
 
@@ -644,6 +664,6 @@ export async function revokeInvite(request: Request, env: Env, id: string): Prom
     .first<{ id: string; group_id: string | null; owner: string | null }>();
   const allowed = !!row && (row.group_id ? canManageGroup(await roleIn(env, user.id, row.group_id)) : row.owner === user.id);
   if (!row || !allowed) throw new HttpError(404, 'not_found', 'Diese Einladung gibt es nicht (mehr).');
-  await env.DB.prepare('DELETE FROM invites WHERE id = ?').bind(id).run();
+  await env.DB.batch([deleteInviteNotifications(env, id), env.DB.prepare('DELETE FROM invites WHERE id = ?').bind(id)]);
   return new Response(null, { status: 204 });
 }

@@ -2,6 +2,7 @@ import { MAP_STYLES } from '../domain/map-style';
 import { metricRange } from '../domain/metrics';
 import type { SharePurpose } from '../components/sx-share-dialog';
 import { PasskeyExistsError, PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
+import { disablePush } from '../services/push';
 import { deviceName } from '../domain/device';
 import { passkeyApi } from '../services/api';
 import { inviteAcceptedText } from '../domain/invite-text';
@@ -342,6 +343,8 @@ export class SessionController {
   }
 
   async logout(): Promise<void> {
+    // Push-Abo dieses Geräts weg – sonst weckte es weiter für dieses Konto (geteilter Rechner, Konzept 17.7)
+    await disablePush().catch(() => undefined);
     await api.logout().catch(() => {});
     this.signedOut('Abgemeldet');
   }

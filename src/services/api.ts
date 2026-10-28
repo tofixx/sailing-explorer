@@ -11,6 +11,7 @@ import type { CoverKind, CoverRef } from '../domain/cover';
 import type { HarborRef } from '../domain/harbors';
 import type { MapStyleId } from '../domain/map-style';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
+import type { NotificationItem, NotificationKind, NotifyPrefs } from '../domain/notifications';
 
 export type { Visibility };
 
@@ -462,6 +463,8 @@ export interface CommentList {
 }
 
 export interface AccountSettings {
+  /** Kanäle je Art (Konzept 17.6; fehlt bei älteren Servern) */
+  notify?: NotifyPrefs;
   notifyComments: NotifyMode;
   /** wöchentliche Sammelmail aus Vereinen und Teams (fehlt bei älteren Servern) */
   notifyGroups?: GroupNotifyMode;
@@ -471,6 +474,8 @@ export interface AccountSettings {
   hasProfile: boolean;
   isAdmin: boolean;
 }
+
+export type SettingsPatch = { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode; notify?: Partial<NotifyPrefs>; mapStyle?: MapStyleId | null };
 
 export interface ReportInput {
   kind: ReportKind;
@@ -517,7 +522,7 @@ export const communityApi = {
   setCommentsMode: (shareId: string, commentsMode: CommentsMode) =>
     call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(shareId)}`, jsonInit('PATCH', { commentsMode })),
   settings: () => call<AccountSettings>('/api/me/settings'),
-  saveSettings: (s: { notifyComments?: NotifyMode; notifyGroups?: GroupNotifyMode; mapStyle?: MapStyleId | null }) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
+  saveSettings: (s: SettingsPatch) => call<AccountSettings>('/api/me/settings', jsonInit('PATCH', s)),
   report: (r: ReportInput, key?: string | null) =>
     call<{ ok: true; already: boolean }>('/api/reports', {
       ...jsonInit('POST', r),
@@ -934,4 +939,21 @@ export const passkeyApi = {
   registerOptions: () => call<{ options: PublicKeyCredentialCreationOptionsJSON; challengeId: string }>('/api/passkeys/options', jsonInit('POST', {})),
   register: (challengeId: string, response: unknown, name: string) => call<{ passkey: PasskeyInfo }>('/api/passkeys', jsonInit('POST', { challengeId, response, name })),
   remove: (id: string) => call<void>(`/api/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+// ================================================================ Benachrichtigungen (Konzept 17)
+
+export type { NotificationItem };
+
+/** Was als gelesen gilt: bestimmte Einträge, eine Art, ein Gegenstand (Törn, Gruppe) oder alles. */
+export type NotificationRead = { ids: string[] } | { kind: NotificationKind } | { subjectKind: 'share' | 'group'; subjectId: string } | { all: true };
+
+export const notificationApi = {
+  list: () => call<{ items: NotificationItem[]; unread: number }>('/api/notifications'),
+  unread: () => call<{ unread: number }>('/api/notifications/count'),
+  read: (what: NotificationRead) => call<{ unread: number }>('/api/notifications/read', jsonInit('POST', what)),
+  /** öffentlicher VAPID-Schlüssel; null = Push hier nicht eingerichtet */
+  pushKey: () => call<{ publicKey: string | null }>('/api/push/key'),
+  subscribePush: (endpoint: string) => call<void>('/api/me/push', jsonInit('PUT', { endpoint })),
+  unsubscribePush: (endpoint: string) => call<void>('/api/me/push', jsonInit('DELETE', { endpoint })),
 };

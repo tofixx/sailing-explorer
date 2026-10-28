@@ -187,14 +187,24 @@ describe('sx-account-dialog – Einstellungen und Meldungen', () => {
   const settings = (over: Record<string, unknown> = {}) => ({ notifyComments: 'off', suspended: false, hasProfile: true, isAdmin: false, ...over });
   const user = { id: 'U1', email: 'anna@example.org' };
 
-  it('[F-113] Einstellungen: tägliche Sammelmail an-/abschalten', async () => {
-    const saved = listen('sx-settings-save');
-    const el = await mount('sx-account-dialog', { open: true, user, tab: 'settings', settings: settings() });
-    const box = el.shadowRoot.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-    expect(box.checked).toBe(false);
-    box.checked = true;
-    box.dispatchEvent(new Event('change'));
-    expect(saved).toEqual([{ notifyComments: 'daily' }]);
+  it('[F-113] [F-256] Einstellungen: Kanal je Art (Keine/Mail/Push), Push nur wenn möglich; Pflicht-Mails als Hinweis', async () => {
+    const saved = listen('sx-notify-channel');
+    const notify = { comment: 'none', reaction: 'none', follow: 'push', invite: 'mail', request: 'none' };
+    const el = await mount('sx-account-dialog', { open: true, user, tab: 'settings', settings: settings({ notify }), pushAvailable: false });
+    const selects = [...el.shadowRoot.querySelectorAll<HTMLSelectElement>('.channels select')];
+    expect(selects).toHaveLength(5);
+    expect(text(el)).toContain('Kommentare auf deinen Törns');
+    expect(selects[0].value).toBe('none');
+    expect(selects[3].value).toBe('mail');
+    // Push hier nicht möglich: Option gesperrt, Hinweis sichtbar
+    expect(selects[0].querySelector<HTMLOptionElement>('option[value="push"]')!.disabled).toBe(true);
+    expect(text(el)).toMatch(/Push ist in diesem Browser nicht möglich/);
+    expect(text(el)).toMatch(/Immer per Mail: Anmeldung/);
+    selects[0].value = 'mail';
+    selects[0].dispatchEvent(new Event('change'));
+    expect(saved).toEqual([{ kind: 'comment', channel: 'mail' }]);
+    const withPush = await mount('sx-account-dialog', { open: true, user, tab: 'settings', settings: settings({ notify }), pushAvailable: true });
+    expect(withPush.shadowRoot.querySelector<HTMLOptionElement>('.channels option[value="push"]')!.disabled).toBe(false);
     const susp = await mount('sx-account-dialog', { open: true, user, tab: 'settings', settings: settings({ suspended: true }) });
     expect(text(susp)).toContain('Dein Konto ist gesperrt');
   });

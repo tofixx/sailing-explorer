@@ -78,6 +78,7 @@ const paths = {
   // Kopfzeilen-Navigation (F-220): Community (Leute) und Entdecken (Kompass)
   community: svg`<circle class="f" cx="9" cy="8.5" r="3.5"/><circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 19.5c.9-3.4 3.4-5.5 6.5-5.5s5.6 2.1 6.5 5.5"/><circle cx="16.5" cy="9.5" r="2.7"/><path d="M16.5 14.3c2.6 0 4.4 1.8 5 4.4"/>`,
   compass: svg`<circle class="f" cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="9"/><path d="m15.8 8.2-2.3 5.3-5.3 2.3 2.3-5.3z"/>`,
+  bell: svg`<path class="f" d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 21h4"/>`,
   scale: svg`<path d="M12 4v16M7 20h10M5 7h14M5 7l-2.5 6a2.5 2.5 0 0 0 5 0zM19 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/>`,
 };
 

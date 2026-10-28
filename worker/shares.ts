@@ -8,6 +8,7 @@ import { assertActive, deleteShareReports, isAdmin } from './moderation';
 import { deleteKeys, photoKeysForShares, previewKey, shareKey } from './photo-keys';
 import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
 import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, subtractShareStmt } from './storage';
+import { deleteShareNotifications } from './notification-cleanup';
 import { deleteShareActivity, recordVoyage } from './activity';
 import { deleteShareReactions } from './reaction-cleanup';
 import { quotaVerdict } from '../src/domain/limits';
@@ -330,7 +331,7 @@ export async function removeShare(env: Env, id: string): Promise<void> {
   // Datei zurück statt einer Datei, die niemand mehr findet. Die Foto-Zeilen fallen per ON DELETE CASCADE.
   await deleteKeys(env, [shareKey(id), previewKey(id), ...(await photoKeysForShares(env, [id]))]);
   // Speicher vom globalen Zähler abziehen (vor dem Löschen der Zeile), Meldungen entfernen, Törn löschen – ein Batch.
-  await env.DB.batch([subtractShareStmt(env, id), deleteShareReports(env, id), deleteShareReactions(env, id), deleteShareActivity(env, id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id)]);
+  await env.DB.batch([subtractShareStmt(env, id), deleteShareReports(env, id), deleteShareReactions(env, id), deleteShareActivity(env, id), deleteShareNotifications(env, id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id)]);
 }
 
 /**

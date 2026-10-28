@@ -1121,9 +1121,7 @@ Das Datenmodell trägt die nächsten Schritte ohne Tabellenneubau:
   per Index, Sichtbarkeit wie das Ziel.
 - **Persönliche Beiträge:** `posts.group_id = NULL`, Ziel `user` (Follower lesen über `activity_target`). Die
   Prüfung beim Lesen wird um „Autor-Profil öffentlich“ ergänzt.
-- **Benachrichtigungs-Glocke:** `notifications (user_id, kind, actor_id, subject_kind, subject_id, created_at,
-  read_at)` – hier *ist* Fan-out richtig, weil genau eine Person adressiert ist (neuer Follower, Reaktion, Kommentar,
-  Einladung). Quelle sind dieselben Stellen, die heute `activity` schreiben (`worker/activity.ts`).
+- **Benachrichtigungs-Glocke:** umgesetzt in Abschnitt 17 (Oktober 2026).
 - `activity.kind`, `subject_kind` und `activity_target.target_kind` sind Text ohne `CHECK` (Prinzip Architektur 7).
 
 ### 11.11 Offene Fragen an den Betreiber
@@ -1225,7 +1223,7 @@ Gegenstand**; eine andere Art ersetzt sie, dieselbe noch einmal nimmt sie zurüc
 | Aufräumen | Konto löschen: eigene Reaktionen und alle auf eigene Törns, Fotos, Beiträge und Aktivitäten; Törn, Foto, Beitrag löschen: Reaktionen darauf; nächtlich: Reaktionen ohne Gegenstand |
 | Melden | nicht nötig (kein Freitext) |
 
-**Benachrichtigungs-Glocke:** nicht gebaut – sie fällt nicht billig ab (eigene Tabelle `notifications` mit Fan-out an
+**Benachrichtigungs-Glocke:** inzwischen umgesetzt (Abschnitt 17). Ursprüngliche Einschätzung: nicht gebaut – sie fällt nicht billig ab (eigene Tabelle `notifications` mit Fan-out an
 genau eine Person, Lesestatus, Abfrage-Endpunkt, Badge im Kopf, Aufräumen). Vorbereitet ist sie wie in 11.10
 beschrieben; Reaktionen wären neben neuen Followern, Kommentaren und Einladungen eine Quelle.
 
@@ -1288,7 +1286,7 @@ ohne Reaktionen, höchstens alle 2 min je Tab.
 2. ~~Soll der Heimathafen einer Gruppe ebenfalls auf `harbors` umgestellt werden?~~ Ja – umgesetzt in 13.3.
 3. Wer darf die Position eines Hafens pflegen, wenn die Anleger:in inaktiv ist – Vereins-Admins des Hafens?
    *Teilweise: Admins können die Anleger:in neu zuweisen (18.6).*
-4. Benachrichtigungs-Glocke (12.5) als nächster Schritt?
+4. ~~Benachrichtigungs-Glocke (12.5) als nächster Schritt?~~ Ja – umgesetzt in Abschnitt 17.
 5. Betreiberangaben für Impressum und Datenschutz (Name, Anschrift, E-Mail, ggf. Telefon) und ob
    Auftragsverarbeitungsverträge mit Cloudflare, Resend und Stripe abgeschlossen sind.
 
@@ -1760,3 +1758,155 @@ Standard-Grundkarte: tagsüber OSM Deutschland (`name:de`, sonst `name`), nachts
 Teilen-Bild nimmt dieselbe Tageskarte. Die ruhigere Esri-Seekarte bleibt als „Seekarte (Esri, englisch)“ wählbar. Ein
 späterer Sprachwechsel ändert nur `MAP_LANG` (dann ggf. weitere Kachelquellen). Echte Sprachwahl je Beschriftung ginge
 nur mit Vektorkacheln (MapLibre) – bewusst nicht jetzt.
+
+## 17. Benachrichtigungen (Glocke)
+
+*Umgesetzt (Oktober 2026): `migrations/0021_notifications.sql`, `worker/notifications.ts`,
+`worker/notification-cleanup.ts`, `src/domain/notifications.ts`, `src/controllers/notifications.ts`, `sx-notifications`,
+Glocke in `sx-topbar`; Anforderungen F-250 … F-255. Beantwortet die offene Frage 12.9.4 und ersetzt die Vorbereitung
+aus 11.10 und 12.5.*
+
+Anlass: „Wir brauchen Benachrichtigungen sichtbar auf der Seite zu neuen Nachrichten.“ Direktnachrichten gibt es
+nicht; „Nachrichten“ sind das, was eine Person persönlich betrifft und heute teils per Mail kommt – Kommentare,
+Reaktionen, neue Follower, Einladungen und Beitrittsanfragen. Was die Community insgesamt bewegt (Törns, Fotos,
+Beiträge der Gruppen), bleibt der Stream (12.4); ein Ungelesen-Badge dafür ist ein eigenes Vorhaben (12.10, Branch
+`feature/kopfzeile-community`).
+
+### 17.1 Was benachrichtigt
+
+| Art (`kind`) | Anlass | Empfänger | Gegenstand (`subject_kind`) |
+|---|---|---|---|
+| `comment` | Kommentar auf einem Törn | Eigentümer:in des Törns | `share` |
+| `reaction` | Reaktion auf Törn, Foto, Beitrag, Neuigkeit | Eigentümer:in bzw. Autor:in bzw. handelnde Person der Neuigkeit | `share` (auch bei Fotos), `post`, `activity` |
+| `follow` | jemand folgt dem Profil | die Person | `user` (sie selbst) |
+| `invite` | Einladung per Profilname oder an die Adresse eines bestehenden Kontos | eingeladenes Konto | `invite` |
+| `request` | Beitrittsanfrage (auch aus angenommener Einladung) | Eigner und Admins, bei „Nur der Eigner“ nur er; höchstens 20 | `group` |
+
+Nie an sich selbst. Boote, Gruppen und Häfen folgen benachrichtigt niemanden (zu viele Empfänger, wenig Wert).
+
+### 17.2 Datenmodell und Bündeln
+
+`notifications (id, user_id, kind, subject_kind, subject_id, actor_id, count, created_at, updated_at, read_at)` – hier
+ist Fan-out richtig, weil genau eine Person adressiert ist. Ein eindeutiger Teilindex auf `(user_id, kind,
+subject_kind, subject_id) WHERE read_at IS NULL` bündelt: solange ungelesen, zählt ein neues Ereignis nur `count`
+hoch und ersetzt `actor_id` („Anna und 2 weitere …“). Nach dem Lesen beginnt eine neue Zeile. Geschrieben wird mit
+einem einzigen `INSERT … SELECT … ON CONFLICT` an denselben Stellen, die heute `activity` oder Mails auslösen
+(Kommentar, Reaktion, Folgen, Einladung, Anfrage); ein Fehler dabei lässt die Aktion nie scheitern. Eine Reaktion
+benachrichtigt nur, wenn sie neu ist (Art wechseln nicht); bei Reaktionen und Follower:innen zählt dieselbe Person
+direkt hintereinander nur einmal. Arten und
+Gegenstände ohne SQL-`CHECK` (Prinzip Architektur 7). Konflikt-Hinweis: Führt ein anderer Branch eine Kontosperre
+(`locked_at`) ein, gehört sie in die Prüf-Joins aus 17.3 (Handelnde, Einladende).
+
+### 17.3 Lesen, Sichtbarkeit, Kosten
+
+`GET /api/notifications` liest die neuesten 30 Einträge mit **einer** Abfrage samt Prüf-Joins: Törns und Beiträge nur
+eigene, Anfragen nur solange man bestätigen darf (`canApprove`), Einladungen nur gültig und an mich. Handelnde nur
+mit öffentlichem, nicht ausgeblendetem Profil eines nicht gesperrten Kontos, sonst „Jemand“ – Namen nicht öffentlicher
+Profile werden so nie verraten. Keine Konto-IDs, keine E-Mail-Adressen. Was nicht mehr gilt, erscheint nicht und wird
+als gelesen markiert, damit der Zähler stimmt. `GET /api/notifications/count` zählt nur (Index, höchstens 100).
+
+**Kein Polling-Sturm:** Der Zähler lädt beim Start bzw. nach der Anmeldung und beim Zurückkehren in den Tab
+(frühestens alle 2 min); Seitenwechsel sind ohnehin Neuladen. Neues kommt live (17.8). Die Liste lädt erst beim Öffnen
+der Glocke.
+**D1-Writes:** eine Zeile je Ereignis und Empfänger, beim Bündeln ein Update; Lesen markieren nur, wenn es
+Ungelesenes gibt (UPDATE ohne Treffer schreibt nichts).
+
+### 17.4 Gelesen – auch beim Lesen und über Mail-Links
+
+Eine Benachrichtigung gilt als gelesen,
+
+- beim Anklicken in der Liste (dann öffnet sich das Ziel) oder mit „Alle als gelesen“,
+- **nur zur Kenntnis** (Reaktionen, Follower): sobald die Liste sie gezeigt hat,
+- beim **Öffnen des Gegenstands** – egal ob über die Glocke, einen Link aus einer Mail oder direkt: Törn geöffnet →
+  Kommentare und Reaktionen dazu; Gruppenseite → Anfragen; Konto mit „Einladungen an dich“ → Einladungen; Einladung
+  über den Mail-Link angesehen (`peek`, als eingeladenes Konto) → diese Einladung. Kommt der Zähler erst nach dem
+  Öffnen an, wird es nachgeholt.
+
+**Mail und Glocke gehören zusammen:** Die tägliche Sammelmail (17.6, opt-in je Art; früher nur Kommentare, 4.1) nennt
+nur, was in der Glocke noch ungelesen ist – was auf der Seite gelesen wurde, kommt nicht noch einmal per Mail.
+Ihre Links führen zum Törn, und das Öffnen markiert als gelesen. Einladungsmails führen zum Einladungs-Dialog
+(`peek`). Kommentare vor der Einführung der Glocke haben keine Benachrichtigung und erscheinen daher nicht mehr in der
+Sammelmail (einmaliger Übergang).
+
+### 17.5 Aufräumen (Prüfpunkt 6)
+
+| Anlass | Was |
+|---|---|
+| Törn löschen oder ablaufen | Einträge mit dem Törn als Gegenstand (Kommentare, Reaktionen, Löschwarnung) und Crew-Einladungen |
+| Beitrag löschen (auch Moderation) | Reaktionen auf den Beitrag |
+| Boot löschen | Einladungen als Boots-Admin |
+| Gruppe löschen | Anfragen, Reaktionen auf ihre Beiträge, Einladungen in die Gruppe |
+| Einladung angenommen, abgelehnt, zurückgezogen | ihre Einträge |
+| Konto löschen (auch inaktiv, `purgeUser`) | eigene Einträge und Push-Abos, solche über eigene Beiträge und Einladungen des Kontos (auch zu seinen Booten und Törns) bei anderen; als Handelnde wird `actor_id` geleert („Jemand“, Zählung bleibt) |
+| Nächtlich (eigener Schritt) | gelesene nach **30 Tagen**, alle nach **90 Tagen**, Einträge ohne Gegenstand (Törn, Beitrag, Neuigkeit, Gruppe, Konto, gültige Einladung) – je Schritt höchstens 1000; Push-Abos ein Jahr ohne Zustellung |
+
+Keine R2-Dateien, kein Speicherzähler; das Durable Object speichert nichts (nur offene Verbindungen). Fristen stehen in der Datenschutzerklärung (`src/content/legal.ts`).
+
+### 17.6 Kanäle je Art: keine, Mail, Push – Hinweise des Betreibers nicht abschaltbar
+
+Vorgabe des Betreibers: Benachrichtigungen per Mail sollen abschaltbar sein, als App-Benachrichtigung (Push)
+einschaltbar – Auswahl *keine / Mail / Push*; Hinweise des Betreibers zum Konto und zum Löschen nicht abschaltbar.
+
+| Art | Standard | Mail heißt |
+|---|---|---|
+| Kommentare auf deinen Törns | keine | tägliche Sammelmail (bisher „Tägliche Sammelmail bei neuen Kommentaren“, übernommen) |
+| Reaktionen auf deine Inhalte | keine | tägliche Sammelmail |
+| Neue Follower | keine | tägliche Sammelmail |
+| Einladungen an dich (per Profilname) | Mail | sofort die Einladungsmail (wie bisher); Einladungen an eine Adresse sind die Mail selbst und kommen immer |
+| Beitrittsanfragen in deinen Gruppen | keine | tägliche Sammelmail |
+
+Die Glocke zeigt **immer** alles; die Auswahl betrifft nur, was zusätzlich kommt. Gespeichert als JSON in
+`users.notify_prefs` (fehlende Arten = Standard), Konto → Einstellungen, `PATCH /api/me/settings { notify }`;
+`notifyComments` bleibt als Kurzform (`daily` = Kommentare per Mail). Die **Sammelmail** ersetzt die bisherige
+Kommentar-Sammelmail: einmal am Tag (höchstens 25 pro Lauf, Resend Free), nur Ungelesenes der Arten auf „Mail“ seit der
+letzten Sammelmail, geprüft wie die Liste (17.3), Zeilen nur mit Anzahl und eigenem Törn bzw. eigener Gruppe – keine
+Namen, keine Texte, Follower-Links zur Startseite. Wird eine Art neu auf Mail gestellt und gab es bisher keine
+Sammelmail, zählt erst ab dann.
+
+**Nicht abschaltbar** (Hinweise des Betreibers): Anmeldelink/-code, „neuer Passkey an deinem Konto“, „Törns werden bald
+gelöscht“ und die Saison-Erinnerung kommen immer per Mail. Passkey und Löschwarnung (`passkey`, `expiry`) erscheinen
+zusätzlich in der Glocke, ohne handelnde Person; sie stehen nicht in der Auswahl.
+
+### 17.7 Push (Web Push)
+
+Push heißt eine Mitteilung des Betriebssystems, auch wenn die Seite zu ist. Umsetzung ohne Fremd-Bibliothek:
+`public/sw.js` (nur Push, kein Offline-Cache), Abo per `PushManager.subscribe` mit dem öffentlichen VAPID-Schlüssel
+(`GET /api/push/key`), gespeichert wird nur die **Adresse** des Push-Dienstes (`push_subscriptions.endpoint`,
+`PUT/DELETE /api/me/push`, höchstens 10 Geräte je Konto, nur bekannte Dienste: Google, Mozilla, Apple, Microsoft – sonst
+400).
+
+**Leere Weckrufe:** Der Worker schickt je Gerät ein `POST` ohne Inhalt mit VAPID-Signatur (ES256, 12 h gültig) – keine
+Verschlüsselung nötig, und der Push-Dienst erfährt nichts über Inhalte. Der Service Worker holt dann
+`/api/notifications` mit der Sitzung und zeigt den neuesten ungelesenen Eintrag (`text`, `href`); ohne Sitzung einen
+neutralen Hinweis; er fragt `?push=1` und sieht so nur Arten auf „Push“. 403/404/410 vom Dienst löschen das Abo.
+Push geht nur an Arten auf „Push“, nicht an Hinweise des Betreibers, und nicht erneut, wenn dieselbe Person direkt
+hintereinander folgt oder reagiert. Gesendet wird parallel, das JWT je Push-Dienst einmal, höchstens 20 Geräte je
+Ereignis (Subrequest-Grenze, Latenz der auslösenden Anfrage – der Worker hat dort kein `waitUntil`). Wählt man Push,
+fragt der Browser nach der Erlaubnis; steht keine Art mehr auf Push, werden **alle** Geräte des Kontos abgemeldet.
+Abmelden meldet dieses Gerät ab (geteilter Rechner). Ohne VAPID-Schlüssel (Vorschau, lokale Entwicklung) ist „Push“ ausgegraut. iOS: nur als App vom
+Home-Bildschirm. Aufräumen: Konto löschen, ein Jahr ohne Zustellung (nächtlich).
+
+### 17.8 Live per WebSocket
+
+Neues soll ohne Neuladen und ohne Polling erscheinen. Ein **Durable Object je Konto** (`NotificationHub`,
+SQLite-basiert, im Free Tier enthalten) hält die offenen Seiten per WebSocket mit **Hibernation** – zwischen den
+Nachrichten schläft es und kostet keine Dauer. Entsteht eine Benachrichtigung oder wird eine gelesen, stößt der Worker
+das Objekt des Kontos an; es schickt allen Seiten nur `changed` – den Zähler (und eine offene Liste) holt jede Seite
+selbst, mit derselben Prüfung wie immer. Im Socket stehen also nie Inhalte. `GET /api/notifications/live` nur
+angemeldet und nur mit Origin der eigenen Seite (Schutz vor Cross-Site WebSocket Hijacking), höchstens 10 Verbindungen
+je Konto. „ping“ beantwortet die Laufzeit selbst (Auto-Response, ohne Aufwachen). Die Seite verbindet nach dem ersten
+Zähler, schließt im Hintergrund-Tab und verbindet beim Zurückkommen sofort wieder; nach einem Abbruch mit wachsendem
+Abstand (5 s … 5 min), auch wenn das Netz gerade fehlt. Beim Wiederverbinden lädt sie den Zähler nach. Eine Seite, die
+wegen zu vieler Verbindungen getrennt wurde (Code 4000), bleibt ohne Live.
+
+**Kosten:** je Benachrichtigung und Empfänger eine Anfrage ans Durable Object (Free: 100 000/Tag), je offene Seite eine
+Verbindung; ohne Binding (andere Installationen) ist Live aus und die Glocke lädt wie in 17.3.
+
+### 17.9 Offene Fragen an den Betreiber
+
+1. Sollen auch Antworten in Törns, auf denen man selbst kommentiert hat, benachrichtigen (heute nur die Eigentümer:in)?
+2. Sollen Bestätigende mit „Alle Mitglieder“ ebenfalls Anfragen gemeldet bekommen (heute nur Eigner und Admins, um den
+   Fan-out klein zu halten)?
+3. Die Löschwarnung in der Glocke bleibt nach einer Unterstützung stehen, bis sie gelesen ist – reicht das?
+4. VAPID-Schlüssel erzeugen und als Secrets setzen (`node scripts/vapid-keys.mjs`, README) – erst dann ist Push in der
+   Produktion wählbar.

@@ -310,12 +310,15 @@ describe('F-112 Spam-Grenzen', () => {
 
 describe('F-113 Tägliche Sammelmail (opt-in)', () => {
   // nur Sammelmails (nicht den Anmeldelink)
-  const mails = (to: string) => h.logs.filter((l) => l.includes(`[mail:log] an ${to}:`) && l.includes('auf deinen Törns'));
+  const mails = (to: string) => h.logs.filter((l) => l.includes(`[mail:log] an ${to}:`) && l.includes('Benachrichtigung'));
 
   it('[F-113] Einstellung: Standard aus, umschaltbar auf täglich, Unbekanntes → 400', async () => {
     const p = await person();
     const get = await send('GET', '/api/me/settings', p.cookie);
-    expect(await get.json()).toEqual({ notifyComments: 'off', notifyGroups: 'off', mapStyle: null, suspended: false, hasProfile: true, isAdmin: false });
+    expect(await get.json()).toEqual({
+      notify: { comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none' },
+      notifyComments: 'off', notifyGroups: 'off', mapStyle: null, suspended: false, hasProfile: true, isAdmin: false,
+    });
     const on = await send('PATCH', '/api/me/settings', p.cookie, { notifyComments: 'daily' });
     expect(((await on.json()) as { notifyComments: string }).notifyComments).toBe('daily');
     expect((await send('PATCH', '/api/me/settings', p.cookie, { notifyComments: 'hourly' })).status).toBe(400);
