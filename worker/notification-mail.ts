@@ -22,10 +22,16 @@ export async function prefsOf(env: Env, userId: string): Promise<NotifyPrefs> {
  * Teil-Änderung `{ comment: 'mail', follow: 'push' … }` speichern (Unbekanntes → 400). Wird eine Art neu auf „Mail“
  * gestellt und gab es bisher keine Sammelmail, zählt erst ab jetzt (keine Mail über Altes).
  */
-export async function savePrefs(env: Env, userId: string, patch: unknown): Promise<void> {
-  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
+/** Gültige Kanal-Änderung `{ comment: 'mail', … }`? – vorab prüfbar, damit ein 400 nichts halb speichert. */
+export function validPrefsPatch(patch: unknown): boolean {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return false;
   const entries = Object.entries(patch as Record<string, unknown>);
-  if (!entries.length || entries.some(([k, v]) => !isChoosable(k) || !isChannel(v))) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
+  return entries.length > 0 && entries.every(([k, v]) => isChoosable(k) && isChannel(v));
+}
+
+export async function savePrefs(env: Env, userId: string, patch: unknown): Promise<void> {
+  if (!validPrefsPatch(patch)) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
+  const entries = Object.entries(patch as Record<string, unknown>);
   const before = await prefsOf(env, userId);
   const after = { ...before, ...Object.fromEntries(entries) } as NotifyPrefs;
   const digested = (p: NotifyPrefs) => DIGEST_KINDS.some((k) => p[k] === 'mail');

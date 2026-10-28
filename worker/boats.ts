@@ -3,7 +3,7 @@ import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
 import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
-import { isAdmin } from './moderation';
+import { isAdmin, logLockedView } from './moderation';
 import { publicShares } from './shares';
 import { clearBoatConfirmations } from './crew-cleanup';
 import { boatCleanup, recordHarborBoat } from './activity';
@@ -219,6 +219,7 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }
+  if (b.locked_at && user) await logLockedView(env, request, user.id, 'boat', b.id);
   return json({
     boat: boatShape(b, role),
     stats: await stats(env, id),

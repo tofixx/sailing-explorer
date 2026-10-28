@@ -85,6 +85,9 @@ async function mergePair(env: Env, fromId: string, intoId: unknown) {
   return { from, into };
 }
 
+/** Rang einer Rolle am Törn (SQL), höher = mehr Verantwortung – zum Zusammenführen doppelter Crew-Zeilen. */
+const rank = (col: string) => `CASE ${col} WHEN 'skipper' THEN 4 WHEN 'co' THEN 3 WHEN 'crew' THEN 2 ELSE 1 END`;
+
 const label = (a: Account) => `${a.display_name || funnyName(a.id)}${a.handle ? ` (/u/${a.handle})` : ''}`;
 
 /** Zahlen und Konflikte für die Vorschau (und den Protokolleintrag). */
@@ -176,7 +179,19 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     db.prepare('UPDATE group_requests SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('UPDATE group_boats SET added_by = ?1 WHERE added_by = ?2').bind(A, B),
     // Crew: nicht auf eigenen Törns, nicht doppelt
+    // Crew-Rollen (Konzept 15): beide am selben Törn – die höhere Rolle gilt. Skipper zuerst vormerken, weil es je Törn
+    // nur einen gibt (share_crew_one_skipper); nach dem Löschen der Quellzeile wird die Vormerkung zur Rolle.
+    db.prepare(
+      `UPDATE share_crew SET role = CASE (SELECT b.role FROM share_crew b WHERE b.share_id = share_crew.share_id AND b.user_id = ?2)
+         WHEN 'skipper' THEN '_skipper' ELSE (SELECT b.role FROM share_crew b WHERE b.share_id = share_crew.share_id AND b.user_id = ?2) END
+       WHERE user_id = ?1 AND share_id IN (SELECT share_id FROM share_crew WHERE user_id = ?2)
+         AND ${rank('(SELECT b.role FROM share_crew b WHERE b.share_id = share_crew.share_id AND b.user_id = ?2)')} > ${rank('role')}`,
+    ).bind(A, B),
     db.prepare('DELETE FROM share_crew WHERE user_id = ?2 AND share_id IN (SELECT share_id FROM share_crew WHERE user_id = ?1)').bind(A, B),
+    db.prepare(`UPDATE share_crew SET role = 'skipper' WHERE user_id = ?1 AND role = '_skipper'`).bind(A),
+    // Bestätigungen des Skippers behalten ihren Namen
+    db.prepare('UPDATE share_crew SET confirmed_by = ?1 WHERE confirmed_by = ?2').bind(A, B),
+    db.prepare('UPDATE shares SET role_confirmed_by = ?1 WHERE role_confirmed_by = ?2').bind(A, B),
     db.prepare('UPDATE share_crew SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('DELETE FROM share_crew WHERE user_id = ?1 AND share_id IN (SELECT id FROM shares WHERE user_id = ?1)').bind(A),
     // Folgen in beide Richtungen, ohne Doppel und ohne Folgen auf sich selbst

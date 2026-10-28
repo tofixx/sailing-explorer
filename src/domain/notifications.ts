@@ -2,7 +2,7 @@
 // (Schreiben, Lesen, Aufräumen) und Oberfläche (Glocke, Liste) nutzen dieselben Regeln.
 
 /**
- * Arten: neuer Kommentar auf eigenem Törn, Reaktion auf Eigenes, neue Follower, Einladung an mich, Beitrittsanfrage in
+ * Arten: neuer Kommentar auf eigenem oder mitkommentiertem Törn, Reaktion auf Eigenes, neue Follower, Einladung an mich, Beitrittsanfrage in
  * einer Gruppe, deren Anfragen ich bestätige – und Hinweise des Betreibers zum Konto: Törn wird bald gelöscht, neuer
  * Passkey. Gegenstand (`subject_kind`) je Art: comment, expiry → share; reaction → share (auch Fotos des Törns), post,
  * activity; follow, passkey → user (ich selbst); invite → invite; request → group.
@@ -40,7 +40,7 @@ export const CHOOSABLE = ['comment', 'reaction', 'follow', 'invite', 'request'] 
 export type ChoosableKind = (typeof CHOOSABLE)[number];
 export const isChoosable = oneOf(CHOOSABLE);
 export const CHOOSABLE_LABEL: Record<ChoosableKind, string> = {
-  comment: 'Kommentare auf deinen Törns',
+  comment: 'Kommentare auf deinen Törns und Törns, die du kommentiert hast',
   reaction: 'Reaktionen auf deine Inhalte',
   follow: 'Neue Follower',
   invite: 'Einladungen an dich',
@@ -73,6 +73,8 @@ export const NOTIFICATION_LIMITS = {
   refreshMs: 2 * 60_000,
   /** höchstens so viele Bestätigende einer Gruppe bekommen eine Anfrage gemeldet (Fan-out-Deckel) */
   requestFanOut: 20,
+  /** höchstens so viele Empfänger je Kommentar: Eigentümer:in und die zuletzt Mitkommentierenden (Konzept 17.9.1) */
+  commentFanOut: 50,
   /** gelesene Einträge werden nach so vielen Tagen gelöscht */
   readDays: 30,
   /** alle Einträge (auch ungelesene) werden nach so vielen Tagen gelöscht */

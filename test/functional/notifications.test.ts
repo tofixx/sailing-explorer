@@ -75,7 +75,7 @@ describe('F-250 Benachrichtigungen entstehen bei den Ereignissen für genau eine
     expect(out.items).toHaveLength(1);
     expect(out.items[0]).toMatchObject({ kind: 'comment', count: 2, title: 'Rund Rügen', href: `/s/${share.id}`, read: false });
     expect(out.items[0].actor?.handle).toBe(b.handle);
-    expect(await rowsOf(a)).toBe(0);
+    expect(await rowsOf(a)).toBe(1); // als Mitkommentierende:r (Konzept 17.9.1)
     // Gelesen → der nächste Kommentar beginnt eine neue Zeile
     await read(owner, { subjectKind: 'share', subjectId: share.id });
     const c = await s.person({ profile: 'public' });
@@ -166,6 +166,74 @@ describe('F-250 Benachrichtigungen entstehen bei den Ereignissen für genau eine
   });
 });
 
+describe('F-250 Kommentare benachrichtigen auch Mitkommentierende (Konzept 17.9.1)', () => {
+  const commentRows = (p: Person, shareId: string) =>
+    rows(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND kind = 'comment' AND subject_id = ?`, p.user.id, shareId);
+
+  it('[F-250] Eigentümer:in und alle, die schon kommentiert haben – nie die Autor:in selbst; gebündelt je Törn', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const share = await s.share(owner, { title: 'Bodden-Runde' });
+    const [a, b, c] = [await s.person({ profile: 'public' }), await s.person({ profile: 'public' }), await s.person({ profile: 'public' })];
+    await comment(a, share.id);
+    expect(await rowsOf(a)).toBe(0);
+    await comment(b, share.id);
+    await comment(c, share.id);
+    const outA = await list(a);
+    expect(outA.items).toHaveLength(1);
+    expect(outA.items[0]).toMatchObject({ kind: 'comment', count: 2, title: 'Bodden-Runde', href: `/s/${share.id}`, read: false });
+    expect(outA.items[0].actor?.handle).toBe(c.handle);
+    expect((await list(b)).items[0]).toMatchObject({ count: 1 });
+    expect(await rowsOf(c)).toBe(0);
+    expect((await list(owner)).items[0]).toMatchObject({ kind: 'comment', count: 3 });
+    // Antwort der Eigentümer:in erreicht alle Mitkommentierenden, sie selbst nicht
+    await comment(owner, share.id, 'Danke euch!');
+    expect((await list(c)).items[0]).toMatchObject({ count: 1 });
+    expect((await list(owner)).items[0].count).toBe(3);
+    // Öffnen des Törns markiert auch für Mitkommentierende als gelesen
+    await read(a, { subjectKind: 'share', subjectId: share.id });
+    expect(await unread(a)).toBe(0);
+  });
+
+  it('[F-250] ohne ausgeblendete Kommentare und gesperrte Konten; nur bei öffentlichen Törns', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const share = await s.share(owner);
+    const [hidden, locked, ok] = [await s.person({ profile: 'public' }), await s.person({ profile: 'public' }), await s.person({ profile: 'public' })];
+    for (const p of [hidden, locked, ok]) await comment(p, share.id);
+    const db = await s.db();
+    await db.prepare('UPDATE comments SET hidden_at = ? WHERE user_id = ? AND share_id = ?').bind(Date.now(), hidden.user.id, share.id).run();
+    await db.prepare('UPDATE users SET locked_at = ? WHERE id = ?').bind(Date.now(), locked.user.id).run();
+    const before = { hidden: await commentRows(hidden, share.id), locked: await commentRows(locked, share.id), ok: await commentRows(ok, share.id) };
+    await comment(owner, share.id, 'Antwort');
+    expect(await commentRows(hidden, share.id)).toBe(before.hidden);
+    expect(await commentRows(locked, share.id)).toBe(before.locked);
+    expect((await list(ok)).items[0].count).toBe(1);
+    // Törn nicht mehr öffentlich → keine Mitkommentierenden
+    await db.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ?').bind(Date.now(), ok.user.id).run();
+    await db.prepare(`UPDATE shares SET visibility = 'unlisted' WHERE id = ?`).bind(share.id).run();
+    await db.prepare('DELETE FROM comment_log WHERE user_id = ?').bind(owner.user.id).run(); // 20-s-Abstand aufheben
+    await comment(owner, share.id, 'Und noch eine');
+    expect(await unread(ok)).toBe(0);
+  });
+
+  it('[F-250] höchstens 50 Empfänger: Eigentümer:in zuerst, dann die zuletzt Aktiven', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const share = await s.share(owner);
+    const db = await s.db();
+    const ids = Array.from({ length: 55 }, (_, i) => `fan${s.uniq('x').replace(/[^a-z0-9]/gi, '')}${i}`.slice(0, 30));
+    const now = Date.now();
+    for (const [i, id] of ids.entries()) {
+      await db.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)').bind(id, `${id}@example.org`, now - DAY).run();
+      await db.prepare('INSERT INTO comments (id, share_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?)').bind(`c${id}`.slice(0, 32), share.id, id, 'Hallo', now - 60_000 + i).run();
+    }
+    const actor = await s.person({ profile: 'public' });
+    await comment(actor, share.id);
+    expect(await rows(`SELECT COUNT(*) AS n FROM notifications WHERE kind = 'comment' AND subject_id = ?`, share.id)).toBe(NOTIFICATION_LIMITS.commentFanOut);
+    expect(await rows(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND subject_id = ?`, owner.user.id, share.id)).toBe(1);
+    expect(await rows(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND subject_id = ?`, ids[54], share.id)).toBe(1);
+    expect(await rows(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND subject_id = ?`, ids[0], share.id)).toBe(0);
+  });
+});
+
 // ---------------------------------------------------------------- F-251 Lesen mit Prüfung
 
 describe('F-251 Liste und Zähler: nur Eigenes, geprüft beim Lesen, ohne Konto-IDs und Adressen', () => {
@@ -192,6 +260,21 @@ describe('F-251 Liste und Zähler: nur Eigenes, geprüft beim Lesen, ohne Konto-
     expect(out.items[0].kind).toBe('comment'); // neueste zuerst
   });
 
+  it('[F-251] Gesperrtes (Konzept 18) erscheint nicht – auch nicht für Eigentümer:innen, Gruppen und Einladungsziele', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const share = await s.share(owner);
+    await comment(await s.person({ profile: 'public' }), share.id);
+    const club = await s.group(owner, { name: 'Gesperrter Verein' });
+    await requestJoin(await s.person(), club);
+    expect(await unread(owner)).toBe(2);
+    const db = await s.db();
+    await db.prepare('UPDATE shares SET locked_at = ?1 WHERE id = ?2').bind(Date.now(), share.id).run();
+    await db.prepare('UPDATE groups SET locked_at = ?1 WHERE id = ?2').bind(Date.now(), club.id).run();
+    const out = await list(owner);
+    expect(out.items).toHaveLength(0);
+    expect(JSON.stringify(out)).not.toContain('Gesperrter Verein');
+  });
+
   it('[F-251] was nicht mehr gilt, erscheint nicht und zählt nicht mehr (Rolle verloren, Einladung abgelaufen)', async () => {
     const owner = await s.person({ profile: 'public' });
     const adm = await s.person({ profile: 'public' });
@@ -207,6 +290,29 @@ describe('F-251 Liste und Zähler: nur Eigenes, geprüft beim Lesen, ohne Konto-
     const out = await list(adm);
     expect(out.items).toHaveLength(0);
     expect(out.unread).toBe(0);
+  });
+
+  it('[F-251] Mitkommentierende sehen den Kommentar-Hinweis nur, solange der Törn öffentlich ist – nie mit Schlüssel', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const share = await s.share(owner, { title: 'Erst offen' });
+    const fan = await s.person({ profile: 'public' });
+    await comment(fan, share.id);
+    await comment(await s.person({ profile: 'public' }), share.id);
+    expect(await unread(fan)).toBe(1);
+    // Kommentare nur noch für die Eigentümer:in sichtbar → verschwindet
+    const db = await s.db();
+    await db.prepare(`UPDATE shares SET comments_mode = 'hidden' WHERE id = ?`).bind(share.id).run();
+    expect((await list(fan)).items).toHaveLength(0);
+    await db.prepare(`UPDATE shares SET comments_mode = 'on' WHERE id = ?`).bind(share.id).run();
+    await comment(await s.person({ profile: 'public' }), share.id);
+    expect(await unread(fan)).toBe(1);
+    await db.prepare(`UPDATE shares SET visibility = 'unlisted', share_key = ? WHERE id = ?`).bind('NeuerSchluesselAbc123', share.id).run();
+    const out = await list(fan);
+    expect(out.items).toHaveLength(0);
+    expect(out.unread).toBe(0);
+    expect(JSON.stringify(out)).not.toContain('NeuerSchluessel');
+    // die Eigentümer:in sieht ihren Törn weiter – mit Schlüssel
+    expect((await list(owner)).items[0].href).toBe(`/s/${share.id}/NeuerSchluesselAbc123`);
   });
 
   it('[F-251] gesperrte oder nicht öffentliche Handelnde erscheinen als „Jemand“ (actor null)', async () => {

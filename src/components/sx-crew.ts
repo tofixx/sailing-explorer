@@ -78,6 +78,10 @@ export class SxCrew extends LitElement {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
       }
+      /* Spaßname statt Profilname (F-134): erkennbar, nicht verwechselbar mit einem echten Namen */
+      .pseudo {
+        font-style: italic;
+      }
       li .info {
         flex-basis: 100%;
         margin: 0;
@@ -242,11 +246,11 @@ export class SxCrew extends LitElement {
     return html`<ul>
       ${c.members.map(
         (m) => html`<li>
-          <span class="name">${icon('user')}${m.handle
+          <span class="name ${this.pseudonym(m) ? 'pseudo' : ''}">${icon(this.pseudonym(m) ? 'lock' : 'user')}${m.handle
             ? html`<a href="/u/${m.handle}">${m.displayName}</a>`
             : this.isOwner
               ? html`<span>${m.displayName || 'Segler:in'}</span>`
-              : html`<button class="linkish" type="button" aria-expanded=${this.info === m.displayName} @click=${() => (this.info = this.info === m.displayName ? null : m.displayName)}>${m.displayName || 'Segler:in'}</button>`}</span>
+              : html`<button class="linkish" type="button" title="Spaßname – das Profil ist nicht öffentlich" aria-expanded=${this.info === m.displayName} @click=${() => (this.info = this.info === m.displayName ? null : m.displayName)}>${m.displayName || 'Segler:in'}</button>`}</span>
           ${!m.handle && this.info === m.displayName ? html`<p class="sub info" role="status">${icon('lock')} Das Profil ist nicht öffentlich – mehr ist hier nicht zu sehen.</p>` : ''}
           ${this.memberRole(c, m)}
           ${this.isOwner && m.id
@@ -270,6 +274,11 @@ export class SxCrew extends LitElement {
   }
 
   /** Eigene Rolle (Eigentümer bzw. Crew-Mitglied) und Werkzeuge des Skippers. */
+  /** Spaßname statt Name: kein öffentliches Profil und nicht der Eigentümer (der sieht die echten Namen, F-134). */
+  private pseudonym(m: CrewMember): boolean {
+    return !m.handle && !this.isOwner;
+  }
+
   private roles(c: Crew) {
     const own = this.isOwner
       ? html`<div class="row"><span class="label">Deine Rolle</span>

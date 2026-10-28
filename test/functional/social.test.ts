@@ -344,7 +344,7 @@ describe('F-176/F-177 Stream-Zusammensetzung', () => {
 // ---------------------------------------------------------------- F-178 Öffentlicher Community-Stream
 
 describe('F-178 öffentlicher Community-Stream', () => {
-  it('[F-178] für Gäste: nur Öffentliches, Filter auf der ersten Seite, gecacht; Hafen- und Vereinsfilter', async () => {
+  it('[F-178] für Gäste: alles Öffentliche, eingrenzbar nach Hafen, Verein oder Team; Filter auf der ersten Seite, gecacht', async () => {
     const owner = await s.person({ profile: 'public', supporter: true });
     const club = await s.group(owner, { name: 'Offener Verein' });
     const closed = await s.group(owner, { name: 'Geschlossen', visibility: 'private' });
@@ -363,6 +363,7 @@ describe('F-178 öffentlicher Community-Stream', () => {
     expect(postIds(body)).not.toContain(pPriv.id);
     expect(voyageIds(body)).toContain(v.id);
     expect(voyageIds(body)).not.toContain(priv.id);
+    expect(Array.isArray((body.filters as { teams?: unknown } | undefined)?.teams)).toBe(true);
     expect(JSON.stringify(body)).not.toContain('Interner Beitrag');
     expect(body.filters?.harbors.map((x) => x.slug)).toContain(hb.slug);
     expect(body.filters?.clubs.map((x) => x.slug)).toContain(club.slug);
@@ -372,6 +373,8 @@ describe('F-178 öffentlicher Community-Stream', () => {
     expect(voyageIds(byHarbor)).toEqual([v.id]);
     const byClub = (await (await h.fetch(`/api/stream/public?club=${club.slug}`)).json()) as Page;
     expect(postIds(byClub)).toEqual([pPub.id]);
+    expect(postIds(byClub)).not.toContain(pPriv.id);
+    expect(voyageIds(byHarbor)).not.toContain(priv.id);
     expect((await h.fetch(`/api/stream/public?club=${closed.slug}`)).status).toBe(404);
     expect((await h.fetch('/api/stream/public?harbor=gibt-es-nicht')).status).toBe(404);
     expect((await h.fetch('/api/stream/public?cursor=kaputt')).status).toBe(400);

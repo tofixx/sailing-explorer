@@ -4,7 +4,7 @@ import { canManageBoat } from './boats';
 import { randomId } from './crypto';
 import { HttpError, clientIp, countKeyFailure, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, nextShareKey, requestKey } from './access';
-import { assertActive, deleteShareReports, isAdmin } from './moderation';
+import { assertActive, deleteShareReports, isAdmin, logLockedView } from './moderation';
 import { deleteKeys, photoKeysForShares, previewKey, shareKey } from './photo-keys';
 import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
 import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, subtractShareStmt } from './storage';
@@ -123,6 +123,8 @@ export async function visibleShare(request: Request, env: Env, id: string, allow
     await countKeyFailure(env, request, k);
     throw NOT_FOUND();
   }
+  // Gesperrtes sehen nur Admins – jeder Einblick ins Protokoll
+  if (row.locked_at && user) await logLockedView(env, request, user.id, 'share', row.id);
   return { row, isOwner, user };
 }
 

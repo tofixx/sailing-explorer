@@ -4,13 +4,14 @@
 import type { Env } from './env';
 import { HttpError, json, readJson } from './http';
 import { LOCKED, adminLogStmt, isAdmin, ownsLockedSql, requireAdmin } from './moderation';
-import { loadLock, lockTarget, releaseViaLockStmts, removeTarget, targetExists, unlockTarget } from './locks';
+import { loadLock, lockTarget, releaseViaLockStmts, removeTarget, sendLockNotice, targetExists, unlockTarget } from './locks';
 import { LIMITS, SHARE_ID_RE, cleanText, normalizeHandle } from './validate';
 import { HARBOR_LIMITS, harborKey } from '../src/domain/harbors';
 import { normalizeSlug } from '../src/domain/groups';
 import { funnyName } from '../src/domain/names';
 import { extendSupport } from '../src/domain/support';
 import { randomId } from './crypto';
+import { clearExpiryNotifications } from './notifications';
 import { sharePath, type Visibility } from '../src/domain/visibility';
 import {
   ADMIN_LIMITS, LOCK_KIND, isAdminKind, parseAdminFilter, parsePage,
@@ -249,7 +250,9 @@ export async function adminLock(request: Request, env: Env, rawKind: string, id:
   if (!reason) throw new HttpError(400, 'reason_required', 'Bitte eine Begründung angeben (sie steht im Protokoll).');
   if (lk === 'user' && isAdmin(env, id)) throw new HttpError(400, 'cannot_lock_admin', 'Admin-Konten lassen sich nicht sperren.');
   const action = await lockTarget(env, admin.id, lk, id, reason);
-  return json({ action, lock: await loadLock(env, lk, id) });
+  // Begründung an die Betroffenen nur beim ersten Sperren (Konzept 18.4, DSA Art. 17)
+  const notified = action === 'lock' ? await sendLockNotice(env, admin.id, lk, id) : false;
+  return json({ action, notified, lock: await loadLock(env, lk, id) });
 }
 
 /** DELETE /api/admin/:art/:id/lock – entsperren (F-233). */
@@ -418,6 +421,7 @@ export async function adminGrantSupport(request: Request, env: Env, id: string):
     ).bind(randomId(), id, `admin:${randomId()}`, now, until),
     adminLogStmt(env, admin.id, 'grant_support', 'user', id, `${seasons} Saison(s) bis ${new Date(until!).toISOString().slice(0, 10)}${note ? ` – ${note}` : ''}`, now),
   ]);
+  await clearExpiryNotifications(env, id); // Löschwarnungen in der Glocke überholt (Konzept 17.9.3)
   return json({ supporterUntil: until });
 }
 

@@ -230,8 +230,9 @@ describe('F-153 Einladungen in Gruppen', () => {
     const token = /#token=([A-Za-z0-9_-]+)$/.exec(devLink)![1];
     const peek = (await (await s.send('POST', '/api/invites/peek', invited.cookie, { token })).json()) as Record<string, unknown>;
     expect(peek).toMatchObject({ kind: 'group', target: 'SC Möwe', groupKind: 'club', bound: true, emailMatches: true, alreadyMember: false });
-    const wrong = await s.send('POST', '/api/invites/accept', (await s.person()).cookie, { token });
-    expect(wrong.status).toBe(403);
+    // Weitergegeben (F-131): ein anderes Konto sieht die Adresse nur maskiert und dürfte annehmen
+    const other = (await (await s.send('POST', '/api/invites/peek', (await s.person()).cookie, { token })).json()) as Record<string, unknown>;
+    expect(other).toMatchObject({ emailMatches: false, sentTo: `${invited.email[0]}…@e….org` });
     const acc = await s.send('POST', '/api/invites/accept', invited.cookie, { token });
     expect(await acc.json()).toMatchObject({ kind: 'group', path: `/g/${g.slug}`, already: false });
     expect((await pageJson(g, invited)).membership.role).toBe('member');

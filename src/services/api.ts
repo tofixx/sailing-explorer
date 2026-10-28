@@ -202,13 +202,15 @@ export interface InvitePeek {
   groupKind?: GroupKind;
   target: string | null;
   inviter: string | null;
-  /** an eine E-Mail-Adresse gebunden (welche, verrät der Server nicht) */
+  /** an eine Adresse bzw. ein Konto geschickt, einmal nutzbar – annehmen darf trotzdem jedes Konto mit dem Link */
   bound: boolean;
   expiresAt: number;
   /** nur Crew: Rolle beim Annehmen */
   role?: VoyageRole;
-  /** null: nicht angemeldet bzw. nicht an eine Adresse gebunden */
+  /** null: nicht angemeldet bzw. nicht an jemanden geschickt; false: weitergegebener Link (Hinweis vor dem Annehmen) */
   emailMatches: boolean | null;
+  /** weitergegebener Link an eine Adresse: diese maskiert („a…@e….org“), sonst null */
+  sentTo?: string | null;
   isOwner: boolean;
   alreadyMember: boolean;
 }
@@ -852,6 +854,7 @@ export interface PublicHome {
 export interface StreamFilters {
   harbors: Array<{ slug: string; name: string; boats: number }>;
   clubs: Array<{ slug: string; name: string; members: number }>;
+  teams: Array<{ slug: string; name: string; members: number }>;
 }
 
 export interface PublicStreamPage extends StreamPage {
@@ -859,6 +862,7 @@ export interface PublicStreamPage extends StreamPage {
   filters?: StreamFilters;
 }
 
+/** Eingrenzung des öffentlichen Streams: Hafen oder öffentliche Gruppe (`club` = Verein oder Team); null = alles */
 export type StreamFilter = { kind: 'harbor' | 'club'; slug: string } | null;
 
 export interface HarborSearchHit extends HarborRef {

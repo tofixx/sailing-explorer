@@ -6,7 +6,7 @@ import { roleFor } from './boats';
 import { randomId } from './crypto';
 import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
-import { assertActive, isAdmin } from './moderation';
+import { assertActive, isAdmin, logLockedView } from './moderation';
 import { checkVisibilityChoice, isSupporter, supportConfigured, visibilityRequiresSupport } from './supporter';
 import { groupActivityCleanup, recordBoat, recordMember } from './activity';
 import { followStats } from './follows';
@@ -102,6 +102,7 @@ export async function visibleGroup(request: Request, env: Env, g: GroupRow | nul
     await countKeyFailure(env, request, key);
     throw GROUP_NOT_FOUND();
   }
+  if (g.locked_at && user) await logLockedView(env, request, user.id, 'group', g.id);
   return { group: g, role, user };
 }
 

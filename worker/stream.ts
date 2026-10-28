@@ -303,24 +303,29 @@ export async function harborStream(request: Request, env: Env, id: string): Prom
 
 // ---------------------------------------------------------------- Öffentlicher Community-Stream (F-178)
 
-/** Filter-Chips: Häfen mit den meisten öffentlichen Booten, öffentliche Vereine mit den meisten Mitgliedern. */
+/** Bereiche: Häfen mit den meisten öffentlichen Booten, öffentliche Vereine und Teams mit den meisten Mitgliedern. */
 async function publicFilters(env: Env) {
-  const [harbors, clubs] = await env.DB.batch([
+  const groupsOf = (kind: 'club' | 'team') =>
+    env.DB.prepare(
+      `SELECT g.slug, g.name, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members FROM groups g
+       WHERE g.kind = ? AND g.visibility = 'public' AND g.hidden_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL)
+       ORDER BY members DESC, g.name LIMIT 8`,
+    ).bind(kind);
+  const [harbors, clubs, teams] = await env.DB.batch([
     env.DB.prepare(
       `SELECT h.slug, h.name, COUNT(b.id) AS boats FROM harbors h
          JOIN boats b ON b.harbor_id = h.id AND b.visibility = 'public' AND b.hidden_at IS NULL
        WHERE h.hidden_at IS NULL GROUP BY h.id ORDER BY boats DESC, h.name LIMIT 8`,
     ),
-    env.DB.prepare(
-      `SELECT g.slug, g.name, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members FROM groups g
-       WHERE g.kind = 'club' AND g.visibility = 'public' AND g.hidden_at IS NULL
-         AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL)
-       ORDER BY members DESC, g.name LIMIT 8`,
-    ),
+    groupsOf('club'),
+    groupsOf('team'),
   ]);
+  const groups = (r: D1Result) => (r.results as Array<{ slug: string; name: string; members: number }>).map((g) => ({ slug: g.slug, name: g.name, members: g.members }));
   return {
     harbors: (harbors.results as Array<{ slug: string; name: string; boats: number }>).map((h) => ({ slug: h.slug, name: h.name, boats: h.boats })),
-    clubs: (clubs.results as Array<{ slug: string; name: string; members: number }>).map((g) => ({ slug: g.slug, name: g.name, members: g.members })),
+    clubs: groups(clubs),
+    teams: groups(teams),
   };
 }
 
@@ -336,7 +341,8 @@ async function recentCandidates(env: Env, c: StreamCursor): Promise<Candidate[]>
 
 /**
  * GET /api/stream/public?cursor=&harbor=<slug>&club=<slug> – für alle, ohne Betrachter geprüft (nur Öffentliches),
- * 60 s gecacht. Unbekannter oder ausgeblendeter Hafen bzw. nicht öffentlicher Verein: 404.
+ * 60 s gecacht. Ohne Angabe alles Öffentliche, sonst eingegrenzt auf einen Hafen oder einen öffentlichen Verein bzw. ein
+ * öffentliches Team (`club`). Unbekannter oder ausgeblendeter Hafen bzw. nicht öffentliche Gruppe: 404.
  */
 export async function publicStream(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -354,7 +360,7 @@ export async function publicStream(request: Request, env: Env): Promise<Response
     compute = () => harborItems(env, h.id, { id: null }, c);
   } else if (clubSlug) {
     const g = await loadGroupBySlug(env, clubSlug);
-    if (!g || g.kind !== 'club' || g.visibility !== 'public' || g.hidden_at) throw new HttpError(404, 'not_found', 'Diesen Verein gibt es nicht oder er ist nicht öffentlich.');
+    if (!g || g.visibility !== 'public' || g.hidden_at) throw new HttpError(404, 'not_found', 'Diese Gruppe gibt es nicht oder sie ist nicht öffentlich.');
     filterKey = `club=${g.id}`;
     compute = () => groupItems(env, g.id, { id: null }, c);
   } else {

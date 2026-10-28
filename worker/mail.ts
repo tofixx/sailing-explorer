@@ -81,6 +81,61 @@ Frohe Weihnachten und immer eine Handbreit Wasser unterm Kiel!
   return { to, subject: `${app}: Deine Saison ${m.season} – mitnehmen in die nächste?`, text, html };
 }
 
+const berlinDate = (ms: number) => new Date(ms).toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
+
+/**
+ * Begründung einer Sperre an die Betroffenen (Konzept 18.4, DSA Art. 17): was gesperrt ist, warum, bis wann, und
+ * dass sie widersprechen können. `what` ist ein fester Text („dein Törn „…““ ohne Name), Name und Begründung sind
+ * Nutzer- bzw. Admin-Text → escaped.
+ */
+export function lockNoticeMail(env: Env, to: string, m: { what: string; name: string; reason: string; until: number; contact?: string }): Mail {
+  const app = env.APP_NAME;
+  const name = m.name.trim();
+  const target = name ? `${m.what} „${name}“` : m.what;
+  const targetHtml = name ? `${m.what} <b>„${escapeHtml(name)}“</b>` : m.what;
+  const contact = m.contact?.trim() ? ` oder schreib an ${m.contact.trim()}` : '';
+  const after = `Gesperrte Inhalte sieht niemand außer der Moderation, auch du nicht; sie lassen sich nicht ändern oder löschen. Sie bleiben zur Prüfung gespeichert und werden am ${berlinDate(m.until)} endgültig gelöscht, wenn die Sperre bis dahin nicht aufgehoben wird.`;
+  const object = `Du bist nicht einverstanden? Antworte einfach auf diese Mail${contact} – wir prüfen die Entscheidung dann erneut.`;
+  const text = `Hallo,\n\n${target} bei ${app} wurde von der Moderation gesperrt.\n\nBegründung:\n${m.reason}\n\n${after}\n\n${object}\n`;
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
+<p>Hallo,</p><p>${targetHtml} bei <b>${app}</b> wurde von der Moderation gesperrt.</p>
+<p><b>Begründung:</b><br>${escapeHtml(m.reason).replace(/\n/g, '<br>')}</p>
+<p>${after}</p>
+<p>${escapeHtml(object)}</p>
+</body></html>`;
+  return { to, subject: `${app}: Sperre – ${m.what.replace(/^dein(e)? /, '')}`, text, html };
+}
+
+export interface LockReminderItem {
+  /** feste Bezeichnung der Art (Konto, Törn, …) */
+  kind: string;
+  id: string;
+  /** Name bzw. Titel (Nutzertext) */
+  name: string;
+  until: number;
+  reason: string;
+}
+
+/** Erinnerung an die Admins (Konzept 18.4): diese Sperren laufen in 14 Tagen ab, danach wird endgültig gelöscht. */
+export function lockReminderMail(env: Env, to: string, origin: string, items: LockReminderItem[]): Mail {
+  const app = env.APP_NAME;
+  const link = `${origin}/admin`;
+  const label = (i: LockReminderItem) => `${i.kind} ${i.name.trim() || i.id} (${i.id})`;
+  const lines = items.map((i) => `• ${label(i)} – Ablauf ${berlinDate(i.until)}${i.reason ? ` – ${i.reason}` : ''}`).join('\n');
+  const foot = 'Nach Ablauf löscht der nächtliche Lauf diese Objekte endgültig. Verlängern oder entsperren im Admin-Bereich.';
+  const text = `Hallo,\n\nfolgende Sperren bei ${app} laufen bald ab:\n\n${lines}\n\n${foot}\n${link}\n`;
+  const list = items
+    .map((i) => `<li><b>${escapeHtml(label(i))}</b> – Ablauf ${berlinDate(i.until)}${i.reason ? ` – ${escapeHtml(i.reason)}` : ''}</li>`)
+    .join('');
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
+<p>Hallo,</p><p>folgende Sperren bei <b>${app}</b> laufen bald ab:</p><ul>${list}</ul>
+<p style="color:#5b6b7b;font-size:13px">${foot}</p>
+<p><a href="${link}" style="color:#0e6bd8">Zum Admin-Bereich</a></p>
+</body></html>`;
+  const subject = items.length === 1 ? `${app}: Eine Sperre läuft bald ab` : `${app}: ${items.length} Sperren laufen bald ab`;
+  return { to, subject, text, html };
+}
+
 /** Neuer Passkey am Konto (Konzept 14.7) – damit ein unbemerkt hinterlegter Zugang auffällt. Name ist Nutzertext. */
 export function passkeyAddedMail(env: Env, to: string, origin: string, name: string): Mail {
   const app = env.APP_NAME;
@@ -138,7 +193,7 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
       : m.kind === 'group'
         ? 'Als Mitglied siehst du die Neuigkeiten der Gruppe und kannst deine Boote zuordnen.'
         : 'Mit deinem Profil erscheinst du dann auf dem Törn, sobald er öffentlich ist.';
-  const foot = `Die Einladung ist ${m.days} Tage gültig. Zum Annehmen meldest du dich mit dieser E-Mail-Adresse an. Wenn du niemanden kennst, ignoriere diese Mail einfach.`;
+  const foot = `Die Einladung ist ${m.days} Tage gültig. Zum Annehmen meldest du dich an; der Link gilt einmal und darf weitergegeben werden. Wenn du niemanden kennst, ignoriere diese Mail einfach.`;
   const text = `Hallo,\n\n${who} ${verb} ${what}.\n${after}\n\nEinladung ansehen:\n${m.link}\n\n${foot}\n`;
   // Link stammt aus unserer eigenen Origin + base64url-Token, enthält also keine HTML-Sonderzeichen.
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">

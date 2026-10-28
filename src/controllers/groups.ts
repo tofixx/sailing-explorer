@@ -295,7 +295,7 @@ export class GroupsController {
     }
   }
 
-  /** Filter-Chip im öffentlichen Stream (Hafen, Verein oder alle). */
+  /** Eingrenzung im öffentlichen Stream (Hafen, Verein, Team oder alles). */
   async setFilter(filter: StreamFilter): Promise<void> {
     this.filter = filter;
     await this.loadHome(true);

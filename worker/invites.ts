@@ -15,6 +15,7 @@ import { GROUP_LIMITS } from '../src/domain/limits';
 import { canManageGroup, effectiveJoinMode, inviteJoinsDirectly, type Approvers, type JoinMode } from '../src/domain/groups';
 import { BOAT_ID_RE, TOKEN_RE, normalizeEmail, normalizeHandle, parseInviteKind, type InviteKind } from './validate';
 import { funnyName } from '../src/domain/names';
+import { maskEmail } from '../src/domain/email-mask';
 import { notifyInvite, readInviteNotification } from './notifications';
 import { deleteInviteNotifications } from './notification-cleanup';
 import { prefsOf } from './notification-mail';
@@ -51,7 +52,7 @@ interface InviteRow {
   group_id?: string | null;
   inviter_id: string;
   email: string | null;
-  /** an dieses Konto gebunden (Einladung über den Profilnamen) */
+  /** an dieses Konto geschickt (Einladung über den Profilnamen) */
   invitee_id: string | null;
   /** Crew: Rolle beim Annehmen (0022), NULL = crew */
   role?: string | null;
@@ -252,8 +253,8 @@ export async function listBoatAdmins(request: Request, env: Env, id: string): Pr
 }
 
 /**
- * POST /api/boats/:id/invites – nur der Eigner lädt ein: `{ email }` (neue wie bestehende Konten, an die Adresse
- * gebunden) oder `{ handle }` (bestehendes Konto mit öffentlichem Profil). 7 Tage, einmalig.
+ * POST /api/boats/:id/invites – nur der Eigner lädt ein: `{ email }` (neue wie bestehende Konten) oder `{ handle }`
+ * (bestehendes Konto mit öffentlichem Profil). 7 Tage, einmalig; der Link darf weitergegeben werden (Konzept 10.2).
  */
 export async function inviteBoatAdmin(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
@@ -374,7 +375,7 @@ export async function getCrew(request: Request, env: Env, id: string): Promise<R
 }
 
 /**
- * POST /api/shares/:id/invites – nur der Eigentümer. `{ email }`: Einladung per Mail (gebunden, einmalig);
+ * POST /api/shares/:id/invites – nur der Eigentümer. `{ email }`: Einladung per Mail (einmalig);
  * ohne Adresse: Einladungslink, mehrfach nutzbar bis zur Crew-Obergrenze. Der Link steht nur in dieser Antwort.
  */
 export async function inviteCrew(request: Request, env: Env, id: string): Promise<Response> {
@@ -419,7 +420,7 @@ export async function removeCrew(request: Request, env: Env, id: string, who: st
 
 /**
  * POST /api/groups/:id/invites – alle Mitglieder (Konzept 14.1). `{ email }` oder `{ handle }`: Einladung per Mail
- * (gebunden, einmalig); ohne Adresse: Einladungslink (bis 100 Nutzungen). Der Link steht nur in dieser Antwort. Lädt
+ * (einmalig); ohne Adresse: Einladungslink (bis 100 Nutzungen). Der Link steht nur in dieser Antwort. Lädt
  * ein einfaches Mitglied in eine nicht offene Gruppe ein, wird die Annahme zur Beitrittsanfrage (`needsApproval`).
  */
 export async function inviteGroup(request: Request, env: Env, id: string): Promise<Response> {
@@ -518,13 +519,17 @@ async function isMember(env: Env, inv: LoadedInvite, userId: string): Promise<bo
 /** Rolle aus einer Crew-Einladung – nie Skipper, Unbekanntes gilt als Crew. */
 const inviteRole = (inv: InviteRow): VoyageRole => (isSelfRole(inv.role) ? inv.role : 'crew');
 
-/** Gebunden (an eine Adresse oder ein Konto)? Dann gilt sie nur für genau dieses Konto. */
+/**
+ * An eine Adresse oder ein Konto geschickt (einmal nutzbar)? Seit 28.10.2026 keine Bindung beim Annehmen mehr – der
+ * Link darf weitergegeben werden (Konzept 10.2, F-131). `isFor` sagt nur noch, ob er beim eigentlichen Empfänger ist.
+ */
 const isBound = (inv: InviteRow) => !!(inv.email || inv.invitee_id);
 const isFor = (inv: InviteRow, user: User) => (inv.invitee_id ? inv.invitee_id === user.id : inv.email ? inv.email === user.email : true);
 
 /**
  * POST /api/invites/peek – wozu die Einladung ist, ohne sie einzulösen. Nennt Ziel und den Einladenden
- * (Anzeigename bzw. Spaßname). Die gebundene Adresse erscheint nicht, nur ob es eine Bindung gibt und ob sie passt.
+ * (Anzeigename bzw. Spaßname). Die Adresse erscheint nur maskiert und nur, wenn ein angemeldetes anderes Konto den
+ * Link öffnet (`sentTo`, Hinweis vor dem Annehmen); Einladungen über den Profilnamen nennen keine Adresse.
  */
 export async function peekInvite(request: Request, env: Env): Promise<Response> {
   const inv = await loadInvite(request, env, (await readJson<{ token?: unknown }>(request)).token);
@@ -537,13 +542,15 @@ export async function peekInvite(request: Request, env: Env): Promise<Response> 
     /** nur bei Gruppen: Verein oder Team */
     groupKind: inv.kind === 'group' ? inv.group_kind : undefined,
     inviter: await displayName(env, inv.inviter_id),
-    /** an eine Adresse bzw. ein Konto gebunden (welches, verrät die Antwort nicht) */
+    /** an eine Adresse bzw. ein Konto geschickt, einmal nutzbar (Adresse höchstens maskiert in `sentTo`) */
     bound: isBound(inv),
     expiresAt: inv.expires_at,
     /** nur bei Crew: Rolle, als die eingeladen wird */
     role: inv.kind === 'crew' ? inviteRole(inv) : undefined,
-    /** null: nicht angemeldet bzw. nicht gebunden */
+    /** null: nicht angemeldet bzw. nicht an jemanden geschickt; false: der Link wurde weitergegeben */
     emailMatches: user && isBound(inv) ? isFor(inv, user) : null,
+    /** nur bei weitergegebenem Link an eine Adresse: diese Adresse maskiert (z. B. „a…@e….org“), sonst null */
+    sentTo: user && inv.email && !isFor(inv, user) ? maskEmail(inv.email) : null,
     isOwner: !!user && user.id === ownerOf(inv),
     alreadyMember: !!user && (await isMember(env, inv, user.id)),
   });
@@ -552,9 +559,7 @@ export async function peekInvite(request: Request, env: Env): Promise<Response> 
 /** Annehmen nach allen Prüfungen (Konzept 10.2) – gemeinsam für Link (Token) und Posteingang im Konto. */
 async function acceptLoaded(env: Env, user: User, inv: LoadedInvite) {
   await assertActive(env, user);
-  if (!isFor(inv, user)) {
-    throw new HttpError(403, 'invite_wrong_account', 'Diese Einladung gilt für ein anderes Konto. Bitte mit der eingeladenen E-Mail-Adresse anmelden.');
-  }
+  // Keine Bindung an Adresse oder Konto (Entscheidung 28.10.2026): wer den Link hat, nimmt mit seinem Konto an.
   if (inv.kind === 'group') return acceptGroupInvite(env, inv, user);
   if (inv.kind === 'friend') return acceptFriendInvite(env, inv, user);
   const boat = inv.kind === 'boat_admin';
@@ -686,7 +691,7 @@ export async function acceptMyInvite(request: Request, env: Env, id: string): Pr
   return json(await acceptAndForget(env, user, inv));
 }
 
-/** Annehmen; eine gebundene Einladung ist danach erledigt – ihre Benachrichtigung verschwindet (F-255). */
+/** Annehmen; eine an jemanden geschickte Einladung ist danach erledigt (auch wenn ein anderes Konto annahm) – ihre Benachrichtigung verschwindet (F-255). */
 async function acceptAndForget(env: Env, user: User, inv: LoadedInvite) {
   const result = await acceptLoaded(env, user, inv);
   if (isBound(inv)) await deleteInviteNotifications(env, inv.id).run();

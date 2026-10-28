@@ -4,6 +4,7 @@ import type { InviteAccepted, InvitePeek } from '../services/api';
 import { fmtDate } from '../util/html';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
+import { maskEmail } from '../domain/email-mask';
 
 /**
  * Einladung annehmen (Konzept 10.2) – reine Darstellung, Aktionen gehen als Events raus:
@@ -32,7 +33,7 @@ export class SxInviteDialog extends LitElement {
   declare userEmail: string;
   declare busy: boolean;
   declare error: string;
-  /** Fehlercode vom Server, z. B. invite_wrong_account */
+  /** Fehlercode vom Server, z. B. quota */
   declare errorCode: string;
 
   constructor() {
@@ -89,7 +90,7 @@ export class SxInviteDialog extends LitElement {
 
   private close = () => emit(this, 'sx-close', 'invite');
 
-  /** Was als Nächstes zu tun ist: anmelden, andere Adresse, Profil anlegen oder annehmen. */
+  /** Was als Nächstes zu tun ist: anmelden oder annehmen – bei weitergegebenem Link erst nach dem Hinweis. */
   private next(p: InvitePeek) {
     const cancel = html`<button class="btn" @click=${this.close}>Später</button>`;
     if (p.isOwner) {
@@ -97,7 +98,7 @@ export class SxInviteDialog extends LitElement {
         p.kind === 'crew' ? 'Das ist dein eigener Törn. Teile den Link mit deiner Crew.'
         : p.kind === 'group' ? 'Das ist deine eigene Gruppe. Teile den Link mit deinen Leuten.'
         : p.kind === 'friend' ? 'Das ist deine eigene Einladung. Teile den Link mit deinen Freunden.'
-        : 'Du bist der Eigner dieses Boots. Die Einladung gilt nur für die eingeladene Adresse.';
+        : 'Du bist der Eigner dieses Boots. Wer den Link öffnet, kann einmal als Admin annehmen.';
       return html`<div class="note">${icon('info')}<span>${own}</span></div>
         <div class="actions"><button class="btn" @click=${this.close}>Schließen</button></div>`;
     }
@@ -106,17 +107,18 @@ export class SxInviteDialog extends LitElement {
         <div class="actions"><button class="btn" @click=${this.close}>Schließen</button></div>`;
     }
     if (!this.signedIn) {
-      return html`<div class="note">${icon('mail')}<span>Zum Annehmen meldest du dich ${p.bound ? 'mit der E-Mail-Adresse an, an die die Einladung ging' : 'mit deiner E-Mail-Adresse an'} – ohne Passwort, per Link.</span></div>
+      return html`<div class="note">${icon('mail')}<span>Zum Annehmen meldest du dich mit deiner E-Mail-Adresse an – ohne Passwort, per Link.</span></div>
         <div class="actions">${cancel}<button class="btn primary" @click=${() => emit(this, 'sx-invite-login')}>${icon('user')} Anmelden</button></div>`;
     }
-    if (p.emailMatches === false) {
-      return html`<div class="note warn">${icon('info')}<span>Diese Einladung gilt für eine andere E-Mail-Adresse. Du bist als <b>${this.userEmail}</b> angemeldet.</span></div>
-        <div class="actions">${cancel}<button class="btn primary" @click=${() => emit(this, 'sx-invite-login')}>${icon('user')} Mit dieser Adresse anmelden</button></div>`;
-    }
-    return html`${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
+    // Weitergegebener Link (Entscheidung 28.10.2026): annehmen geht, aber erst nach diesem Hinweis und ausdrücklich.
+    const other = p.emailMatches === false;
+    return html`${other
+        ? html`<div class="note warn">${icon('info')}<span>Diese Einladung ging an <b>${p.sentTo || 'ein anderes Konto'}</b> – du nimmst sie mit deinem Konto <b>${maskEmail(this.userEmail)}</b> an.</span></div>`
+        : ''}
+      ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
       <div class="actions">
         ${cancel}
-        <button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-invite-accept')}>${icon('check')} ${this.busy ? 'Nehme an …' : 'Annehmen'}</button>
+        <button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-invite-accept')}>${icon('check')} ${this.busy ? 'Nehme an …' : other ? 'Mit meinem Konto annehmen' : 'Annehmen'}</button>
       </div>`;
   }
 
@@ -150,7 +152,7 @@ export class SxInviteDialog extends LitElement {
         <p><b>${p.inviter || 'Ein Segler oder eine Seglerin'}</b> lädt dich ${inviteWhat(p)}.</p>
       </div>
       <p class="muted">${inviteExplain(p)}</p>
-      <p class="hint">Gültig bis ${fmtDate(p.expiresAt)}${p.bound ? ' · gilt nur für die eingeladene E-Mail-Adresse' : ''}</p>
+      <p class="hint">Gültig bis ${fmtDate(p.expiresAt)}${p.bound ? ' · einmal nutzbar' : ''}</p>
       ${this.next(p)}
     </div>`;
   }

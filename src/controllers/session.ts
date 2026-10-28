@@ -402,11 +402,10 @@ export class SessionController {
     this.pendingInvite = null;
   }
 
-  /** Erst anmelden (bzw. mit der eingeladenen Adresse) – danach erscheint die Einladung wieder. */
+  /** Erst anmelden – danach erscheint die Einladung wieder (mit jedem Konto, Konzept 10.2). */
   inviteLogin(): void {
-    const bound = this.ui.invite.peek?.bound;
     this.ui.invite.open = false;
-    this.openLogin(`Melde dich ${bound ? 'mit der eingeladenen E-Mail-Adresse ' : ''}an, um die Einladung anzunehmen. Danach geht es direkt weiter.`);
+    this.openLogin('Melde dich an, um die Einladung anzunehmen. Danach geht es direkt weiter.');
   }
 
   async acceptInvite(): Promise<void> {

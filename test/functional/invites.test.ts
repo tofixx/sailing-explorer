@@ -149,18 +149,49 @@ describe('F-130 Boots-Admins per E-Mail einladen', () => {
 // ---------------------------------------------------------------- F-131 Prüfungen
 
 describe('F-131 Prüfungen beim Einladen und Annehmen', () => {
-  it('[F-131] gebundene Einladung nur für das Konto mit genau dieser Adresse (403), Peek sagt emailMatches=false', async () => {
+  it('[F-131] weitergegebener Mail-Link (Boots-Admin): jedes Konto nimmt an, Peek nennt die Adresse nur maskiert, danach verbraucht', async () => {
     const owner = await person();
     const boat = await newBoat(owner.cookie);
-    const token = tokenOf((await inviteAdmin(owner, boat.id, email())).devLink!);
-    const other = await person();
-    expect(await getJson<Record<string, unknown>>(await peek(other, token))).toMatchObject({ emailMatches: false });
-    const res = await accept(other, token);
-    expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ error: 'invite_wrong_account' });
-    // Ohne Anmeldung: Peek geht (emailMatches null), Annehmen nicht
-    expect(await getJson<Record<string, unknown>>(await peek(undefined, token))).toMatchObject({ emailMatches: null, alreadyMember: false });
+    const invited = await person();
+    const token = tokenOf((await inviteAdmin(owner, boat.id, invited.email)).devLink!);
+    // Ohne Anmeldung: Peek geht (emailMatches null, keine Adresse), Annehmen nicht
+    const anon = await getJson<Record<string, unknown>>(await peek(undefined, token));
+    expect(anon).toMatchObject({ bound: true, emailMatches: null, sentTo: null, alreadyMember: false });
+    expect(JSON.stringify(anon)).not.toContain('@');
     expect((await accept(undefined, token)).status).toBe(401);
+    // Der eigentliche Empfänger bekommt keine Adresse zurück
+    expect(await getJson(await peek(invited, token))).toMatchObject({ emailMatches: true, sentTo: null });
+    // Anderes Konto: Hinweis mit maskierter Adresse, nie der vollen
+    const other = await person();
+    const pk = await getJson<{ emailMatches: boolean; sentTo: string }>(await peek(other, token));
+    expect(pk).toMatchObject({ emailMatches: false, sentTo: `${invited.email[0]}…@e….org` });
+    const body = JSON.stringify(pk);
+    expect(body).not.toContain(invited.email);
+    expect(body).not.toContain(invited.email.split('@')[0]);
+    expect(body).not.toContain('example.org');
+    // Annehmen geht – einmal: danach weder für den Empfänger noch für weitere Konten
+    expect(await getJson(await accept(other, token))).toMatchObject({ kind: 'boat_admin', already: false });
+    expect((await send('GET', `/api/boats/${boat.id}/admins`, other.cookie)).status).toBe(200);
+    expect(await getJson(await accept(invited, token))).toMatchObject({ error: 'invalid_invite' });
+    expect((await accept(await person(), token)).status).toBe(400);
+    expect((await getJson<{ invites: unknown[] }>(await send('GET', '/api/me/invites', invited.cookie))).invites).toEqual([]);
+  });
+
+  it('[F-131] weitergegebene Mail-Links für Crew und Freunde: anderes Konto nimmt an, der Eigentümer nie', async () => {
+    const owner = await person();
+    const share = await newShare(owner.cookie);
+    const crewToken = tokenOf((await inviteCrew(owner, share.id, email())).devLink!);
+    expect(await getJson(await accept(owner, crewToken))).toMatchObject({ error: 'own_object' });
+    const mate = await person();
+    expect(await getJson(await accept(mate, crewToken))).toMatchObject({ kind: 'crew', already: false });
+    expect((await getJson<CrewOut>(await crewOf(share.id, owner))).members.map((m) => m.id)).toContain(mate.user.id);
+
+    const friendRes = await send('POST', '/api/invites', owner.cookie, { email: email() });
+    expect(friendRes.status).toBe(201);
+    const friendToken = tokenOf((await getJson<InviteOut>(friendRes)).devLink!);
+    expect(await getJson(await accept(owner, friendToken))).toMatchObject({ error: 'own_object' });
+    expect(await getJson(await accept(mate, friendToken))).toMatchObject({ kind: 'friend', already: false });
+    expect((await accept(await person(), friendToken)).status).toBe(400);
   });
 
   it('[F-131] nur der Eigner lädt ein: Admin 403, Fremde und Unbekanntes 404, fremde Origin 403', async () => {
@@ -524,13 +555,13 @@ describe('F-140 E-Mail-Adressen erreichen nie andere Konten', () => {
     const stranger = await person();
     const adminToken = tokenOf((await inviteAdmin(owner, boat.id, admin.email)).devLink!);
     const crewToken = tokenOf((await inviteCrew(owner, share.id)).link!);
-    const wrong = await accept(stranger, adminToken); // falsches Konto
-    expect(wrong.status).toBe(403);
-    const bodies = [
-      await wrong.text(),
-      await (await peek(stranger, adminToken)).text(),
-      await (await peek(undefined, adminToken)).text(),
-    ];
+    const wrong = await accept(owner, adminToken); // Fehler: eigene Einladung
+    expect(wrong.status).toBe(409);
+    // Ausnahme seit 28.10.2026 (F-131): wer einen weitergegebenen Link öffnet, sieht die Adresse maskiert – nie mehr.
+    const forwarded = await (await peek(stranger, adminToken)).text();
+    expect(forwarded).toContain(`"sentTo":"${admin.email[0]}…@e….org"`);
+    expect(forwarded).not.toContain(admin.email.split('@')[0]);
+    const bodies = [await wrong.text(), await (await peek(undefined, adminToken)).text()];
     await accept(admin, adminToken);
     await accept(mate, crewToken);
     const nameless = await person();
@@ -624,17 +655,19 @@ describe('F-141 Bestehende Konten einladen: per Profilname oder per E-Mail, Post
     expect((await getJson<CrewOut>(await crewOf(share.id, owner))).invites).toEqual([]);
   });
 
-  it('[F-141] über den Profilnamen gebunden: der Link gilt nur für dieses Konto', async () => {
+  it('[F-141] über den Profilnamen eingeladen: weitergegebener Link geht auch für ein anderes Konto (ohne Adresse), einmal', async () => {
     const owner = await person({ profile: 'public' });
     const share = await newShare(owner.cookie);
     const mate = await person({ profile: 'public' });
     const res = await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: mate.handle });
     const token = tokenOf((await getJson<InviteOut>(res)).devLink!);
     const other = await person({ profile: 'public' });
-    expect(await getJson(await peek(other, token))).toMatchObject({ bound: true, emailMatches: false });
-    expect(await getJson(await accept(other, token))).toMatchObject({ error: 'invite_wrong_account' });
     expect(await getJson(await peek(mate, token))).toMatchObject({ bound: true, emailMatches: true });
-    expect((await accept(mate, token)).status).toBe(200);
+    const pk = await getJson(await peek(other, token));
+    expect(pk).toMatchObject({ bound: true, emailMatches: false, sentTo: null });
+    expect(JSON.stringify(pk)).not.toContain('@');
+    expect((await accept(other, token)).status).toBe(200);
+    expect(await getJson(await accept(mate, token))).toMatchObject({ error: 'invalid_invite' });
   });
 
   it('[F-141] Profilname: nur öffentliche Profile (privat und unbekannt gleich 404), nicht sich selbst, nicht doppelt, nicht wer schon dabei ist', async () => {

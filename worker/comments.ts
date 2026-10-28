@@ -4,16 +4,14 @@ import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { sha256Hex, randomId } from './crypto';
 import { HttpError, json, readJson } from './http';
-import { commentDigestMail, sendMail } from './mail';
 import { adminLogStmt, isAdmin, isSuspended, SUSPENDED } from './moderation';
 import { visibleShare } from './shares';
 import { COMMENT_ID_RE, parseNotifyMode } from './validate';
 import { COMMENT_MAX, COMMENT_MAX_LINKS, cleanComment, commentProblem, type CommentsMode } from '../src/domain/comment-text';
-import { sharePath, type Visibility } from '../src/domain/visibility';
 import { isMapStyleId } from '../src/domain/map-style';
 import { isGroupNotifyMode } from '../src/domain/groups';
 import { notifyComment } from './notifications';
-import { prefsOf, savePrefs } from './notification-mail';
+import { prefsOf, savePrefs, validPrefsPatch } from './notification-mail';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -234,7 +232,8 @@ export async function patchSettings(request: Request, env: Env): Promise<Respons
   const invalid =
     (body.mapStyle !== undefined && body.mapStyle !== null && !isMapStyleId(body.mapStyle)) ||
     (body.notifyGroups !== undefined && !isGroupNotifyMode(body.notifyGroups)) ||
-    (body.notifyComments !== undefined && !parseNotifyMode(body.notifyComments));
+    (body.notifyComments !== undefined && !parseNotifyMode(body.notifyComments)) ||
+    (body.notify !== undefined && !validPrefsPatch(body.notify));
   if (invalid) throw new HttpError(400, 'invalid_setting', 'Unbekannte Einstellung.');
   if (body.mapStyle !== undefined) {
     await env.DB.prepare('UPDATE users SET map_style = ? WHERE id = ?').bind(body.mapStyle, user.id).run();

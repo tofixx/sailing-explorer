@@ -425,6 +425,23 @@ describe('Admin-Bereich (Konzept 18)', () => {
     expect(await s.errorOf(await A('GET', `/api/admin/users/${into.user.id}/merge?into=${into.user.id}`))).toBe('same_user');
   });
 
+  it('[F-240] Konten verbinden: doppelte Crew-Zeile behält die höhere Rolle (auch Skipper), Bestätigungen behalten ihren Namen', async () => {
+    const into = await s.person({ profile: 'public' });
+    const from = await s.person({ profile: 'public' });
+    const owner = await s.person({ profile: 'public' });
+    const mate = await s.person({ profile: 'public' });
+    const sh = await share(owner);
+    const db = await s.db();
+    const now = Date.now();
+    await db.prepare(`INSERT INTO share_crew (share_id, user_id, created_at, role) VALUES (?1, ?2, ?4, 'crew'), (?1, ?3, ?4, 'skipper'), (?1, ?5, ?4, 'crew')`).bind(sh.id, into.user.id, from.user.id, now, mate.user.id).run();
+    await db.prepare('UPDATE share_crew SET confirmed_at = ?1, confirmed_by = ?2 WHERE share_id = ?3 AND user_id = ?4').bind(now, from.user.id, sh.id, mate.user.id).run();
+    await db.prepare('UPDATE shares SET role_confirmed_at = ?1, role_confirmed_by = ?2 WHERE id = ?3').bind(now, from.user.id, sh.id).run();
+    expect((await A('POST', `/api/admin/users/${from.user.id}/merge`, { into: into.user.id, confirm: from.user.id })).status).toBe(200);
+    expect(await one<{ role: string }>('SELECT role FROM share_crew WHERE share_id = ? AND user_id = ?', sh.id, into.user.id)).toEqual({ role: 'skipper' });
+    expect(await one<{ confirmed_by: string }>('SELECT confirmed_by FROM share_crew WHERE share_id = ? AND user_id = ?', sh.id, mate.user.id)).toEqual({ confirmed_by: into.user.id });
+    expect(await one<{ role_confirmed_by: string }>('SELECT role_confirmed_by FROM shares WHERE id = ?', sh.id)).toEqual({ role_confirmed_by: into.user.id });
+  });
+
   it('[F-241] endgültig löschen nur mit Bestätigung, über den Löschpfad (auch die Datei)', async () => {
     const p = await s.person({ profile: 'public' });
     const sh = await share(p);
@@ -485,5 +502,99 @@ describe('Admin-Bereich (Konzept 18)', () => {
     await h.scheduled();
     const ids = (await db.prepare(`SELECT id FROM admin_log WHERE id IN ('alt-view', 'alt-rename', 'uralt-rename', 'uralt-gesperrt')`).all<{ id: string }>()).results.map((r) => r.id).sort();
     expect(ids).toEqual(['alt-rename', 'uralt-gesperrt']);
+  });
+});
+
+describe('Admin-Bereich: Entscheidungen 18.13 (Erinnerung, Einblick, Begründung)', () => {
+  const mails = (to: string) => h.logs.filter((l) => l.includes(`[mail:log] an ${to}:`));
+
+  it('[F-294] Sperr-Erinnerung: einmal je Frist eine Sammelmail an die Admins 14 Tage vor Ablauf, Verlängern setzt zurück', async () => {
+    const p = await s.person({ profile: 'public' });
+    const sh = await share(p, 'public', 'Bald-Ablauf-Törn');
+    await lock('shares', sh.id, 'Beweis Erinnerung');
+    const db = await s.db();
+    // noch nicht im Fenster: keine Erinnerung
+    await h.scheduled();
+    expect(await one<{ reminded_at: number | null }>(`SELECT reminded_at FROM locks WHERE target_kind = 'share' AND target_id = ?`, sh.id)).toEqual({ reminded_at: null });
+
+    await db.prepare(`UPDATE locks SET until = ? WHERE target_kind = 'share' AND target_id = ?`).bind(Date.now() + 10 * DAY, sh.id).run();
+    const before = mails(ADMIN_MAIL).length;
+    await h.scheduled();
+    const sent = mails(ADMIN_MAIL).slice(before).filter((l) => l.includes('bald ab'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain(sh.id);
+    expect(sent[0]).toContain('Bald-Ablauf-Törn');
+    expect(sent[0]).toContain('Beweis Erinnerung');
+    expect(sent[0]).not.toContain(p.email);
+    expect((await one<{ reminded_at: number | null }>(`SELECT reminded_at FROM locks WHERE target_kind = 'share' AND target_id = ?`, sh.id))?.reminded_at).not.toBeNull();
+    // nur einmal je Frist
+    const after = mails(ADMIN_MAIL).length;
+    await h.scheduled();
+    expect(mails(ADMIN_MAIL).slice(after).filter((l) => l.includes(sh.id))).toHaveLength(0);
+    // Verlängern setzt die Erinnerung zurück
+    expect((await json<{ action: string }>(await lock('shares', sh.id, 'Behörde'))).action).toBe('extend');
+    expect(await one<{ reminded_at: number | null }>(`SELECT reminded_at FROM locks WHERE target_kind = 'share' AND target_id = ?`, sh.id)).toEqual({ reminded_at: null });
+  });
+
+  it('[F-295] Einblick in Gesperrtes: Admins lesen Törn, Track und alle Fotos – jeder Abruf im Protokoll; andere 404', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const sh = await share(owner, 'private', 'Privater Beleg');
+    const db = await s.db();
+    await db.prepare(`INSERT INTO photos (id, share_id, user_id, width, height, bytes, visibility, created_at) VALUES ('FotoEinblick0001', ?, ?, 10, 10, 100, 'private', ?)`).bind(sh.id, owner.user.id, Date.now()).run();
+    // nicht gesperrt: „Nur ich“ bleibt auch für Admins zu, kein Einblick-Eintrag
+    expect((await A('GET', `/api/shares/${sh.id}`)).status).toBe(404);
+    await lock('shares', sh.id);
+    const count = async () => (await one<{ n: number }>(`SELECT COUNT(*) AS n FROM admin_log WHERE action = 'view_content' AND target_id = ? AND admin_id = ?`, sh.id, ADMIN_ID))?.n ?? 0;
+    expect(await count()).toBe(0);
+
+    expect((await A('GET', `/api/shares/${sh.id}`)).status).toBe(200);
+    expect((await A('GET', `/api/shares/${sh.id}/data`)).status).toBe(200);
+    const photos = await json<{ photos: Array<{ id: string }> }>(await A('GET', `/api/shares/${sh.id}/photos`));
+    expect(photos.photos.map((x) => x.id)).toContain('FotoEinblick0001');
+    await A('GET', '/api/photos/FotoEinblick0001');
+    expect(await count()).toBe(4);
+    expect(await one(`SELECT 1 AS x FROM admin_log WHERE action = 'view_content' AND target_id = ? AND detail = ?`, sh.id, `/api/shares/${sh.id}/data`)).not.toBeNull();
+
+    // nur lesend, für alle anderen weiter 404
+    expect((await A('PATCH', `/api/shares/${sh.id}`, { title: 'x' })).status).toBe(404);
+    expect((await A('PATCH', '/api/photos/FotoEinblick0001', { caption: 'x' })).status).toBe(404);
+    expect((await s.send('GET', `/api/shares/${sh.id}/photos`, owner.cookie)).status).toBe(404);
+    expect((await s.send('GET', '/api/photos/FotoEinblick0001', owner.cookie)).status).toBe(404);
+
+    // Boote und Gruppen ebenso
+    const b = await boat(owner, { visibility: 'private' });
+    await lock('boats', b.id);
+    expect((await A('GET', `/api/boats/${b.id}`)).status).toBe(200);
+    expect(await one(`SELECT 1 AS x FROM admin_log WHERE action = 'view_content' AND target_kind = 'boat' AND target_id = ?`, b.id)).not.toBeNull();
+  });
+
+  it('[F-296] Begründung an Betroffene beim Sperren (nicht beim Verlängern), ohne Konto keine Mail', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const sh = await share(owner, 'public', 'Gemeldeter Törn');
+    const before = mails(owner.email).length;
+    const res = await json<{ action: string; notified: boolean }>(await lock('shares', sh.id, 'Beleidigender Titel'));
+    expect(res).toMatchObject({ action: 'lock', notified: true });
+    const sent = mails(owner.email).slice(before);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('Gemeldeter Törn');
+    expect(sent[0]).toContain('Beleidigender Titel');
+    expect(sent[0]).toContain('endgültig gelöscht');
+    expect(sent[0]).toContain('Antworte');
+    const log = await one<{ detail: string }>(`SELECT detail FROM admin_log WHERE action = 'lock_notice' AND target_id = ?`, sh.id);
+    expect(log?.detail).not.toContain(owner.email);
+    // Verlängern: keine neue Mail
+    expect((await json<{ notified: boolean }>(await lock('shares', sh.id, 'Behörde'))).notified).toBe(false);
+    expect(mails(owner.email).slice(before)).toHaveLength(1);
+
+    // Konto sperren: Mail an das Konto selbst
+    const acc = await s.person();
+    expect((await json<{ notified: boolean }>(await lock('users', acc.user.id, 'Spam'))).notified).toBe(true);
+    expect(mails(acc.email).some((l) => l.includes('dein Konto') && l.includes('Spam'))).toBe(true);
+
+    // Hafen ohne (noch vorhandene) Anleger:in: keine Mail, Sperre trotzdem
+    const gone = await s.person();
+    const hb = await harbor(gone, s.uniq('Hafen ohne Anleger'));
+    expect((await s.send('DELETE', '/api/account', gone.cookie)).status).toBe(200);
+    expect(await json<{ action: string; notified: boolean }>(await lock('harbors', hb.id))).toMatchObject({ action: 'lock', notified: false });
   });
 });

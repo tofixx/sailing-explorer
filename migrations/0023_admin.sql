@@ -13,6 +13,7 @@ ALTER TABLE groups ADD COLUMN locked_at INTEGER;
 -- via_user: mit dem Konto mitgesperrt (Entsperren des Kontos entsperrt nur diese).
 -- prev_at: hidden_at (bei Konten suspended_at) vor der Sperre, wird beim Entsperren wiederhergestellt.
 -- locked_by ohne Fremdschlüssel: Admin-Konten stehen in ADMIN_USER_IDS, nicht in der DB.
+-- reminded_at: Erinnerung an die Admins 14 Tage vor Ablauf verschickt (einmal je Frist, Verlängern setzt zurück).
 CREATE TABLE locks (
   target_kind TEXT NOT NULL,
   target_id   TEXT NOT NULL,
@@ -22,6 +23,7 @@ CREATE TABLE locks (
   reason      TEXT NOT NULL DEFAULT '',
   via_user    TEXT,
   prev_at     INTEGER,
+  reminded_at INTEGER,
   PRIMARY KEY (target_kind, target_id)
 );
 CREATE INDEX locks_until ON locks(until);

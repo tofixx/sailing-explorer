@@ -3,6 +3,7 @@
 import type { Env } from './env';
 import { isDevHost, requireUser } from './auth';
 import { randomId } from './crypto';
+import { clearExpiryNotifications } from './notifications';
 import { HttpError, clientIp, json, rateLimit, readBodyCapped, readJson } from './http';
 import { SHARE_ID_RE, parseFreeShares, storageThresholds, parseStripeSignature, parseSupportAmount, timingSafeEqual } from './validate';
 import { SUPPORT_TIERS, formatEuro, seasonOf, tierFor, type SupportTier } from '../src/domain/support';
@@ -310,5 +311,7 @@ export async function stripeWebhook(request: Request, env: Env): Promise<Respons
   )
     .bind(randomId(), session.id, amount, currency, seasonOf(now), user.id, now)
     .run();
+  // Ablauf verschoben → Löschwarnungen in der Glocke sind überholt (Konzept 17.9.3)
+  await clearExpiryNotifications(env, user.id);
   return json({ received: true });
 }

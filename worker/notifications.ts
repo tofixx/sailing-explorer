@@ -1,4 +1,4 @@
-// Benachrichtigungs-Glocke (Konzept 17, F-250 … F-258): Fan-out an genau eine Person, gebündelt je Art und Gegenstand,
+// Benachrichtigungs-Glocke (Konzept 17, F-250 … F-258): Fan-out je Empfänger:in, gebündelt je Art und Gegenstand,
 // solange ungelesen. Die Zeilen sind nur ein Hinweis – Sichtbarkeit, Namen und Ziele prüft `listNotifications` beim
 // Lesen. Schreiben scheitert nie die eigentliche Aktion (Kommentar, Reaktion, Folgen …).
 // Bewusst ohne Abhängigkeit zu shares/groups/invites, damit diese Module es importieren können.
@@ -9,6 +9,8 @@ import { canApprove, type Approvers, type GroupRole } from '../src/domain/groups
 import { sharePath, type Visibility } from '../src/domain/visibility';
 import { sendPush } from './push';
 import { pingLive } from './live';
+import { EXPIRES_SQL } from './expiry-sql';
+import { WARN_MS } from '../src/domain/support';
 import {
   NOTIFICATION_LIMITS, isChoosable, isNotificationKind, notificationText, parsePrefs, isNotificationSubject, type NotificationItem, type NotificationKind,
   type NotificationSubject,
@@ -51,9 +53,27 @@ async function deliver(
   await pingLive(env, users);
 }
 
-/** Neuer Kommentar: an die Eigentümer:in des Törns. */
+/**
+ * Neuer Kommentar (Konzept 17.9.1): an die Eigentümer:in des Törns und an alle, die dort schon kommentiert haben
+ * (Mitkommentierende) – nur bei öffentlichen, nicht ausgeblendeten oder gesperrten Törns (Kommentieren verlangt ohnehin
+ * `comments_mode = on`), ohne ausgeblendete Kommentare und ohne gesperrte Konten. Eigentümer:in zuerst, dann die
+ * zuletzt Aktiven, höchstens NOTIFICATION_LIMITS.commentFanOut Empfänger. Kanäle (Mail, Push) wählt jede:r selbst.
+ */
 export const notifyComment = (env: Env, shareId: string, actorId: string) =>
-  safely('comment', () => deliver(env, 'comment', 'share', shareId, actorId, 'SELECT user_id AS uid FROM shares WHERE id = ?3'));
+  safely('comment', () =>
+    deliver(
+      env, 'comment', 'share', shareId, actorId,
+      `SELECT uid FROM (
+         SELECT user_id AS uid, 0 AS o, NULL AS t FROM shares WHERE id = ?3
+         UNION ALL
+         SELECT c.user_id, 1, c.created_at FROM comments c
+           JOIN shares s ON s.id = c.share_id JOIN users u ON u.id = c.user_id
+         WHERE c.share_id = ?3 AND c.hidden_at IS NULL AND u.suspended_at IS NULL AND u.locked_at IS NULL
+           AND s.visibility = 'public' AND s.hidden_at IS NULL AND s.locked_at IS NULL
+       ) WHERE uid IS NOT ?4 GROUP BY uid ORDER BY MIN(o), MAX(t) DESC LIMIT ?6`,
+      NOTIFICATION_LIMITS.commentFanOut,
+    ),
+  );
 
 /**
  * Reaktion: an die Eigentümer:in des Törns (auch bei Fotos – Gegenstand ist dann der Törn), die Autor:in des Beitrags
@@ -104,6 +124,21 @@ export const notifyRequest = (env: Env, groupId: string, actorId: string) =>
 /** Hinweis des Betreibers (nicht abschaltbar, zusätzlich zur Mail): Törn wird bald gelöscht – an die Eigentümer:in. */
 export const notifyExpiry = (env: Env, shareId: string) =>
   safely('expiry', () => deliver(env, 'expiry', 'share', shareId, null, 'SELECT user_id AS uid FROM shares WHERE id = ?3'));
+
+/**
+ * Unterstützung eingegangen (Stripe-Webhook, Gutschein der Moderation – Konzept 17.9.3): Löschwarnungen zu Törns, die
+ * jetzt nicht mehr im Warnfenster ablaufen, verschwinden aus der Glocke.
+ */
+export const clearExpiryNotifications = (env: Env, userId: string) =>
+  safely('clear expiry', async () => {
+    const res = await env.DB.prepare(
+      `DELETE FROM notifications WHERE user_id = ?1 AND kind = 'expiry' AND subject_kind = 'share'
+         AND subject_id IN (SELECT s.id FROM shares s WHERE s.user_id = ?1 AND ${EXPIRES_SQL} > ?2)`,
+    )
+      .bind(userId, Date.now() + WARN_MS)
+      .run();
+    if (res.meta.changes) await pingLive(env, [userId]);
+  });
 
 /** Hinweis des Betreibers (nicht abschaltbar, zusätzlich zur Mail): neuer Passkey am eigenen Konto. */
 export const notifyPasskey = (env: Env, userId: string) =>
@@ -174,6 +209,9 @@ interface Row {
   s_title: string | null;
   s_vis: Visibility | null;
   s_key: string | null;
+  s_hidden: number | null;
+  s_locked: number | null;
+  s_cmode: string | null;
   p_author: string | null;
   p_hidden: number | null;
   a_actor: string | null;
@@ -182,6 +220,7 @@ interface Row {
   g_vis: Visibility | null;
   g_key: string | null;
   g_hidden: number | null;
+  g_locked: number | null;
   g_approve: Approvers | null;
   g_role: GroupRole | null;
   g_open: number;
@@ -198,9 +237,10 @@ interface Row {
 const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.updated_at, n.read_at,
     ap.display_name AS actor_name, ap.handle AS actor_handle,
     s.user_id AS s_owner, s.title AS s_title, s.visibility AS s_vis, s.share_key AS s_key,
+    s.hidden_at AS s_hidden, s.locked_at AS s_locked, s.comments_mode AS s_cmode,
     p.author_id AS p_author, p.hidden_at AS p_hidden, a.actor_id AS a_actor,
     g.slug AS g_slug, g.name AS g_name, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden,
-    g.approve_by AS g_approve, gm.role AS g_role,
+    g.locked_at AS g_locked, g.approve_by AS g_approve, gm.role AS g_role,
     EXISTS (SELECT 1 FROM group_requests r WHERE r.group_id = g.id) AS g_open,
     i.kind AS i_kind, ig.kind AS i_gkind,
     (i.id IS NOT NULL AND i.expires_at > ?2 AND i.uses < i.max_uses AND (i.invitee_id = ?1 OR i.email = ?3)) AS i_for,
@@ -214,9 +254,9 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
   LEFT JOIN groups g ON g.id = CASE n.subject_kind WHEN 'group' THEN n.subject_id WHEN 'post' THEN p.group_id END
   LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = n.user_id
   LEFT JOIN invites i ON n.subject_kind = 'invite' AND i.id = n.subject_id
-  LEFT JOIN boats ib ON ib.id = i.boat_id
-  LEFT JOIN shares ishare ON ishare.id = i.share_id
-  LEFT JOIN groups ig ON ig.id = i.group_id
+  LEFT JOIN boats ib ON ib.id = i.boat_id AND ib.locked_at IS NULL
+  LEFT JOIN shares ishare ON ishare.id = i.share_id AND ishare.locked_at IS NULL
+  LEFT JOIN groups ig ON ig.id = i.group_id AND ig.locked_at IS NULL
   WHERE n.user_id = ?1
   ORDER BY n.updated_at DESC
   LIMIT ?4`;
@@ -231,12 +271,19 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
   const groupHref = () => sharePath('g', r.g_slug!, r.g_vis ?? 'private', r.g_key);
   switch (r.subject_kind) {
     case 'share':
-      // Nur eigene Törns (Kommentare, Reaktionen, Löschhinweis gehen an die Eigentümer:in) – sie sieht ihren Törn immer.
-      if (r.s_owner !== userId || r.s_title === null) return null;
+      // Gesperrtes sieht nur die Moderation (Konzept 18) – auch nicht die Eigentümer:in über die Glocke
+      if (r.s_title === null || r.s_locked) return null;
+      // Mitkommentierende (17.9.1): nur Kommentare, nur solange der Törn öffentlich ist und Kommentare zeigt – ohne
+      // Schlüssel, damit ein erneuerter Link-Schlüssel nie über die Glocke verraten wird.
+      if (r.s_owner !== userId) {
+        if (r.kind !== 'comment' || r.s_vis !== 'public' || r.s_hidden || r.s_locked || r.s_cmode === 'hidden') return null;
+        return { ...base, title: r.s_title, what: 'den Törn', href: sharePath('s', r.subject_id, 'public', null) };
+      }
+      // Eigene Törns (Kommentare, Reaktionen, Löschhinweis) – die Eigentümer:in sieht ihren Törn immer.
       if (r.kind === 'expiry') return { ...base, title: r.s_title, what: 'bald', href: '/?support=open' };
       return { ...base, title: r.s_title, what: 'deinen Törn', href: sharePath('s', r.subject_id, r.s_vis ?? 'private', r.s_key) };
     case 'post':
-      if (r.p_author !== userId || r.p_hidden || !r.g_slug || r.g_hidden || !r.g_role) return null;
+      if (r.p_author !== userId || r.p_hidden || !r.g_slug || r.g_hidden || r.g_locked || !r.g_role) return null;
       return { ...base, title: r.g_name ?? '', what: 'deinen Beitrag in', href: groupHref() };
     case 'activity':
       if (r.a_actor !== userId) return null;
@@ -247,13 +294,15 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
       return { ...base, title: '', what: '', href: actor ? `/u/${actor.handle}` : '/' };
     case 'invite': {
       if (!r.i_for || !r.i_kind) return null;
+      // Ziel gesperrt (oder gelöscht): nichts verraten
+      if (r.i_kind !== 'friend' && r.i_target === null) return null;
       const what = r.i_kind === 'group' ? `in ${r.i_gkind === 'team' ? 'das Team' : 'den Verein'}` : (INVITE_WHAT[r.i_kind] ?? 'zu');
       // Freundes-Einladungen haben kein Ziel. Annehmen und Ablehnen im Konto („Einladungen an dich“).
       return { ...base, title: r.i_kind === 'friend' ? '' : (r.i_target ?? ''), what, href: '/?konto=einladungen' };
     }
     case 'group':
       // Anfragen nur, solange es offene gibt, ich sie bestätigen darf und die Gruppe besteht.
-      if (!r.g_slug || !r.g_approve || !r.g_open || !canApprove(r.g_role, r.g_approve)) return null;
+      if (!r.g_slug || r.g_locked || !r.g_approve || !r.g_open || !canApprove(r.g_role, r.g_approve)) return null;
       return { ...base, title: r.g_name ?? '', what: '', href: groupHref() };
     default:
       return null;

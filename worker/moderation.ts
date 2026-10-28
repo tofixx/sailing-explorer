@@ -29,6 +29,14 @@ export const adminLogStmt = (env: Env, adminId: string | null, action: string, k
     randomId(), adminId, action, kind, id, detail.slice(0, ADMIN_LIMITS.detailMax), now,
   );
 
+/**
+ * Einblick eines Admins in gesperrte Inhalte (Konzept 18.5, F-295): nur lesend, jeder Abruf steht im Protokoll
+ * (`view_content`, Pfad als Detail). Vor der Antwort geschrieben – scheitert der Eintrag, gibt es keinen Inhalt.
+ */
+export async function logLockedView(env: Env, request: Request, adminId: string, kind: 'share' | 'boat' | 'group', id: string): Promise<void> {
+  await adminLogStmt(env, adminId, 'view_content', kind, id, new URL(request.url).pathname).run();
+}
+
 /** Ist das Ziel gesperrt (Konzept 18.2)? Profile zählen als Konto. */
 export async function isLockedTarget(env: Env, kind: string, id: string): Promise<boolean> {
   const k = kind === 'profile' ? 'user' : kind;

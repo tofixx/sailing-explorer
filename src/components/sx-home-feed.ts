@@ -378,14 +378,18 @@ export class SxHomeFeed extends LitElement {
 
   private filterChips() {
     const f = this.filters;
-    if (!f || (!f.harbors.length && !f.clubs.length)) return '';
+    if (!f || (!f.harbors.length && !f.clubs.length && !f.teams?.length)) return '';
     const active = this.filter;
     const pick = (filter: StreamFilter) => emit(this, 'sx-stream-filter', { filter });
     const is = (kind: 'harbor' | 'club', slug: string) => active?.kind === kind && active.slug === slug;
-    return html`<div class="filters" role="toolbar" aria-label="Neuigkeiten filtern">
+    // Ein Klick grenzt ein, ein zweiter hebt es wieder auf
+    const chip = (kind: 'harbor' | 'club', slug: string, glyph: Parameters<typeof icon>[0], name: string) =>
+      html`<button class="chip" aria-pressed=${is(kind, slug) ? 'true' : 'false'} @click=${() => pick(is(kind, slug) ? null : { kind, slug })}>${icon(glyph)} ${name}</button>`;
+    return html`<div class="filters" role="toolbar" aria-label="Neuigkeiten eingrenzen">
       <button class="chip" aria-pressed=${active ? 'false' : 'true'} @click=${() => pick(null)}>Alle</button>
-      ${f.harbors.map((h) => html`<button class="chip" aria-pressed=${is('harbor', h.slug) ? 'true' : 'false'} @click=${() => pick(is('harbor', h.slug) ? null : { kind: 'harbor', slug: h.slug })}>${icon('anchor')} ${h.name}</button>`)}
-      ${f.clubs.map((c) => html`<button class="chip" aria-pressed=${is('club', c.slug) ? 'true' : 'false'} @click=${() => pick(is('club', c.slug) ? null : { kind: 'club', slug: c.slug })}>${icon('pennant')} ${c.name}</button>`)}
+      ${f.harbors.map((h) => chip('harbor', h.slug, 'anchor', h.name))}
+      ${f.clubs.map((c) => chip('club', c.slug, 'pennant', c.name))}
+      ${(f.teams ?? []).map((t) => chip('club', t.slug, 'sail', t.name))}
     </div>`;
   }
 

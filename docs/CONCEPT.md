@@ -803,7 +803,7 @@ CREATE TABLE invites (
   boat_id     TEXT REFERENCES boats(id)  ON DELETE CASCADE,   -- genau eins von boat_id/share_id
   share_id    TEXT REFERENCES shares(id) ON DELETE CASCADE,
   inviter_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  email       TEXT,                      -- gebunden an diese Adresse; NULL = Einladungslink (nur Crew)
+  email       TEXT,                      -- geschickt an diese Adresse; NULL = Einladungslink (nur Crew)
   max_uses    INTEGER NOT NULL DEFAULT 1,
   uses        INTEGER NOT NULL DEFAULT 0,
   created_at  INTEGER NOT NULL,
@@ -818,7 +818,7 @@ CREATE TABLE share_crew (                -- Mitsegler eines Törns
 ```
 
 `0012_invite_invitee.sql` ergänzt `invitee_id TEXT REFERENCES users(id) ON DELETE
-CASCADE`: Einladungen über den Profilnamen sind an dieses **Konto** gebunden statt
+CASCADE`: Einladungen über den Profilnamen gehen an dieses **Konto** statt
 an eine Adresse; die Mail geht an die Adresse des Kontos, die nur der Server kennt.
 
 `boat_admins` (0002) bleibt unverändert. Zwei Fremdschlüssel statt einer
@@ -828,8 +828,8 @@ Einladungen per `ON DELETE CASCADE` mitnimmt (D1 erzwingt Fremdschlüssel;
 
 | Einladung | Bindung | Gültig | Nutzungen |
 |---|---|---|---|
-| Boots-Admin | per E-Mail (an die Adresse gebunden) oder Profilname (an das Konto gebunden) | 7 Tage | 1 |
-| Crew per E-Mail oder Profilname | an die Adresse bzw. das Konto gebunden | 14 Tage | 1 |
+| Boots-Admin | per E-Mail oder Profilname; der Link darf weitergegeben werden (10.2) | 7 Tage | 1 |
+| Crew per E-Mail oder Profilname | an die Adresse bzw. das Konto geschickt, weitergebbar (10.2) | 14 Tage | 1 |
 | Crew per Link | ohne Adresse, wer den Link hat | 14 Tage | bis 30 (= Crew-Obergrenze) |
 
 Token: `randomToken()` (256 Bit, base64url), gespeichert nur als Hash. Der
@@ -843,15 +843,22 @@ erzeugt einen neuen und zieht den alten zurück.
    keinem Server-Log, keinem Referrer), die App löst per POST ein – Mail-Scanner,
    die nur GET machen, verbrauchen nichts (wie der Magic Link).
 2. `POST /api/invites/peek` zeigt, wozu eingeladen wird (Boot bzw. Törn, wer
-   einlädt, ob die Einladung an eine Adresse gebunden ist und ob sie zum
-   angemeldeten Konto passt – die Adresse selbst nie) – ohne einzulösen.
+   einlädt, ob die Einladung an eine Adresse bzw. ein Konto geschickt wurde und ob
+   das angemeldete Konto der Empfänger ist) – ohne einzulösen. Die Adresse erscheint
+   nur maskiert („a…@e….org“, `sentTo`) und nur für ein anderes angemeldetes Konto.
 3. Nicht angemeldet → Anmeldedialog (Magic Link); nach der Anmeldung (auch aus
    einem anderen Tab) erscheint die Einladung wieder.
 4. **Ausdrückliche Bestätigung** „Annehmen“ (`POST /api/invites/accept`), nie
    automatisch – gleicher Schutz wie „Als … anmelden?“.
 5. Prüfungen beim Annehmen: gültig, nicht abgelaufen, Nutzungen frei;
-   gebundene Einladung nur für das Konto mit genau dieser Adresse (sonst 403
-   `invite_wrong_account`, ohne die Adresse zu nennen); Crew braucht kein Profil
+   **keine Bindung an Adresse oder Konto** (Entscheidung 28.10.2026: „Einladungslinks
+   sollen Einladungslinks sein und können weitergeleitet werden“) – jede verschickte
+   Einladung (Boots-Admin, Crew, Gruppe, Freunde) nimmt an, wer den Link mit
+   irgendeinem Konto öffnet, einmal; danach ist sie auch für den Empfänger verbraucht.
+   Ist das Konto nicht der Empfänger, zeigt der Dialog vorher „Diese Einladung ging an
+   a…@e….org – du nimmst sie mit deinem Konto b…@… an.“ (beide maskiert), angenommen
+   wird per ausdrücklichem Klick. Mehrere Adressen je Konto sind nicht Teil davon
+   (später). Crew braucht kein Profil
    (ohne eigenen Namen gilt der Spaßname, 10.6);
    Eigentümer bzw. Eigner (409 `own_object`) und bestehende Mitglieder werden
    nicht doppelt eingetragen (ohne eine Nutzung zu verbrauchen); Obergrenzen
@@ -874,7 +881,7 @@ Alle Mutationen same-origin, angemeldet; fremde Objekte 404.
 | DELETE | `/api/me/invites/:id` | Empfänger | ablehnen (verschwindet auch beim Einladenden) |
 | DELETE | `/api/shares/:id/crew/:userId` | Eigentümer (jeden), Crew (nur sich) | entfernen |
 | DELETE | `/api/invites/:id` | Eigentümer des Ziels | Einladung zurückziehen (Zeile wird gelöscht) |
-| POST | `/api/invites/peek` | alle | `{ token }` → Art, Ziel, Einladender, gebunden ja/nein, Ablauf |
+| POST | `/api/invites/peek` | alle | `{ token }` → Art, Ziel, Einladender, verschickt ja/nein, Empfänger ja/nein, Adresse maskiert (nur für andere Konten), Ablauf |
 | POST | `/api/invites/accept` | angemeldet | `{ token }` → Mitgliedschaft |
 | GET | `/api/profiles/:handle` | wie bisher | zusätzlich `crewVoyages`: öffentliche Törns, auf denen die Person Crew ist |
 
@@ -934,10 +941,11 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
   gibt die Verwalter-Rechte aus `canManageBoat` (bearbeiten, Törns zuordnen,
   „Nur mit Link“-Seite sehen) – nicht löschen, nicht weitere Admins einladen.
 - **E-Mail-Adressen erreichen nie die Öffentlichkeit oder andere Konten** –
-  auch nicht Eigner, Admins oder Törn-Eigentümer, auch nicht maskiert. Einzige
-  Anzeige: die Adresse, die der Einladende selbst für eine **offene** Einladung
+  auch nicht Eigner, Admins oder Törn-Eigentümer, auch nicht maskiert. Ausnahmen:
+  die Adresse, die der Einladende selbst für eine **offene** Einladung
   eingegeben hat (in seiner eigenen Liste, bis sie angenommen, abgelaufen oder
-  zurückgezogen ist).
+  zurückgezogen ist), und – seit 28.10.2026 – die **maskierte** Empfängeradresse
+  für ein anderes Konto, das einen weitergegebenen Einladungslink öffnet (10.2).
 - **Namen statt Adressen:** Jedes Konto hat einen Anzeigenamen – den selbst
   gewählten aus dem Profil, sonst einen **Spaßnamen** wie „Verwegener
   Klabautermann“ (`src/domain/names.ts`, stabil aus der Konto-ID abgeleitet,
@@ -971,8 +979,9 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
 4. Sollen Crew-Törns in die Kennzahlen (Seemeilen) des Profils zählen?
    (Umgesetzt: nein, nur eigener Abschnitt „Mitgesegelt“.)
 5. Passen die Grenzen (20/Tag, 10 Admins, 30 Crew, 50 Mails/Tag)?
-6. Einladungslinks auch für Boots-Admins? (Umgesetzt: nein, Admins nur
-   gebunden per Mail oder Profilname – mehr Rechte, strengere Bindung.)
+6. Einladungslinks auch für Boots-Admins? (Umgesetzt: kein mehrfach nutzbarer
+   Link, nur per Mail oder Profilname, einmal nutzbar; seit 28.10.2026 darf der
+   Empfänger diesen Link aber weitergeben, 10.2.)
 
 Entschieden (Oktober 2026): Personen ohne öffentliches Profil bleiben öffentlich
 „Segler:in“ bzw. „+ n weitere“; der Spaßname erscheint nur dort, wo ein Name
@@ -996,7 +1005,7 @@ bleiben seine Teams als eigenständige Gruppen bestehen.
 |---|---|
 | Adresse | `/g/<slug>`, „Nur mit Link“ `/g/<slug>/<schlüssel>`. Slug wie Profilnamen (`normalizeHandle`: 3–30 Zeichen a–z, 0–9, Bindestrich, reservierte Wörter) plus `neu`, `feed`, `verein(e)`, `team(s)`; eigener Namensraum. Ändern möglich, ohne Weiterleitung (offene Frage 1) |
 | Rollen | `owner` (genau einer, `groups.owner_id` und Zeile in `group_members`), `admin`, `member`. Eigner: alles inkl. Löschen, Sichtbarkeit, Admins ernennen. Admins: bearbeiten (ohne Sichtbarkeit), einladen, Anfragen annehmen, Mitglieder (keine Admins) entfernen, Beiträge schreiben und löschen, Boote entfernen. Mitglieder: Boote zuordnen, austreten |
-| Beitreten | **nur auf Einladung** (Mechanismus aus Abschnitt 10: Link oder an eine Adresse gebundene Mail, `invites.kind = 'group'`, `group_id`) oder per **Beitrittsanfrage**, die ein Admin annimmt (`join_mode = 'request'`, Standard; `invite` = nur Einladungen). Anfragen gehen nur bei Gruppen, die man sehen darf |
+| Beitreten | **nur auf Einladung** (Mechanismus aus Abschnitt 10: Link oder an eine Adresse geschickte Mail, `invites.kind = 'group'`, `group_id`) oder per **Beitrittsanfrage**, die ein Admin annimmt (`join_mode = 'request'`, Standard; `invite` = nur Einladungen). Anfragen gehen nur bei Gruppen, die man sehen darf |
 | Sichtbarkeit | wie überall (Abschnitt 1): `public` gelistet und indexierbar; `unlisted` nur mit Schlüssel; `private` („geschlossen“) nur für Mitglieder. E1: kostenlos nur öffentlich, „Nur mit Link“ und „geschlossen“ verlangen laufenden Unterstützer-Status des **Eigners** (402), E4: bestehende Stufe bleibt nach Ende der Unterstützung |
 | Mitgliedschaft öffnet nichts | Mitglieder sehen weiterhin nur öffentliche Törns anderer (Abschnitt 1.2, 10.6). Die Gruppe selbst sehen Mitglieder unabhängig von ihrer Stufe |
 | Boote | Eigner und Admins eines Boots ordnen es Gruppen zu, in denen sie Mitglied sind (`group_boats`, ein Boot in mehreren Gruppen). Entfernen: Boot-Verwalter oder Gruppen-Admins. Die Gruppenseite nennt nur öffentliche, nicht ausgeblendete Boote |
@@ -1520,7 +1529,7 @@ also nur öffentliche Törns; die Prüfung passiert beim Lesen.
 Plattform-Admins (`ADMIN_USER_IDS`, `isAdmin`) bekommen eine eigene Seite `/admin` mit Übersicht über alle Konten,
 Boote, Gruppen, Häfen und Törns – auch nicht öffentliche – und Werkzeugen für Sperren, Umbenennen, Eigner-Wechsel,
 Zusammenführen und endgültiges Löschen. Jede Admin-Aktion und jeder Einblick steht im Admin-Protokoll.
-Anforderungen F-230 … F-242.
+Anforderungen F-230 … F-243, F-294 … F-296.
 
 ### 18.1 Zugang
 
@@ -1588,6 +1597,14 @@ Beitrag mit – ihr Recht auf Löschung wiegt hier schwerer; wer ihn als Beleg b
 - **Ende durch Frist:** Läuft die Sperre ab, löscht der **nächtliche Lauf** das Objekt endgültig über denselben
   Löschpfad (höchstens 20 pro Nacht) und schreibt einen System-Eintrag ins Protokoll. Mitgesperrtes (`via_user`)
   folgt dem Konto. Die Admin-Seite zeigt das Ablaufdatum; was in 14 Tagen abläuft, ist hervorgehoben.
+- **Erinnerung (F-294):** Was in 14 Tagen abläuft, meldet der nächtliche Lauf den Admins in **einer** Sammelmail (an
+  die Adressen der Konten in `ADMIN_USER_IDS`, Link auf `/admin`) – einmal je Sperrfrist (`locks.reminded_at`; eine
+  Verlängerung setzt es zurück). Mitgesperrtes erscheint nicht einzeln, es folgt dem Konto.
+- **Begründung an Betroffene (F-296, DSA Art. 17):** Beim Sperren (nicht beim Verlängern) bekommt das gesperrte Konto
+  bzw. Eigner:in des Objekts (Anleger:in beim Hafen) eine Mail: was gesperrt ist, die Begründung, dass es nach Ablauf
+  der Frist endgültig gelöscht wird (Datum), wenn es nicht entsperrt wird, und dass man per Antwort (bzw. an
+  `REPORT_CONTACT`) widersprechen kann. Ohne Konto oder Mail-Adresse keine Mail; ein gescheiterter Versand hält die
+  Sperre nicht auf. Der Versand steht im Protokoll (`lock_notice`, ohne Adresse).
 - **Aufräumen:** `locks`-Zeilen, deren Ziel es nicht mehr gibt, löscht der nächtliche Lauf; jeder Admin-Löschweg
   entfernt die Zeile seines Objekts.
 
@@ -1607,6 +1624,13 @@ neueste zuerst; `q` sucht in Namen, Profilnamen, Slugs, IDs und (nur bei Konten)
 Admins sehen alle Objekte, auch „Nur ich“ – aber nur **Metadaten** (Name, Eigner, Sichtbarkeit, Zahlen, Zeiten,
 Sperr-/Ausblend-Status) und Links; die Inhalte selbst (Track, private Fotos) öffnet die Admin-Seite nicht. Jeder
 Abruf einer Liste und jeder Detail-Abruf (`GET /api/admin/:art/:id`) wird protokolliert (`list`, `view`).
+
+**Einblick in Gesperrtes (F-295):** Zur Prüfung dürfen Admins **gesperrte** Objekte auch inhaltlich öffnen – Törn
+(Metadaten, Track, Vorschaubild), **alle** Fotos eines gesperrten Törns (auch „Nur ich“ und ausgeblendete), gesperrte
+Boote und Gruppen – über die normalen Leserouten, nur lesend (Eigner-Pfade bleiben 404). Die vorhandenen
+Sichtbarkeitsprüfungen (`visibleShare`, `visiblePhoto`, `getBoat`, `visibleGroup`) schreiben bei Gesperrtem **vor**
+der Antwort einen Eintrag `view_content` (Ziel, Pfad) – scheitert er, gibt es keinen Inhalt (fail closed). Nicht
+gesperrte private Inhalte („Nur ich“) bleiben auch für Admins verschlossen.
 
 ### 18.6 Umbenennen und Eigner neu zuweisen
 
@@ -1683,18 +1707,20 @@ Aufbewahrung) und werden **2 Jahre nach ihrem Ablauf** gelöscht; Konto löschen
 
 Tabelle `admin_log (id, admin_id, action, target_kind, target_id, detail, created_at)`; `admin_id` NULL = nächtlicher
 Lauf. Aktionen: `list`, `view`, `lock`, `extend`, `unlock`, `lock_expired`, `rename`, `owner`, `merge_harbor`,
-`merge_user`, `delete`, `grant_support`, `revoke_support`, `delete_comment`, `harbor_edit`, dazu die Meldungs-Entscheidungen (`report_keep`, `report_hide`, `report_delete`) und
+`merge_user`, `delete`, `grant_support`, `revoke_support`, `delete_comment`, `harbor_edit`, `lock_notice`,
+`view_content` (Einblick in Gesperrtes, 18.5), dazu die Meldungs-Entscheidungen (`report_keep`, `report_hide`, `report_delete`) und
 `suspend`/`unsuspend`. `detail` ist ein kurzer Text (höchstens 500 Zeichen: Begründung, alter → neuer Name,
 Zahlen) – **keine Mail-Adressen**. Lesen: `GET /api/admin/log?q=&page=` (Suche nach Ziel-ID, Admin oder Aktion).
 
-Fristen: Einblicke (`list`, `view`) **180 Tage**, alle übrigen Einträge **2 Jahre** (Nachweis gegenüber Betroffenen
+Fristen: Einblicke (`list`, `view`) **180 Tage**, alle übrigen Einträge **2 Jahre** (auch `view_content`: Zugriff auf
+private Inhalte soll so lange nachweisbar sein wie die Aktionen) (Nachweis gegenüber Betroffenen
 und Behörden, DSA, berechtigtes Interesse); Einträge zu einem noch gesperrten Ziel bleiben, bis die Sperre endet.
 Gelöscht nachts. Konto löschen lässt Einträge über das Konto bestehen (nur IDs und Namen, keine Inhalte).
 
 ### 18.11 Datenmodell (`0023_admin.sql`)
 
 - `users.locked_at`, `shares.locked_at`, `boats.locked_at`, `groups.locked_at`
-- `locks (target_kind, target_id, locked_at, until, locked_by, reason, via_user, prev_at)`, Primärschlüssel
+- `locks (target_kind, target_id, locked_at, until, locked_by, reason, via_user, prev_at, reminded_at)`, Primärschlüssel
   `(target_kind, target_id)`; `target_kind` ∈ `user`, `share`, `boat`, `group`, `harbor`
 - `admin_log` wie 18.10, `harbor_redirects (old_slug PRIMARY KEY, harbor_id → harbors ON DELETE CASCADE, created_at)`
 
@@ -1711,13 +1737,14 @@ Aktionen: Details, Umbenennen, Eigner, Sperren/Verlängern/Entsperren, Zusammenf
 löschen. Zerstörerische Aktionen fragen nach (Löschen und Konten verbinden mit Eingabe der ID). Meldungen bleiben im
 Konto-Dialog (Reiter „Meldungen“).
 
-### 18.13 Offene Fragen an den Betreiber
+### 18.13 Fragen an den Betreiber – entschieden (28.10.2026)
 
-1. Sperrfrist 180 Tage mit automatischem endgültigen Löschen danach – passt das, oder lieber kürzer (z. B. 90 Tage)
-   bzw. nur eine Erinnerung statt automatischem Löschen?
-2. Sollen Admins bei gesperrten Objekten auch den Inhalt (Track, private Fotos) sehen können (für die Prüfung), mit
-   Protokolleintrag? Heute nur Metadaten.
-3. Sollen Betroffene beim Sperren eine Mail mit Begründung bekommen (DSA Art. 17)? Heute nicht.
+1. Sperrfrist: bleibt bei **180 Tagen** mit automatischem endgültigen Löschen danach, dazu **14 Tage vorher eine
+   Erinnerung** an die Admins (18.4, F-294).
+2. Inhalte gesperrter Objekte: Admins dürfen sie zur Prüfung **lesend** öffnen, **jeder** Einblick steht im
+   Protokoll (18.5, F-295).
+3. Betroffene bekommen beim Sperren eine **Mail mit Begründung** (DSA Art. 17) und dem Hinweis auf Widerspruch
+   (18.4, F-296).
 
 ## 16. Kartenstil (Farbverlauf, Wind- und Wellen-Symbole)
 
@@ -1776,7 +1803,7 @@ Beiträge der Gruppen), bleibt der Stream (12.4); ein Ungelesen-Badge dafür ist
 
 | Art (`kind`) | Anlass | Empfänger | Gegenstand (`subject_kind`) |
 |---|---|---|---|
-| `comment` | Kommentar auf einem Törn | Eigentümer:in des Törns | `share` |
+| `comment` | Kommentar auf einem Törn | Eigentümer:in des Törns und alle, die dort schon kommentiert haben (nur öffentliche Törns, ohne ausgeblendete Kommentare und gesperrte Konten; höchstens 50, Eigentümer:in zuerst, dann die zuletzt Aktiven – 17.9.1) | `share` |
 | `reaction` | Reaktion auf Törn, Foto, Beitrag, Neuigkeit | Eigentümer:in bzw. Autor:in bzw. handelnde Person der Neuigkeit | `share` (auch bei Fotos), `post`, `activity` |
 | `follow` | jemand folgt dem Profil | die Person | `user` (sie selbst) |
 | `invite` | Einladung per Profilname oder an die Adresse eines bestehenden Kontos | eingeladenes Konto | `invite` |
@@ -1800,7 +1827,8 @@ Gegenstände ohne SQL-`CHECK` (Prinzip Architektur 7). Konflikt-Hinweis: Führt 
 ### 17.3 Lesen, Sichtbarkeit, Kosten
 
 `GET /api/notifications` liest die neuesten 30 Einträge mit **einer** Abfrage samt Prüf-Joins: Törns und Beiträge nur
-eigene, Anfragen nur solange man bestätigen darf (`canApprove`), Einladungen nur gültig und an mich. Handelnde nur
+eigene (Kommentare auf mitkommentierten Törns nur, solange der Törn öffentlich, nicht ausgeblendet oder gesperrt ist
+und Kommentare zeigt – Ziel ohne Schlüssel), Anfragen nur solange man bestätigen darf (`canApprove`), Einladungen nur gültig und an mich. Handelnde nur
 mit öffentlichem, nicht ausgeblendetem Profil eines nicht gesperrten Kontos, sonst „Jemand“ – Namen nicht öffentlicher
 Profile werden so nie verraten. Keine Konto-IDs, keine E-Mail-Adressen. Was nicht mehr gilt, erscheint nicht und wird
 als gelesen markiert, damit der Zähler stimmt. `GET /api/notifications/count` zählt nur (Index, höchstens 100).
@@ -1849,7 +1877,7 @@ einschaltbar – Auswahl *keine / Mail / Push*; Hinweise des Betreibers zum Kont
 
 | Art | Standard | Mail heißt |
 |---|---|---|
-| Kommentare auf deinen Törns | keine | tägliche Sammelmail (bisher „Tägliche Sammelmail bei neuen Kommentaren“, übernommen) |
+| Kommentare auf deinen Törns und Törns, die du kommentiert hast | keine | tägliche Sammelmail (bisher „Tägliche Sammelmail bei neuen Kommentaren“, übernommen) |
 | Reaktionen auf deine Inhalte | keine | tägliche Sammelmail |
 | Neue Follower | keine | tägliche Sammelmail |
 | Einladungen an dich (per Profilname) | Mail | sofort die Einladungsmail (wie bisher); Einladungen an eine Adresse sind die Mail selbst und kommen immer |
@@ -1902,13 +1930,19 @@ wegen zu vieler Verbindungen getrennt wurde (Code 4000), bleibt ohne Live.
 **Kosten:** je Benachrichtigung und Empfänger eine Anfrage ans Durable Object (Free: 100 000/Tag), je offene Seite eine
 Verbindung; ohne Binding (andere Installationen) ist Live aus und die Glocke lädt wie in 17.3.
 
-### 17.9 Offene Fragen an den Betreiber
+### 17.9 Fragen an den Betreiber – entschieden 28.10.2026
 
-1. Sollen auch Antworten in Törns, auf denen man selbst kommentiert hat, benachrichtigen (heute nur die Eigentümer:in)?
-2. Sollen Bestätigende mit „Alle Mitglieder“ ebenfalls Anfragen gemeldet bekommen (heute nur Eigner und Admins, um den
-   Fan-out klein zu halten)?
-3. Die Löschwarnung in der Glocke bleibt nach einer Unterstützung stehen, bis sie gelesen ist – reicht das?
-4. VAPID-Schlüssel erzeugen und als Secrets setzen (`node scripts/vapid-keys.mjs`, README) – erst dann ist Push in der
+1. **Mitkommentierende:** Ein neuer Kommentar benachrichtigt die Eigentümer:in und alle, die auf dem Törn schon
+   kommentiert haben – nie die Autor:in selbst. Jede:r nach eigener Auswahl für „Kommentare“ (keine/Mail/Push),
+   gebündelt je Törn wie bisher. Nur bei öffentlichen, nicht ausgeblendeten oder gesperrten Törns mit sichtbaren
+   Kommentaren; ausgeblendete Kommentare und gesperrte Konten zählen nicht, gelöschte Konten haben keine Kommentare
+   mehr. Höchstens 50 Empfänger (Eigentümer:in zuerst, dann die zuletzt Aktiven). Beim Lesen erneut geprüft (17.3):
+   „Nur mit Link“ oder „Nur ich“ fällt für Mitkommentierende weg – der Schlüssel könnte inzwischen erneuert sein und
+   darf über die Glocke nicht verraten werden.
+2. **Anfragen bei „Alle Mitglieder bestätigen“:** bleibt – gemeldet werden nur Eigner und Admins (höchstens 20).
+3. **Löschwarnung nach Unterstützung:** verschwindet automatisch – Stripe-Zahlung (Webhook) und Gutschein der
+   Moderation löschen die Löschwarnungen zu Törns, die danach nicht mehr im Warnfenster (14 Tage) ablaufen.
+4. **VAPID-Schlüssel:** setzt der Betreiber (`node scripts/vapid-keys.mjs`, README) – erst dann ist Push in der
    Produktion wählbar.
 
 ## 15. Crew-Rollen

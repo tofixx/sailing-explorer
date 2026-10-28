@@ -4,12 +4,13 @@
 import type { Env } from './env';
 import { purgeUser } from './auth';
 import { HttpError } from './http';
-import { adminLogStmt, ownsLockedSql } from './moderation';
+import { adminIds, adminLogStmt, ownsLockedSql } from './moderation';
+import { lockNoticeMail, lockReminderMail, sendMail } from './mail';
 import { removeShare } from './shares';
 import { removeBoat } from './boats';
 import { removeGroup } from './groups';
 import { removeHarbor } from './harbors';
-import { ADMIN_LIMITS, lockUntil, type LockKind } from '../src/domain/admin';
+import { ADMIN_LIMITS, LOCK_WARN_MS, lockUntil, type LockKind } from '../src/domain/admin';
 
 /** Tabelle, ID-Spalte und ob es eine eigene locked_at-Spalte gibt – feste Werte, nie aus der Anfrage. */
 const TABLE = {
@@ -79,7 +80,7 @@ export async function lockTarget(env: Env, adminId: string, kind: LockKind, id: 
     // Mitgesperrtes verlängert man über das Konto
     if (existing.via_user) throw new HttpError(409, 'locked_via_user', 'Das ist mit seinem Konto gesperrt – bitte dort verlängern.');
     await env.DB.batch([
-      env.DB.prepare('UPDATE locks SET until = ?1 WHERE (target_kind = ?2 AND target_id = ?3) OR (?2 = \'user\' AND via_user = ?3)').bind(lockUntil(now), kind, id),
+      env.DB.prepare('UPDATE locks SET until = ?1, reminded_at = NULL WHERE (target_kind = ?2 AND target_id = ?3) OR (?2 = \'user\' AND via_user = ?3)').bind(lockUntil(now), kind, id),
       adminLogStmt(env, adminId, 'extend', kind, id, reason, now),
     ]);
     return 'extend';
@@ -183,3 +184,70 @@ export const orphanLocksStmt = (env: Env): D1PreparedStatement =>
        OR (target_kind = 'harbor' AND NOT EXISTS (SELECT 1 FROM harbors WHERE id = locks.target_id))
        OR (target_kind = 'profile' AND NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = locks.target_id))`,
   );
+
+/** Betroffene je Art: wessen Objekt es ist, wie es heißt, feste Bezeichnung für die Mail (Konzept 18.4). */
+const NOTICE: Record<LockKind, { sql: string; what: string; label: string }> = {
+  user: { sql: `SELECT id AS owner, '' AS name FROM users WHERE id = ?`, what: 'dein Konto', label: 'Konto' },
+  share: { sql: 'SELECT user_id AS owner, title AS name FROM shares WHERE id = ?', what: 'dein Törn', label: 'Törn' },
+  boat: { sql: 'SELECT owner_id AS owner, name FROM boats WHERE id = ?', what: 'dein Boot', label: 'Boot' },
+  group: { sql: 'SELECT owner_id AS owner, name FROM groups WHERE id = ?', what: 'deine Gruppe', label: 'Gruppe' },
+  harbor: { sql: 'SELECT created_by AS owner, name FROM harbors WHERE id = ?', what: 'dein angelegter Hafen', label: 'Hafen' },
+};
+
+/**
+ * Begründung an die Betroffenen beim Sperren (Konzept 18.4, DSA Art. 17): an das Konto selbst bzw. an Eigner:in des
+ * Objekts. Ohne Konto oder Mail-Adresse keine Mail. Ein Fehler beim Versand hält die Sperre nicht auf; der Versand steht
+ * im Protokoll (`lock_notice`, ohne Adresse). Liefert, ob verschickt wurde.
+ */
+export async function sendLockNotice(env: Env, adminId: string, kind: LockKind, id: string, now = Date.now()): Promise<boolean> {
+  const n = NOTICE[kind];
+  const lock = await loadLock(env, kind, id);
+  const obj = await env.DB.prepare(n.sql).bind(id).first<{ owner: string | null; name: string | null }>();
+  if (!lock || !obj?.owner) return false;
+  const u = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(obj.owner).first<{ email: string | null }>();
+  if (!u?.email) return false;
+  try {
+    await sendMail(env, lockNoticeMail(env, u.email, { what: n.what, name: obj.name ?? '', reason: lock.reason, until: lock.until, contact: env.REPORT_CONTACT }));
+  } catch (err) {
+    console.error('lock notice failed', kind, id, err);
+    return false;
+  }
+  await adminLogStmt(env, adminId, 'lock_notice', kind, id, 'Begründung per Mail an Betroffene', now).run();
+  return true;
+}
+
+/**
+ * Nächtlich (Konzept 18.4): eine Mail an die Admins mit allen Sperren, die in 14 Tagen ablaufen und noch nicht
+ * erinnert wurden (einmal je Sperrfrist – Verlängern setzt `reminded_at` zurück). Mitgesperrtes folgt dem Konto.
+ * Ohne Admin-Adresse oder wenn kein Versand gelingt, bleibt es unmarkiert (nächste Nacht erneut).
+ */
+export async function remindLocks(env: Env, origin: string, now: number): Promise<number> {
+  const ids = [...adminIds(env)];
+  if (!ids.length) return 0;
+  const { results } = await env.DB.prepare(
+    'SELECT target_kind, target_id, until, reason FROM locks WHERE via_user IS NULL AND reminded_at IS NULL AND until <= ? ORDER BY until LIMIT 100',
+  )
+    .bind(now + LOCK_WARN_MS)
+    .all<{ target_kind: LockKind; target_id: string; until: number; reason: string }>();
+  if (!results.length) return 0;
+  const { results: admins } = await env.DB.prepare(`SELECT email FROM users WHERE id IN (${ids.map(() => '?').join(',')}) AND email <> ''`)
+    .bind(...ids)
+    .all<{ email: string }>();
+  const items = [];
+  for (const l of results) {
+    const row = await env.DB.prepare(NOTICE[l.target_kind].sql).bind(l.target_id).first<{ name: string | null }>();
+    items.push({ kind: NOTICE[l.target_kind].label, id: l.target_id, name: row?.name ?? '', until: l.until, reason: l.reason });
+  }
+  let sent = 0;
+  for (const a of admins) {
+    try {
+      await sendMail(env, lockReminderMail(env, a.email, origin, items));
+      sent++;
+    } catch (err) {
+      console.error('lock reminder failed', err);
+    }
+  }
+  if (!sent) return 0;
+  await env.DB.batch(results.map((l) => env.DB.prepare('UPDATE locks SET reminded_at = ? WHERE target_kind = ? AND target_id = ?').bind(now, l.target_kind, l.target_id)));
+  return results.length;
+}

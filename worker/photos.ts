@@ -6,7 +6,7 @@ import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
 import { HttpError, countKeyFailure, json, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, requestKey } from './access';
-import { assertActive, isAdmin } from './moderation';
+import { assertActive, isAdmin, logLockedView } from './moderation';
 import { ownedShare, visibleShare } from './shares';
 import { storageQuotaError, supportConfigured, supportStatus } from './supporter';
 import { addPhotoStmt, checkBrake, currentBrake, subtractPhotoStmt } from './storage';
@@ -113,6 +113,8 @@ export async function visiblePhoto(request: Request, env: Env, id: string, allow
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }
+  // Fotos gesperrter Törns sehen nur Admins (auch private) – jeder Einblick ins Protokoll
+  if (row.share_locked_at && user) await logLockedView(env, request, user.id, 'share', row.share_id);
   return { row, isOwner: !!user && user.id === row.owner_id, user };
 }
 
@@ -152,8 +154,10 @@ async function uploadState(env: Env, userId: string, inShare: number) {
 export async function listPhotos(request: Request, env: Env, shareId: string): Promise<Response> {
   const { row, isOwner, user } = await visibleShare(request, env, shareId);
   const admin = isAdmin(env, user?.id);
+  // gesperrter Törn: Admins prüfen alle Fotos, auch private (Konzept 18.5) – der Einblick steht schon im Protokoll
+  const all = isOwner || (admin && !!row.locked_at);
   const { results } = await env.DB.prepare(
-    `SELECT * FROM photos WHERE share_id = ? ${isOwner ? '' : `AND visibility = 'public'${admin ? '' : ' AND hidden_at IS NULL'}`}
+    `SELECT * FROM photos WHERE share_id = ? ${all ? '' : `AND visibility = 'public'${admin ? '' : ' AND hidden_at IS NULL'}`}
      ORDER BY taken_at IS NULL, taken_at, created_at LIMIT ?`,
   )
     .bind(row.id, LIST_LIMIT)

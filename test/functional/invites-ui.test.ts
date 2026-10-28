@@ -55,7 +55,8 @@ describe('sx-invite-dialog', () => {
     const t = text(el);
     expect(t).toContain('Anna lädt dich ein, das Boot „Albatros“ mitzuverwalten.');
     expect(t).toContain('Löschen und weitere Admins einladen kann nur der Eigner');
-    expect(t).toContain('gilt nur für die eingeladene E-Mail-Adresse');
+    expect(t).toContain('einmal nutzbar');
+    expect(t).not.toContain('ging an');
     button(el, /Annehmen/)!.click();
     expect(accepted).toHaveLength(1);
   });
@@ -70,11 +71,17 @@ describe('sx-invite-dialog', () => {
     expect(logins).toHaveLength(1);
   });
 
-  it('[F-138] falsches Konto: Hinweis ohne die eingeladene Adresse, kein „Annehmen“', async () => {
-    const el = await mount('sx-invite-dialog', { open: true, state: 'ready', peek: peek({ emailMatches: false }), signedIn: true, userEmail: 'bob@example.org' });
-    expect(text(el)).toContain('Diese Einladung gilt für eine andere E-Mail-Adresse. Du bist als bob@example.org angemeldet.');
-    expect(button(el, /Annehmen/)).toBeUndefined();
-    expect(button(el, /Mit dieser Adresse anmelden/)).toBeDefined();
+  it('[F-138] weitergegebener Link: Hinweis mit beiden Adressen maskiert, Annehmen erst per ausdrücklichem Klick', async () => {
+    const accepted = listen('sx-invite-accept');
+    const el = await mount('sx-invite-dialog', { open: true, state: 'ready', peek: peek({ emailMatches: false, sentTo: 'a…@e….org' }), signedIn: true, userEmail: 'bob@example.org' });
+    expect(text(el)).toContain('Diese Einladung ging an a…@e….org – du nimmst sie mit deinem Konto b…@e….org an.');
+    expect(text(el)).not.toContain('bob@example.org');
+    expect(accepted).toHaveLength(0);
+    button(el, /Mit meinem Konto annehmen/)!.click();
+    expect(accepted).toHaveLength(1);
+    // über den Profilnamen eingeladen: keine Adresse bekannt
+    const byName = await mount('sx-invite-dialog', { open: true, state: 'ready', peek: peek({ emailMatches: false, sentTo: null }), signedIn: true, userEmail: 'bob@example.org' });
+    expect(text(byName)).toContain('Diese Einladung ging an ein anderes Konto');
   });
 
   it('[F-138] eigene Einladung und schon Mitglied: nur Hinweis', async () => {
@@ -148,6 +155,20 @@ describe('sx-crew', () => {
     button(el, /Mutige Krabbe/)!.click();
     await el.updateComplete;
     expect(text(el)).not.toContain('Profil ist nicht öffentlich');
+  });
+
+  it('[F-134] Spaßnamen sind erkennbar (Schloss, kursiv, Hinweis beim Hovern) – echte Namen und der Eigentümer nicht', async () => {
+    const members = [
+      { id: null, handle: 'anna', displayName: 'Anna' },
+      { id: null, handle: null, displayName: 'Mutige Krabbe' },
+    ];
+    const el = await mount('sx-crew', { crew: crew({ members }) });
+    const names = [...el.shadowRoot.querySelectorAll('.name')];
+    expect(names[0].classList.contains('pseudo')).toBe(false);
+    expect(names[1].classList.contains('pseudo')).toBe(true);
+    expect(button(el, /Mutige Krabbe/)!.title).toContain('Spaßname');
+    const owner = await mount('sx-crew', { crew: crew({ members, isOwner: true }), isOwner: true });
+    expect(owner.shadowRoot.querySelector('.pseudo')).toBeNull();
   });
 
   it('[F-135] Crew-Mitglied: „Mich aus der Crew entfernen“ mit Bestätigung → sx-crew-leave', async () => {

@@ -1,11 +1,13 @@
 // Funktionale Tests: Kanäle je Art (F-256), Web Push (F-257) und Live per WebSocket (F-258) – Konzept 17.6 bis 17.8.
 // Echter Worker in workerd (Miniflare) mit Durable Object; Push-Dienste per outboundService gefälscht.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startWorker, type Harness } from './worker-harness';
+import { login, startWorker, stripeSignature, type Harness } from './worker-harness';
 import { social, type Person } from './social-helpers';
 
 const DAY = 86_400_000;
 const FCM = 'https://fcm.googleapis.com/fcm/send/';
+const WEBHOOK_SECRET = 'whsec_test_notifications01';
+const ADMIN_ID = 'AdminNotify000001';
 let h: Harness;
 let s: ReturnType<typeof social>;
 let pushes: Array<{ url: string; auth: string; body: string }> = [];
@@ -20,7 +22,7 @@ beforeAll(async () => {
   publicKey = b64u(await crypto.subtle.exportKey('raw', pair.publicKey));
   const d = ((await crypto.subtle.exportKey('jwk', pair.privateKey)) as JsonWebKey).d!;
   h = await startWorker(
-    { APP_ORIGIN: 'https://sail.example', VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: d },
+    { APP_ORIGIN: 'https://sail.example', VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: d, STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, ADMIN_USER_IDS: ADMIN_ID },
     {
       outbound: async (req) => {
         pushes.push({ url: req.url, auth: req.headers.get('Authorization') ?? '', body: await req.text() });
@@ -101,7 +103,44 @@ describe('F-256 Kanäle je Art: keine, Mail oder Push; Hinweise des Betreibers n
     expect(items[0]).toMatchObject({ kind: 'passkey', href: '/?konto=einstellungen', actor: null });
     expect(items[0].text).toMatch(/Neuer Passkey/);
   });
+  it('[F-256] Löschwarnung in der Glocke verschwindet nach einer Unterstützung (Stripe-Webhook, Gutschein)', async () => {
+    const db = await s.db();
+    /** Törn aus einer abgelaufenen Saison mit Löschwarnung in der Glocke */
+    const warned = async () => {
+      const p = await s.person();
+      const share = await s.share(p, { title: 'Alte Saison' });
+      await db.prepare('UPDATE shares SET created_at = ? WHERE id = ?').bind(Date.now() - 400 * DAY, share.id).run();
+      await db
+        .prepare(`INSERT INTO notifications (id, user_id, kind, subject_kind, subject_id, created_at, updated_at) VALUES (?, ?, 'expiry', 'share', ?, ?, ?)`)
+        .bind(`ex${share.id}`.slice(0, 32), p.user.id, share.id, Date.now(), Date.now())
+        .run();
+      return p;
+    };
+    const unread = async (p: { cookie: string }) => ((await (await s.send('GET', '/api/notifications/count', p.cookie)).json()) as { unread: number }).unread;
+    const paid = await warned();
+    const other = await warned();
+    expect(await unread(paid)).toBe(1);
+    const payload = JSON.stringify({
+      id: `evt_${Date.now()}`,
+      type: 'checkout.session.completed',
+      data: { object: { id: `cs_test_${Date.now()}`, client_reference_id: paid.user.id, payment_status: 'paid', amount_total: 500, currency: 'eur', metadata: { app: 'sail-explorer' } } },
+    });
+    const hook = await h.fetch('/api/webhooks/stripe', {
+      method: 'POST', origin: null, body: payload,
+      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': await stripeSignature(WEBHOOK_SECRET, payload) },
+    });
+    expect(hook.status, await hook.clone().text()).toBe(200);
+    expect(await unread(paid)).toBe(0);
+    expect(await unread(other)).toBe(1); // andere Konten unberührt
+    // Gutschein der Moderation
+    await db.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)').bind(ADMIN_ID, 'admin-glocke@example.org', Date.now() - DAY).run();
+    const admin = await login(h, 'admin-glocke@example.org');
+    const grant = await s.send('POST', `/api/admin/users/${other.user.id}/support`, admin.cookie, { seasons: 1 });
+    expect(grant.status, await grant.clone().text()).toBe(200);
+    expect(await unread(other)).toBe(0);
+  });
 });
+
 
 // ---------------------------------------------------------------- F-257 Push
 
