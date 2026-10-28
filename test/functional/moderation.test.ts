@@ -205,7 +205,7 @@ describe('F-114 Admin: sichten und entscheiden', () => {
   it('[F-114] nur Admins: andere bekommen 404; die Liste fasst je Ziel zusammen – ohne Meldende', async () => {
     const r1 = await person();
     expect((await send('GET', '/api/admin/reports', r1.cookie)).status).toBe(404);
-    expect((await send('GET', '/api/admin/reports', undefined)).status).toBe(401);
+    expect((await send('GET', '/api/admin/reports', undefined)).status).toBe(404);
     expect((await send('GET', '/api/me/settings', admin.cookie)).ok).toBe(true);
     expect(((await (await send('GET', '/api/me/settings', admin.cookie)).json()) as { isAdmin: boolean }).isAdmin).toBe(true);
 

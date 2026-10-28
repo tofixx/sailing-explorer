@@ -47,6 +47,8 @@ export interface GroupRow {
   approve_by: Approvers;
   owner_id: string;
   hidden_at: number | null;
+  /** gesperrt (0023, Konzept 18.2): niemand hat dann eine Rolle */
+  locked_at?: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -69,10 +71,14 @@ export async function loadGroupBySlug(env: Env, raw: string): Promise<GroupRow |
   return slug ? env.DB.prepare(`${GROUP_SELECT} WHERE g.slug = ?`).bind(slug).first<GroupRow>() : null;
 }
 
-/** Rolle des Kontos in der Gruppe (auch bei unbekannter Gruppe null). */
+/** Rolle des Kontos in der Gruppe (auch bei unbekannter oder gesperrter Gruppe null, Konzept 18.2). */
 export async function roleIn(env: Env, userId: string | null | undefined, groupId: string): Promise<GroupRole | null> {
   if (!userId) return null;
-  const row = await env.DB.prepare('SELECT role FROM group_members WHERE group_id = ? AND user_id = ?').bind(groupId, userId).first<{ role: string }>();
+  const row = await env.DB.prepare(
+    'SELECT m.role FROM group_members m JOIN groups g ON g.id = m.group_id AND g.locked_at IS NULL WHERE m.group_id = ? AND m.user_id = ?',
+  )
+    .bind(groupId, userId)
+    .first<{ role: string }>();
   return row && isGroupRole(row.role) ? row.role : null;
 }
 
@@ -80,7 +86,8 @@ export async function roleIn(env: Env, userId: string | null | undefined, groupI
  * Darf der Betrachter die Gruppe sehen? Ausgeblendet: nur Eigner/Admins und Moderation. Sonst wie Abschnitt 1:
  * öffentlich alle, „Nur mit Link“ mit Schlüssel, geschlossen nur Mitglieder (Mitglieder sehen jede Stufe).
  */
-export function canViewGroup(g: Pick<GroupRow, 'visibility' | 'share_key' | 'hidden_at'>, role: GroupRole | null, key: string | null, admin = false): boolean {
+export function canViewGroup(g: Pick<GroupRow, 'visibility' | 'share_key' | 'hidden_at' | 'locked_at'>, role: GroupRole | null, key: string | null, admin = false): boolean {
+  if (g.locked_at) return admin;
   if (g.hidden_at && !canManageGroup(role) && !admin) return false;
   return canView({ visibility: g.visibility, shareKey: g.share_key, hiddenAt: null }, { manager: role !== null, key });
 }
@@ -343,7 +350,7 @@ export async function listMyGroups(request: Request, env: Env): Promise<Response
   const user = await requireUser(request, env);
   const { results } = await env.DB.prepare(
     `SELECT g.*, m.role AS my_role, (SELECT COUNT(*) FROM group_members x WHERE x.group_id = g.id) AS members
-     FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? ORDER BY g.name`,
+     FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? AND g.locked_at IS NULL ORDER BY g.name`,
   )
     .bind(user.id)
     .all<GroupRow & { my_role: GroupRole; members: number }>();

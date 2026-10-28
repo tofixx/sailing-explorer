@@ -4,7 +4,7 @@ import type { Env } from './env';
 import { currentUser, requireUser, type User } from './auth';
 import { randomId } from './crypto';
 import { HttpError, json, readJson } from './http';
-import { assertActive, isAdmin } from './moderation';
+import { LOCKED, adminLogStmt, assertActive, isAdmin, isLockedTarget } from './moderation';
 import { SHARE_SELECT, shareShape, type ShareRow } from './shares';
 import { followStats } from './follows';
 import { harborActivityCleanup } from './activity';
@@ -43,6 +43,12 @@ export async function loadHarborBySlug(env: Env, slug: unknown): Promise<HarborR
   return env.DB.prepare('SELECT * FROM harbors WHERE slug = ?').bind(slug).first<HarborRow>();
 }
 
+/** Hafen über eine alte Adresse (zusammengeführt, Konzept 18.7) – null, wenn es keine Weiterleitung gibt. */
+export async function loadHarborByRedirect(env: Env, slug: unknown): Promise<HarborRow | null> {
+  if (!isHarborSlug(slug)) return null;
+  return env.DB.prepare('SELECT h.* FROM harbor_redirects r JOIN harbors h ON h.id = r.harbor_id WHERE r.old_slug = ?').bind(slug).first<HarborRow>();
+}
+
 /** Sichtbar: nicht ausgeblendet – oder Moderation. */
 export const harborVisible = (h: HarborRow | null, admin = false): h is HarborRow => !!h && (!h.hidden_at || admin);
 
@@ -65,7 +71,9 @@ export async function harborForName(env: Env, user: Pick<User, 'id'>, rawName: u
   if (today >= HARBOR_LIMITS.perDay) throw new HttpError(429, 'harbor_quota', `Du hast heute schon ${HARBOR_LIMITS.perDay} Häfen angelegt – morgen geht es weiter.`);
   const base = harborSlugBase(name);
   let slug = base;
-  for (let i = 0; i < 5 && (await env.DB.prepare('SELECT 1 AS x FROM harbors WHERE slug = ?').bind(slug).first()); i++) {
+  // auch keine Adresse, die auf einen zusammengeführten Hafen weiterleitet (Konzept 18.7)
+  const taken = (s: string) => env.DB.prepare('SELECT 1 AS x FROM harbors WHERE slug = ?1 UNION ALL SELECT 1 FROM harbor_redirects WHERE old_slug = ?1').bind(s).first();
+  for (let i = 0; i < 5 && (await taken(slug)); i++) {
     slug = `${base.slice(0, 24)}-${randomId(5).toLowerCase()}`;
   }
   const h: HarborRow = { id: randomId(), slug, name, name_key: key, lat: null, lon: null, club_id: null, created_by: user.id, hidden_at: null, created_at: now, updated_at: now };
@@ -151,7 +159,7 @@ function harborShape(env: Env, h: HarborRow, viewerId: string | null) {
 
 /** GET /api/harbors/slug/:slug – Hafenseite (F-173). */
 export async function getHarbor(request: Request, env: Env, slug: string): Promise<Response> {
-  const h = await loadHarborBySlug(env, slug);
+  const h = (await loadHarborBySlug(env, slug)) ?? (await loadHarborByRedirect(env, slug));
   const user = await currentUser(request, env);
   if (!harborVisible(h, isAdmin(env, user?.id))) throw HARBOR_NOT_FOUND();
   const { results: boats } = await env.DB.prepare(
@@ -226,6 +234,9 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
   const input = await readJson<{ name?: unknown; lat?: unknown; lon?: unknown; clubId?: unknown }>(request);
   const editsBasics = input.name !== undefined || input.lat !== undefined || input.lon !== undefined;
   if (editsBasics && !canEditHarbor(env, h, user.id)) throw new HttpError(403, 'forbidden', 'Name und Position ändert, wer den Hafen angelegt hat.');
+  // Gesperrte Häfen (Konzept 18.2) ändert niemand – auch die Moderation erst nach dem Entsperren
+  if (await isLockedTarget(env, 'harbor', h.id)) throw LOCKED();
+  const before = h.name;
   if (input.name !== undefined) {
     const name = cleanText(input.name, HARBOR_LIMITS.nameMax);
     const key = harborKey(name);
@@ -262,6 +273,8 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
     // Anzeige-Kopie an den Booten nachführen
     env.DB.prepare('UPDATE boats SET home_port = ? WHERE harbor_id = ?').bind(h.name, h.id),
     env.DB.prepare('UPDATE groups SET home_port = ? WHERE harbor_id = ?').bind(h.name, h.id),
+    // Ändert die Moderation einen fremden Hafen, steht das im Admin-Protokoll (Konzept 18.10)
+    ...(admin && h.created_by !== user.id ? [adminLogStmt(env, user.id, 'harbor_edit', 'harbor', h.id, before === h.name ? '' : `${before} → ${h.name}`, h.updated_at)] : []),
   ]);
   return json({ harbor: harborShape(env, h, user.id) });
 }
@@ -274,6 +287,7 @@ export async function removeHarbor(env: Env, id: string): Promise<void> {
     env.DB.prepare(`UPDATE boats SET harbor_id = NULL, home_port = '' WHERE harbor_id = ?`).bind(id),
     env.DB.prepare(`UPDATE groups SET harbor_id = NULL, home_port = '' WHERE harbor_id = ?`).bind(id),
     env.DB.prepare('UPDATE users SET home_harbor_id = NULL WHERE home_harbor_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM harbor_redirects WHERE harbor_id = ?').bind(id),
     env.DB.prepare('DELETE FROM harbors WHERE id = ?').bind(id),
   ]);
 }

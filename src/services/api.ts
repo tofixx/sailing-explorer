@@ -16,6 +16,8 @@ export type { Visibility };
 export interface User {
   id: string;
   email: string;
+  /** Plattform-Admin (Konzept 18.1) – nur aus /api/auth/me */
+  admin?: boolean;
 }
 
 /** Sichtbarkeit samt Schlüssel und Teilen-Pfad – Schlüssel und Link nur für Eigentümer (bzw. Boots-Admins), sonst null. */
@@ -297,7 +299,7 @@ const keyInit = (key?: string | null): RequestInit => (key ? { headers: { 'X-Sha
 export const shareImageUrl = (id: string, key?: string | null): string =>
   `/api/shares/${encodeURIComponent(id)}/image${key ? `?k=${encodeURIComponent(key)}` : ''}`;
 
-async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, { credentials: 'same-origin', ...init });
@@ -313,7 +315,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body;
 }
 
-const jsonInit = (method: string, body: unknown): RequestInit => ({
+export const jsonInit = (method: string, body: unknown): RequestInit => ({
   method,
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
@@ -321,7 +323,7 @@ const jsonInit = (method: string, body: unknown): RequestInit => ({
 
 export const api = {
   config: () => call<AppConfig>('/api/config'),
-  me: () => call<{ user: User | null }>('/api/auth/me'),
+  me: () => call<{ user: User | null; admin?: boolean }>('/api/auth/me'),
   support: () => call<SupportStatus>('/api/me/support'),
   /** Stripe-Checkout für eine der Stufen (Betrag in Cent) anlegen; liefert die URL der Bezahlseite. */
   supportCheckout: (amount: number) => call<{ url: string }>('/api/support/checkout', jsonInit('POST', { amount })),

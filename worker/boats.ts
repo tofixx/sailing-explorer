@@ -33,6 +33,8 @@ interface BoatRow {
   share_key: string | null;
   /** per Meldung oder Admin ausgeblendet (0009) */
   hidden_at?: number | null;
+  /** gesperrt (0023, Konzept 18.2) */
+  locked_at?: number | null;
   created_at: number;
   updated_at: number;
   /** aus JOIN/Aggregaten */
@@ -53,11 +55,11 @@ export async function canManageBoat(env: Env, userId: string, boatId: string): P
   return (await roleFor(env, userId, boatId)) !== null;
 }
 
-/** Rolle des Kontos am Boot: Eigner, Admin oder keine (auch bei unbekanntem Boot). */
+/** Rolle des Kontos am Boot: Eigner, Admin oder keine (auch bei unbekanntem oder gesperrtem Boot, Konzept 18.2). */
 export async function roleFor(env: Env, userId: string, boatId: string): Promise<Role> {
   const row = await env.DB.prepare(
     `SELECT CASE WHEN b.owner_id = ?1 THEN 'owner' WHEN a.user_id IS NOT NULL THEN 'admin' END AS role
-     FROM boats b LEFT JOIN boat_admins a ON a.boat_id = b.id AND a.user_id = ?1 WHERE b.id = ?2`,
+     FROM boats b LEFT JOIN boat_admins a ON a.boat_id = b.id AND a.user_id = ?1 WHERE b.id = ?2 AND b.locked_at IS NULL`,
   )
     .bind(userId, boatId)
     .first<{ role: Role }>();
@@ -171,7 +173,7 @@ function setHarbor(b: BoatRow, harbor: HarborRow | null | undefined): void {
 export async function listMyBoats(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const { results } = await env.DB.prepare(
-    `${BOAT_SELECT} WHERE b.owner_id = ?1 OR b.id IN (SELECT boat_id FROM boat_admins WHERE user_id = ?1) ORDER BY b.name`,
+    `${BOAT_SELECT} WHERE (b.owner_id = ?1 OR b.id IN (SELECT boat_id FROM boat_admins WHERE user_id = ?1)) AND b.locked_at IS NULL ORDER BY b.name`,
   )
     .bind(user.id)
     .all<BoatRow>();
@@ -212,7 +214,7 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
   const b = BOAT_ID_RE.test(id) ? await env.DB.prepare(`${BOAT_SELECT} WHERE b.id = ?`).bind(id).first<BoatRow>() : null;
   const user = await currentUser(request, env);
   const role = b && user ? await roleFor(env, user.id, id) : null;
-  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key ?? null, hiddenAt: b.hidden_at ?? null }, { manager: !!role, key, admin: isAdmin(env, user?.id) })) {
+  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key ?? null, hiddenAt: b.hidden_at ?? null, lockedAt: b.locked_at ?? null }, { manager: !!role, key, admin: isAdmin(env, user?.id) })) {
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }

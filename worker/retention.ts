@@ -6,13 +6,15 @@ import { expiryWarningMail, seasonReminderMail, sendMail } from './mail';
 import { EXPIRES_SQL } from './shares';
 import { recomputeStorage, storageTotal, subtractShareStmt } from './storage';
 import { sendCommentDigests } from './comments';
-import { deleteOrphanReports, deleteShareReports } from './moderation';
+import { deleteOrphanReports, deleteShareReports, ownsLockedSql } from './moderation';
+import { expireLocks, orphanLocksStmt } from './locks';
 import { deleteKeys, photoKeysForShares, shareFileKeys } from './photo-keys';
 import { deleteShareActivity, nightlyActivityCleanup } from './activity';
 import { deleteShareReactions } from './reaction-cleanup';
 import { sendGroupDigests } from './group-digest';
 import { sweepOrphanCovers } from './covers';
 import { GRACE_MS, INACTIVE_ACCOUNT_MS, SEASON_MAIL_MONTH, WARN_MS, seasonEnd } from '../src/domain/support';
+import { LOG_ACTION_MS, LOG_VIEW_MS } from '../src/domain/admin';
 
 /** Offene Meldungen werden nach so langer Zeit ohne Entscheidung anonymisiert. */
 const OPEN_REPORT_MS = 180 * 86_400_000;
@@ -48,6 +50,8 @@ export interface RetentionResult {
   digests: number;
   /** verschickte wöchentliche Sammelmails aus Vereinen und Teams (Konzept 11.7) */
   groupDigests: number;
+  /** nach Ablauf der Sperrfrist endgültig gelöschte Objekte (Konzept 18.4) */
+  lockExpired: number;
 }
 
 function chunks<T>(list: T[], size = CHUNK): T[][] {
@@ -56,9 +60,12 @@ function chunks<T>(list: T[], size = CHUNK): T[][] {
   return out;
 }
 
-/** Löscht Törns, deren Aufbewahrung abgelaufen ist (Datei, Vorschaubild, Fotos, Datensatz; Foto-Zeilen per CASCADE). */
+/**
+ * Löscht Törns, deren Aufbewahrung abgelaufen ist (Datei, Vorschaubild, Fotos, Datensatz; Foto-Zeilen per CASCADE).
+ * Gesperrte bleiben zur Beweissicherung (Konzept 18.3).
+ */
 async function deleteExpired(env: Env, now: number): Promise<number> {
-  const { results } = await env.DB.prepare(`SELECT s.id FROM shares s WHERE ${EXPIRES_SQL} <= ? LIMIT ?`)
+  const { results } = await env.DB.prepare(`SELECT s.id FROM shares s WHERE ${EXPIRES_SQL} <= ? AND s.locked_at IS NULL LIMIT ?`)
     .bind(now, MAX_DELETE)
     .all<{ id: string }>();
   for (const part of chunks(results)) {
@@ -77,7 +84,7 @@ async function warnExpiring(env: Env, origin: string, now: number): Promise<numb
   const { results } = await env.DB.prepare(
     `SELECT s.id, s.title, s.user_id, u.email, ${EXPIRES_SQL} AS expires_at
      FROM shares s JOIN users u ON u.id = s.user_id
-     WHERE ${EXPIRES_SQL} <= ?
+     WHERE ${EXPIRES_SQL} <= ? AND s.locked_at IS NULL
        -- Eine Warnung vor dem aktuellen Warnfenster ist veraltet (Ablauf wurde durch Unterstützung verschoben).
        AND (s.expiry_warned_at IS NULL OR s.expiry_warned_at < ${EXPIRES_SQL} - ?)
      ORDER BY s.user_id`,
@@ -137,7 +144,10 @@ async function remindSeason(env: Env, origin: string, now: number): Promise<numb
   return sent;
 }
 
-/** Konten ohne Törns, die seit 12 Monaten nicht angemeldet waren (und keinen laufenden Unterstützer-Status haben). */
+/**
+ * Konten ohne Törns, die seit 12 Monaten nicht angemeldet waren (und keinen laufenden Unterstützer-Status haben).
+ * Gesperrte Konten und Konten mit Gesperrtem bleiben (Konzept 18.3).
+ */
 async function purgeInactive(env: Env, now: number): Promise<number> {
   const cutoff = now - INACTIVE_ACCOUNT_MS;
   const { results } = await env.DB.prepare(
@@ -145,6 +155,7 @@ async function purgeInactive(env: Env, now: number): Promise<number> {
      WHERE COALESCE(u.last_login, u.created_at) < ?
        AND NOT EXISTS (SELECT 1 FROM shares WHERE user_id = u.id)
        AND NOT EXISTS (SELECT 1 FROM supports WHERE user_id = u.id AND valid_until > ?)
+       AND u.locked_at IS NULL AND NOT ${ownsLockedSql('u.id')}
      ORDER BY COALESCE(u.last_login, u.created_at), u.id LIMIT ?`,
   )
     .bind(cutoff, now, MAX_PURGE_USERS)
@@ -172,6 +183,8 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
       return fallback;
     });
   const deleted = await step('expired', deleteExpired(env, now), 0);
+  // Sperrfrist abgelaufen (Konzept 18.4): endgültig löschen über den Löschpfad des Objekts
+  const lockExpired = await step('locks', expireLocks(env, now), 0);
   const warned = await step('warn', warnExpiring(env, origin, now), 0);
   const seasonMails = await remindSeason(env, origin, now).catch((err) => {
     console.error('season reminders failed', err);
@@ -194,13 +207,25 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     env.DB.prepare('DELETE FROM comment_log WHERE created_at < ?').bind(now - COMMENT_LOG_MS),
     env.DB.prepare('DELETE FROM reports WHERE resolved_at IS NOT NULL AND resolved_at < ?').bind(now - RESOLVED_REPORTS_MS),
     deleteOrphanReports(env),
+    // Admin-Bereich (Konzept 18.4, 18.10): Sperren ohne Ziel, Protokoll nach Frist (außer zu noch Gesperrtem)
+    orphanLocksStmt(env),
+    env.DB.prepare(
+      `DELETE FROM admin_log WHERE created_at < CASE WHEN action IN ('list', 'view') THEN ?1 ELSE ?2 END
+         AND NOT EXISTS (SELECT 1 FROM locks l WHERE l.target_kind = admin_log.target_kind AND l.target_id = admin_log.target_id)`,
+    ).bind(now - LOG_VIEW_MS, now - LOG_ACTION_MS),
     // Neuigkeiten (Konzept 11.9): alte Aktivitäten, verwaiste Ziele und Folgen, alte Anfragen
     ...nightlyActivityCleanup(env, now),
   ]), []);
   // Datenschutz-Fristen als eigener Batch (scheitert einer, läuft der andere trotzdem)
   await step('privacy', env.DB.batch([
     // Offene Meldungen nach 180 Tagen ohne Entscheidung: ohne Meldende und Anmerkung (Datenschutz, Abschnitt 9)
-    env.DB.prepare(`UPDATE reports SET reporter_id = NULL, note = '' WHERE resolved_at IS NULL AND created_at < ? AND (reporter_id IS NOT NULL OR note <> '')`).bind(now - OPEN_REPORT_MS),
+    // – außer das Ziel ist gesperrt: dann bleibt die Meldung als Beleg, bis die Sperre endet (Konzept 18.3)
+    env.DB.prepare(
+      `UPDATE reports SET reporter_id = NULL, note = '' WHERE resolved_at IS NULL AND created_at < ? AND (reporter_id IS NOT NULL OR note <> '')
+         AND NOT EXISTS (SELECT 1 FROM locks l WHERE l.target_kind = CASE reports.target_kind WHEN 'profile' THEN 'user' ELSE reports.target_kind END AND l.target_id = reports.target_id)`,
+    ).bind(now - OPEN_REPORT_MS),
+    // Gutscheine der Admins (Konzept 18.9a): keine Zahlung, keine Aufbewahrungspflicht – 2 Jahre nach Ablauf gelöscht
+    env.DB.prepare(`DELETE FROM supports WHERE provider = 'admin' AND valid_until < ?`).bind(now - LOG_ACTION_MS),
     // Zahlungen: 10 Jahre nach Ablauf der Unterstützung (steuerliche Aufbewahrung), dann gelöscht
     env.DB.prepare('DELETE FROM supports WHERE valid_until < ? AND created_at < ?').bind(now - SUPPORT_RECORD_MS, now - SUPPORT_RECORD_MS),
   ]), []);
@@ -217,5 +242,5 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   // fehlende Zeile wieder an (bis dahin gelten Uploads als pausiert).
   const counted = await step('count', storageTotal(env), null);
   const storageBytes = await recomputeStorage(env);
-  return { deleted, warned, seasonMails, purged, digests, groupDigests, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted, failed };
+  return { deleted, warned, seasonMails, purged, digests, groupDigests, lockExpired, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted, failed };
 }

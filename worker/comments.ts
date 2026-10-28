@@ -5,7 +5,7 @@ import { currentUser, requireUser } from './auth';
 import { sha256Hex, randomId } from './crypto';
 import { HttpError, json, readJson } from './http';
 import { commentDigestMail, sendMail } from './mail';
-import { isAdmin, isSuspended, SUSPENDED } from './moderation';
+import { adminLogStmt, isAdmin, isSuspended, SUSPENDED } from './moderation';
 import { visibleShare } from './shares';
 import { COMMENT_ID_RE, parseNotifyMode } from './validate';
 import { COMMENT_MAX, COMMENT_MAX_LINKS, cleanComment, commentProblem, type CommentsMode } from '../src/domain/comment-text';
@@ -87,7 +87,9 @@ export async function listComments(request: Request, env: Env, id: string): Prom
   const mode = (row.comments_mode ?? 'on') as CommentsMode;
   const show = mode !== 'hidden' || isOwner || admin;
   const { results } = show
-    ? await env.DB.prepare(`${COMMENT_SELECT} WHERE c.share_id = ?1 AND (c.hidden_at IS NULL OR c.user_id = ?2 OR ?3) ORDER BY c.created_at, c.id LIMIT ?4`)
+    ? await env.DB.prepare(`${COMMENT_SELECT} WHERE c.share_id = ?1 AND (c.hidden_at IS NULL OR c.user_id = ?2 OR ?3)
+         AND (?3 OR NOT EXISTS (SELECT 1 FROM users lu WHERE lu.id = c.user_id AND lu.locked_at IS NOT NULL))
+       ORDER BY c.created_at, c.id LIMIT ?4`)
         .bind(row.id, user?.id ?? '', admin ? 1 : 0, COMMENT_LIMITS.perShare)
         .all<CommentRow>()
     : { results: [] as CommentRow[] };
@@ -166,12 +168,16 @@ export async function createComment(request: Request, env: Env, id: string): Pro
 export async function deleteComment(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   const row = COMMENT_ID_RE.test(id)
-    ? await env.DB.prepare('SELECT c.id, c.user_id, s.user_id AS owner FROM comments c JOIN shares s ON s.id = c.share_id WHERE c.id = ?')
+    ? await env.DB.prepare('SELECT c.id, c.user_id, s.user_id AS owner, s.locked_at FROM comments c JOIN shares s ON s.id = c.share_id WHERE c.id = ?')
         .bind(id)
-        .first<{ id: string; user_id: string; owner: string }>()
+        .first<{ id: string; user_id: string; owner: string; locked_at: number | null }>()
     : null;
-  if (!row || !(row.user_id === user.id || row.owner === user.id || isAdmin(env, user.id))) throw NOT_FOUND();
+  const admin = isAdmin(env, user.id);
+  // Gesperrter Törn (Konzept 18.2): Kommentare bleiben als Beleg – löschen nur Admins
+  if (!row || (row.locked_at && !admin) || !(row.user_id === user.id || row.owner === user.id || admin)) throw NOT_FOUND();
   await removeComment(env, id);
+  // Fremde Kommentare löscht nur die Moderation – ins Admin-Protokoll (Konzept 18.10)
+  if (row.user_id !== user.id && row.owner !== user.id) await adminLogStmt(env, user.id, 'delete_comment', 'share', null, `Kommentar ${id}`).run();
   return new Response(null, { status: 204 });
 }
 

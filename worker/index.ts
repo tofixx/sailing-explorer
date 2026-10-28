@@ -25,7 +25,11 @@ import { canViewGroup, loadGroupBySlug } from './groups';
 import { groupFeed } from './feed';
 import { GROUP_KIND_LABEL } from '../src/domain/groups';
 // ---- Häfen (Konzept 12.2) ----
-import { harborVisible, loadHarborBySlug } from './harbors';
+import { harborVisible, loadHarborByRedirect, loadHarborBySlug } from './harbors';
+// ---- Admin-Bereich (Konzept 18) ----
+import { adminRoutes } from './admin-routes';
+import { currentUser } from './auth';
+import { isAdmin } from './moderation';
 
 const WEBHOOK_PATH = '/api/webhooks/stripe';
 
@@ -104,6 +108,8 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/covers\/([ubg])\/([A-Za-z0-9-]+)$/, (r, env, [k, id]) => deleteCover(r, env, k, id)],
   // ---- Vereine, Teams, Folgen, Neuigkeiten (Konzept 11): worker/group-routes.ts ----
   ...groupRoutes,
+  // ---- Admin-Bereich (Konzept 18): worker/admin-routes.ts ----
+  ...adminRoutes,
 ];
 
 async function handleApi(request: Request, env: Env, path: string): Promise<Response> {
@@ -243,6 +249,11 @@ export default {
         /^\/(u|g)\/([a-z0-9-]{3,30})(?:\/([^/]+))?\/?$/i.exec(url.pathname) ??
         /^\/(h)\/([a-z0-9-]{1,100})\/?$/.exec(url.pathname) ??
         /^\/(entdecken)()\/?$/.exec(url.pathname);
+      // Alte Adresse eines zusammengeführten Hafens (Konzept 18.7): dauerhaft auf die neue
+      if (page?.[1] === 'h' && !(await loadHarborBySlug(env, page[2]))) {
+        const target = await loadHarborByRedirect(env, page[2]);
+        if (harborVisible(target)) return Response.redirect(new URL(`/h/${target.slug}`, url).toString(), 301);
+      }
       if (page && (request.method === 'GET' || request.method === 'HEAD')) {
         const key = page[3] === undefined ? undefined : isShareKey(page[3]) ? page[3] : null;
         return await metaPage(request, env, page[1], page[1] === 'u' || page[1] === 'g' ? page[2].toLowerCase() : page[2], key);
@@ -250,6 +261,10 @@ export default {
       // Übrige Seiten (Startseite, /impressum, /datenschutz, SPA-Routen) aus den Assets – HTML mit den Seiten-Headern,
       // weil _headers für Antworten über den Worker nicht greift.
       const asset = await env.ASSETS.fetch(request);
+      // Admin-Seite (Konzept 18.1): für alle außer Admins 404 – die App zeigt dann nichts Verwertbares.
+      if (/^\/admin\/?$/.test(url.pathname) && !isAdmin(env, (await currentUser(request, env))?.id)) {
+        return withPageHeaders(new Response(asset.body, { status: 404, headers: asset.headers }));
+      }
       return (asset.headers.get('Content-Type') ?? '').startsWith('text/html') ? withPageHeaders(new Response(asset.body, asset)) : asset;
     } catch (err) {
       return url.pathname.startsWith('/api/') ? noindex(errorResponse(err)) : errorResponse(err);

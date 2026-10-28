@@ -117,7 +117,9 @@ export class SessionController {
 
   private async refreshUser() {
     try {
-      this.store.set({ user: (await api.me()).user });
+      const { user, admin } = await api.me();
+      // Admin nur aus /api/auth/me – blendet „Admin“ in der Kopfzeile ein (Konzept 18.1)
+      this.store.set({ user: user && admin ? { ...user, admin } : user });
     } catch {
       /* offline */
     }
@@ -299,6 +301,8 @@ export class SessionController {
    */
   private loggedIn(user: User, viaMail = true) {
     this.store.set({ user });
+    // Admin-Kennzeichen kommt nur aus /api/auth/me (Konzept 18.1)
+    void this.refreshUser();
     this.channel?.postMessage('login');
     this.ui.toast(`Angemeldet als ${user.email}`);
     // Vorgeladenes gehört evtl. zu einem anderen Konto (abgemeldet, anderes angemeldet)

@@ -56,6 +56,7 @@ import type { FollowKind, GroupInput } from './services/api';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
 import type { SxLegalPage } from './components/sx-legal-page';
+import type { SxAdminPage } from './components/sx-admin-page';
 import type { ReactDetail, SxReactions } from './components/sx-reactions';
 import type { HarborChoice, SxHarborPicker } from './components/sx-harbor-picker';
 import type { HarborPatch, StreamFilter } from './services/api';
@@ -215,6 +216,8 @@ export class App {
         case 'harbor':
         case 'legal':
           return await this.openPage(route);
+        case 'admin':
+          return await this.openAdmin();
         case 'login':
           history.replaceState(null, '', '/');
           await this.restoreWorkspace();
@@ -883,6 +886,20 @@ export class App {
     }
   }
 
+  /**
+   * Admin-Bereich (Konzept 18): Seite und Controller erst hier nachgeladen – andere laden keinen Admin-Code. Für
+   * Nicht-Admins antwortet die API mit 404 und die Seite zeigt nur das.
+   */
+  private async openAdmin() {
+    this.ui.app.setAttribute('data-page', '');
+    const { AdminController } = await import('./controllers/admin');
+    const page = document.querySelector<SxAdminPage>('sx-admin-page');
+    if (!page) return;
+    page.hidden = false;
+    document.title = 'Admin · Sail Explorer';
+    new AdminController(page).start();
+  }
+
   /** Zurück von Profil-/Boots-/Entdecken-Seite zur Kartenansicht. */
   private leavePage() {
     if (!this.ui.app.hasAttribute('data-page')) return;
@@ -891,6 +908,8 @@ export class App {
     this.ui.discoverPage.hidden = true;
     this.ui.groupPage.hidden = true;
     this.ui.legalPage.hidden = true;
+    const admin = document.querySelector<HTMLElement>('sx-admin-page');
+    if (admin) admin.hidden = true;
     document.title = 'Sail Explorer';
   }
 

@@ -17,6 +17,7 @@ export type Route =
   | { kind: 'harbor'; slug: string }
   /** Impressum und Datenschutz (Konzept 12.7) – ohne Backend */
   | { kind: 'legal'; page: 'impressum' | 'datenschutz' }
+  | { kind: 'admin' }
   | { kind: 'login'; token: string | null }
   | { kind: 'invite'; token: string | null }
   | { kind: 'files'; names: string[] }
@@ -56,6 +57,8 @@ export function parseRoute(loc: Pick<Location, 'pathname' | 'search' | 'hash'>):
   if (harbor) return { kind: 'harbor', slug: harbor[1].toLowerCase() };
   const legal = /^\/(impressum|datenschutz)\/?$/.exec(loc.pathname);
   if (legal) return { kind: 'legal', page: legal[1] as 'impressum' | 'datenschutz' };
+  // Admin-Bereich (Konzept 18): der Server liefert Nicht-Admins 404, die API ebenso
+  if (/^\/admin\/?$/.test(loc.pathname)) return { kind: 'admin' };
   if (loc.pathname === '/login') {
     const token = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(loc.hash)?.[1] ?? null;
     return { kind: 'login', token };
