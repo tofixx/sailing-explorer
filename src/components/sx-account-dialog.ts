@@ -614,6 +614,8 @@ export class SxAccountDialog extends LitElement {
     const form = e.target as HTMLFormElement;
     const clubId = String(new FormData(form).get('clubId') || '') || null;
     const picker = form.querySelector('sx-harbor-picker') as SxHarborPicker | null;
+    const problem = picker?.problem() ?? null;
+    if (problem) return void (this.error = problem);
     emit(this, 'sx-home-save', { clubId, harbor: picker?.choice ?? { harborId: null } });
   }
 
@@ -651,13 +653,16 @@ export class SxAccountDialog extends LitElement {
     const d = new FormData(e.target as HTMLFormElement);
     const len = String(d.get('lengthM') || '').replace(',', '.');
     // Hafen (Konzept 12.2): vorhandener per ID, neuer per Name (der Server erkennt Dubletten), sonst keiner
-    const harbor = ((e.target as HTMLFormElement).querySelector('sx-harbor-picker') as SxHarborPicker | null)?.choice ?? { harborId: null };
+    const boatPicker = (e.target as HTMLFormElement).querySelector('sx-harbor-picker') as SxHarborPicker | null;
+    const boatProblem = boatPicker?.problem() ?? null;
+    if (boatProblem) return void (this.error = boatProblem);
+    const harbor = boatPicker?.choice ?? { harborId: null };
     const input: BoatInput = {
       name: String(d.get('name') || ''),
       boatType: String(d.get('boatType') || ''),
       lengthM: len ? Number(len) : null,
       sailNumber: String(d.get('sailNumber') || ''),
-      ...('name' in harbor ? { homePort: harbor.name } : { harborId: harbor.harborId }),
+      ...('name' in harbor ? { homePort: harbor.name, homePortPos: harbor.pos } : { harborId: harbor.harborId }),
       description: String(d.get('description') || ''),
       ownerLabel: String(d.get('ownerLabel') || ''),
       visibility: this.boatVis,

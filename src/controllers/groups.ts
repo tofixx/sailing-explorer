@@ -1,6 +1,6 @@
 import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamFilter, type StreamPage } from '../services/api';
 import { locate, nearCenter, readNearPrefs, writeNearPrefs, type NearPrefs } from '../services/near-prefs';
-import type { NearRadius, StreamMode } from '../domain/near';
+import { roundCoord, type NearRadius, type StreamMode } from '../domain/near';
 import type { NearInfo } from '../components/sx-home-feed';
 import type { Store } from '../services/store';
 import type { SxGroupPage } from '../components/sx-group-page';
@@ -344,7 +344,7 @@ export class GroupsController {
           try {
             const page = await socialApi.nearStream(null, center.center, prefs.radius);
             stream = page;
-            near = { state: 'ok', source, places: page.near?.places ?? 0, center: page.near?.center?.name ?? null };
+            near = { state: 'ok', source, places: page.near?.places ?? 0, center: page.near?.center?.name ?? (source === 'geo' ? center.label : null) };
           } catch (e) {
             // Heimathafen ohne Position: Hinweis; sonst (Netz, Server) still „Alles“ statt einer leeren Startseite
             near = e instanceof ApiError && e.status === 422 ? { state: 'no_position', source, places: 0, center: personal?.home?.harbor?.name ?? null } : null;
@@ -411,10 +411,15 @@ export class GroupsController {
   async useLocation(): Promise<void> {
     try {
       const geo = await locate();
-      await this.savePrefs({ geo, mode: 'near' });
+      await this.savePrefs({ geo, geoFrom: 'device', mode: 'near' });
     } catch (e) {
       this.ui.toast(`${errorText(e)} Alternativ: Heimathafen im Konto wählen.`, 6000);
     }
+  }
+
+  /** Ort auf der Karte gewählt (F-355, z. B. auf Reisen) – gerundet wie der Standort. */
+  usePlace(p: { lat: number; lon: number }): Promise<void> {
+    return this.savePrefs({ geo: { lat: roundCoord(p.lat), lon: roundCoord(p.lon) }, geoFrom: 'map', mode: 'near' });
   }
 
   /** Standort vergessen – danach gilt wieder der Heimathafen (falls gewählt). */

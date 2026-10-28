@@ -14,7 +14,7 @@ export interface MyRequest {
 
 /**
  * „Meine Gruppen“ im Konto (F-348): Vereine und Teams mit Rolle, Glocke (stumm, F-346) und Austreten bzw. Hinweis zum
- * Übergeben für Eigner (F-347); offene Beitrittsanfragen mit „Zurückziehen“. Rein präsentational; meldet
+ * Übergeben für Eigentümer (F-347); offene Beitrittsanfragen mit „Zurückziehen“. Rein präsentational; meldet
  * \`sx-group-mute\` { id, muted }, \`sx-group-leave\` { id }, \`sx-group-withdraw\` { id }.
  */
 export class SxMyGroups extends LitElement {

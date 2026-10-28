@@ -20,9 +20,10 @@ const postIds = (o: Page) => o.items.filter((i) => i.post).map((i) => i.post!.id
 
 /** Hafen mit Position – weit weg von allen anderen Tests (Golf von Guinea), damit nur eigene Daten im Umkreis liegen. */
 async function harborAt(p: Person, name: string, lat: number | null, lon: number | null) {
-  const res = await s.send('POST', '/api/harbors', p.cookie, { name: `${name} ${s.uniq('h')}` });
+  const res = await s.send('POST', '/api/harbors', p.cookie, { name: `${name} ${s.uniq('h')}`, lat: lat ?? -45, lon: lon ?? -170 });
   const { harbor } = (await res.json()) as { harbor: { id: string; slug: string; name: string } };
-  if (lat !== null) expect((await s.send('PATCH', `/api/harbors/${harbor.id}`, p.cookie, { lat, lon })).status).toBe(200);
+  // ohne Position: nach dem Anlegen wieder leeren (Altbestand ohne Lage)
+  if (lat === null) expect((await s.send('PATCH', `/api/harbors/${harbor.id}`, p.cookie, { lat: null, lon: null })).status).toBe(200);
   return harbor;
 }
 const near = async (query: string) => {
@@ -121,5 +122,52 @@ describe('F-344 Entdecken in der Nähe', () => {
     expect(all.near).toBe(false);
     const noPos = await harborAt(owner, 'Ohnepos', null, null);
     expect(((await (await h.fetch(`/api/discover?limit=24&harbor=${noPos.slug}`)).json()) as { near: boolean }).near).toBe(false);
+  });
+});
+
+describe('F-351 Ort der Vereinsseite', () => {
+  it('[F-351] Gruppenseite nennt den Ort ihres Heimathafens (mit Position), sonst null', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const withPos = await harborAt(owner, 'Ortshafen', 6.0, 6.0);
+    const noPos = await harborAt(owner, 'Ortlos', null, null);
+    const a = await s.group(owner, { name: 'Ortsverein', harborId: withPos.id });
+    const b = await s.group(owner, { name: 'Ortlosverein', harborId: noPos.id });
+    const page = async (g: { id: string }) => (await (await h.fetch(`/api/groups/${g.id}`)).json()) as { place: { lat: number; lon: number } | null };
+    expect((await page(a)).place).toEqual({ lat: 6, lon: 6 });
+    expect((await page(b)).place).toBeNull();
+  });
+});
+
+describe('F-353/F-354 Ort beim Anlegen', () => {
+  it('[F-353] neuer Hafen nur mit Lage; vorhandener Name ohne Lage findet den Hafen; Boot/Gruppe mit homePortPos ebenso', async () => {
+    const p = await s.person({ profile: 'public', supporter: true });
+    const name = `Lagehafen ${s.uniq('l')}`;
+    expect(await s.errorOf(await s.send('POST', '/api/harbors', p.cookie, { name }))).toBe('position_required');
+    expect(await s.errorOf(await s.send('POST', '/api/harbors', p.cookie, { name, lat: 95, lon: 1 }))).toBe('invalid_position');
+    const created = await s.send('POST', '/api/harbors', p.cookie, { name, lat: 7.12345, lon: 7.54321 });
+    expect(created.status).toBe(201);
+    const slug = ((await created.json()) as { harbor: { slug: string } }).harbor.slug;
+    const page = (await (await h.fetch(`/api/harbors/slug/${slug}`)).json()) as { harbor: { lat: number; lon: number } };
+    expect(page.harbor).toMatchObject({ lat: 7.12345, lon: 7.54321 });
+    expect((await s.send('POST', '/api/harbors', p.cookie, { name })).status).toBe(200); // vorhanden: keine Lage nötig
+    // Boot aus der Oberfläche: neuer Hafen ohne Lage → 400, mit Lage ok
+    const boatNoPos = await s.send('POST', '/api/boats', p.cookie, { name: 'Lageboot', visibility: 'public', homePort: `Bootshafen ${s.uniq('b')}`, homePortPos: null });
+    expect(await s.errorOf(boatNoPos)).toBe('position_required');
+    const boatPos = await s.send('POST', '/api/boats', p.cookie, { name: 'Lageboot', visibility: 'public', homePort: `Bootshafen ${s.uniq('b')}`, homePortPos: { lat: 7.2, lon: 7.2 } });
+    expect(boatPos.status).toBeLessThan(300);
+  });
+
+  it('[F-354] ein Verein braucht einen Heimathafen, ein Team nicht', async () => {
+    const p = await s.person({ profile: 'public', supporter: true });
+    const res = await s.send('POST', '/api/groups', p.cookie, { kind: 'club', name: 'Ohne Hafen', slug: s.uniq('oh') });
+    expect(await s.errorOf(res)).toBe('harbor_required');
+    const club = await s.group(p, { name: 'Mit Hafen' });
+    const team = await s.send('POST', '/api/groups', p.cookie, { kind: 'team', name: 'Team ohne Hafen', slug: s.uniq('th'), parentId: club.id });
+    expect(team.status).toBe(201);
+  });
+
+  it('[F-355] Standort darf die eigene Seite abfragen (Permissions-Policy geolocation=(self))', async () => {
+    const res = await h.fetch('/');
+    expect(res.headers.get('Permissions-Policy')).toContain('geolocation=(self)');
   });
 });

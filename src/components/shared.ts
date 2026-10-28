@@ -78,8 +78,12 @@ export const base = css`
     cursor: not-allowed;
   }
 
+  /* alle Eingabefelder im selben Raster – auch Suche (Entdecken, Auswahllisten), Adressen und Zahlen */
   input[type='text'],
   input[type='email'],
+  input[type='search'],
+  input[type='url'],
+  input[type='number'],
   select {
     width: 100%;
     min-height: max(38px, var(--control-h));
@@ -148,6 +152,30 @@ export const base = css`
     font-size: var(--fs-s);
     color: var(--text-3);
     margin-top: var(--s-1);
+  }
+`;
+
+/**
+ * Seite über der Karte (F-351, Hafen- und Vereinsseite mit Ort): Hintergrund durchsichtig, der Inhalt als Tafel mit
+ * Abstand oben, damit der Ort auf der Karte darüber sichtbar bleibt. Gesetzt über das Attribut `on-map`.
+ */
+export const onMapStyles = css`
+  :host([on-map]) {
+    background: transparent;
+  }
+  :host([on-map]) .page {
+    margin-top: min(34vh, 300px);
+    margin-bottom: var(--s-6);
+    background: var(--overlay);
+    backdrop-filter: blur(10px) saturate(1.2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    box-shadow: var(--shadow-2);
+  }
+  @media (max-width: 760px) {
+    :host([on-map]) .page {
+      margin: min(30vh, 220px) var(--s-2) var(--s-4);
+    }
   }
 `;
 

@@ -259,7 +259,7 @@ describe('Häfen in der Oberfläche (F-171 … F-174)', () => {
     await new Promise((r) => setTimeout(r, 300));
     expect((search[0] as { query: string; el: unknown }).query).toBe('Pots');
     expect((search[0] as { el: unknown }).el).toBe(el);
-    expect(el.choice).toEqual({ name: 'Pots' });
+    expect(el.choice).toEqual({ name: 'Pots', pos: null }); // neuer Hafen braucht noch seine Lage (F-353)
     el.results = [{ id: 'H1', slug: 'potsdam', name: 'Potsdam', boats: 4 }];
     await el.updateComplete;
     expect(input.getAttribute('aria-expanded')).toBe('true');

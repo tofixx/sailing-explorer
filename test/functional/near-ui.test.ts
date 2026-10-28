@@ -81,7 +81,7 @@ describe('F-343 Startseite: Modus, Umkreis, Standort', () => {
     expect(text(el)).toContain('um deinen Standort · 12 Orte');
     button(el, /^50 km$/)!.click();
     expect(radius).toEqual([{ radius: 50 }]);
-    button(el, /Standort vergessen/)!.click();
+    button(el, /zurück zum Heimathafen/)!.click();
     expect(forget).toHaveLength(1);
     const harbor = await mount({ signedIn: true, mode: 'near', shown: 'near', radius: 25, near: { state: 'ok', source: 'harbor', places: 2, center: 'Potsdam' } });
     expect(text(harbor)).toContain('um Potsdam');
@@ -101,11 +101,11 @@ describe('F-343 Startseite: Modus, Umkreis, Standort', () => {
   });
 
   it('[F-342] Wahl nur auf diesem Gerät: Modus, Umkreis und grober Standort in localStorage, Standard Umgebung 25 km', () => {
-    expect(readNearPrefs()).toEqual({ mode: 'near', radius: 25, geo: null, joins: true });
-    writeNearPrefs({ mode: 'all', radius: 50, geo: { lat: 52.4, lon: 13 }, joins: false });
-    expect(readNearPrefs()).toEqual({ mode: 'all', radius: 50, geo: { lat: 52.4, lon: 13 }, joins: false });
+    expect(readNearPrefs()).toEqual({ mode: 'near', radius: 25, geo: null, geoFrom: 'device', joins: true });
+    writeNearPrefs({ mode: 'all', radius: 50, geo: { lat: 52.4, lon: 13 }, geoFrom: 'device', joins: false });
+    expect(readNearPrefs()).toEqual({ mode: 'all', radius: 50, geo: { lat: 52.4, lon: 13 }, geoFrom: 'device', joins: false });
     localStorage.setItem('sx-near', JSON.stringify({ mode: 'x', radius: 7, geo: { lat: 52.4567, lon: 13.0123 } }));
-    expect(readNearPrefs()).toEqual({ mode: 'near', radius: 25, geo: { lat: 52.5, lon: 13 }, joins: true });
+    expect(readNearPrefs()).toEqual({ mode: 'near', radius: 25, geo: { lat: 52.5, lon: 13 }, geoFrom: 'device', joins: true });
   });
 });
 
@@ -170,5 +170,36 @@ describe('F-349/F-350 Beitrittsmeldungen', () => {
   it('[F-350] ganz weggefilterte Seite: „Mehr laden“ bleibt', async () => {
     const el = await mount({ items: [], cursor: 'c2' }, 'sx-stream');
     expect(button(el, /Mehr laden/)).toBeDefined();
+  });
+});
+
+describe('F-352 Vereine und Teams im Hafen', () => {
+  it('[F-352] Hafenseite: kein „Verein“ im Kopf; Vereine und Teams des Hafens als Liste, ein früher zugeordneter Verein mit dabei', async () => {
+    const harbor = { id: 'H1', slug: 'potsdam', name: 'Potsdam', lat: 52.4, lon: 13, canEdit: false, createdAt: 0 };
+    const el = await mount({
+      data: {
+        kind: 'harbor', harbor, club: { slug: 'pyc', name: 'PYC', kind: 'club' }, clubChoices: [], canClearClub: false, boats: [], voyages: [],
+        groups: [{ slug: 'jugend', name: 'Jugend', kind: 'team' }],
+        stats: { boats: 0, voyages: 0, distNm: 0, seasonNm: 0 }, social: { followers: 0, isFollowing: false },
+      },
+    }, 'sx-profile-page');
+    expect(el.shadowRoot.querySelector('.facts')?.textContent).not.toContain('PYC');
+    expect(text(el)).toContain('Vereine und Teams im Hafen');
+    expect(el.shadowRoot.querySelector('a.card[href="/g/pyc"]')).not.toBeNull();
+    expect(el.shadowRoot.querySelector('a.card[href="/g/jugend"]')).not.toBeNull();
+  });
+});
+
+describe('F-355 Ort für die Umgebung auf der Karte wählen', () => {
+  it('[F-355] „Ort auf der Karte wählen“ öffnet die Karte; ein gewählter Punkt meldet sx-near-place', async () => {
+    const place = listen('sx-near-place');
+    const el = await mount({ signedIn: false, mode: 'near', shown: 'all', near: { state: 'missing', source: null, places: 0, center: null } });
+    expect(el.shadowRoot.querySelector('sx-place-picker')).toBeNull();
+    button(el, /Ort auf der Karte wählen/)!.click();
+    await el.updateComplete;
+    const picker = el.shadowRoot.querySelector('sx-place-picker') as unknown as { pick: (lat: number, lon: number) => void };
+    expect(picker).not.toBeNull();
+    picker.pick(48.123456, 11.654321);
+    expect(place).toEqual([{ lat: 48.12346, lon: 11.65432 }]);
   });
 });

@@ -12,7 +12,7 @@ export const GROUP_KIND_LABEL: Record<GroupKind, string> = { club: 'Verein', tea
 
 export const GROUP_ROLES = ['owner', 'admin', 'member'] as const;
 export type GroupRole = (typeof GROUP_ROLES)[number];
-export const GROUP_ROLE_LABEL: Record<GroupRole, string> = { owner: 'Eigner', admin: 'Admin', member: 'Mitglied' };
+export const GROUP_ROLE_LABEL: Record<GroupRole, string> = { owner: 'Eigentümer', admin: 'Admin', member: 'Mitglied' };
 
 /** Beitritt: per Einladung oder Anfrage (Standard) bzw. nur per Einladung. */
 /** Beitritt in drei Stufen (Konzept 14.1): offen (sofort Mitglied), auf Anfrage (Admins bestätigen), nur auf Einladung. */
@@ -64,8 +64,8 @@ export const APPROVERS = ['members', 'admins', 'owner'] as const;
 export type Approvers = (typeof APPROVERS)[number];
 export const APPROVERS_LABEL: Record<Approvers, string> = {
   members: 'Alle Mitglieder',
-  admins: 'Eigner und Admins',
-  owner: 'Nur der Eigner',
+  admins: 'Eigentümer und Admins',
+  owner: 'Nur der Eigentümer',
 };
 export const isApprovers = (v: unknown): v is Approvers => typeof v === 'string' && (APPROVERS as readonly string[]).includes(v);
 
