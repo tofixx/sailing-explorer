@@ -78,8 +78,12 @@ export const base = css`
     cursor: not-allowed;
   }
 
+  /* alle Eingabefelder im selben Raster – auch Suche (Entdecken, Auswahllisten), Adressen und Zahlen */
   input[type='text'],
   input[type='email'],
+  input[type='search'],
+  input[type='url'],
+  input[type='number'],
   select {
     width: 100%;
     min-height: max(38px, var(--control-h));
