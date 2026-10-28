@@ -1968,3 +1968,161 @@ Umsetzung: `migrations/0022_crew_roles.sql`, `src/domain/crew-roles.ts`, `worker
 Noch offen (eigene Schritte): Stammcrew-Schalter, Titel, Boot-Beiträge und „Törns zuordnen“ (F-270 … F-274, brauchen
 `boat_admins.role` aus ROLLEN.md Schritt 1); Meilennachweis-Export und „In mein Fahrtenbuch übernehmen“ (F-277, F-278,
 mit dem Fahrtenbuch); Ausnahme M1 (Eckdaten nicht öffentlicher Törns im eigenen Nachweis) kommt mit dem Export.
+
+## 20. Verifizierte Vertretung von Vereinen und Häfen
+
+*Entwurf 28.10.2026, Branch `feature/verifizierung`, Migration `0026_verification.sql`, Anforderungen F-360 … F-372.
+Noch nicht gebaut – erst nach Entscheidung der Fragen in 20.9.*
+
+Anlass (Betreiber): *„Eigentümerschaft von Vereinen oder Häfen müssen wir nebst Anlage noch eine Verifiziert
+einbauen, die dem Anleger wieder sein Recht nehmen kann, wenn ein echter Besitzer auftaucht.“*
+
+Heute gehört ein Verein dem Konto, das ihn anlegt (`groups.owner_id`, 11.1, 14.1), ein Hafen dem Konto, das ihn
+anlegt (`harbors.created_by`, 12.2; mit dem Fahrtenbuch auch dem, das bei Altbestand zuerst die Position setzt, L3).
+Wer zuerst kommt, verwaltet – auch ohne Bezug zum Verein oder Hafen. Die Moderation kann den Eigner schon heute neu
+zuweisen (18.6), aber es gibt keinen Weg, das zu **beantragen**, kein sichtbares Zeichen „echt“ und keinen Schutz
+davor, dass die verdrängte Person die Verwaltung über die Nachfolge-Regeln zurückbekommt.
+
+### 20.1 Begriffe und Umfang
+
+| Begriff | Bedeutung |
+|---|---|
+| **Vertretung** | das Konto, das für den echten Verein bzw. Hafen spricht (Vorstand, Hafenmeister:in, Betreiber:in) |
+| **Antrag** | „Ich vertrete diesen Verein / Hafen“ – geprüft von den Plattform-Admins (`ADMIN_USER_IDS`) |
+| **verifiziert** | ein Admin hat die Vertretung bestätigt; Abzeichen am Verein bzw. Hafen |
+| **verdrängt** | wer beim Annehmen eines Antrags Eigner bzw. Anleger:in war und es danach nicht mehr ist |
+
+Nur **Vereine** (`groups.kind = 'club'`) und **Häfen**. Teams sind private Zusammenschlüsse ohne öffentliche
+Identität – dort gibt es nichts zu verifizieren (20.9 Frage 4). Boote und Profile ebenso nicht.
+
+### 20.2 Antrag
+
+Auf der Vereins- und der Hafenseite steht für angemeldete, aktive Konten (nicht suspendiert, nicht gesperrt)
+„Ich vertrete diesen Verein“ bzw. „… diesen Hafen“ – auch für den heutigen Eigner (dann wird ohne Übertragung nur
+verifiziert). Der Dialog fragt:
+
+| Feld | Pflicht | Grenze | Zweck |
+|---|---|---|---|
+| Funktion | ja | 3–80 Zeichen | „1. Vorsitzende“, „Hafenmeister“ |
+| Begründung | ja | 20–1000 Zeichen | warum, was stimmt heute nicht |
+| Kontakt für Rückfragen | ja | 5–200 Zeichen | Telefon oder Mail-Adresse **des Vereins/Hafens** |
+| Beleg-Link | nein | `https://`-Adresse, ≤ 300 Zeichen | Impressum der Vereinsseite, Vereinsregister, Hafen-Website |
+
+**Keine Uploads.** Ausweis- oder Vollmachtskopien wären besonders schutzbedürftig, bräuchten R2-Speicher, Fristen
+und Zugriffsschutz – und beweisen wenig. Stattdessen prüft die Moderation über einen **unabhängigen öffentlichen
+Kanal**: Sie ruft die Nummer bzw. schreibt die Adresse aus dem Impressum oder dem Vereinsregister an (nicht die im
+Antrag genannte) und fragt nach. Der Dialog sagt das so und bittet, keine Ausweiskopien zu schicken. Eine Bestätigung
+per Mail bleibt im Postfach der Moderation – nicht in Sail Explorer.
+
+Antragstellende sehen den Stand auf der Seite („Antrag in Prüfung seit …“, „abgelehnt am … – Begründung“) und können
+einen offenen Antrag zurückziehen (dann wird er gelöscht).
+
+### 20.3 Prüfung durch die Moderation
+
+Der Admin-Bereich (18) bekommt einen Reiter **„Anträge“**: offene zuerst, älteste oben; je Antrag Objekt (Link),
+heutiger Eigner bzw. Anleger:in (Kontoalter, Verifizierungsstand), Antragsteller:in (Kontoalter, Profil-Link),
+Funktion, Begründung, Kontakt, Beleg-Link, Alter, weitere offene Anträge zum selben Objekt. Neue Anträge erscheinen
+den Admins in der **Glocke** (Art `claim`, nicht abschaltbar, gebündelt je Objekt).
+
+Entscheidung (`POST /api/admin/claims/:id { decision, note, previous }`):
+
+| Entscheidung | Wirkung |
+|---|---|
+| **annehmen** | in **einem** D1-Batch: `verified_at = jetzt`; Antragsteller:in wird Eigner (Verein: wie 18.6, wird Mitglied falls nötig) bzw. Anleger:in (Hafen); weitere offene Anträge zum Objekt werden abgelehnt („ein anderer Antrag wurde angenommen“); Protokoll `claim_accept` |
+| ↳ bisherige Person (`previous`) | Verein: **`admin`** (bleibt Admin, Standard) · **`member`** (nur noch Mitglied) · **`remove`** (verlässt die Gruppe). Hafen: verliert das Bearbeitungsrecht immer (Häfen haben keine Admins). War sie selbst die Antragsteller:in, entfällt das |
+| **ablehnen** | Begründung Pflicht (10–500 Zeichen), geht an die Antragsteller:in; Protokoll `claim_reject` |
+
+### 20.4 Abzeichen „verifiziert“
+
+`groups.verified_at`, `harbors.verified_at` (Zeitpunkt, sonst NULL). Ein Haken-Abzeichen „Verifiziert“ mit Hinweis
+„Von Sail Explorer bestätigt: wird vom Verein selbst verwaltet“ (bzw. „vom Hafen“) erscheint im Kopf der Vereins- und
+der Hafenseite, auf `/entdecken`-Karten und im Hafen-Picker. Die API liefert nur `verified: boolean` – wer
+vertritt, Funktion und Kontakt bleiben intern.
+
+### 20.5 Rechte nach der Verifizierung, Sperre gegen Rückübernahme
+
+Die Verwaltung eines verifizierten Objekts wechselt nur noch über die Moderation:
+
+| Weg | Regel |
+|---|---|
+| Nachfolge beim Konto-Löschen (13.4) | Die Gruppe geht wie bisher an den dienstältesten Admin bzw. das dienstälteste Mitglied – **nie an eine verdrängte Person** (sie wird übersprungen); die Verifizierung endet (20.6) |
+| Hafen ohne Anleger:in (Fahrtenbuch L3: wer zuerst die Position setzt, wird Anleger:in) | gilt **nicht** für verifizierte oder je verifizierte Häfen und nie für Verdrängte – dort setzt nur die Moderation eine neue Anleger:in |
+| Eigner neu zuweisen durch Admins (18.6) | bleibt möglich; ohne Antrag endet dabei die Verifizierung (Dialog warnt) |
+| Häfen zusammenführen (18.7) | verifizierte Quelle in nicht verifiziertes Ziel → 409 `verified` (andersherum zusammenführen) |
+| neuer Antrag einer verdrängten Person auf dasselbe Objekt | 409 `claim_blocked` – aufheben kann das nur die Moderation (Verifizierung entziehen, 20.6) |
+| Verein des Hafens (`harbors.club_id`, 12.2) | bei verifiziertem Hafen setzen und lösen nur Hafen-Vertretung und Moderation (20.9 Frage 6) |
+| Gruppe löschen, solange ein Antrag offen ist | 409 `claim_pending` mit neutralem Hinweis „gerade nicht möglich – bitte an die Moderation wenden“ (niemand löscht den Verein vor der Entscheidung, 20.9 Frage 2) |
+
+Die Verdrängung steht im angenommenen Antrag (`claims.previous_user_id`) – keine eigene Sperrliste.
+
+### 20.6 Verifizierung endet
+
+- **Admin entzieht** (`DELETE /api/admin/:art/:id/verification { reason }`), z. B. Vorstandswechsel oder Täuschung:
+  Abzeichen weg, Rechte bleiben beim heutigen Eigner, die angenommenen Anträge (und damit die Sperre gegen
+  Verdrängte) werden gelöscht. Protokoll `unverify`.
+- **Vertretung löscht ihr Konto** bzw. wird als inaktiv entfernt: Nachfolge wie 20.5, Abzeichen weg; die Sperre gegen
+  Verdrängte bleibt.
+- **Eigner-Wechsel durch Admin ohne Antrag** (18.6): Abzeichen weg.
+- Ein neuer Vorstand stellt einen neuen Antrag; angenommen ersetzt er die bisherige Vertretung (`previous` wie 20.3).
+
+### 20.7 Missbrauchsgrenzen (`CLAIM_LIMITS`, `src/domain/claims.ts`)
+
+| Grenze | Wert |
+|---|---|
+| offene Anträge je Konto und Objekt | 1 (409 `claim_open`) |
+| offene Anträge je Konto | 3 (429) |
+| Anträge je Konto in 30 Tagen (auch zurückgezogene, abgelehnte) | 5 (429) |
+| erneut auf dasselbe Objekt nach Ablehnung | frühestens nach 30 Tagen (429) |
+| offene Anträge je Objekt | 10 (429) |
+| Kontoalter | keine Grenze (ein Vorstand registriert sich oft erst dafür) – die Moderation sieht das Alter |
+| gesperrte, ausgeblendete, nicht sichtbare Objekte | 404 wie „gibt es nicht“ |
+| suspendierte oder gesperrte Konten | 403 wie überall |
+
+### 20.8 Datenmodell, Benachrichtigungen, Löschkonzept
+
+`0026_verification.sql`: `groups.verified_at`, `harbors.verified_at`; `claims (id, target_kind ∈ group|harbor,
+target_id, user_id, role_text, reason, contact, evidence_url, status ∈ open|accepted|rejected, decided_by, decided_at,
+decision_note, previous_user_id, previous_action, created_at)` mit Indizes `(target_kind, target_id, status)` und
+`(user_id, created_at)`; Arten ohne SQL-`CHECK` (Architektur 7), geprüft in `src/domain/claims.ts`.
+
+Benachrichtigungen (Glocke, Mail wo genannt; alles **Hinweise des Betreibers**, nicht abschaltbar):
+
+| Art | An | Wann | Mail |
+|---|---|---|---|
+| `claim` | Admins | neuer Antrag | nein |
+| `claim_result` | Antragsteller:in | angenommen, abgelehnt, abgelaufen | ja, mit Begründung bei Ablehnung |
+| `claim_transfer` | verdrängte Person | Antrag angenommen | ja: was übertragen wurde, neue Rolle, Widerspruch per Antwort bzw. an `REPORT_CONTACT` (wie F-296) |
+
+Löschkonzept (Prüfpunkt 6) – keine R2-Dateien, kein Speicherzähler:
+
+| Anlass | Was |
+|---|---|
+| Antrag zurückgezogen | Zeile gelöscht |
+| abgelehnt | Funktion, Begründung, Kontakt, Beleg **sofort** geleert; Gerüst bleibt **30 Tage** (Wartefrist), dann gelöscht |
+| angenommen | Funktion, Begründung, Kontakt, Beleg nach **30 Tagen** geleert (Widerspruchsfrist); das Gerüst (wer, wann, wer verdrängt) bleibt, solange das Objekt besteht – es trägt die Sperre aus 20.5 |
+| offen, älter als 180 Tage | nächtlich gelöscht, Antragsteller:in bekommt `claim_result` „ohne Entscheidung abgelaufen“ |
+| Objekt gelöscht (`removeGroup`, `removeHarbor`) | alle Anträge zum Objekt |
+| Konto gelöscht (`purgeUser`, auch inaktiv) | eigene Anträge; als Verdrängte:r wird die ID geleert (ohne Konto wirkungslos; 20.9 Frage 5) |
+| Konten verbinden (18.8) | `user_id` und `previous_user_id` gehen ans Ziel |
+| Verifizierung entzogen | angenommene Anträge zum Objekt gelöscht |
+| Benachrichtigungen | wie 17.5; ohne Gegenstand nächtlich weg |
+| Admin-Protokoll | `claim_accept`, `claim_reject`, `unverify` – Ziel und kurze Begründung, **keine Kontaktdaten**, 2 Jahre (18.10) |
+
+Datenschutzerklärung (`src/content/legal.ts`): Zweck, Daten, Fristen wie oben.
+
+Module: `src/domain/claims.ts` (Arten, Grenzen, Feldprüfung – rein), `worker/claims.ts` (Antrag, Zurückziehen,
+Admin-Liste, Entscheidung, Entziehen, Aufräumen), Abzeichen in `shared.ts`, Dialog `sx-claim-dialog`, Reiter
+„Anträge“ in `sx-admin-page`.
+
+### 20.9 Fragen an den Betreiber
+
+1. **Bisherige Person beim Verein:** Standard „bleibt Admin“ – oder „nur Mitglied“? (Die Moderation wählt je Fall
+   Admin / Mitglied / entfernen.)
+2. **Heutige Eigner:in beim Einreichen informieren?** Vorschlag **nein** – sonst könnte sie den Verein vor der
+   Entscheidung löschen; stattdessen ist Löschen während eines offenen Antrags gesperrt. Sie erfährt es bei der
+   Annahme (mit Widerspruch).
+3. **Nachweis:** nur Kontakt + optionaler Link, keine Uploads, Prüfung über Impressum/Vereinsregister – einverstanden?
+4. **Teams** ausgeschlossen – einverstanden?
+5. **Verdrängte nach Kontolöschung:** ID leeren (Vorschlag) oder behalten?
+6. **Verein des verifizierten Hafens:** nur Hafen-Vertretung und Moderation ordnen zu – einverstanden?
+7. **Abzeichen-Text:** „Verifiziert“ – oder „Offiziell“ / „Bestätigt“?
