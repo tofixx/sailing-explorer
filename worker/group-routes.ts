@@ -2,7 +2,7 @@
 import type { Env } from './env';
 import {
   addGroupBoat, createGroup, decideRequest, deleteGroup, getGroup, listMyGroups, removeGroupBoat, removeMember, requestJoin,
-  setMemberRole, updateGroup, withdrawRequest,
+  setMemberRole, transferGroup, muteGroup, updateGroup, withdrawRequest,
 } from './groups';
 import { inviteGroup } from './invites';
 import { createPost, deletePost } from './posts';
@@ -27,6 +27,8 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['PATCH', new RegExp(`^/api/groups/${ID}$`), (r, env, [id]) => updateGroup(r, env, id)],
   ['DELETE', new RegExp(`^/api/groups/${ID}$`), (r, env, [id]) => deleteGroup(r, env, id)],
   ['PATCH', new RegExp(`^/api/groups/${ID}/members/${WHO}$`), (r, env, [id, who]) => setMemberRole(r, env, id, who)],
+  ['POST', new RegExp(`^/api/groups/${ID}/owner$`), (r, env, [id]) => transferGroup(r, env, id)],
+  ['PUT', new RegExp(`^/api/groups/${ID}/mute$`), (r, env, [id]) => muteGroup(r, env, id)],
   ['DELETE', new RegExp(`^/api/groups/${ID}/members/${WHO}$`), (r, env, [id, who]) => removeMember(r, env, id, who)],
   ['POST', new RegExp(`^/api/groups/${ID}/invites$`), (r, env, [id]) => inviteGroup(r, env, id)],
   ['POST', new RegExp(`^/api/groups/${ID}/requests$`), (r, env, [id]) => requestJoin(r, env, id)],

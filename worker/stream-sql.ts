@@ -9,7 +9,8 @@ export const STREAM_TARGETS_MAX = 1600;
  * UNION-Gliedern ab – hier hat keine Abfrage mehr als zwei).
  */
 export const TARGET_SQL = {
-  groups: `SELECT 'group' AS k, group_id AS id FROM group_members WHERE user_id = ?1`,
+  // stumm geschaltete Mitgliedschaften (F-346) liefern keine Neuigkeiten
+  groups: `SELECT 'group' AS k, group_id AS id FROM group_members WHERE user_id = ?1 AND muted_at IS NULL`,
   boats: `SELECT 'boat' AS k, id FROM boats WHERE owner_id = ?1 UNION SELECT 'boat', boat_id FROM boat_admins WHERE user_id = ?1`,
   follows: `SELECT target_kind AS k, target_id AS id FROM follows WHERE user_id = ?1 LIMIT 1000`,
   clubTeams: `SELECT 'group' AS k, g.id FROM users u

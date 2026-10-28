@@ -27,7 +27,7 @@ const COUNTS_SQL = `SELECT g.id AS group_id, g.slug, g.name, a.kind,
   LEFT JOIN users au ON au.id = a.actor_id
   LEFT JOIN shares s ON a.subject_kind = 'share' AND s.id = a.subject_id
   LEFT JOIN posts p ON a.subject_kind = 'post' AND p.id = a.subject_id
-  WHERE m.user_id = ?1 AND a.kind IN ('voyage', 'photos', 'post', 'member')
+  WHERE m.user_id = ?1 AND m.muted_at IS NULL AND a.kind IN ('voyage', 'photos', 'post', 'member')
     AND (a.actor_id IS NULL OR au.suspended_at IS NULL)
     AND (a.kind NOT IN ('voyage', 'photos') OR (s.visibility = 'public' AND s.hidden_at IS NULL))
     AND (a.kind <> 'post' OR (p.id IS NOT NULL AND p.hidden_at IS NULL))

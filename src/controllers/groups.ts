@@ -20,6 +20,8 @@ export interface GroupsUi {
   onPersonalStream?: (at: number | undefined) => void;
   /** wartet, bis Backend und Anmeldung bekannt sind */
   ready?: () => Promise<void>;
+  /** Mitgliedschaften geändert (Austreten, stumm, übergeben) – z. B. „Meine Gruppen“ im Konto neu laden */
+  onMembership?: () => void;
 }
 
 /**
@@ -162,11 +164,31 @@ export class GroupsController {
   }
 
   withdraw(id: string) {
-    return this.act(() => groupApi.withdraw(id), 'Anfrage zurückgezogen');
+    return this.membership(() => groupApi.withdraw(id), 'Anfrage zurückgezogen');
   }
 
   leave(id: string) {
-    return this.act(() => groupApi.removeMember(id, 'me'), 'Du bist ausgetreten.');
+    return this.membership(() => groupApi.removeMember(id, 'me'), 'Du bist ausgetreten.');
+  }
+
+  /** Neuigkeiten der Gruppe stumm bzw. wieder anzeigen (F-346). */
+  mute(d: { id: string; muted: boolean }) {
+    return this.membership(() => groupApi.mute(d.id, d.muted), d.muted ? 'Stumm – Neuigkeiten dieser Gruppe erscheinen nicht mehr in deinem Stream.' : 'Neuigkeiten dieser Gruppe erscheinen wieder.');
+  }
+
+  /** Eigner übergibt an einen Admin (F-347). */
+  transfer(d: { id: string; userId: string }) {
+    return this.membership(() => groupApi.transfer(d.id, d.userId), 'Übergeben – du bist jetzt Admin und kannst austreten.');
+  }
+
+  /** Mitgliedschaft geändert: Seite (falls offen) und Startseite neu, „Meine Gruppen“ benachrichtigen. */
+  private async membership(fn: () => Promise<unknown>, done: string) {
+    const ok = await this.act(fn, done);
+    if (ok) {
+      this.homeLoaded = false;
+      this.ui.onMembership?.();
+    }
+    return ok;
   }
 
   decide(d: { id: string; userId: string; approve: boolean }) {

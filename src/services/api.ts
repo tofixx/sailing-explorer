@@ -741,7 +741,7 @@ export interface GroupPageData {
   others: number;
   boats: GroupBoat[];
   social: FollowStats;
-  membership: { role: GroupRole | null; requested: boolean; canRequest: boolean; canJoin?: boolean; canInvite?: boolean; canApprove?: boolean };
+  membership: { role: GroupRole | null; requested: boolean; canRequest: boolean; canJoin?: boolean; canInvite?: boolean; canApprove?: boolean; muted?: boolean };
   /** Titelbild samt Ausschnitt und Galerie (Konzept 13) – fehlen bei älteren Servern */
   cover?: string | null;
   coverY?: number;
@@ -752,6 +752,8 @@ export interface GroupPageData {
 
 export interface MyGroup extends GroupInfo {
   members: number;
+  /** Neuigkeiten stumm geschaltet (F-346) */
+  muted?: boolean;
 }
 
 export interface StreamPage {
@@ -826,7 +828,11 @@ export type FollowKind = 'user' | 'boat' | 'group' | 'harbor';
 const gid = (id: string) => encodeURIComponent(id);
 
 export const groupApi = {
-  mine: () => call<{ groups: MyGroup[]; requests: Array<GroupRef & { createdAt: number }> }>('/api/groups'),
+  mine: () => call<{ groups: MyGroup[]; requests: Array<GroupRef & { id?: string; createdAt: number }> }>('/api/groups'),
+  /** Eigner übergibt an einen Admin (F-347) */
+  transfer: (id: string, userId: string) => call<{ owner: string }>(`/api/groups/${gid(id)}/owner`, jsonInit('POST', { userId })),
+  /** eigene Mitgliedschaft stumm bzw. laut (F-346) */
+  mute: (id: string, muted: boolean) => call<{ muted: boolean }>(`/api/groups/${gid(id)}/mute`, jsonInit('PUT', { muted })),
   create: (g: GroupInput) => call<{ group: GroupInfo }>('/api/groups', jsonInit('POST', g)),
   bySlug: (slug: string, key?: string | null) => call<GroupPageData>(`/api/groups/slug/${encodeURIComponent(slug)}`, keyInit(key)),
   get: (id: string, key?: string | null) => call<GroupPageData>(`/api/groups/${gid(id)}`, keyInit(key)),

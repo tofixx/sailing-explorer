@@ -478,12 +478,21 @@ export class SxGroupPage extends LitElement {
     </div>`;
   }
 
+  /** Mitglieder: Glocke statt „Folgen“ – durchgestrichen = Neuigkeiten stumm (F-346). */
+  private muteButton(id: string, muted: boolean) {
+    const label = muted ? 'Neuigkeiten wieder anzeigen' : 'Neuigkeiten stumm schalten';
+    return html`<button class="btn ghost icon" type="button" aria-pressed=${muted ? 'true' : 'false'} title=${muted ? 'Stumm – Neuigkeiten erscheinen nicht in deinem Stream und der Wochenmail' : 'Neuigkeiten erscheinen in deinem Stream – zum Stummschalten tippen'} aria-label=${label}
+      ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-mute', { id, muted: !muted })}>${icon(muted ? 'bell-off' : 'bell')}</button>`;
+  }
+
   private joinActions(d: GroupPageData) {
     const g = d.group;
     const m = d.membership;
     // Gäste: erst anmelden; bei „Nur auf Einladung“ nur der Hinweis wie für Angemeldete (F-333)
     if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : html`<span class="faint">Beitritt nur auf Einladung</span>`;
-    if (m.role) return m.role === 'owner' ? '' : html`<button class="btn ghost" @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id })}>${icon('logout')} Austreten</button>`;
+    if (m.role) return html`${this.muteButton(g.id, !!m.muted)}${m.role === 'owner'
+        ? html`<span class="faint" title="Übergib die Gruppe in der Mitgliederliste an einen Admin – danach kannst du austreten.">Eigner</span>`
+        : html`<button class="btn ghost" @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id })}>${icon('logout')} Austreten</button>`}`;
     if (m.requested) return html`<span class="faint">Anfrage gestellt</span><button class="btn ghost" @click=${() => emit(this, 'sx-group-withdraw', { id: g.id })}>Anfrage zurückziehen</button>`;
     if (m.canJoin) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitreten</button>`;
     if (m.canRequest) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitritt anfragen</button>`;
@@ -511,7 +520,10 @@ export class SxGroupPage extends LitElement {
       </div>
       <div class="actions">
         ${this.joinActions(d)}
-        ${v === 'public' ? html`<sx-follow kind="group" target-id=${g.id} label=${g.name} .stats=${d.social} ?signed-in=${this.signedIn}></sx-follow>` : ''}
+        ${v === 'public' && !d.membership.role
+          ? html`<sx-follow kind="group" target-id=${g.id} label=${g.name} .stats=${d.social} ?signed-in=${this.signedIn}
+              title="Folgen: Neuigkeiten der Gruppe in deinem Stream, ohne Mitglied zu sein"></sx-follow>`
+          : ''}
         ${v !== 'private' || manager ? html`<button class="btn" @click=${() => emit(this, 'sx-page-share', { path: v === 'unlisted' && !manager ? location.pathname : path, title: g.name })}>${icon('share')} Teilen</button>` : ''}
         ${manager
           ? html`<button class="btn" @click=${() => this.startEdit(g)}>${icon('pencil')} Bearbeiten</button>`
@@ -605,6 +617,9 @@ export class SxGroupPage extends LitElement {
             ${m.role !== 'member' ? html`<span class="role">${GROUP_ROLE_LABEL[m.role]}</span>` : ''}
             ${owner && m.id && m.role !== 'owner'
               ? html`<button class="btn small ghost" @click=${() => emit(this, 'sx-group-role', { id: g.id, userId: m.id, role: m.role === 'admin' ? 'member' : 'admin' })}>${m.role === 'admin' ? 'Admin absetzen' : 'Zum Admin'}</button>`
+              : ''}
+            ${owner && m.id && m.role === 'admin'
+              ? html`<button class="btn small ghost" @click=${() => confirm(`„${g.name}“ an ${m.displayName} übergeben? Du bleibst Admin und kannst danach austreten.`) && emit(this, 'sx-group-transfer', { id: g.id, userId: m.id })}>Übergeben</button>`
               : ''}
             ${m.id && !m.isSelf && m.role !== 'owner' && (owner || m.role === 'member') && canManageGroup(g.role)
               ? html`<button class="btn small ghost danger" aria-label="${m.displayName} entfernen" @click=${() => confirm(`${m.displayName} aus der Gruppe entfernen?`) && emit(this, 'sx-group-remove', { id: g.id, userId: m.id })}>${icon('x')}</button>`

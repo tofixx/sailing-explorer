@@ -211,6 +211,7 @@ export class App {
         this.ui.empty.community = visible;
         this.ui.join.hidden = !visible;
       },
+      onMembership: () => void this.session.refreshMyGroups(),
       onPersonalStream: (at) => {
         this.pendingSeen = { at };
         this.markSeen();
@@ -699,6 +700,8 @@ export class App {
     });
     on<{ id: string }>('sx-group-withdraw', (d) => g.withdraw(d.id));
     on<{ id: string }>('sx-group-leave', (d) => g.leave(d.id));
+    on<{ id: string; muted: boolean }>('sx-group-mute', (d) => g.mute(d));
+    on<{ id: string; userId: string }>('sx-group-transfer', (d) => g.transfer(d));
     on<{ id: string; userId: string; approve: boolean }>('sx-group-request', (d) => g.decide(d));
     on<{ id: string; userId: string; role: 'admin' | 'member' }>('sx-group-role', (d) => g.setRole(d));
     on<{ id: string; userId: string }>('sx-group-remove', (d) => g.removeMember(d));

@@ -1319,6 +1319,15 @@ Zellen-Spalten**: Häfen haben schon `lat/lon`, Vereine und Teams ihren Ort übe
 - **Gelesen:** Das Community-Badge zählt den persönlichen Stream; als gelesen gilt er nur, wenn „Mitgliedschaften“
   angezeigt wird.
 
+### 12.12 Mitglied, Folgen, Stumm, Austreten (Entscheidung 28.10.2026)
+
+Betreiber: Mitglieder brauchen kein „Folgen“ – stattdessen eine Glocke zum Stummschalten und „Verlassen“. Umgesetzt
+(F-346 … F-348): **Mitglied** = Teil der Gruppe (Mitgliederliste, geschlossene Inhalte, Boote zuordnen, Beiträge je
+Rolle), bekommt die Neuigkeiten im Stream; **stumm** (`group_members.muted_at`) nimmt die Gruppe aus Stream und
+Wochenmail, die Mitgliedschaft bleibt. **Folgen** ist nur für Nicht-Mitglieder (Neuigkeiten öffentlicher Gruppen ohne
+Mitgliedschaft). **Austreten** auf der Gruppenseite und im Konto unter „Gruppen“; der Eigner übergibt vorher an einen
+Admin. Die Spalte verschwindet mit der Mitgliedschaft (Austreten, Entfernen, Gruppe oder Konto löschen).
+
 ### 12.10 Kopfzeile: Bereiche und Community-Badge
 
 Anlass (Betreiber, Oktober 2026): Der Wechsel Törn ↔ Community über das Logo war zu implizit, „Entdecken“ kaum zu

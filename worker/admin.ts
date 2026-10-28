@@ -1,6 +1,7 @@
 // Admin-Bereich (Konzept 18, F-230 … F-242): Übersicht über alle Objekte, Details, Sperren, Umbenennen, Eigner neu
 // zuweisen, endgültig löschen, Protokoll. Jede Route prüft requireAdmin (404 für alle anderen); jede Aktion und jeder
 // Einblick landet im Admin-Protokoll. Zusammenführen steht in worker/admin-merge.ts.
+import { transferGroupStmts } from './groups';
 import type { Env } from './env';
 import { HttpError, json, readJson } from './http';
 import { LOCKED, adminLogStmt, isAdmin, ownsLockedSql, requireAdmin } from './moderation';
@@ -365,16 +366,7 @@ export async function adminOwner(request: Request, env: Env, rawKind: string, id
       log,
     ]);
   } else if (kind === 'groups') {
-    await env.DB.batch([
-      env.DB.prepare(`UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?`).bind(id, before),
-      env.DB.prepare(
-        `INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?1, ?2, 'owner', ?3)
-         ON CONFLICT(group_id, user_id) DO UPDATE SET role = 'owner'`,
-      ).bind(id, to, now),
-      env.DB.prepare('DELETE FROM group_requests WHERE group_id = ? AND user_id = ?').bind(id, to),
-      env.DB.prepare('UPDATE groups SET owner_id = ?, updated_at = ? WHERE id = ?').bind(to, now, id),
-      log,
-    ]);
+    await env.DB.batch([...transferGroupStmts(env, id, before, to, now), log]);
   } else {
     await env.DB.batch([env.DB.prepare('UPDATE harbors SET created_by = ?, updated_at = ? WHERE id = ?').bind(to, now, id), log]);
   }

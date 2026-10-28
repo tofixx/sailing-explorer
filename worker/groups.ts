@@ -351,19 +351,19 @@ export async function purgeUserGroups(env: Env, userId: string): Promise<D1Prepa
 export async function listMyGroups(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const { results } = await env.DB.prepare(
-    `SELECT g.*, m.role AS my_role, (SELECT COUNT(*) FROM group_members x WHERE x.group_id = g.id) AS members
+    `SELECT g.*, m.role AS my_role, m.muted_at AS my_muted, (SELECT COUNT(*) FROM group_members x WHERE x.group_id = g.id) AS members
      FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? AND g.locked_at IS NULL ORDER BY g.name`,
   )
     .bind(user.id)
-    .all<GroupRow & { my_role: GroupRole; members: number }>();
+    .all<GroupRow & { my_role: GroupRole; my_muted: number | null; members: number }>();
   const { results: requests } = await env.DB.prepare(
-    `SELECT g.slug, g.name, g.kind, r.created_at FROM group_requests r JOIN groups g ON g.id = r.group_id WHERE r.user_id = ? ORDER BY r.created_at DESC`,
+    `SELECT g.id, g.slug, g.name, g.kind, r.created_at FROM group_requests r JOIN groups g ON g.id = r.group_id WHERE r.user_id = ? ORDER BY r.created_at DESC`,
   )
     .bind(user.id)
-    .all<{ slug: string; name: string; kind: GroupKind; created_at: number }>();
+    .all<{ id: string; slug: string; name: string; kind: GroupKind; created_at: number }>();
   return json({
-    groups: results.map((g) => ({ ...groupShape(g, g.my_role), members: g.members })),
-    requests: requests.map((r) => ({ ...short(r), createdAt: r.created_at })),
+    groups: results.map((g) => ({ ...groupShape(g, g.my_role), members: g.members, muted: g.my_muted !== null })),
+    requests: requests.map((r) => ({ id: r.id, ...short(r), createdAt: r.created_at })),
   });
 }
 
@@ -441,6 +441,7 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     .all<{ slug: string; name: string; kind: GroupKind }>();
 
   const requested = !!user && !role && !!(await env.DB.prepare('SELECT 1 AS x FROM group_requests WHERE group_id = ? AND user_id = ?').bind(group.id, user.id).first());
+  const muted = !!user && !!role && !!(await env.DB.prepare('SELECT 1 AS x FROM group_members WHERE group_id = ? AND user_id = ? AND muted_at IS NOT NULL').bind(group.id, user.id).first());
   const approver = canApprove(role, group.approve_by);
   const mode = effectiveJoinMode(group);
   return json({
@@ -458,6 +459,8 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     membership: {
       role,
       requested,
+      /** Neuigkeiten stumm geschaltet (F-346) */
+      muted,
       canRequest: !!user && !role && mode === 'request' && !requested,
       /** offen (nur öffentliche Gruppen): direkt beitreten (Konzept 14.1) */
       canJoin: !!user && !role && mode === 'open',
@@ -528,13 +531,52 @@ export async function setMemberRole(request: Request, env: Env, id: string, who:
   return json({ role });
 }
 
+/**
+ * Eigner wechseln (F-347, auch Admin-Bereich F-236): neuer Eigner (Mitgliedschaft angelegt bzw. hochgestuft), der
+ * bisherige bleibt Admin, eine offene Anfrage des neuen entfällt.
+ */
+export const transferGroupStmts = (env: Env, groupId: string, from: string | null, to: string, now: number) => [
+  // ohne bisherigen Eigner (Admin-Bereich: verwaiste Gruppe) bleibt nur das Einsetzen
+  ...(from ? [env.DB.prepare(`UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?`).bind(groupId, from)] : []),
+  env.DB.prepare(
+    `INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?1, ?2, 'owner', ?3)
+     ON CONFLICT(group_id, user_id) DO UPDATE SET role = 'owner'`,
+  ).bind(groupId, to, now),
+  env.DB.prepare('DELETE FROM group_requests WHERE group_id = ? AND user_id = ?').bind(groupId, to),
+  env.DB.prepare('UPDATE groups SET owner_id = ?, updated_at = ? WHERE id = ?').bind(to, now, groupId),
+];
+
+/**
+ * POST /api/groups/:id/owner `{ userId }` – der Eigner übergibt die Gruppe an einen Admin (F-347); danach ist er
+ * selbst Admin und kann austreten. Nur an Admins – das Vertrauen ist schon ausgesprochen.
+ */
+export async function transferGroup(request: Request, env: Env, id: string): Promise<Response> {
+  const { user, group } = await memberGroup(request, env, id, 'owner');
+  const { userId } = await readJson<{ userId?: unknown }>(request);
+  if (typeof userId !== 'string' || userId === user.id) throw new HttpError(400, 'invalid_user', 'Wähle einen Admin der Gruppe.');
+  if ((await roleIn(env, userId, group.id)) !== 'admin') throw new HttpError(400, 'not_admin', 'Übergeben geht nur an einen Admin der Gruppe.');
+  const target = await env.DB.prepare('SELECT suspended_at, locked_at FROM users WHERE id = ?').bind(userId).first<{ suspended_at: number | null; locked_at: number | null }>();
+  if (!target || target.suspended_at || target.locked_at) throw new HttpError(400, 'invalid_user', 'Dieses Konto kann die Gruppe nicht übernehmen.');
+  await env.DB.batch(transferGroupStmts(env, group.id, user.id, userId, Date.now()));
+  return json({ owner: userId });
+}
+
+/** PUT /api/groups/:id/mute `{ muted }` – eigene Mitgliedschaft stumm schalten bzw. wieder laut (F-346). */
+export async function muteGroup(request: Request, env: Env, id: string): Promise<Response> {
+  const { user, group } = await memberGroup(request, env, id, 'member');
+  const { muted } = await readJson<{ muted?: unknown }>(request);
+  if (typeof muted !== 'boolean') throw new HttpError(400, 'invalid_mute', 'muted: true oder false.');
+  await env.DB.prepare('UPDATE group_members SET muted_at = ? WHERE group_id = ? AND user_id = ?').bind(muted ? Date.now() : null, group.id, user.id).run();
+  return json({ muted });
+}
+
 /** DELETE /api/groups/:id/members/:userId – austreten (`me`) bzw. entfernen nach Rolle (Konzept 11.1). */
 export async function removeMember(request: Request, env: Env, id: string, who: string): Promise<Response> {
   const { user, group, role } = await memberGroup(request, env, id, 'member');
   const target = who === 'me' ? user.id : who;
   const targetRole = target === user.id ? role : await roleIn(env, target, group.id);
   if (!targetRole) throw new HttpError(404, 'not_found', 'Diese Person ist kein Mitglied.');
-  if (target === user.id && role === 'owner') throw new HttpError(400, 'owner_cannot_leave', 'Der Eigner kann die Gruppe nicht verlassen – nur löschen.');
+  if (target === user.id && role === 'owner') throw new HttpError(400, 'owner_cannot_leave', 'Übergib die Gruppe zuerst an einen Admin – oder lösche sie.');
   if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigner.');
   await env.DB.batch([
     env.DB.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').bind(group.id, target),

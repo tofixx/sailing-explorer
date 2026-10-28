@@ -4,7 +4,7 @@ import type { SharePurpose } from '../components/sx-share-dialog';
 import { PasskeyExistsError, PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
 import { disablePush } from '../services/push';
 import { deviceName } from '../domain/device';
-import { passkeyApi } from '../services/api';
+import { passkeyApi, groupApi } from '../services/api';
 import { inviteAcceptedText } from '../domain/invite-text';
 import type { VoyageRole } from '../domain/crew-roles';
 import { shareSummary } from '../domain/summary';
@@ -893,6 +893,16 @@ export class SessionController {
 
   // ---------------------------------------------------------------- Konto, Profil, Boote
 
+  /** „Meine Gruppen“ im Konto (F-348) – auch nach Austreten, Stummschalten, Übergeben. */
+  async refreshMyGroups(): Promise<void> {
+    if (!this.store.get().user) return;
+    try {
+      this.ui.account.myGroups = await groupApi.mine();
+    } catch {
+      this.ui.account.myGroups = { groups: [], requests: [] };
+    }
+  }
+
   async openAccount(tab: AccountTab = 'shares'): Promise<void> {
     if (!this.store.get().user) return this.openLogin();
     this.ui.share.open = false; // keine gestapelten Dialoge
@@ -903,6 +913,7 @@ export class SessionController {
         api.listShares(), api.myBoats(), api.myProfile(), api.myInvites().catch(() => ({ invites: [] })), this.refreshSupport(),
       ]);
       Object.assign(this.ui.account, { shares: shares.shares, boats: boats.boats, profile: me.profile, profileExists: me.exists, myInvites: invites.invites });
+      void this.refreshMyGroups();
       // Passkeys nebenbei – ohne Server-Unterstützung bleibt der Abschnitt einfach weg; Optionen schon vorladen (Safari)
       if (passkeysSupported()) {
         passkeyApi.list().then((r) => (this.ui.account.passkeys = r.passkeys), () => (this.ui.account.passkeys = null));

@@ -1,4 +1,7 @@
 import { inviteWhat } from '../domain/invite-text';
+import type { MyGroup } from '../services/api';
+import './sx-my-groups';
+import type { MyRequest } from './sx-my-groups';
 import { passkeysSupported } from '../services/passkey';
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import { live } from 'lit/directives/live.js';
@@ -17,11 +20,12 @@ import './sx-support';
 import './sx-admin-reports';
 import './sx-filter-select';
 
-export type AccountTab = 'profile' | 'boats' | 'shares' | 'settings' | 'reports';
+export type AccountTab = 'profile' | 'boats' | 'groups' | 'shares' | 'settings' | 'reports';
 
 const TABS: Array<[AccountTab, string]> = [
   ['profile', 'Profil'],
   ['boats', 'Boote'],
+  ['groups', 'Gruppen'],
   ['shares', 'Freigaben'],
   ['settings', 'Einstellungen'],
   // nur für Admins (ADMIN_USER_IDS) sichtbar
@@ -31,6 +35,7 @@ const TABS: Array<[AccountTab, string]> = [
 /** Konto: Profil, Boote und Freigaben verwalten. Reine Darstellung – Aktionen gehen als Events raus. */
 export class SxAccountDialog extends LitElement {
   static properties = {
+    myGroups: { attribute: false },
     open: { type: Boolean },
     tab: { type: String },
     user: { attribute: false },
@@ -68,6 +73,8 @@ export class SxAccountDialog extends LitElement {
   declare profile: Profile | null;
   declare profileExists: boolean;
   declare boats: Boat[];
+  /** „Meine Gruppen“ (F-348) – null bis geladen */
+  declare myGroups: { groups: MyGroup[]; requests: MyRequest[] } | null;
   declare shares: ShareMeta[];
   /** Admins des aufgeklappten Boots (data null = lädt) */
   declare admins: { boatId: string; data: BoatAdmins | null } | null;
@@ -1072,6 +1079,8 @@ export class SxAccountDialog extends LitElement {
               ? this.profileTab()
               : this.tab === 'boats'
                 ? this.boatsTab()
+                : this.tab === 'groups'
+                  ? html`<sx-my-groups .groups=${this.myGroups?.groups ?? []} .requests=${this.myGroups?.requests ?? []} ?busy=${this.busy}></sx-my-groups>`
                 : this.tab === 'settings'
                   ? this.settingsTab()
                   : this.tab === 'reports' && this.settings?.isAdmin

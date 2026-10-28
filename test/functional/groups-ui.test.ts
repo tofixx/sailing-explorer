@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-stream';
 import '../../src/components/sx-home-feed';
 import '../../src/components/sx-group-page';
+import '../../src/components/sx-my-groups';
 import '../../src/components/sx-follow';
 import '../../src/components/sx-profile-page';
 import '../../src/components/sx-discover';
@@ -376,5 +377,68 @@ describe('Entdecken und Einladungsdialog', () => {
     expect(text(el.shadowRoot)).toContain('Mitgliedschaft öffnet keine nicht öffentlichen Törns');
     const done = await mount('sx-invite-dialog', { open: true, state: 'done', peek: { kind: 'group' }, result: { kind: 'group', path: '/g/sc-kiel', target: 'SC Kiel', already: false } });
     expect(done.shadowRoot.querySelector('a[href="/g/sc-kiel"]')!.textContent).toContain('Zur Gruppe');
+  });
+});
+
+describe('Mitgliedschaft: Glocke, Austreten, Übergeben, Meine Gruppen (F-346 … F-348)', () => {
+  it('[F-346] Mitglieder sehen die Glocke statt „Folgen“ und „Austreten“; Nicht-Mitglieder weiter „Folgen“', async () => {
+    const mutes = listen('sx-group-mute');
+    const leaves = listen('sx-group-leave');
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      const el = await mount('sx-group-page', { data: pageData({}, 'member'), signedIn: true });
+      expect(el.shadowRoot.querySelector('sx-follow')).toBeNull();
+      const bell = button(el.shadowRoot, /Neuigkeiten stumm schalten/)!;
+      expect(bell.getAttribute('aria-pressed')).toBe('false');
+      bell.click();
+      expect(mutes).toEqual([{ id: 'G1', muted: true }]);
+      button(el.shadowRoot, /Austreten/)!.click();
+      expect(leaves).toEqual([{ id: 'G1' }]);
+      const muted = await mount('sx-group-page', { data: pageData({ membership: { role: 'member', requested: false, canRequest: false, muted: true } }, 'member'), signedIn: true });
+      expect(button(muted.shadowRoot, /Neuigkeiten wieder anzeigen/)!.getAttribute('aria-pressed')).toBe('true');
+      const guest = await mount('sx-group-page', { data: pageData(), signedIn: true });
+      expect(guest.shadowRoot.querySelector('sx-follow')).not.toBeNull();
+      expect(button(guest.shadowRoot, /stumm/)).toBeUndefined();
+    } finally {
+      window.confirm = realConfirm;
+    }
+  });
+
+  it('[F-347] Eigner: kein „Austreten“, dafür „Übergeben“ bei Admins in der Mitgliederliste', async () => {
+    const transfers = listen('sx-group-transfer');
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      const d = pageData({}, 'owner');
+      d.members = [...d.members, { id: 'U3', handle: 'cara', displayName: 'Cara', role: 'admin', isSelf: false } as (typeof d.members)[number]];
+      const el = await mount('sx-group-page', { data: d, signedIn: true });
+      expect(button(el.shadowRoot, /Austreten/)).toBeUndefined();
+      const btns = buttons(el.shadowRoot).filter((b) => /Übergeben/.test(b.textContent ?? ''));
+      expect(btns).toHaveLength(1);
+      btns[0].click();
+      expect(transfers).toEqual([{ id: 'G1', userId: 'U3' }]);
+    } finally {
+      window.confirm = realConfirm;
+    }
+  });
+
+  it('[F-348] Konto „Meine Gruppen“: Glocke, Austreten (Eigner: Übergeben …), offene Anfragen zurückziehen', async () => {
+    const mutes = listen('sx-group-mute');
+    const withdraws = listen('sx-group-withdraw');
+    const el = await mount('sx-my-groups', {
+      groups: [
+        { id: 'G1', slug: 'pyc', name: 'PYC', kind: 'club', role: 'member', members: 9, muted: true },
+        { id: 'G2', slug: 'eigen', name: 'Eigen', kind: 'team', role: 'owner', members: 2, muted: false },
+      ],
+      requests: [{ id: 'G3', slug: 'anfrage', name: 'Anfrageclub', kind: 'club', createdAt: T }],
+    });
+    expect(text(el.shadowRoot)).toContain('stumm');
+    button(el.shadowRoot, /PYC wieder anzeigen/)!.click();
+    expect(mutes).toEqual([{ id: 'G1', muted: false }]);
+    expect(buttons(el.shadowRoot).filter((b) => /Austreten/.test(b.textContent ?? ''))).toHaveLength(1);
+    expect(el.shadowRoot.querySelector('a[href="/g/eigen"].btn')?.textContent).toContain('Übergeben');
+    button(el.shadowRoot, /Zurückziehen/)!.click();
+    expect(withdraws).toEqual([{ id: 'G3' }]);
   });
 });
