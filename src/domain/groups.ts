@@ -309,3 +309,27 @@ export function digestWeekStart(now: number): number {
 export const GROUP_NOTIFY_MODES = ['off', 'weekly'] as const;
 export type GroupNotifyMode = (typeof GROUP_NOTIFY_MODES)[number];
 export const isGroupNotifyMode = oneOf(GROUP_NOTIFY_MODES);
+
+// ---------------------------------------------------------------- Törns in Gruppen (Konzept 11.12, F-373)
+
+/** Eine Gruppe, in der die Eigentümer:in einen Törn zeigen kann; `boatIds` = eigene bzw. verwaltete Boote darin. */
+export interface ShareGroupChoice {
+  id: string;
+  slug: string;
+  name: string;
+  kind: GroupKind;
+  boatIds: string[];
+}
+
+/** Vorauswahl beim Speichern bzw. Teilen: die Gruppen, denen das Boot des Törns zugeordnet ist – ohne Boot keine. */
+export const presetGroupIds = (groups: readonly Pick<ShareGroupChoice, 'id' | 'boatIds'>[], boatId: string | null | undefined): string[] =>
+  boatId ? groups.filter((g) => g.boatIds.includes(boatId)).map((g) => g.id) : [];
+
+const GROUP_ID_RE = /^[A-Za-z0-9]{12,32}$/;
+
+/** Auswahl aus der Eingabe: Liste von Gruppen-IDs (doppelte zählen einmal), höchstens `max` – sonst null. */
+export function parseGroupIds(input: unknown, max: number): string[] | null {
+  if (!Array.isArray(input) || input.length > max) return null;
+  if (!input.every((x): x is string => typeof x === 'string' && GROUP_ID_RE.test(x))) return null;
+  return [...new Set(input)];
+}

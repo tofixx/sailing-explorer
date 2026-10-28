@@ -125,8 +125,8 @@ describe('F-159/F-160 Neuigkeiten', () => {
     const g = await s.group(owner);
     const m = await s.person();
     await s.join(owner, g, m);
-    const priv = await s.share(owner, { visibility: 'private' });
-    const linked = await s.share(owner, { visibility: 'unlisted' });
+    const priv = await s.share(owner, { visibility: 'private', groups: [g.id] });
+    const linked = await s.share(owner, { visibility: 'unlisted', groups: [g.id] });
     expect(voyageIds(await stream(m))).not.toContain(priv.id);
     expect(voyageIds(await stream(m))).not.toContain(linked.id);
     const n = await (await s.db()).prepare(`SELECT COUNT(*) AS n FROM activity WHERE subject_id IN (?, ?)`).bind(priv.id, linked.id).first<{ n: number }>();
@@ -143,7 +143,8 @@ describe('F-159/F-160 Neuigkeiten', () => {
     const g = await s.group(owner);
     const reader = await s.person();
     await s.join(owner, g, reader);
-    const [a, b, c, d] = [await s.share(owner, { title: 'A' }), await s.share(owner, { title: 'B' }), await s.share(owner, { title: 'C' }), await s.share(owner, { title: 'D' })];
+    const one = (title: string) => s.share(owner, { title, groups: [g.id] });
+    const [a, b, c, d] = [await one('A'), await one('B'), await one('C'), await one('D')];
     expect(voyageIds(await stream(reader))).toEqual(expect.arrayContaining([a.id, b.id, c.id, d.id]));
     await s.send('PATCH', `/api/shares/${a.id}`, owner.cookie, { visibility: 'private' });
     await (await s.db()).prepare('UPDATE shares SET hidden_at = ? WHERE id = ?').bind(Date.now(), b.id).run();
@@ -443,7 +444,7 @@ describe('F-165 Wöchentliche Sammelmail', () => {
     const set = await s.send('PATCH', '/api/me/settings', reader.cookie, { notifyGroups: 'weekly' });
     expect(((await set.json()) as { notifyGroups: string }).notifyGroups).toBe('weekly');
     expect((await s.send('PATCH', '/api/me/settings', reader.cookie, { notifyGroups: 'daily' })).status).toBe(400);
-    await s.share(owner, { title: 'Geheimer Titel' });
+    await s.share(owner, { title: 'Geheimer Titel', groups: [g.id] });
     await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: 'Beitragstext darf nicht in die Mail' });
     // als wäre die letzte Mail über eine Woche her
     await (await s.db()).prepare('UPDATE users SET groups_mailed_at = ? WHERE id = ?').bind(Date.now() - 8 * DAY, reader.user.id).run();
@@ -566,7 +567,7 @@ describe('F-228 Törn: von wem, in welcher Gruppe', () => {
     const closed = await s.group(sailor, { name: 'Geschlossenes Team', kind: 'team', visibility: 'private' });
     const member = await s.person();
     await s.join(sailor, closed, member);
-    const share = await s.share(sailor, { title: 'Havel' });
+    const share = await s.share(sailor, { title: 'Havel', groups: [open.id, closed.id] });
 
     const guest = await meta(share.id);
     expect(guest.sailor).toEqual({ handle: sailor.handle, displayName: `Name ${sailor.handle}` });
@@ -584,16 +585,16 @@ describe('F-228 Törn: von wem, in welcher Gruppe', () => {
 
   it('[F-228] „Nur mit Link“-Törn erscheint in keiner Gruppe – auch nicht für Mitglieder', async () => {
     const sailor = await s.person({ profile: 'public', supporter: true });
-    await s.group(sailor);
-    const share = await s.share(sailor, { visibility: 'unlisted' });
+    const g = await s.group(sailor);
+    const share = await s.share(sailor, { visibility: 'unlisted', groups: [g.id] });
     const res = await h.fetch(`/api/shares/${share.id}`, { cookie: sailor.cookie });
     expect(((await res.json()) as { share: Meta }).share.groups).toEqual([]);
   });
 
   it('[F-228] öffentlich → „Nur mit Link“ per PATCH: keine Gruppen mehr (auch in der PATCH-Antwort); gesperrtes Konto nennt nichts', async () => {
     const sailor = await s.person({ profile: 'public', supporter: true });
-    await s.group(sailor, { name: 'Club Wechsel' });
-    const share = await s.share(sailor);
+    const club = await s.group(sailor, { name: 'Club Wechsel' });
+    const share = await s.share(sailor, { groups: [club.id] });
     expect((await meta(share.id)).groups.map((g) => g.name)).toEqual(['Club Wechsel']);
     const res = await s.send('PATCH', `/api/shares/${share.id}`, sailor.cookie, { visibility: 'unlisted' });
     expect(res.status, await res.clone().text()).toBe(200);
@@ -603,8 +604,8 @@ describe('F-228 Törn: von wem, in welcher Gruppe', () => {
     expect((await meta(share.id, sailor)).groups).toEqual([]);
 
     const other = await s.person({ profile: 'public' });
-    await s.group(other, { name: 'Club Gesperrt' });
-    const pub = await s.share(other);
+    const locked = await s.group(other, { name: 'Club Gesperrt' });
+    const pub = await s.share(other, { groups: [locked.id] });
     await (await s.db()).prepare('UPDATE users SET suspended_at = 1 WHERE id = ?').bind(other.user.id).run();
     expect(await meta(pub.id)).toMatchObject({ sailor: null, groups: [] });
   });

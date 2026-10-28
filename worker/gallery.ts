@@ -16,12 +16,11 @@ export interface GalleryPhoto {
   height: number;
 }
 
-/** Welche Törns gehören dazu (Bind-Parameter ?1 = ID). Person: eigene und mitgesegelte; Gruppe: Boote und Mitglieder. */
+/** Welche Törns gehören dazu (Bind-Parameter ?1 = ID). Person: eigene und mitgesegelte; Gruppe: dort ausgewählte (F-376). */
 const SCOPE: Record<GalleryOf, string> = {
   user: '(s.user_id = ?1 OR EXISTS (SELECT 1 FROM share_crew c WHERE c.share_id = s.id AND c.user_id = ?1))',
   boat: 's.boat_id = ?1',
-  group: `(s.boat_id IN (SELECT boat_id FROM group_boats WHERE group_id = ?1)
-    OR s.user_id IN (SELECT user_id FROM group_members WHERE group_id = ?1))`,
+  group: 's.id IN (SELECT share_id FROM share_groups WHERE group_id = ?1)',
 };
 
 export async function galleryPhotos(env: Env, of: GalleryOf, id: string, limit = GALLERY_PHOTOS): Promise<GalleryPhoto[]> {

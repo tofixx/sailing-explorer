@@ -6,7 +6,7 @@ import type { Placement } from '../domain/photo-place';
 import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
-import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
+import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, ShareGroupChoice, StreamItem, SuggestionReason } from '../domain/groups';
 import type { CoverKind, CoverRef } from '../domain/cover';
 import type { HarborRef } from '../domain/harbors';
 import type { MapStyleId } from '../domain/map-style';
@@ -52,6 +52,8 @@ export interface ShareMeta extends Linkable {
   sailor?: { handle: string; displayName: string } | null;
   /** nur in der Einzelansicht (F-228): Vereine/Teams, in denen der Törn erschienen ist und die der Betrachter sehen darf */
   groups?: Array<{ slug: string; name: string; kind: string }>;
+  /** nur für die Eigentümer:in: Auswahl „In Gruppen zeigen“ (F-375) */
+  groupIds?: string[];
 }
 
 /** Unterstützen-Konfiguration aus /api/config (null = auf diesem Server nicht eingerichtet). */
@@ -301,6 +303,8 @@ export interface DiscoverData {
 
 export type SharePatch = Partial<Pick<ShareMeta, 'title' | 'visibility' | 'view'>> & {
   boatId?: string | null;
+  /** „In Gruppen zeigen“ (F-375): ersetzt die Auswahl */
+  groupIds?: string[];
   /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
   rotateKey?: boolean;
 };
@@ -373,10 +377,16 @@ export const api = {
   putShareImage: (id: string, image: Blob) =>
     call<void>(`/api/shares/${encodeURIComponent(id)}/image`, { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: image }),
   deleteShare: (id: string) => call<void>(`/api/shares/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Gruppen für „In Gruppen zeigen“ (F-373) */
+  shareGroups: () => call<{ groups: ShareGroupChoice[] }>('/api/me/share-groups'),
 
   createShare: (
     gz: Uint8Array<ArrayBuffer>,
-    meta: { title: string; summary: string; view: string; trackCount: number; visibility: Visibility; boatId: string | null; distNm: number; startedAt: number | null },
+    meta: {
+      title: string; summary: string; view: string; trackCount: number; visibility: Visibility; boatId: string | null; distNm: number; startedAt: number | null;
+      /** „In Gruppen zeigen“ (F-373); fehlt bzw. null = Gruppen des Boots */
+      groupIds?: string[] | null;
+    },
   ) =>
     call<{ share: ShareMeta }>('/api/shares', {
       method: 'POST',
@@ -390,6 +400,7 @@ export const api = {
         'X-Share-Distance': meta.distNm.toFixed(2),
         ...(meta.startedAt ? { 'X-Share-Started': String(meta.startedAt) } : {}),
         ...(meta.boatId ? { 'X-Share-Boat': meta.boatId } : {}),
+        ...(meta.groupIds ? { 'X-Share-Groups': JSON.stringify(meta.groupIds) } : {}),
       },
       body: gz,
     }),

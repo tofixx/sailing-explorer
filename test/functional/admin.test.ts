@@ -425,6 +425,19 @@ describe('Admin-Bereich (Konzept 18)', () => {
     expect(await s.errorOf(await A('GET', `/api/admin/users/${into.user.id}/merge?into=${into.user.id}`))).toBe('same_user');
   });
 
+  it('[F-377] Konten verbinden: „In Gruppen zeigen“ wandert mit den Törns, die Mitgliedschaft ans Ziel', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const g = await s.group(owner, { name: 'Merge-Gruppe' });
+    const from = await s.person();
+    const into = await s.person();
+    await s.join(owner, g, from);
+    const sh = await share(from);
+    expect((await s.send('PATCH', `/api/shares/${sh.id}`, from.cookie, { groupIds: [g.id] })).status).toBe(200);
+    expect((await A('POST', `/api/admin/users/${from.user.id}/merge`, { into: into.user.id, confirm: from.user.id })).status).toBe(200);
+    expect(await one('SELECT group_id FROM share_groups WHERE share_id = ?', sh.id)).toEqual({ group_id: g.id });
+    expect(await one('SELECT 1 AS x FROM group_members WHERE group_id = ? AND user_id = ?', g.id, into.user.id)).not.toBeNull();
+  });
+
   it('[F-240] Konten verbinden: doppelte Crew-Zeile behält die höhere Rolle (auch Skipper), Bestätigungen behalten ihren Namen', async () => {
     const into = await s.person({ profile: 'public' });
     const from = await s.person({ profile: 'public' });

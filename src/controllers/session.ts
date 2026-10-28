@@ -53,6 +53,8 @@ export interface ShareRequest {
   visibility: Visibility;
   boatId: string | null;
   includeView: boolean;
+  /** „In Gruppen zeigen“ (F-373); null = Gruppen des Boots */
+  groupIds: string[] | null;
 }
 
 /** localStorage: „never“ = nach der Anmeldung per Mail keinen Passkey mehr anbieten (auf diesem Gerät) */
@@ -612,6 +614,7 @@ export class SessionController {
       error: '',
       busy: false,
       boats: [],
+      groupChoices: [],
       visibility: DEFAULT_VISIBILITY,
       defaultTitle: s.mode.kind === 'share' ? s.mode.share.title : names.length > 1 ? `${names[0]} → ${names[names.length - 1]}` : names[0],
       summary: shareSummary(s.tracks),
@@ -622,6 +625,7 @@ export class SessionController {
     this.refreshImage();
     if (s.user) {
       api.myBoats().then((r) => (this.ui.share.boats = r.boats), () => {});
+      api.shareGroups().then((r) => (this.ui.share.groupChoices = r.groups), () => {});
       this.refreshSupport();
     }
   }
@@ -819,6 +823,7 @@ export class SessionController {
         trackCount: s.tracks.length,
         visibility: d.visibility,
         boatId: d.boatId,
+        groupIds: d.groupIds,
         distNm: s.tracks.reduce((sum, t) => sum + t.stats.distNm, 0),
         startedAt: starts.length ? Math.min(...starts) : null,
       });
@@ -973,7 +978,10 @@ export class SessionController {
       const mode = this.store.get().mode;
       if (mode.kind === 'share' && mode.share.id === id) this.store.set({ mode: { ...mode, share } });
       if (this.lastShare?.share.id === id) this.lastShare.share = share;
-    }, patch.rotateKey ? ROTATED : undefined);
+      // Teilen-Dialog zeigt denselben Törn (z. B. „In Gruppen zeigen“ geändert, F-375)
+      const r = this.ui.share.result;
+      if (r?.share.id === id) this.ui.share.result = { ...r, share };
+    }, patch.rotateKey ? ROTATED : patch.groupIds ? 'Gruppen gespeichert' : undefined);
   }
 
   deleteShare(id: string) {

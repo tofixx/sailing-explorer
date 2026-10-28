@@ -9,6 +9,8 @@ import { base, dialogStyles, emit } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
 import './sx-filter-select';
+import './sx-share-groups';
+import { presetGroupIds, type ShareGroupChoice } from '../domain/groups';
 
 /** Was nach dem Hochladen wer sieht – ein Satz je Stufe (Konzept 1.1). */
 export const SHARE_CONSEQUENCE: Record<Visibility, string> = {
@@ -65,6 +67,7 @@ export class SxShareDialog extends LitElement {
     error: { type: String },
     result: { attribute: false },
     boats: { attribute: false },
+    groupChoices: { attribute: false },
     image: { attribute: false },
     supportTiers: { attribute: false },
     checkoutBusy: { type: Boolean },
@@ -73,6 +76,8 @@ export class SxShareDialog extends LitElement {
     visibility: { type: String },
     copied: { state: true },
     offer: { state: true },
+    boatId: { state: true },
+    groupIds: { state: true },
   };
   declare open: boolean;
   declare purpose: SharePurpose;
@@ -84,6 +89,12 @@ export class SxShareDialog extends LitElement {
   declare error: string;
   declare result: ShareResult | null;
   declare boats: Boat[];
+  /** eigene Gruppen für „In Gruppen zeigen“ (F-373) */
+  declare groupChoices: ShareGroupChoice[];
+  /** im Formular gewähltes Boot (für die Vorauswahl der Gruppen) */
+  declare boatId: string;
+  /** im Formular gewählte Gruppen; null = noch nicht angefasst → Gruppen des Boots */
+  declare groupIds: string[] | null;
   declare image: ImageState | null;
   /** Stufen des Unterstützen-Sliders; null = Unterstützen nicht eingerichtet */
   declare supportTiers: SupportTier[] | null;
@@ -111,6 +122,9 @@ export class SxShareDialog extends LitElement {
     this.error = '';
     this.result = null;
     this.boats = [];
+    this.groupChoices = [];
+    this.boatId = '';
+    this.groupIds = null;
     this.image = null;
     this.supportTiers = null;
     this.checkoutBusy = false;
@@ -301,6 +315,8 @@ export class SxShareDialog extends LitElement {
       if (this.open && !dlg.open) {
         this.copied = false;
         this.offer = false;
+        this.boatId = '';
+        this.groupIds = null;
         dlg.showModal();
       } else if (!this.open && dlg.open) dlg.close();
     }
@@ -367,7 +383,24 @@ export class SxShareDialog extends LitElement {
       visibility: isVisibility(this.visibility) ? this.visibility : DEFAULT_VISIBILITY,
       boatId: String(data.get('boat') || '') || null,
       includeView: data.get('view') === 'on',
+      groupIds: this.groupChoices.length ? this.chosenGroups() : null,
     });
+  }
+
+  /** Auswahl im Formular: angefasst wie gewählt, sonst die Gruppen des gewählten Boots (F-373). */
+  private chosenGroups(): string[] {
+    return this.groupIds ?? presetGroupIds(this.groupChoices, this.boatId || null);
+  }
+
+  /** Gespeicherter Törn (Eigentümer:in): Gruppen sofort ändern (F-375). */
+  private savedGroups(r: ShareResult) {
+    if (!r.share.isOwner || !r.share.groupIds || !this.groupChoices.length) return '';
+    return html`<sx-share-groups
+      .groups=${this.groupChoices}
+      .selected=${r.share.groupIds}
+      ?disabled=${this.busy}
+      @sx-share-groups-change=${(e: CustomEvent<{ groupIds: string[] }>) => emit(this, 'sx-share-update', { id: r.share.id, patch: { groupIds: e.detail.groupIds } })}
+    ></sx-share-groups>`;
   }
 
   private async copy() {
@@ -393,6 +426,7 @@ export class SxShareDialog extends LitElement {
         <span class="vis">${icon('check')} Gespeichert</span>
         „${r.share.title}“ liegt in deinem Konto – ${VISIBILITY_LABEL[vis]}.
       </p>
+      ${this.savedGroups(r)}
       <div class="actions">
         <button class="btn" @click=${this.close}>Schließen</button>
         <button class="btn primary" @click=${() => {
@@ -422,6 +456,7 @@ export class SxShareDialog extends LitElement {
           <a class="btn" href=${r.url} target="_blank" rel="noopener">${icon('open')} Öffnen</a>
           ${r.share.isOwner ? html`<button class="btn" @click=${() => emit(this, 'sx-account')}>${icon('folder')} Konto &amp; Freigaben</button>` : ''}
         </div>
+        ${this.savedGroups(r)}
         ${this.supportTiers && !this.supportStatus?.supporter
           ? html`<sx-support class="support" variant="offer" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy}></sx-support>`
           : ''}
@@ -478,12 +513,17 @@ export class SxShareDialog extends LitElement {
       ${this.boats.length
         ? html`<div>
             <label class="label" for="boat">Boot</label>
-            <sx-filter-select label="Boote filtern"><select id="boat" name="boat">
+            <sx-filter-select label="Boote filtern"><select id="boat" name="boat" @change=${(e: Event) => (this.boatId = (e.target as HTMLSelectElement).value)}>
               <option value="">Kein Boot</option>
               ${this.boats.map((b) => html`<option value=${b.id}>${b.name}</option>`)}
             </select></sx-filter-select>
           </div>`
         : ''}
+      <sx-share-groups
+        .groups=${this.groupChoices}
+        .selected=${this.chosenGroups()}
+        @sx-share-groups-change=${(e: CustomEvent<{ groupIds: string[] }>) => (this.groupIds = e.detail.groupIds)}
+      ></sx-share-groups>
       <label class="check"><input type="checkbox" name="view" checked /> Aktuelle Ansicht mitgeben (Einfärbung &amp; Ebenen)</label>
       <div class="note warn">${icon('info')}<span>Die GPX-Dateien werden mit allen Positionen und Zeitstempeln gespeichert, dazu das Übersichtsbild für die Link-Vorschau. Du kannst die Freigabe jederzeit unter „Konto &amp; Freigaben“ ändern oder löschen.</span></div>
       ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}

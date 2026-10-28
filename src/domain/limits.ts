@@ -178,6 +178,8 @@ export const GROUP_LIMITS = {
   inviteDays: 14,
   /** Wöchentliche Sammelmails pro Cron-Lauf (Resend Free: 100/Tag für alles) */
   digestsPerRun: 20,
+  /** Gruppen, in denen ein Törn höchstens erscheint (Auswahl beim Speichern bzw. Teilen, F-373) */
+  shareGroups: 50,
 } as const;
 
 /** Darf das Konto noch eine Gruppe anlegen? Kostenlos 1, Unterstützer 10 (402 bzw. 409 wie bei Booten). */
