@@ -1325,13 +1325,24 @@ Ausschnitt-Modus zieht man das Bild mit Maus oder Finger hoch/runter (Pointer-Ev
 den Schieberegler darunter (Tastatur, Screenreader); „Speichern“/„Abbrechen“, Escape bricht ab. Nach einem Upload
 öffnet sich der Modus von selbst, sobald das neue Bild geladen ist.
 
+**Titelbilder in Listen** (Neuigkeiten, Entdecken): Ein Eintrag zeigt das Titelbild dessen, um den es geht, als
+3:1-Streifen mit demselben Ausschnitt – „Neues Boot“ und „Neues Boot im Hafen“ das des Boots, „ist beigetreten“ das
+der Person, Meilensteine das von Person, Boot oder Gruppe. Törns behalten ihr Übersichtsbild (jetzt unbeschnitten,
+1200 : 630), Beiträge zeigen keins (sonst stünde dasselbe Gruppenbild über jedem Beitrag). Auf /entdecken tragen
+die Karten von Booten, Seglern sowie Vereinen und Teams ihr Titelbild oben. Nur Titelbilder **öffentlicher**
+Objekte erscheinen (die Adresse kommt ohne Schlüssel aus; ein Mitglied einer geschlossenen Gruppe sieht den Eintrag,
+aber ohne Bild). Gelesen wird beim Ausliefern per JOIN auf `covers` (`coverRef` in `src/domain/cover.ts`) – nichts
+wird in die Aktivität kopiert: Ein gelöschtes Titelbild verschwindet sofort überall, ein ausgetauschtes erscheint mit
+neuer Adresse (die alte liefert 404, ihre Datei ist gelöscht).
+
 Wo es keinen Ausschnitt gibt (Oktober 2026 geprüft):
 
 - **Galerie-Kacheln** (`sx-gallery`, quadratisch) und **Foto-Vorschaubilder im Törn** (`sx-photo-strip`), **Stream-Fotos**
   (`sx-stream`, 72-px-Kacheln): Das sind Törn-Fotos mit eigenem Eigentümer, die automatisch an Person, Boot und Gruppe
   erscheinen. Ein Fokus je Foto wäre eine weitere Einstellung pro Foto für winzige Kacheln; ein Klick zeigt ohnehin das
   ganze Bild (Lightbox). Mittig beschnitten bleibt.
-- **Stream-Törnbild** (`sx-stream` `.cover`): das generierte Track-Vorschaubild, kein hochgeladenes Foto.
+- **Törn-Übersichtsbild** (`sx-stream` `.cover`, Entdecken-Kacheln): das generierte Track-Vorschaubild mit Karte und
+  Kennzahlen, kein hochgeladenes Foto – im Stream wird es seit F-213 ganz gezeigt statt auf 180 px Höhe beschnitten.
 - **Link-Vorschau (og:image)** für Profil, Boot und Gruppe: gibt es heute nicht (nur Törns haben ein Vorschaubild).
   Würde man das Titelbild nehmen, schnitte jede Plattform es selbst auf ca. 1,91:1 zu – `focus_y` ließe sich nicht
   mitgeben, und der Worker dekodiert keine Bilder. Das wäre eine eigene Funktion (Browser rendert beim Speichern des

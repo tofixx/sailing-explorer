@@ -7,6 +7,7 @@ import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
 import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, StreamItem, SuggestionReason } from '../domain/groups';
+import type { CoverKind, CoverRef } from '../domain/cover';
 import type { HarborRef } from '../domain/harbors';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 
@@ -247,6 +248,8 @@ export interface DiscoverBoat {
   createdAt: number;
   owner: { handle: string; displayName: string };
   stats: PageStats;
+  /** Titelbild (Konzept 13.2) – null ohne, fehlt bei älteren Servern */
+  cover?: CoverRef | null;
 }
 
 export interface DiscoverPerson {
@@ -255,6 +258,7 @@ export interface DiscoverPerson {
   bio: string;
   createdAt: number;
   stats: PageStats & { boats: number };
+  cover?: CoverRef | null;
 }
 
 export interface DiscoverData {
@@ -724,6 +728,7 @@ export interface DiscoverGroup {
   description: string;
   createdAt: number;
   members: number;
+  cover?: CoverRef | null;
 }
 
 export interface DiscoverData {
@@ -879,8 +884,7 @@ export interface PageMedia {
   photos?: GalleryPhoto[];
 }
 
-/** u = Profil (Profiladresse), b = Boot (ID), g = Verein/Team (ID) */
-export type CoverKind = 'u' | 'b' | 'g';
+export type { CoverKind, CoverRef };
 
 export const coverApi = {
   put: (kind: CoverKind, id: string, image: Blob) =>

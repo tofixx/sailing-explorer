@@ -252,6 +252,19 @@ describe('sx-discover', () => {
   const data = (o: Record<string, unknown> = {}) => ({ voyages: [], boats: [], people: [], ...o });
   const links = (el: LitEl) => [...el.shadowRoot.querySelectorAll('a')].map((a) => a.getAttribute('href'));
 
+  it('[F-215] Karten von Booten, Seglern und Vereinen zeigen ihr Titelbild mit Ausschnitt', async () => {
+    const boat = { id: 'B1', name: 'Möwe', boatType: '', lengthM: null, homePort: '', createdAt: 0, owner: { handle: 'anna', displayName: 'Anna' }, stats: { voyages: 1, distNm: 1 } };
+    const el = await mount('sx-discover', {
+      variant: 'page',
+      data: data({ boats: [{ ...boat, cover: { src: '/api/covers/b/B1/v1', y: 70 } }, { ...boat, id: 'B2', cover: null }] }),
+    });
+    const imgs = [...el.shadowRoot.querySelectorAll<HTMLImageElement>('a.card img.cv')];
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0].getAttribute('src')).toBe('/api/covers/b/B1/v1');
+    expect(imgs[0].style.objectPosition).toBe('50% 70%');
+    expect(imgs[0].closest('a')!.classList.contains('has-cover')).toBe(true);
+  });
+
   it('[F-70] Leiste: höchstens 6 Törns und Link „Alle entdecken“', async () => {
     const el = await mount('sx-discover', { variant: 'strip', data: data({ voyages: Array.from({ length: 9 }, (_, i) => voyage(`v${i}`)) }) });
     expect(el.shadowRoot.querySelectorAll('article')).toHaveLength(6);

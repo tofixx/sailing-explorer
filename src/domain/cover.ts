@@ -2,6 +2,28 @@
 // sichtbar ist, bestimmt die vertikale Fokus-Position `focusY` (0 = oben, 100 = unten) – angezeigt per
 // `object-position: 50% <focusY>%`. Rein, von Worker und Oberfläche genutzt.
 
+/** u = Profil (öffentliche ID: Profiladresse), b = Boot, g = Verein/Team (öffentliche ID: Objekt-ID). */
+export type CoverKind = 'u' | 'b' | 'g';
+
+/** Titelbild in Listen (Neuigkeiten, Entdecken): Adresse und Ausschnitt. */
+export interface CoverRef {
+  src: string;
+  y: number;
+}
+
+/** Adresse eines Titelbilds; die Version wechselt bei jedem Austausch. `key` bei „Nur mit Link“. */
+export function coverPath(kind: CoverKind, publicId: string, ver: string, key?: string | null): string {
+  return `/api/covers/${kind}/${encodeURIComponent(publicId)}/${ver}${key ? `?k=${encodeURIComponent(key)}` : ''}`;
+}
+
+/**
+ * Titelbild eines öffentlichen Objekts für Listen – null ohne Bild. Gelesen wird beim Ausliefern (JOIN auf `covers`),
+ * daher verschwindet ein gelöschtes Bild sofort und ein ausgetauschtes erscheint mit neuer Adresse.
+ */
+export function coverRef(kind: CoverKind, publicId: string, ver: string | null | undefined, y: number | null | undefined): CoverRef | null {
+  return ver ? { src: coverPath(kind, publicId, ver), y: y ?? COVER_FOCUS_DEFAULT } : null;
+}
+
 /** Seitenverhältnis des Banners (Breite : Höhe). */
 export const COVER_BANNER_RATIO = 3;
 /** Höchstes gespeichertes Seitenverhältnis (3:2) – der Überstand über das Banner ist der Spielraum für den Ausschnitt. */

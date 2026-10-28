@@ -1,6 +1,6 @@
 import { LitElement, css, html } from 'lit';
 import { ifDefined } from 'lit/directives/if-defined.js';
-import { shareImageUrl, type DiscoverBoat, type DiscoverData, type DiscoverGroup, type DiscoverPerson, type DiscoverVoyage } from '../services/api';
+import { shareImageUrl, type CoverRef, type DiscoverBoat, type DiscoverData, type DiscoverGroup, type DiscoverPerson, type DiscoverVoyage } from '../services/api';
 import { GROUP_KIND_LABEL } from '../domain/groups';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
@@ -291,6 +291,22 @@ export class SxDiscover extends LitElement {
         border-color: var(--accent);
         transform: translateY(-1px);
       }
+      /* Titelbild über der Karte (COVER_BANNER_RATIO, gespeicherter Ausschnitt) */
+      a.card.has-cover {
+        flex-wrap: wrap;
+        overflow: hidden;
+      }
+      a.card.has-cover .txt {
+        flex: 1 1 0;
+      }
+      a.card .cv {
+        flex: 0 0 calc(100% + 2 * var(--s-4));
+        margin: calc(-1 * var(--s-3)) calc(-1 * var(--s-4)) 0;
+        aspect-ratio: 3 / 1;
+        object-fit: cover;
+        display: block;
+        background: var(--surface-2);
+      }
       a.card .ic {
         flex: none;
         width: 40px;
@@ -363,9 +379,15 @@ export class SxDiscover extends LitElement {
     </article>`;
   }
 
+  /** Karten-Anfang: mit Titelbild (Konzept 13.2) darüber, sonst schlicht. */
+  private cardStart(cover: CoverRef | null | undefined) {
+    return cover ? html`<img class="cv" src=${cover.src} style="object-position: 50% ${cover.y}%" alt="" loading="lazy" decoding="async" />` : '';
+  }
+
   private boat(b: DiscoverBoat) {
     const facts = [b.boatType, b.lengthM != null ? `${fmtNum(b.lengthM, 1)} m` : '', b.homePort].filter(Boolean).join(' · ');
-    return html`<a class="card" href="/b/${b.id}">
+    return html`<a class="card ${b.cover ? 'has-cover' : ''}" href="/b/${b.id}">
+      ${this.cardStart(b.cover)}
       <span class="ic" aria-hidden="true">${icon('sail')}</span>
       <span class="txt">
         <span class="t">${b.name}</span>
@@ -377,7 +399,8 @@ export class SxDiscover extends LitElement {
   }
 
   private person(p: DiscoverPerson) {
-    return html`<a class="card" href="/u/${p.handle}">
+    return html`<a class="card ${p.cover ? 'has-cover' : ''}" href="/u/${p.handle}">
+      ${this.cardStart(p.cover)}
       <span class="ic" aria-hidden="true">${p.displayName[0]}</span>
       <span class="txt">
         <span class="t">${p.displayName}</span>
@@ -388,7 +411,8 @@ export class SxDiscover extends LitElement {
   }
 
   private group(g: DiscoverGroup) {
-    return html`<a class="card" href="/g/${g.slug}">
+    return html`<a class="card ${g.cover ? 'has-cover' : ''}" href="/g/${g.slug}">
+      ${this.cardStart(g.cover)}
       <span class="ic" aria-hidden="true">${icon(g.kind === 'club' ? 'anchor' : 'sail')}</span>
       <span class="txt">
         <span class="t">${g.name}</span>

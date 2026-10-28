@@ -22,6 +22,7 @@ import {
   type Approvers, type GroupKind, type GroupRole, type JoinMode,
 } from '../src/domain/groups';
 import { funnyName } from '../src/domain/names';
+import { coverRef } from '../src/domain/cover';
 
 const DAY = 86_400_000;
 
@@ -628,15 +629,18 @@ export async function removeGroupBoat(request: Request, env: Env, id: string, bo
 /** Öffentliche Vereine und Teams (nicht ausgeblendet, Eigner nicht gesperrt), neueste zuerst. */
 export async function publicGroups(env: Env, limit: number) {
   const { results } = await env.DB.prepare(
-    `SELECT g.id, g.slug, g.name, g.kind, g.home_port, g.description, g.join_mode, g.created_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members
-     FROM groups g WHERE g.visibility = 'public' AND g.hidden_at IS NULL
+    `SELECT g.id, g.slug, g.name, g.kind, g.home_port, g.description, g.join_mode, g.created_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members,
+       c.ver AS cover_ver, c.focus_y AS cover_y
+     FROM groups g LEFT JOIN covers c ON c.kind = 'g' AND c.object_id = g.id
+     WHERE g.visibility = 'public' AND g.hidden_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL)
      ORDER BY g.created_at DESC, g.id LIMIT ?`,
   )
     .bind(limit)
-    .all<{ id: string; slug: string; name: string; kind: GroupKind; home_port: string; description: string; join_mode: JoinMode; created_at: number; members: number }>();
+    .all<{ id: string; slug: string; name: string; kind: GroupKind; home_port: string; description: string; join_mode: JoinMode; created_at: number; members: number; cover_ver: string | null; cover_y: number | null }>();
   return results.map((g) => ({
     id: g.id, slug: g.slug, name: g.name, kind: g.kind, homePort: g.home_port, description: g.description, joinMode: g.join_mode, createdAt: g.created_at, members: g.members,
+    cover: coverRef('g', g.id, g.cover_ver, g.cover_y),
   }));
 }
 

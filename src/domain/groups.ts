@@ -1,5 +1,6 @@
 // Vereine, Teams, Folgen und Neuigkeiten (Konzept Abschnitt 11): reine Regeln ohne DOM und Netz –
 // genutzt von Worker (Prüfen, Schreiben, Lesen) und Oberfläche (Texte, Formulare).
+import type { CoverRef } from './cover';
 import { fmtNum } from './format';
 import type { ReactionSubject, ReactionSummary } from './reactions';
 
@@ -179,6 +180,8 @@ export interface StreamItem {
   milestone?: { nm: number; year: number; subject: 'user' | 'boat' | 'group'; name: string; path: string };
   /** Hafen als Kontext (`harbor`: neues Boot im Hafen) */
   harbor?: { slug: string; name: string };
+  /** Titelbild des Boots, der Person oder der Gruppe, um die es geht – nur öffentliche (Konzept 13.2) */
+  cover?: CoverRef;
   /** Reaktionen (Konzept 12.5): Gegenstand, Zähler je Art und die eigene */
   reactions?: StreamReactions;
 }
