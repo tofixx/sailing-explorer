@@ -172,3 +172,20 @@ describe('F-349/F-350 Beitrittsmeldungen', () => {
     expect(button(el, /Mehr laden/)).toBeDefined();
   });
 });
+
+describe('F-352 Vereine und Teams im Hafen', () => {
+  it('[F-352] Hafenseite: kein „Verein“ im Kopf; Vereine und Teams des Hafens als Liste, ein früher zugeordneter Verein mit dabei', async () => {
+    const harbor = { id: 'H1', slug: 'potsdam', name: 'Potsdam', lat: 52.4, lon: 13, canEdit: false, createdAt: 0 };
+    const el = await mount({
+      data: {
+        kind: 'harbor', harbor, club: { slug: 'pyc', name: 'PYC', kind: 'club' }, clubChoices: [], canClearClub: false, boats: [], voyages: [],
+        groups: [{ slug: 'jugend', name: 'Jugend', kind: 'team' }],
+        stats: { boats: 0, voyages: 0, distNm: 0, seasonNm: 0 }, social: { followers: 0, isFollowing: false },
+      },
+    }, 'sx-profile-page');
+    expect(el.shadowRoot.querySelector('.facts')?.textContent).not.toContain('PYC');
+    expect(text(el)).toContain('Vereine und Teams im Hafen');
+    expect(el.shadowRoot.querySelector('a.card[href="/g/pyc"]')).not.toBeNull();
+    expect(el.shadowRoot.querySelector('a.card[href="/g/jugend"]')).not.toBeNull();
+  });
+});

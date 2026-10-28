@@ -151,6 +151,30 @@ export const base = css`
   }
 `;
 
+/**
+ * Seite über der Karte (F-351, Hafen- und Vereinsseite mit Ort): Hintergrund durchsichtig, der Inhalt als Tafel mit
+ * Abstand oben, damit der Ort auf der Karte darüber sichtbar bleibt. Gesetzt über das Attribut `on-map`.
+ */
+export const onMapStyles = css`
+  :host([on-map]) {
+    background: transparent;
+  }
+  :host([on-map]) .page {
+    margin-top: min(34vh, 300px);
+    margin-bottom: var(--s-6);
+    background: var(--overlay);
+    backdrop-filter: blur(10px) saturate(1.2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    box-shadow: var(--shadow-2);
+  }
+  @media (max-width: 760px) {
+    :host([on-map]) .page {
+      margin: min(30vh, 220px) var(--s-2) var(--s-4);
+    }
+  }
+`;
+
 /** Gemeinsame Dialog-Stile für native <dialog>-Elemente. */
 export const dialogStyles = css`
   dialog {

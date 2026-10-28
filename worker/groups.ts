@@ -456,6 +456,10 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     // Titelbild und neueste öffentliche Fotos aus Törns der Boote und Mitglieder (Konzept 13)
     ...pageCover('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request)),
     photos: await galleryPhotos(env, 'group', group.id),
+    // Ort für die Karte im Hintergrund (F-351): Position des Heimathafens, sonst null
+    place: group.harbor_id
+      ? ((await env.DB.prepare('SELECT lat, lon FROM harbors WHERE id = ? AND hidden_at IS NULL AND lat IS NOT NULL AND lon IS NOT NULL').bind(group.harbor_id).first<{ lat: number; lon: number }>()) ?? null)
+      : null,
     membership: {
       role,
       requested,

@@ -10,7 +10,7 @@ import { commentLength } from '../domain/comment-text';
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { base, emit } from './shared';
+import { base, emit, onMapStyles } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-stream';
@@ -335,6 +335,7 @@ export class SxGroupPage extends LitElement {
         text-align: right;
       }
     `,
+    onMapStyles,
   ];
 
   // ------------------------------------------------------------ Formular (Anlegen und Bearbeiten)

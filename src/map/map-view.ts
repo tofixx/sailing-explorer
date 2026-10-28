@@ -202,6 +202,24 @@ export class MapView {
     );
   }
 
+  /**
+   * Ort als Hintergrund (F-351): auf den Punkt zoomen und ihn mit Markierung in den oberen, freien Bereich rücken
+   * (`freeTop` px über dem Seiteninhalt). `null` nimmt die Markierung weg.
+   */
+  showPlace(p: { lat: number; lon: number } | null, freeTop = 0, zoom = 13): void {
+    this.placeMarker?.remove();
+    this.placeMarker = null;
+    if (!p) return;
+    this.map.invalidateSize({ animate: false });
+    this.map.setView([p.lat, p.lon], zoom, { animate: false });
+    const h = this.map.getSize().y;
+    if (freeTop > 0 && h > freeTop) this.map.panBy([0, h / 2 - freeTop / 2], { animate: false });
+    // DOM-Markierung statt Canvas: liegt sicher über den Kacheln, Stil über CSS (.sx-place-marker)
+    this.placeMarker = L.marker([p.lat, p.lon], { icon: L.divIcon({ className: 'sx-place-marker', iconSize: [22, 22], iconAnchor: [11, 11] }), interactive: false, keyboard: false }).addTo(this.map);
+  }
+
+  private placeMarker: L.Marker | null = null;
+
   fit(tracks: Track[]): void {
     const latlngs = tracks.flatMap((t) => [t.points[0], t.points[t.points.length - 1], ...t.points.filter((_, i) => i % 50 === 0)]);
     if (!latlngs.length) return;

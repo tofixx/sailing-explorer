@@ -6,7 +6,7 @@ import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
-import { base, emit } from './shared';
+import { base, emit, onMapStyles } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
 import './sx-stream';
@@ -253,6 +253,7 @@ export class SxProfilePage extends LitElement {
         }
       }
     `,
+    onMapStyles,
   ];
 
   private voyages(list: CrewVoyage[]) {
@@ -453,6 +454,15 @@ export class SxProfilePage extends LitElement {
     </form>`;
   }
 
+  /**
+   * Vereine und Teams mit diesem Heimathafen (F-352) – ein Hafen „gehört“ keinem Verein; ein früher zugeordneter
+   * Verein erscheint mit in der Liste, wenn er dort noch fehlt.
+   */
+  private harborGroups(d: Extract<PageData, { kind: 'harbor' }>) {
+    const groups = d.groups ?? [];
+    return d.club && !groups.some((g) => g.slug === d.club!.slug) ? [{ ...d.club, kind: 'club' as const }, ...groups] : groups;
+  }
+
   private harbor(d: Extract<PageData, { kind: 'harbor' }>) {
     const h = d.harbor;
     const pos = h.lat != null && h.lon != null ? `${fmtNum(Math.abs(h.lat), 4)}° ${h.lat >= 0 ? 'N' : 'S'}, ${fmtNum(Math.abs(h.lon), 4)}° ${h.lon >= 0 ? 'O' : 'W'}` : '';
@@ -464,7 +474,6 @@ export class SxProfilePage extends LitElement {
           <div class="facts">
             <span>Hafen</span>
             ${pos ? html`<span class="num">${pos}</span>` : ''}
-            ${d.club ? html`<span>Verein <a href="/g/${d.club.slug}">${d.club.name}</a></span>` : ''}
           </div>
         </div>
         <div class="actions">
@@ -486,11 +495,11 @@ export class SxProfilePage extends LitElement {
         <sx-stream scope="harbor" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading}
           empty-text="Noch nichts los in diesem Hafen. Neue Boote und öffentliche Törns erscheinen hier."></sx-stream>
       </section>
-      ${d.groups?.length
+      ${this.harborGroups(d).length
         ? html`<section>
-            <h2 class="eyebrow">Vereine und Teams</h2>
+            <h2 class="eyebrow">Vereine und Teams im Hafen</h2>
             <div class="cards">
-              ${d.groups.map((g) => html`<a class="card" href="/g/${g.slug}"><span class="t">${icon(g.kind === 'club' ? 'anchor' : 'sail')}${g.name}</span><span class="s">${g.kind === 'club' ? 'Verein' : 'Team'}</span></a>`)}
+              ${this.harborGroups(d).map((g) => html`<a class="card" href="/g/${g.slug}"><span class="t">${icon(g.kind === 'club' ? 'anchor' : 'sail')}${g.name}</span><span class="s">${g.kind === 'club' ? 'Verein' : 'Team'}</span></a>`)}
             </div>
           </section>`
         : ''}

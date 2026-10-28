@@ -123,3 +123,16 @@ describe('F-344 Entdecken in der Nähe', () => {
     expect(((await (await h.fetch(`/api/discover?limit=24&harbor=${noPos.slug}`)).json()) as { near: boolean }).near).toBe(false);
   });
 });
+
+describe('F-351 Ort der Vereinsseite', () => {
+  it('[F-351] Gruppenseite nennt den Ort ihres Heimathafens (mit Position), sonst null', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const withPos = await harborAt(owner, 'Ortshafen', 6.0, 6.0);
+    const noPos = await harborAt(owner, 'Ortlos', null, null);
+    const a = await s.group(owner, { name: 'Ortsverein', harborId: withPos.id });
+    const b = await s.group(owner, { name: 'Ortlosverein', harborId: noPos.id });
+    const page = async (g: { id: string }) => (await (await h.fetch(`/api/groups/${g.id}`)).json()) as { place: { lat: number; lon: number } | null };
+    expect((await page(a)).place).toEqual({ lat: 6, lon: 6 });
+    expect((await page(b)).place).toBeNull();
+  });
+});

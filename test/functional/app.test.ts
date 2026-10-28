@@ -25,6 +25,7 @@ vi.mock('../../src/map/map-view', async () => {
       showHover = v.fn();
       trackOf = v.fn(() => null);
       focus = v.fn();
+      showPlace = v.fn();
       photos = { set: v.fn(), highlight: v.fn(), focus: v.fn(), startPlacing: v.fn(), stopPlacing: v.fn(), callbacks: {} };
       constructor() {
         h.maps.push(this);
@@ -1572,6 +1573,20 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(page.data?.stream.items).toHaveLength(1);
     expect(document.title).toBe('Hafen Potsdam · Sail Explorer');
     expect(document.querySelector('.app')?.hasAttribute('data-page')).toBe(true);
+  });
+
+  it('[F-351] Hafen mit Position: Karte als Hintergrund, auf den Ort gezoomt; ohne Position wie bisher', async () => {
+    server.social = {
+      harbor: { harbor: { id: 'H1', slug: 'potsdam', name: 'Potsdam', lat: 52.39, lon: 13.06, canEdit: false, createdAt: T }, club: null, stats: { boats: 0, voyages: 0, distNm: 0, seasonNm: 0 }, boats: [], voyages: [], social: { followers: 0, isFollowing: false }, clubChoices: [], canClearClub: false },
+      harborStream: { items: [], cursor: null },
+    };
+    await startApp('/h/potsdam');
+    const page = el<{ data: { kind: string } | null }>('sx-profile-page');
+    await vi.waitFor(() => expect(page.data?.kind).toBe('harbor'));
+    await vi.waitFor(() => expect(document.querySelector('.app')?.hasAttribute('data-place')).toBe(true));
+    expect((page as unknown as HTMLElement).hasAttribute('on-map')).toBe(true);
+    const map = h.maps[h.maps.length - 1] as unknown as { showPlace: { mock: { calls: unknown[][] } } };
+    await vi.waitFor(() => expect(map.showPlace.mock.calls.some((c) => JSON.stringify(c[0]) === JSON.stringify({ lat: 52.39, lon: 13.06 }))).toBe(true));
   });
 
   it('[F-183] /impressum und /datenschutz funktionieren ohne Backend', async () => {

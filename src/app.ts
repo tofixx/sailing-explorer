@@ -926,6 +926,7 @@ export class App {
       | { kind: 'legal'; page: 'impressum' | 'datenschutz' },
   ) {
     this.ui.app.setAttribute('data-page', '');
+    this.clearPlace();
     this.pageSection = route.kind === 'discover' ? 'discover' : 'page';
     this.ui.topbar.section = this.pageSection;
     if (route.kind === 'discover') return this.discover.open();
@@ -936,10 +937,16 @@ export class App {
       document.title = `${route.page === 'impressum' ? 'Impressum' : 'Datenschutz'} · Sail Explorer`;
       return;
     }
-    if (route.kind === 'harbor') return this.social.openHarbor(route.slug);
+    if (route.kind === 'harbor') {
+      await this.social.openHarbor(route.slug);
+      const d = this.ui.page.data;
+      const h = d?.kind === 'harbor' ? d.harbor : null;
+      return this.showPlace(this.ui.page, h && h.lat != null && h.lon != null ? { lat: h.lat, lon: h.lon } : null);
+    }
     if (route.kind === 'group') {
       this.community.setPageKey(route.key);
       await this.groups.openGroup(route.slug, route.key);
+      this.showPlace(this.ui.groupPage, this.ui.groupPage.data?.place ?? null);
       // Gruppenseite geöffnet: Beitrittsanfragen dazu gelesen (F-253)
       const group = this.ui.groupPage.data?.group;
       if (group) this.notifications.viewing({ subjectKind: 'group', subjectId: group.id });
@@ -1046,9 +1053,32 @@ export class App {
     new AdminController(page).start();
   }
 
+  /**
+   * Hafen- und Vereinsseite mit Ort (F-351): Karte als Hintergrund, auf den Ort gezoomt; ohne Ort wie bisher die
+   * Seite allein.
+   */
+  private showPlace(page: HTMLElement, place: { lat: number; lon: number } | null) {
+    this.ui.app.toggleAttribute('data-place', !!place);
+    page.toggleAttribute('on-map', !!place);
+    // erst nach dem Umschalten des Rasters messen – sonst kennt die Karte ihre Größe nicht
+    requestAnimationFrame(() => this.map.showPlace(place, Math.min(window.innerHeight * 0.34, 300)));
+  }
+
+  /** Ort-Ansicht verlassen: Markierung weg, Tracks wieder einpassen. */
+  private clearPlace() {
+    if (!this.ui.app.hasAttribute('data-place')) return;
+    this.ui.app.removeAttribute('data-place');
+    this.ui.page.removeAttribute('on-map');
+    this.ui.groupPage.removeAttribute('on-map');
+    this.map.showPlace(null);
+    const tracks = this.store.get().tracks.filter((t) => !t.hidden);
+    if (tracks.length) requestAnimationFrame(() => this.map.fit(tracks));
+  }
+
   /** Zurück von Profil-/Boots-/Entdecken-Seite zur Kartenansicht. */
   private leavePage() {
     if (!this.ui.app.hasAttribute('data-page')) return;
+    this.clearPlace();
     this.ui.app.removeAttribute('data-page');
     this.pageSection = null;
     this.ui.page.hidden = true;

@@ -734,6 +734,8 @@ export interface GroupRequest {
 
 export interface GroupPageData {
   group: GroupInfo;
+  /** Ort für die Karte im Hintergrund (Heimathafen mit Position, F-351) */
+  place?: { lat: number; lon: number } | null;
   parent: GroupRef | null;
   teams: GroupRef[];
   stats: { members: number; boats: number; voyages: number; distNm: number; seasonNm: number };
