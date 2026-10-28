@@ -263,8 +263,11 @@ describe('F-280 Rollen öffentlich nur neben Namen', () => {
     await join(owner, id, named, 'guest');
     await join(owner, id, hidden, 'co');
     const visitor = await crew(id);
-    expect(visitor.members).toEqual([expect.objectContaining({ id: null, role: 'guest' })]);
-    expect(visitor.others).toBe(1);
+    expect(visitor.members).toEqual([
+      expect.objectContaining({ id: null, role: 'guest' }),
+      expect.objectContaining({ id: null, handle: null, role: null }),
+    ]);
+    expect(visitor.others).toBe(0);
     const handle = (await (await h.db()).prepare('SELECT handle FROM profiles WHERE user_id = ?').bind(named.user.id).first<{ handle: string }>())!.handle;
     const page = await getJson<{ crewVoyages: Array<{ id: string; crewRole: string }> }>(await h.fetch(`/api/profiles/${handle}`));
     expect(page.crewVoyages.find((v) => v.id === id)?.crewRole).toBe('guest');

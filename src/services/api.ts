@@ -159,7 +159,8 @@ export interface CrewMember {
   id: string | null;
   handle: string | null;
   displayName: string;
-  role: VoyageRole;
+  /** null: für Besucher bei nicht öffentlichem Profil (F-280) */
+  role: VoyageRole | null;
   /** Bestätigung durch den Skipper – nur für Eigentümer und Skipper */
   confirmed: Confirmation | null;
 }

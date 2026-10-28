@@ -359,12 +359,12 @@ export async function getCrew(request: Request, env: Env, id: string): Promise<R
   const shown = row.visibility === 'public' ? rows : [];
   return json({
     ...base,
-    // Bestätigungen anderer sind nie öffentlich – Besucher sehen nur Name und Rolle.
+    // Bestätigungen anderer sind nie öffentlich – Besucher sehen Name und Rolle, bei privaten Profilen nur den Spaßnamen (F-280).
     members: shown.map((r) => ({
       id: null,
       handle: r.visibility === 'public' && r.handle ? r.handle : null,
       displayName: r.visibility === 'public' && r.handle ? (r.display_name ?? '') : funnyName(r.user_id),
-      role: voyageRole(r.role),
+      role: r.visibility === 'public' && r.handle ? voyageRole(r.role) : null,
       confirmed: null,
     })),
     others: 0,

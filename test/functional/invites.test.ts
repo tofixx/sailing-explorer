@@ -303,7 +303,7 @@ describe('F-133 Crew per Link oder E-Mail', () => {
     const noProfile = await person();
     expect(await getJson(await accept(noProfile, tokenOf(link!)))).toMatchObject({ already: false });
     expect((await getJson<CrewOut>(await crewOf(share.id, owner))).members).toEqual([{ id: noProfile.user.id, handle: null, displayName: funnyName(noProfile.user.id), role: 'crew', confirmed: null }]);
-    expect(await getJson(await crewOf(share.id))).toMatchObject({ members: [{ id: null, handle: null, displayName: funnyName(noProfile.user.id), role: 'crew', confirmed: null }], others: 0 });
+    expect(await getJson(await crewOf(share.id))).toMatchObject({ members: [{ id: null, handle: null, displayName: funnyName(noProfile.user.id), role: null, confirmed: null }], others: 0 });
   });
 
   it('[F-133] nur der Eigentümer lädt ein; fremde und private Törns 404; eigene Adresse 409', async () => {
@@ -335,7 +335,7 @@ describe('F-134 Crew nur auf öffentlichen Törns', () => {
   it('[F-134] öffentlicher Törn: Besucher sehen alle Mitglieder – mit öffentlichem Profil verlinkt, sonst nur den Spaßnamen ohne Link; ohne IDs', async () => {
     const { share, pub, priv } = await shareWithCrew('public');
     const crew = await getJson<CrewOut>(await crewOf(share.id));
-    expect(crew).toEqual({ members: [{ id: null, handle: pub.handle, displayName: `Name ${pub.handle}`, role: 'crew', confirmed: null }, { id: null, handle: null, displayName: funnyName(priv.user.id), role: 'crew', confirmed: null }], others: 0, isOwner: false, isCrew: false, isSkipper: false, ownerRole: null, ownerConfirmed: null, me: null, invites: [] });
+    expect(crew).toEqual({ members: [{ id: null, handle: pub.handle, displayName: `Name ${pub.handle}`, role: 'crew', confirmed: null }, { id: null, handle: null, displayName: funnyName(priv.user.id), role: null, confirmed: null }], others: 0, isOwner: false, isCrew: false, isSkipper: false, ownerRole: null, ownerConfirmed: null, me: null, invites: [] });
     expect(JSON.stringify(crew)).not.toContain(priv.handle!);
     expect(JSON.stringify(crew)).not.toContain(priv.user.id);
     // Das Mitglied selbst erfährt, dass es dabei ist (für „Mich entfernen“)
