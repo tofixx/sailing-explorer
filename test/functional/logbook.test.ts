@@ -177,6 +177,8 @@ describe('F-303 Herkunft der Distanz und „davon aufgezeichnet“', () => {
     const p = await s.person({ profile: 'public' });
     const b = await s.boat(p);
     const g = await s.group(p);
+    // Boot in der Gruppe: beide Einträge erscheinen dort (Vorauswahl „In Gruppen zeigen“, F-373)
+    expect((await s.send('POST', `/api/groups/${g.id}/boats`, p.cookie, { boatId: b.id })).status).toBeLessThan(300);
     await s.share(p, { boatId: b.id, distNm: 20 });
     await manual(p, { boatId: b.id, distNm: 10 });
     const boat = (await (await s.send('GET', `/api/boats/${b.id}`, p.cookie)).json()) as { stats: { distNm: number; recordedNm: number } };
@@ -323,9 +325,10 @@ describe('F-308 Stream: Nachträge gebündelt, Meilensteine zählen mit', () => 
   it('[F-308] frischer Eintrag = voyage; Nachträge > 14 Tage = ein Bündel je Tag; gelöschte fallen beim Lesen weg', async () => {
     const p = await s.person({ profile: 'public' });
     const g = await s.group(p);
-    const fresh = await manual(p);
-    const old1 = await manual(p, { startedAt: recent(40) });
-    const old2 = await manual(p, { startedAt: recent(50) });
+    // ohne Boot nur in ausdrücklich gewählten Gruppen (F-373)
+    const fresh = await manual(p, { groupIds: [g.id] });
+    const old1 = await manual(p, { startedAt: recent(40), groupIds: [g.id] });
+    const old2 = await manual(p, { startedAt: recent(50), groupIds: [g.id] });
     const { results } = await activity(p.user.id);
     expect(results.filter((r) => r.kind === 'voyage').map((r) => r.subject_id)).toEqual([fresh.id]);
     const bundles = results.filter((r) => r.kind === 'logbook');

@@ -1,6 +1,7 @@
 // Fahrtenbuch (Konzept 19, F-300 … F-312): Törns ohne GPX anlegen und Fahrtenbuch-Angaben an jedem Törn ändern.
 // Ein Eintrag ist ein Törn in `shares` mit source = 'manual' – alle Lösch-, Sichtbarkeits- und Stream-Pfade erben.
 // Die Route (Hafenpositionen) liegt wie jeder Track als gzip-Payload in R2 (`{"v":1,"tracks":[],"route":[…]}`).
+import { checkGroupIds, insertShareGroupsStmt, presetShareGroupsStmt } from './share-groups';
 import type { Env } from './env';
 import type { User } from './auth';
 import { requireUser } from './auth';
@@ -155,8 +156,10 @@ export async function createManualShare(request: Request, env: Env): Promise<Res
   const user = await requireUser(request, env);
   await assertActive(env, user);
   await rateLimit(env.UPLOAD_LIMITER, `upload:${user.id}:${clientIp(request)}`);
-  const body = await readJson<ManualBody>(request);
+  const body = await readJson<ManualBody & { groupIds?: unknown }>(request);
   const now = Date.now();
+  // „In Gruppen zeigen“ (F-373) – vor dem Anlegen geprüft; fehlt die Angabe, gelten die Gruppen des Boots
+  const groupIds = body.groupIds === undefined ? null : await checkGroupIds(env, user.id, body.groupIds);
 
   const visibility = body.visibility === undefined ? DEFAULT_VISIBILITY : parseVisibility(body.visibility);
   if (!visibility) throw new HttpError(400, 'invalid_visibility', 'Unbekannte Sichtbarkeit.');
@@ -228,6 +231,8 @@ export async function createManualShare(request: Request, env: Env): Promise<Res
       row.log, row.owner_role,
     ),
     addStorageStmt(env, row.size_bytes),
+    // „In Gruppen zeigen“ (F-373): gewählte Gruppen, sonst die Gruppen des Boots, in denen man Mitglied ist
+    ...(groupIds ? [insertShareGroupsStmt(env, row.id, groupIds, now)] : row.boat_id ? [presetShareGroupsStmt(env, row.id, row.user_id, row.boat_id, now)] : []),
   ]).catch(async (err: unknown) => {
     if (!(await env.DB.prepare('SELECT 1 AS x FROM shares WHERE id = ?').bind(row.id).first())) await deleteKeys(env, [shareKey(row.id)]);
     throw err;

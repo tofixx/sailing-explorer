@@ -170,10 +170,9 @@ export async function recordLogbook(env: Env, s: ShareForActivity, now = Date.no
       ).bind(s.id, now, bucket),
       insertStmt(env, id, { kind: 'logbook', actorId: s.user_id, subjectKind: 'user', subjectId: s.user_id, data: { ids: [s.id] }, bucket }, now),
       bundleTarget('user', 'SELECT ?3 AS id', s.user_id),
-      bundleTarget('group', 'SELECT group_id AS id FROM group_members WHERE user_id = ?3', s.user_id),
-      ...(s.boat_id
-        ? [bundleTarget('boat', 'SELECT ?3 AS id', s.boat_id), bundleTarget('group', 'SELECT group_id AS id FROM group_boats WHERE boat_id = ?3', s.boat_id)]
-        : []),
+      // Gruppen nur aus der Auswahl „In Gruppen zeigen“ des Eintrags (F-374) – wie bei Törns mit GPX
+      bundleTarget('group', 'SELECT group_id AS id FROM share_groups WHERE share_id = ?3', s.id),
+      ...(s.boat_id ? [bundleTarget('boat', 'SELECT ?3 AS id', s.boat_id)] : []),
     ]);
     await recordMilestones(env, s, now);
   });
