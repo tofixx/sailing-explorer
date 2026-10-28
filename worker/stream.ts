@@ -113,17 +113,19 @@ async function photoThumbs(env: Env, rows: ActivityRow[]): Promise<Map<string, s
 
 /**
  * Fahrtenbuch-Bündel (F-308): die darin genannten Törns, die jetzt öffentlich und nicht ausgeblendet sind, je Bündel
- * neueste zuerst. Eine Abfrage für die ganze Seite.
+ * neueste zuerst. Eine Abfrage für die ganze Seite. Im Gruppen-Stream (`groupId`) nur die Einträge, die in dieser
+ * Gruppe gezeigt werden (F-374) – ein Bündel ohne solche fällt beim Lesen weg.
  */
-async function logbookShares(env: Env, rows: ActivityRow[]): Promise<Map<string, LogShare[]>> {
+async function logbookShares(env: Env, rows: ActivityRow[], groupId?: string): Promise<Map<string, LogShare[]>> {
   const bundles = rows.filter((r) => r.kind === 'logbook').map((r) => ({ id: r.id, ids: logbookIds(r.data) }));
   const out = new Map<string, LogShare[]>();
   const all = [...new Set(bundles.flatMap((b) => b.ids))];
   if (!all.length) return out;
   const { results } = await env.DB.prepare(
-    `SELECT id, title, dist_nm FROM shares WHERE id IN (SELECT value FROM json_each(?)) AND visibility = 'public' AND hidden_at IS NULL AND locked_at IS NULL`,
+    `SELECT id, title, dist_nm FROM shares WHERE id IN (SELECT value FROM json_each(?1)) AND visibility = 'public' AND hidden_at IS NULL AND locked_at IS NULL
+       ${groupId ? 'AND id IN (SELECT share_id FROM share_groups WHERE group_id = ?2)' : ''}`,
   )
-    .bind(JSON.stringify(all))
+    .bind(...(groupId ? [JSON.stringify(all), groupId] : [JSON.stringify(all)]))
     .all<{ id: string; title: string; dist_nm: number }>();
   const byId = new Map(results.map((s) => [s.id, { id: s.id, title: s.title, distNm: s.dist_nm }]));
   for (const b of bundles) out.set(b.id, b.ids.map((id) => byId.get(id)).filter((s): s is LogShare => !!s).reverse());
@@ -135,13 +137,13 @@ async function logbookShares(env: Env, rows: ActivityRow[]): Promise<Map<string,
  * letzten zurückgegebenen bzw. – wenn trotz voller Kandidatenliste weniger sichtbar waren – auf den letzten geprüften.
  * `keep`: zusätzlicher Filter (z. B. Hafen-Stream: nur Törns öffentlicher Boote).
  */
-async function resolve(env: Env, viewer: Viewer, candidates: Candidate[], scanned: number, keep: (i: StreamItem) => boolean = () => true): Promise<StreamPageOut> {
+async function resolve(env: Env, viewer: Viewer, candidates: Candidate[], scanned: number, keep: (i: StreamItem) => boolean = () => true, groupId?: string): Promise<StreamPageOut> {
   if (!candidates.length) return { items: [], cursor: null };
   const ids = candidates.map((c) => c.id);
   const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(viewer.id ?? '', JSON.stringify(ids)).all<ActivityRow>();
   const byId = new Map(rows.map((r) => [r.id, r]));
   const thumbs = await photoThumbs(env, rows);
-  const logs = await logbookShares(env, rows);
+  const logs = await logbookShares(env, rows, groupId);
   const items: StreamItem[] = [];
   let last: Candidate | null = null;
   for (const c of candidates) {
@@ -264,7 +266,7 @@ async function targetCandidates(env: Env, kind: 'group' | 'harbor', id: string, 
 
 /** Einträge einer Gruppe (Ziel `group`) – auch für RSS (worker/feed.ts). */
 export async function groupItems(env: Env, groupId: string, viewer: Viewer, c: StreamCursor) {
-  return resolve(env, viewer, await targetCandidates(env, 'group', groupId, c), STREAM_SCAN);
+  return resolve(env, viewer, await targetCandidates(env, 'group', groupId, c), STREAM_SCAN, undefined, groupId);
 }
 
 /** Hafen-Stream: Törns und Fotos nur mit (jetzt) öffentlichem Boot – sonst verriete er den Hafen eines privaten Boots. */

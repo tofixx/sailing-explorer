@@ -189,6 +189,11 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     ).bind(A, B),
     db.prepare('UPDATE group_requests SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     // Anträge auf Verifizierung (Konzept 20.8): als Antragsteller:in und als Verdrängte:r
+    // gleicher offener Antrag bei beiden Konten: der des Ziels bleibt (sonst verletzte das Umhängen claims_open_once)
+    db.prepare(
+      `DELETE FROM claims WHERE user_id = ?2 AND status = 'open' AND EXISTS (
+         SELECT 1 FROM claims c WHERE c.user_id = ?1 AND c.status = 'open' AND c.target_kind = claims.target_kind AND c.target_id = claims.target_id)`,
+    ).bind(A, B),
     db.prepare('UPDATE claims SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('UPDATE claims SET previous_user_id = ?1 WHERE previous_user_id = ?2').bind(A, B),
     db.prepare('UPDATE group_boats SET added_by = ?1 WHERE added_by = ?2').bind(A, B),

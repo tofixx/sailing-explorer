@@ -466,3 +466,24 @@ describe('Review-Befunde', () => {
     expect(((await (await s.send('GET', `/api/shares/${m.id}`, p.cookie)).json()) as { share: LogShare }).share.log).toEqual({ notes: 'x' });
   });
 });
+
+describe('F-374/F-377 Fahrtenbuch-Bündel in Gruppen', () => {
+  it('[F-374] Gruppen-Stream zeigt im Tages-Bündel nur die dort gewählten Einträge; ohne solche verschwindet es', async () => {
+    const p = await s.person({ profile: 'public' });
+    const g1 = await s.group(p, { name: 'Bündel A' });
+    const p2 = await s.person({ profile: 'public', supporter: true });
+    const g2 = await s.group(p2, { name: 'Bündel B' });
+    await s.join(p2, g2, p);
+    const a = await manual(p, { startedAt: recent(40), groupIds: [g1.id] });
+    const b = await manual(p, { startedAt: recent(41), groupIds: [g2.id] });
+    const items = async (g: { id: string }) =>
+      ((await (await s.send('GET', `/api/groups/${g.id}/stream`, p.cookie)).json()) as { items: Array<{ kind: string; logbook?: { count: number; voyages?: Array<{ id: string }> } }> }).items;
+    const inA = (await items(g1)).find((i) => i.kind === 'logbook');
+    expect(inA?.logbook?.count).toBe(1);
+    expect(JSON.stringify(inA)).toContain(a.id);
+    expect(JSON.stringify(inA)).not.toContain(b.id);
+    // Auswahl von b ändern: aus g2 heraus – das Bündel verschwindet dort
+    expect((await s.send('PATCH', `/api/shares/${b.id}`, p.cookie, { groupIds: [] })).status).toBe(200);
+    expect((await items(g2)).some((i) => i.kind === 'logbook')).toBe(false);
+  });
+});

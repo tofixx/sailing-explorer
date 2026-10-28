@@ -473,3 +473,18 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
     expect(await one('SELECT club_id FROM harbors WHERE id = ?', hb.id)).toEqual({ club_id: null });
   });
 });
+
+describe('Konten zusammenführen mit offenen Anträgen', () => {
+  it('[F-240] beide Konten mit offenem Antrag auf denselben Verein: Zusammenführen gelingt, ein offener Antrag bleibt', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const club = await s.group(owner, { name: 'Doppelantrag' });
+    const into = await s.person({ profile: 'public' });
+    const from = await s.person({ profile: 'public' });
+    expect((await claim(into, 'group', club.id)).status).toBeLessThan(300);
+    expect((await claim(from, 'group', club.id)).status).toBeLessThan(300);
+    const res = await A('POST', `/api/admin/users/${from.user.id}/merge`, { into: into.user.id, confirm: from.user.id });
+    expect(res.status, await res.clone().text()).toBe(200);
+    const open = await (await s.db()).prepare(`SELECT COUNT(*) AS n FROM claims WHERE target_id = ? AND status = 'open'`).bind(club.id).first<{ n: number }>();
+    expect(open?.n).toBe(1);
+  });
+});
