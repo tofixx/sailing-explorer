@@ -249,7 +249,6 @@ export const dialogStyles = css`
   }
 `;
 
-/** Eingabe „E-Mail oder Profilname“: mit @ in der Mitte eine Adresse, sonst ein Profilname (führendes @ erlaubt). */
 /**
  * Titelbild-Streifen (Konzept 13.2): überall dasselbe 3:1-Banner (`COVER_BANNER_RATIO`) mit dem gespeicherten
  * Ausschnitt – im Seitenkopf (sx-cover), auf /entdecken und in den Neuigkeiten, damit der Eigner überall denselben
@@ -278,6 +277,7 @@ export function coverBanner(cover: CoverRef, cls = '') {
   return html`<img class="cover-banner ${cls}" src=${cover.src} style=${coverPosition(cover.y)} alt="" loading="lazy" decoding="async" />`;
 }
 
+/** Eingabe „E-Mail oder Profilname“: mit @ in der Mitte eine Adresse, sonst ein Profilname (führendes @ erlaubt). */
 export function inviteTarget(raw: string): { email: string } | { handle: string } {
   const v = raw.trim();
   return v.indexOf('@') > 0 ? { email: v } : { handle: v.replace(/^@/, '') };
