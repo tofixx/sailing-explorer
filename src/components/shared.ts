@@ -211,6 +211,41 @@ export const dialogStyles = css`
   p {
     margin: 0;
   }
+  /* Handy (F-291): randlos als Vollbild statt schwebendem Fenster; der Inhalt scrollt, der Kopf mit „Schließen“ bleibt
+     stehen. Steht am Ende, damit es die Grundregeln oben schlägt;
+     dialog[open] schlägt die Breiten der einzelnen Dialoge. */
+  @media (max-width: 760px) {
+    dialog[open] {
+      width: 100%;
+      max-width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      max-height: 100vh;
+      max-height: 100dvh;
+      margin: 0;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    dialog::backdrop {
+      backdrop-filter: none;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border-soft);
+      padding-top: calc(var(--s-3) + env(safe-area-inset-top, 0px));
+      padding-bottom: var(--s-3);
+    }
+    .body {
+      padding: var(--s-4);
+    }
+  }
 `;
 
 /** Eingabe „E-Mail oder Profilname“: mit @ in der Mitte eine Adresse, sonst ein Profilname (führendes @ erlaubt). */

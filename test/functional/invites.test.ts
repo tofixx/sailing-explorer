@@ -296,14 +296,14 @@ describe('F-133 Crew per Link oder E-Mail', () => {
     expect((await accept(mate, tokenOf(out.devLink!))).status).toBe(200);
   });
 
-  it('[F-140] ohne Profil: Beitritt geht; Eigentümer sieht den Spaßnamen, Besucher nur eine Anzahl', async () => {
+  it('[F-140] ohne Profil: Beitritt geht; Eigentümer sieht den Spaßnamen, Besucher den Spaßnamen ohne Link (F-134)', async () => {
     const owner = await person({ profile: 'public' });
     const share = await newShare(owner.cookie);
     const { link } = await inviteCrew(owner, share.id);
     const noProfile = await person();
     expect(await getJson(await accept(noProfile, tokenOf(link!)))).toMatchObject({ already: false });
     expect((await getJson<CrewOut>(await crewOf(share.id, owner))).members).toEqual([{ id: noProfile.user.id, handle: null, displayName: funnyName(noProfile.user.id) }]);
-    expect(await getJson(await crewOf(share.id))).toMatchObject({ members: [], others: 1 });
+    expect(await getJson(await crewOf(share.id))).toMatchObject({ members: [{ id: null, handle: null, displayName: funnyName(noProfile.user.id) }], others: 0 });
   });
 
   it('[F-133] nur der Eigentümer lädt ein; fremde und private Törns 404; eigene Adresse 409', async () => {
@@ -332,11 +332,21 @@ describe('F-134 Crew nur auf öffentlichen Törns', () => {
     return { owner, share, pub, priv };
   }
 
-  it('[F-134] öffentlicher Törn: Besucher sehen Mitglieder mit öffentlichem Profil, die anderen nur als Anzahl, ohne IDs', async () => {
+  it('[F-134] öffentlicher Törn: Besucher sehen alle Mitglieder – mit öffentlichem Profil verlinkt, sonst nur den Spaßnamen ohne Link; ohne IDs', async () => {
     const { share, pub, priv } = await shareWithCrew('public');
     const crew = await getJson<CrewOut>(await crewOf(share.id));
-    expect(crew).toEqual({ members: [{ id: null, handle: pub.handle, displayName: `Name ${pub.handle}` }], others: 1, isOwner: false, isCrew: false, invites: [] });
+    expect(crew).toEqual({
+      members: [
+        { id: null, handle: pub.handle, displayName: `Name ${pub.handle}` },
+        { id: null, handle: null, displayName: funnyName(priv.user.id) },
+      ],
+      others: 0,
+      isOwner: false,
+      isCrew: false,
+      invites: [],
+    });
     expect(JSON.stringify(crew)).not.toContain(priv.handle!);
+    expect(JSON.stringify(crew)).not.toContain(priv.user.id);
     // Das Mitglied selbst erfährt, dass es dabei ist (für „Mich entfernen“)
     expect(await getJson(await crewOf(share.id, priv))).toMatchObject({ isCrew: true });
   });

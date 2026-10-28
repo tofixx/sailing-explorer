@@ -191,6 +191,15 @@ export class SxTopbar extends LitElement {
         .brand .name {
           display: none;
         }
+        /* Sonst wird die Leiste breiter als das Handy und zieht die ganze Seite mit (F-291) */
+        .share .label-text {
+          display: none;
+        }
+      }
+      @media (max-width: 380px) {
+        .login .label-text {
+          display: none;
+        }
       }
     `,
   ];
@@ -223,11 +232,11 @@ export class SxTopbar extends LitElement {
     const why = 'Gespeichert ist er in deinem Konto, teilbar per Link oder Bild und – wenn öffentlich – in der Community unter Entdecken.';
     return html`<button
       class="chip status warn"
-      @click=${() => emit(this, guest ? 'sx-login' : 'sx-share')}
-      title=${guest ? `Dein Törn liegt nur in diesem Browser. Melde dich per E-Mail-Link an: ${why}` : `Noch nicht gespeichert. Teile deinen Törn: ${why}`}
-      aria-label=${guest ? 'Nicht gespeichert – anmelden zum Speichern, Teilen und für die Community' : 'Nicht gespeichert – jetzt teilen und speichern'}
+      @click=${() => emit(this, guest ? 'sx-login' : 'sx-save')}
+      title=${guest ? `Dein Törn liegt nur in diesem Browser. Melde dich per E-Mail-Link an: ${why}` : `Noch nicht gespeichert. Speichere deinen Törn: ${why}`}
+      aria-label=${guest ? 'Nicht gespeichert – anmelden zum Speichern, Teilen und für die Community' : 'Nicht gespeichert – jetzt speichern'}
     >
-      ${icon(guest ? 'lock' : 'info')}<span class="long">Nicht gespeichert – ${guest ? 'anmelden, um zu speichern, zu teilen und in der Community zu zeigen' : 'teilen, um zu speichern und in der Community zu zeigen'}</span><span class="mid">Nicht gespeichert · ${guest ? 'Anmelden' : 'Teilen'}</span>
+      ${icon(guest ? 'lock' : 'info')}<span class="long">Nicht gespeichert – ${guest ? 'anmelden, um zu speichern, zu teilen und in der Community zu zeigen' : 'speichern, dann teilen und in der Community zeigen'}</span><span class="mid">Nicht gespeichert · ${guest ? 'Anmelden' : 'Speichern'}</span>
     </button>`;
   }
 
@@ -245,6 +254,11 @@ export class SxTopbar extends LitElement {
         ${this.hasTracks && this.home
           ? html`<button class="btn collapse" @click=${() => emit(this, 'sx-track-view')} title="Zurück zur Törn-Ansicht">
               ${icon('map')}<span class="label-text">Mein Törn</span>
+            </button>`
+          : nothing}
+        ${this.hasTracks && this.backend && !this.saved && this.mode.kind === 'local'
+          ? html`<button class="btn collapse save" @click=${() => emit(this, 'sx-save')} title="Im Konto speichern – teilen kannst du danach">
+              ${icon('check')}<span class="label-text">Speichern</span>
             </button>`
           : nothing}
         ${this.hasTracks

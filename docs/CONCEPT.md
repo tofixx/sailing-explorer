@@ -925,8 +925,10 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
 - **Crew erscheint nur auf öffentlichen Törns** – auf der Törn-Ansicht und auf
   dem eigenen Profil („Mitgesegelt“). Für „Nur mit Link“ und „Nur ich“ sehen
   Besucher keine Crew; der Eigentümer sieht sie immer.
-- Namentlich (mit Link zum Profil) nur Mitglieder mit **öffentlichem Profil**;
-  alle anderen zählen nur als „+ n weitere“ (wie der Autor in F-82).
+- Mit Link zum Profil nur Mitglieder mit **öffentlichem Profil**; alle anderen
+  erscheinen unter ihrem Spaßnamen ohne Link – ein Klick zeigt, dass das Profil
+  nicht öffentlich ist (Oktober 2026, vorher nur „+ n weitere“). Anzeige- und
+  Profilname nicht öffentlicher Profile bleiben verborgen.
 - **Crew-Sein öffnet nichts**: Mitgliedschaft gibt keinen Zugriff auf nicht
   öffentliche Törns (ein Schlüssel öffnet genau ein Objekt, 1.2). Admin-Sein
   gibt die Verwalter-Rechte aus `canManageBoat` (bearbeiten, Törns zuordnen,
@@ -1455,3 +1457,11 @@ Moderation nutzt; R2-Schlüssel für Törns stehen nur in `photo-keys.ts`. Schei
 die übrigen nicht auf); die Neuberechnung des Speicherzählers läuft immer. Fristen: offene Meldungen nach 180 Tagen ohne
 Meldende und Anmerkung (sie zählen dann nicht mehr fürs automatische Ausblenden, dieselbe Person kann neu melden), Zahlungen 10 Jahre nach Ablauf der Unterstützung. Austritt bzw. Entfernen eines Boots aus einer
 Gruppe nimmt die zugehörige Neuigkeit mit. `covers.user_id` wird beim Konto-Löschen geleert.
+
+### 14.9 Törn-Ansicht: Speichern, Hervorheben, Herkunft (Oktober 2026)
+
+Speichern und Teilen sind getrennt (F-225): erst im Konto speichern, danach teilen – derselbe Dialog, im Speichern-Modus
+ohne Reiter. Bei mehreren Tracks hebt Hovern den betroffenen Track hervor, egal ob über Verlauf, Karte oder Trackliste
+(F-224, F-226); jeder Track lässt sich als Original-GPX herunterladen (F-227). Der geteilte Törn nennt Eigentümer und
+Gruppen nur, soweit der Betrachter sie ohnehin sehen dürfte (F-228) – Grundlage ist das Publikum der Törn-Aktivität,
+also nur öffentliche Törns; die Prüfung passiert beim Lesen.

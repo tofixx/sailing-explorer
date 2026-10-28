@@ -139,6 +139,17 @@ describe('sx-crew', () => {
     expect(el.shadowRoot.querySelector('form')).toBeNull();
   });
 
+  it('[F-134] Besucher: Name ohne öffentliches Profil ist anklickbar und zeigt den Hinweis „nicht öffentlich“ statt eines Links', async () => {
+    const el = await mount('sx-crew', { crew: crew({ members: [{ id: null, handle: null, displayName: 'Mutige Krabbe' }] }) });
+    expect(el.shadowRoot.querySelector('a')).toBeNull();
+    button(el, /Mutige Krabbe/)!.click();
+    await el.updateComplete;
+    expect(text(el)).toContain('Profil ist nicht öffentlich');
+    button(el, /Mutige Krabbe/)!.click();
+    await el.updateComplete;
+    expect(text(el)).not.toContain('Profil ist nicht öffentlich');
+  });
+
   it('[F-135] Crew-Mitglied: „Mich aus der Crew entfernen“ mit Bestätigung → sx-crew-leave', async () => {
     const leave = listen('sx-crew-leave');
     const el = await mount('sx-crew', { crew: crew({ isCrew: true, others: 1 }) });

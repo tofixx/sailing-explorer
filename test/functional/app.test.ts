@@ -23,6 +23,8 @@ vi.mock('../../src/map/map-view', async () => {
       fit = v.fn();
       setLayers = v.fn();
       showHover = v.fn();
+      trackOf = v.fn(() => null);
+      focus = v.fn();
       photos = { set: v.fn(), highlight: v.fn(), focus: v.fn(), startPlacing: v.fn(), stopPlacing: v.fn(), callbacks: {} };
       constructor() {
         h.maps.push(this);
@@ -80,6 +82,8 @@ interface Server {
   profile: { handle: string; visibility: string; shareKey: string | null } | null;
   /** Einladung für /api/invites/peek und /accept (fehlt = ungültig) */
   invite?: { peek: Record<string, unknown>; accept: Record<string, unknown> };
+  /** hält /api/shares/:id/data an, bis das Versprechen erfüllt ist (Ladezustand prüfen) */
+  hold?: Promise<void>;
   /** Antwort von /api/shares/:id/crew (fehlt = 404) */
   crew?: Record<string, unknown>;
   /** Vereine, Teams, Neuigkeiten (Konzept 11): Gruppenseite, Gruppen-Stream, eigene Gruppen, persönlicher Stream, Vorschläge */
@@ -227,6 +231,7 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     const keyed = s?.meta.visibility === 'unlisted' && s.meta.shareKey && headers['x-share-key'] !== s.meta.shareKey && !server.user;
     if (!s || keyed || (s.meta.visibility === 'private' && !server.user)) return json({ error: 'not_found', message: 'Diese Freigabe gibt es nicht (mehr).' }, 404);
     // der Browser entpackt Content-Encoding: gzip selbst
+    if (m[2] && server.hold) await server.hold;
     return m[2] ? new Response(JSON.stringify(s.payload), { headers: { 'Content-Type': 'application/json' } }) : json({ share: s.meta });
   }
   return new Response('not found', { status: 404 });
@@ -670,6 +675,24 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
 });
 
 describe('F-33 Freigabe erstellen', () => {
+  it('[F-225] „Speichern“ öffnet den Dialog im Speichern-Modus; nach dem Speichern zeigt „Teilen“ direkt den Link', async () => {
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    await startApp();
+    await vi.waitFor(() => expect(state().user).not.toBeNull());
+    await load(file('a.gpx', leg('A')));
+    await settled();
+    emit('sx-save');
+    const dlg = el<{ open: boolean; purpose: string; result: { url: string } | null; error: string }>('sx-share-dialog');
+    expect(dlg).toMatchObject({ open: true, purpose: 'save' });
+    emit('sx-share-submit', { title: 'Mein Törn', visibility: 'public', includeView: false, boatId: null });
+    await vi.waitFor(() => expect(dlg.result ?? dlg.error).toBeTruthy());
+    expect(state().saved).toBe(true);
+    dlg.open = false;
+    emit('sx-share');
+    expect(dlg).toMatchObject({ open: true, purpose: 'share' });
+    expect(dlg.result!.url).toBe(`${location.origin}/s/NewShareId23456789`);
+  });
+
   it('[F-33] Titel, Sichtbarkeit und Ansicht werden hochgeladen; Ergebnis ist der Link /s/<id>', async () => {
     server.user = { id: 'u1', email: 'skipper@example.org' };
     await startApp();
@@ -830,6 +853,20 @@ describe('Phase A: Sichtbarkeit und Schlüssel-Links', () => {
       payload: { v: 1, tracks: [{ name: 'Etappe', gpx: leg('Etappe') }] },
     });
   const reads = (path: string) => server.calls.filter((c) => c.method === 'GET' && c.url.startsWith(path));
+
+  it('[F-223] Aufruf per Link: während der Törn lädt, keine Einstiegs-/Hochladen-Ansicht', async () => {
+    seedKeyed();
+    let release!: () => void;
+    server.hold = new Promise<void>((r) => (release = r));
+    const started = startApp(`/s/AbCdEfGhJkLmNpQr23/${KEY}`);
+    await vi.waitFor(() => expect(state().loading).toBeTruthy());
+    expect(el<{ hidden: boolean }>('sx-empty-state').hidden).toBe(true);
+    release();
+    await started;
+    await settled();
+    expect(state().tracks.length).toBe(1);
+    expect(el<{ hidden: boolean }>('sx-empty-state').hidden).toBe(true);
+  });
 
   it('/s/<id>/<key> sendet den Schlüssel als X-Share-Key an Metadaten und Daten', async () => {
     seedKeyed();

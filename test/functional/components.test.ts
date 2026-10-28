@@ -138,8 +138,8 @@ describe('sx-topbar', () => {
     expect(logins).toHaveLength(1);
   });
 
-  it('[F-76] angemeldet, noch nicht geteilt: Hinweis führt zum Teilen', async () => {
-    const shares = listen('sx-share');
+  it('[F-76] angemeldet, noch nicht geteilt: Hinweis führt zum Speichern (F-225)', async () => {
+    const shares = listen('sx-save');
     const el = await mount('sx-topbar', { user: { id: 'u', email: 'a@b.de' }, mode: { kind: 'local' }, hasTracks: true, backend: true });
     (el.shadowRoot.querySelector('.chip.warn') as HTMLButtonElement).click();
     expect(shares).toHaveLength(1);

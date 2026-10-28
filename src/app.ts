@@ -23,6 +23,7 @@ import type { AccountTab, SxAccountDialog } from './components/sx-account-dialog
 import type { ChartSeries, SxTimeChart } from './components/sx-time-chart';
 import type { SxConditions } from './components/sx-conditions';
 import type { SxCrew } from './components/sx-crew';
+import type { SxVoyageByline } from './components/sx-voyage-byline';
 import type { SxInviteDialog } from './components/sx-invite-dialog';
 import type { SxDiscover } from './components/sx-discover';
 import type { SxEmptyState } from './components/sx-empty-state';
@@ -110,6 +111,7 @@ export class App {
     account: $<SxAccountDialog>('sx-account-dialog'),
     invite: $<SxInviteDialog>('sx-invite-dialog'),
     crew: $<SxCrew>('sx-crew'),
+    byline: $<SxVoyageByline>('sx-voyage-byline'),
     crewPanel: $<HTMLElement>('#crew-panel'),
     comments: $<SxComments>('sx-comments'),
     commentsPanel: $<HTMLElement>('#comments-panel'),
@@ -270,7 +272,9 @@ export class App {
     const has = s.tracks.length > 0;
 
     // Startseite: ohne Tracks immer, mit Tracks auf Wunsch (Logo / „Start“) – die Tracks bleiben dabei geladen.
-    const home = !has || s.home;
+    // Während ein Törn bzw. Tracks geladen werden (z. B. Aufruf per Link), nicht die Einstiegs-/Hochladen-Ansicht
+    // zeigen, sondern nur die Ladeanzeige über der Karte (F-223).
+    const home = (!has && !s.loading) || s.home;
     this.ui.app.toggleAttribute('data-empty', home);
     this.ui.empty.hidden = !home;
     this.ui.empty.trackCount = s.tracks.length;
@@ -307,6 +311,10 @@ export class App {
     if (dataChanged || changed('hover') || changed('status')) this.renderHover(s);
     // Crew des geteilten Törns – neu laden bei anderem Törn oder anderer Anmeldung (Eigentümer verwaltet).
     if (changed('mode') || changed('user')) {
+      // „von … · in …“ (F-228)
+      const byline = s.mode.kind === 'share' ? s.mode.share : null;
+      this.ui.byline.share = byline;
+      this.ui.byline.hidden = !byline?.sailor && !byline?.groups?.length;
       if (s.mode.kind === 'share') void this.session.loadCrew(s.mode.share, s.mode.key);
       else this.session.hideCrew();
       // Kommentare des geteilten Törns (Phase D)
@@ -404,6 +412,7 @@ export class App {
     this.ui.speedChart.hoverTime = t;
     const fromKpi = h?.source === 'kpi';
     this.map.showHover(p, { emphasize: fromKpi, pan: fromKpi });
+    this.ui.trackList.focused = p ? (this.map.trackOf(p)?.id ?? null) : null;
   }
 
   // ---------------------------------------------------------------- Events
@@ -422,7 +431,15 @@ export class App {
       const i = t == null ? -1 : nearestByTime(this.timelinePts, t);
       this.hover(i >= 0 ? this.timelinePts[i] : null, 'chart');
     });
-    on<string>('sx-track-toggle', (id) => this.updateTracks(this.store.get().tracks.map((t) => (t.id === id ? { ...t, hidden: !t.hidden } : t))));
+    on<string | null>('sx-track-focus', (id) => {
+      const t = id ? (this.store.get().tracks.find((x) => x.id === id) ?? null) : null;
+      this.map.focus(t);
+      this.ui.trackList.focused = t?.id ?? null;
+    });
+    on<string>('sx-track-toggle', (id) => {
+      this.ui.trackList.focused = null;
+      this.updateTracks(this.store.get().tracks.map((t) => (t.id === id ? { ...t, hidden: !t.hidden } : t)));
+    });
     on<string>('sx-track-remove', (id) => this.updateTracks(this.store.get().tracks.filter((t) => t.id !== id)));
     this.ui.tracksAside.addEventListener('click', () => this.clearAll());
     this.wireDragDrop();
@@ -442,6 +459,7 @@ export class App {
 
     // Konto & Teilen
     on('sx-share', () => s.share());
+    on('sx-save', () => s.share('save'));
     on('sx-login', () => s.openLogin());
     on<AccountTab | undefined>('sx-account', (tab) => s.openAccount(tab));
     on<'login' | 'share' | 'account' | 'invite'>('sx-close', (which) => (which === 'invite' ? s.closeInvite() : (this.ui[which].open = false)));
@@ -634,7 +652,13 @@ export class App {
     const files = [...list].filter((f) => /\.gpx$/i.test(f.name) || /xml/.test(f.type));
     if (!files.length) return this.toast('Keine GPX-Dateien gefunden');
     this.setLoading('Lese Dateien …');
-    const items = await Promise.all(files.map(async (f) => ({ name: f.name.replace(/\.gpx$/i, ''), text: await f.text() })));
+    let items: RawItem[];
+    try {
+      items = await Promise.all(files.map(async (f) => ({ name: f.name.replace(/\.gpx$/i, ''), text: await f.text() })));
+    } catch (e) {
+      this.setLoading(null);
+      return this.toast(`Datei konnte nicht gelesen werden: ${errorText(e)}`);
+    }
     await this.addItems(items);
   }
 
@@ -674,8 +698,11 @@ export class App {
     }
     this.setLoading('Lade Wetterdaten …');
     const { data, status } = await loadWeather(tracks);
-    // Inzwischen geänderte Trackliste? Dann gilt das Ergebnis nicht mehr.
-    if (this.store.get().tracks !== tracks) return;
+    // Inzwischen geänderte Trackliste? Dann gilt das Ergebnis nicht mehr – die Ladeanzeige aber auch nicht.
+    if (this.store.get().tracks !== tracks) {
+      if (this.store.get().loading === 'Lade Wetterdaten …') this.setLoading(null);
+      return;
+    }
     attachConditions(tracks, data);
     this.store.set({ weather: data, status, loading: null, tracks: [...tracks] });
     this.persist(); // jetzt mit Wetter
@@ -692,7 +719,7 @@ export class App {
 
   private clearAll() {
     const wasLocal = this.store.get().mode.kind === 'local';
-    this.store.set({ tracks: [], weather: null, hover: null, saved: false, status: initialState.status, mode: { kind: 'local' } });
+    this.store.set({ tracks: [], weather: null, hover: null, saved: false, status: initialState.status, mode: { kind: 'local' }, loading: null });
     if (wasLocal) return this.persist();
     history.pushState(null, '', '/');
     this.restoreWorkspace();

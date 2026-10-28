@@ -239,6 +239,27 @@ export class SxEmptyState extends LitElement {
         color: var(--text-2);
       }
 
+      /* Mit Community ist die Karte nur Hintergrund: auf Touch-Geräten muss die Ebene Wischgesten selbst annehmen, sonst
+         scrollt der Stream nicht – die Geste ginge an die Karte darunter (F-291). */
+      @media (pointer: coarse) {
+        :host([community]) {
+          pointer-events: auto;
+          overscroll-behavior: contain;
+        }
+      }
+      /* Handy: keine eigene Scroll-Ebene – der Stream fließt in der Seite, die als Ganzes scrollt (F-291) */
+      @media (max-width: 760px) {
+        :host {
+          position: relative;
+          inset: auto;
+          overflow: visible;
+          min-height: 100%;
+        }
+        :host([community]) {
+          pointer-events: auto;
+        }
+      }
+
       /* ---------- mobil: runder Knopf „Track anlegen“ ---------- */
       .fab {
         display: none;

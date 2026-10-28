@@ -1,4 +1,5 @@
 import { metricRange } from '../domain/metrics';
+import type { SharePurpose } from '../components/sx-share-dialog';
 import { PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
 import { deviceName } from '../domain/device';
 import { passkeyApi } from '../services/api';
@@ -60,6 +61,8 @@ export class SessionController {
   private passkeyLogin = new PreparedOptions(() => passkeyApi.loginOptions());
   private passkeyRegister = new PreparedOptions(() => passkeyApi.registerOptions());
   private pendingShare = false;
+  /** Zweck des zuletzt geöffneten Dialogs – nach der Anmeldung geht es damit weiter */
+  private pendingPurpose: SharePurpose = 'share';
   private lastShare: { key: string; share: ShareMeta } | null = null;
   private pendingToken: string | null = null;
   private channel = 'BroadcastChannel' in window ? new BroadcastChannel('sx-auth') : null;
@@ -248,7 +251,7 @@ export class SessionController {
     this.ui.login.confirmEmail = '';
     if (this.pendingShare && this.store.get().user) {
       this.pendingShare = false;
-      this.share();
+      this.share(this.pendingPurpose);
     } else if (this.pendingInvite && this.store.get().user) {
       // Einladung nach der Anmeldung (auch aus einem anderen Tab) wieder zeigen – angenommen wird erst per Klick.
       void this.openInvite(this.pendingInvite);
@@ -468,8 +471,12 @@ export class SessionController {
     return this.store.get().tracks.map((t) => t.id).join(',');
   }
 
-  /** Öffnet den Teilen-Dialog: „Als Bild“ geht immer, „Als Link“ je nach Anmeldung/Backend. */
-  async share(): Promise<void> {
+  /**
+   * Öffnet den Teilen-Dialog: „Als Bild“ geht immer, „Als Link“ je nach Anmeldung/Backend. Mit `purpose = 'save'`
+   * nur Speichern (F-225): dasselbe Formular ohne Reiter, danach „Jetzt teilen“.
+   */
+  async share(purpose: SharePurpose = 'share'): Promise<void> {
+    this.pendingPurpose = purpose;
     const s = this.store.get();
     if (!s.tracks.length) return;
     const names = s.tracks.map((t) => t.name);
@@ -486,7 +493,8 @@ export class SessionController {
     const linkState = !s.backend ? 'offline' : s.user ? 'form' : 'login';
     Object.assign(this.ui.share, {
       open: true,
-      tab: result || linkState === 'form' ? 'link' : 'image',
+      purpose,
+      tab: purpose === 'save' || result || linkState === 'form' ? 'link' : 'image',
       linkState,
       result,
       error: '',

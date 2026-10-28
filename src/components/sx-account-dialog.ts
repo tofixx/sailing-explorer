@@ -13,6 +13,7 @@ import { base, dialogStyles, emit, inviteTarget, pendingLabel } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
 import './sx-admin-reports';
+import './sx-filter-select';
 
 export type AccountTab = 'profile' | 'boats' | 'shares' | 'settings' | 'reports';
 
@@ -591,10 +592,10 @@ export class SxAccountDialog extends LitElement {
       <div>
         <label class="label" for="hc">Mein Verein</label>
         ${clubs.length
-          ? html`<select id="hc" name="clubId">
+          ? html`<sx-filter-select label="Vereine filtern"><select id="hc" name="clubId">
               <option value="">– keiner –</option>
               ${clubs.map((c) => html`<option value=${c.id} ?selected=${h.club?.id === c.id}>${c.name}</option>`)}
-            </select>`
+            </select></sx-filter-select>`
           : html`<p class="hint">Du bist noch in keinem Verein. <a href="/entdecken#vereine">Vereine entdecken</a></p>`}
       </div>
       <div>
