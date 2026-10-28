@@ -22,6 +22,8 @@ export interface GroupsUi {
   ready?: () => Promise<void>;
   /** Mitgliedschaften geändert (Austreten, stumm, übergeben) – z. B. „Meine Gruppen“ im Konto neu laden */
   onMembership?: () => void;
+  /** Beitritte ein-/ausgeblendet – Community-Badge neu zählen (F-350) */
+  onJoinsChanged?: () => void;
   /** Anfrage läuft (sperrt die Knöpfe in „Meine Gruppen“ gegen Doppelklicks) */
   onMembershipBusy?: (busy: boolean) => void;
 }
@@ -397,6 +399,8 @@ export class GroupsController {
   setJoins(show: boolean): void {
     writeNearPrefs({ ...readNearPrefs(), joins: show });
     this.ui.home.joins = show;
+    // Badge zählt nur, was man sieht
+    this.ui.onJoinsChanged?.();
   }
 
   setRadius(radius: NearRadius): Promise<void> {

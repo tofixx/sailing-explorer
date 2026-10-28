@@ -857,7 +857,8 @@ export const groupApi = {
     call<StreamPage>(`/api/groups/${gid(id)}/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, keyInit(key)),
   myStream: (cursor?: string | null) => call<StreamPage>(`/api/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
   /** Community-Badge (F-221): neue Einträge seit dem Gelesen-Zeitpunkt, höchstens 99 (`more`: mehr) */
-  unread: () => call<{ count: number; more: boolean }>('/api/stream/unread'),
+  /** `joins` false: Beitritte nicht mitzählen (auf dem Gerät ausgeblendet, F-350) */
+  unread: (joins = true) => call<{ count: number; more: boolean }>(`/api/stream/unread${joins ? '' : '?joins=0'}`),
   /** Stream bis `at` gelesen (F-222) */
   seen: (at?: number) => call<{ ok: true }>('/api/stream/seen', jsonInit('POST', { at })),
   suggestions: () => call<{ people: Suggestion[] }>('/api/me/suggestions'),

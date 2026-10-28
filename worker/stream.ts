@@ -200,6 +200,8 @@ export async function personalStream(request: Request, env: Env): Promise<Respon
  */
 export async function streamUnread(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
+  // ?joins=0: Beitritte sind auf dem Gerät ausgeblendet – dann zählen sie auch nicht (F-350)
+  const joins = new URL(request.url).searchParams.get('joins') !== '0';
   const headers = { 'Cache-Control': 'private, no-store' };
   const row = await env.DB.prepare('SELECT stream_seen_at AS seen FROM users WHERE id = ?').bind(user.id).first<{ seen: number | null }>();
   if (row?.seen == null) {
@@ -212,7 +214,7 @@ export async function streamUnread(request: Request, env: Env): Promise<Response
   if (candidates.length) {
     const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(user.id, JSON.stringify(candidates.map((c) => c.id))).all<ActivityRow>();
     const thumbs = await photoThumbs(env, rows);
-    for (const r of rows) if (r.actor_id !== user.id && shapeItem(r, { id: user.id }, thumbs.get(r.s_id ?? '') ?? [])) count++;
+    for (const r of rows) if (r.actor_id !== user.id && (joins || r.kind !== 'member') && shapeItem(r, { id: user.id }, thumbs.get(r.s_id ?? '') ?? [])) count++;
   }
   return json({ count: Math.min(count, UNREAD_MAX), more: count > UNREAD_MAX }, { headers });
 }
