@@ -333,3 +333,13 @@ export function parseGroupIds(input: unknown, max: number): string[] | null {
   if (!input.every((x): x is string => typeof x === 'string' && GROUP_ID_RE.test(x))) return null;
   return [...new Set(input)];
 }
+
+/**
+ * Hinweis in „Konto → Freigaben“ (F-378): in welchen Gruppen der Törn erscheint bzw. – nicht öffentlich – erscheinen
+ * würde. Namen aus den eigenen Gruppen; unbekannte IDs (z. B. ausgeblendete Gruppen) fallen weg.
+ */
+export function shownInText(groupIds: readonly string[] | undefined, groups: readonly { id: string; name: string }[], isPublic: boolean): string {
+  const names = (groupIds ?? []).map((id) => groups.find((g) => g.id === id)?.name).filter((n): n is string => !!n);
+  if (!names.length) return isPublic ? 'Erscheint in keiner Gruppe.' : 'Öffentlich erschiene er in keiner Gruppe.';
+  return `${isPublic ? 'Erscheint in' : 'Öffentlich erscheint er in'}: ${names.join(', ')}`;
+}

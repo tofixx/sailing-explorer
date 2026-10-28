@@ -165,6 +165,8 @@ describe('F-375 Auswahl später ändern', () => {
     expect(own.groupIds).toEqual([club.id]);
     const guest = ((await (await h.fetch(`/api/shares/${share.id}`)).json()) as { share: Meta }).share;
     expect(guest.groupIds).toBeUndefined();
+    const mine = ((await (await s.send('GET', '/api/shares', sailor.cookie)).json()) as { shares: Array<Meta & { id: string }> }).shares;
+    expect(mine.find((x) => x.id === share.id)?.groupIds).toEqual([club.id]);
     // Foto-Bündel wie recordPhotos (mit dem Ziel des Vereins)
     const db = await s.db();
     const now = Date.now();

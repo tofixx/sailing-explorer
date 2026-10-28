@@ -19,6 +19,7 @@ import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
 import './sx-admin-reports';
 import './sx-filter-select';
+import { shownInText } from '../domain/groups';
 
 export type AccountTab = 'profile' | 'boats' | 'groups' | 'shares' | 'settings' | 'reports';
 
@@ -909,6 +910,9 @@ export class SxAccountDialog extends LitElement {
       ${open && this.confirm !== s.id
         ? html`<div class="panel" id="vis-${s.id}">
             ${this.picker(`share:${s.id}`, s.visibility, s.visibility, `Wer darf „${s.title}“ sehen?`, (visibility) => update({ visibility }))}
+            ${this.myGroups?.groups.length && s.groupIds
+              ? html`<p class="hint shown-in">${icon('info')} ${shownInText(s.groupIds, this.myGroups.groups, s.visibility === 'public')} Ändern im Teilen-Dialog des Törns.</p>`
+              : ''}
             ${this.linkBlock(`share:${s.id}`, 's', s.id, s, 'diesen Törn', () => emit(this, 'sx-share-copy', s.id), () => update({ rotateKey: true }))}
           </div>`
         : ''}

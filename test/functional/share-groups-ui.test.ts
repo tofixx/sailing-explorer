@@ -3,7 +3,8 @@
 // Boots, später am gespeicherten Törn änderbar; ohne Gruppen kein Abschnitt.
 import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-share-dialog';
-import { parseGroupIds, presetGroupIds } from '../../src/domain/groups';
+import '../../src/components/sx-account-dialog';
+import { parseGroupIds, presetGroupIds, shownInText } from '../../src/domain/groups';
 
 type LitEl = HTMLElement & { updateComplete: Promise<boolean>; shadowRoot: ShadowRoot } & Record<string, unknown>;
 
@@ -11,8 +12,8 @@ HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
   this.setAttribute('open', '');
 };
 
-async function mount(props: Record<string, unknown>): Promise<LitEl> {
-  const el = document.createElement('sx-share-dialog') as LitEl;
+async function mount(props: Record<string, unknown>, tag = 'sx-share-dialog'): Promise<LitEl> {
+  const el = document.createElement(tag) as LitEl;
   Object.assign(el, props);
   document.body.append(el);
   await el.updateComplete;
@@ -26,7 +27,7 @@ const picker = async (dlg: LitEl) => {
 const boxes = async (dlg: LitEl) => [...((await picker(dlg))?.shadowRoot.querySelectorAll<HTMLInputElement>('input[type=checkbox]') ?? [])];
 const checked = async (dlg: LitEl) => (await boxes(dlg)).filter((b) => b.checked).map((b) => b.value);
 const events: Array<{ type: string; detail: unknown }> = [];
-for (const n of ['sx-share-submit', 'sx-share-update']) document.addEventListener(n, (e) => events.push({ type: n, detail: (e as CustomEvent).detail }));
+for (const n of ['sx-share-submit', 'sx-share-update', 'sx-share-groups-save']) document.addEventListener(n, (e) => events.push({ type: n, detail: (e as CustomEvent).detail }));
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -75,18 +76,53 @@ describe('F-378 Dialog „In Gruppen zeigen“', () => {
     expect(events.at(-1)).toMatchObject({ type: 'sx-share-submit', detail: { boatId: 'BoatAAAAAAAAAAAAAA', groupIds: ['ClubAAAAAAAAAAAAAA', 'TeamAAAAAAAAAAAAAA'] } });
   });
 
-  it('[F-378] gespeicherter Törn: Eigentümer:in ändert die Gruppen sofort (sx-share-update); Fremde sehen keinen Abschnitt', async () => {
+  it('[F-378] gespeicherter Törn: Eigentümer:in ändert die Gruppen sofort (sx-share-groups-save); Fremde sehen keinen Abschnitt', async () => {
     const share = { id: 'ShareAAAAAAAAAAAAA', title: 'Havel', summary: '', visibility: 'public', isOwner: true, groupIds: ['TeamAAAAAAAAAAAAAA'] };
     const dlg = await mount({ open: true, purpose: 'save', tab: 'link', linkState: 'form', groupChoices: GROUPS, result: { share, url: 'https://x/s/1' } });
     expect(await checked(dlg)).toEqual(['TeamAAAAAAAAAAAAAA']);
     const team = (await boxes(dlg))[1];
     team.checked = false;
     team.dispatchEvent(new Event('change'));
-    expect(events.at(-1)).toEqual({ type: 'sx-share-update', detail: { id: share.id, patch: { groupIds: [] } } });
+    expect(events.at(-1)).toEqual({ type: 'sx-share-groups-save', detail: { id: share.id, groupIds: [] } });
 
     const shared = await mount({ open: true, purpose: 'share', tab: 'link', linkState: 'form', groupChoices: GROUPS, result: { share, url: 'https://x/s/1' } });
     expect(await checked(shared)).toEqual(['TeamAAAAAAAAAAAAAA']);
     const foreign = await mount({ open: true, purpose: 'share', tab: 'link', linkState: 'form', groupChoices: GROUPS, result: { share: { ...share, isOwner: false, groupIds: undefined }, url: 'https://x/s/1' } });
     expect(await picker(foreign)).toBeNull();
+  });
+
+  it('[F-378] zwei Haken schnell nacheinander: die Auswahl gilt sofort, die zweite Änderung schickt beide Gruppen; Fehler setzt zurück und erscheint im Dialog', async () => {
+    const share = { id: 'ShareBBBBBBBBBBBBB', title: 'Havel', summary: '', visibility: 'public', isOwner: true, groupIds: [] as string[] };
+    const dlg = await mount({ open: true, purpose: 'save', tab: 'link', linkState: 'form', groupChoices: GROUPS, result: { share, url: 'https://x/s/2' } });
+    const click = async (i: number) => {
+      const box = (await boxes(dlg))[i];
+      box.checked = !box.checked;
+      box.dispatchEvent(new Event('change'));
+      await dlg.updateComplete;
+    };
+    await click(0);
+    await click(1); // noch keine Antwort vom Server
+    expect(events.map((e) => e.detail)).toEqual([
+      { id: share.id, groupIds: ['ClubAAAAAAAAAAAAAA'] },
+      { id: share.id, groupIds: ['ClubAAAAAAAAAAAAAA', 'TeamAAAAAAAAAAAAAA'] },
+    ]);
+    expect(await checked(dlg)).toEqual(['ClubAAAAAAAAAAAAAA', 'TeamAAAAAAAAAAAAAA']);
+    // Fehler: der Controller setzt den Server-Stand neu und meldet den Fehler im Dialog
+    Object.assign(dlg, { result: { share: { ...share }, url: 'https://x/s/2' }, error: 'In dieser Gruppe kannst du keine Törns zeigen.' });
+    await dlg.updateComplete;
+    expect(await checked(dlg)).toEqual([]);
+    expect(dlg.shadowRoot.querySelector('[role=alert]')?.textContent).toContain('keine Törns zeigen');
+  });
+
+  it('[F-378] Konto → Freigaben: Hinweis, in welchen Gruppen der Törn (öffentlich) erscheint', async () => {
+    const groups = [{ id: 'ClubAAAAAAAAAAAAAA', name: 'Segelclub' }, { id: 'TeamAAAAAAAAAAAAAA', name: 'Mittwochsregatta' }];
+    expect(shownInText(['TeamAAAAAAAAAAAAAA', 'Weg0000000000000000'], groups, true)).toBe('Erscheint in: Mittwochsregatta');
+    expect(shownInText(['ClubAAAAAAAAAAAAAA', 'TeamAAAAAAAAAAAAAA'], groups, false)).toBe('Öffentlich erscheint er in: Segelclub, Mittwochsregatta');
+    expect(shownInText([], groups, false)).toBe('Öffentlich erschiene er in keiner Gruppe.');
+    const share = { id: 'ShareCCCCCCCCCCCCC', title: 'Havel', summary: '', visibility: 'private', trackCount: 1, createdAt: 0, isOwner: true, groupIds: ['ClubAAAAAAAAAAAAAA'] };
+    const acc = await mount({ open: true, tab: 'shares', user: { id: 'u', email: 'a@b.de' }, shares: [share], boats: [], myGroups: { groups, requests: [] } }, 'sx-account-dialog');
+    (acc.shadowRoot.querySelector('.vis-btn') as HTMLButtonElement).click();
+    await acc.updateComplete;
+    expect(acc.shadowRoot.querySelector('.shown-in')?.textContent).toContain('Öffentlich erscheint er in: Segelclub');
   });
 });

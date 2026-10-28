@@ -78,6 +78,7 @@ export class SxShareDialog extends LitElement {
     offer: { state: true },
     boatId: { state: true },
     groupIds: { state: true },
+    savedGroupIds: { state: true },
   };
   declare open: boolean;
   declare purpose: SharePurpose;
@@ -95,6 +96,8 @@ export class SxShareDialog extends LitElement {
   declare boatId: string;
   /** im Formular gewählte Gruppen; null = noch nicht angefasst → Gruppen des Boots */
   declare groupIds: string[] | null;
+  /** gespeicherter Törn: vorläufige Auswahl bis zur Antwort des Servers (null = Stand des Törns) */
+  declare savedGroupIds: string[] | null;
   declare image: ImageState | null;
   /** Stufen des Unterstützen-Sliders; null = Unterstützen nicht eingerichtet */
   declare supportTiers: SupportTier[] | null;
@@ -125,6 +128,7 @@ export class SxShareDialog extends LitElement {
     this.groupChoices = [];
     this.boatId = '';
     this.groupIds = null;
+    this.savedGroupIds = null;
     this.image = null;
     this.supportTiers = null;
     this.checkoutBusy = false;
@@ -309,6 +313,11 @@ export class SxShareDialog extends LitElement {
     `,
   ];
 
+  willUpdate(changed: PropertyValues<this>) {
+    // Neuer Stand vom Server (Antwort oder Zurücksetzen nach einem Fehler): vorläufige Auswahl verwerfen
+    if (changed.has('result')) this.savedGroupIds = null;
+  }
+
   updated(changed: PropertyValues<this>) {
     const dlg = this.renderRoot.querySelector('dialog')!;
     if (changed.has('open')) {
@@ -396,11 +405,15 @@ export class SxShareDialog extends LitElement {
   private savedGroups(r: ShareResult) {
     if (!r.share.isOwner || !r.share.groupIds || !this.groupChoices.length) return '';
     return html`<sx-share-groups
-      .groups=${this.groupChoices}
-      .selected=${r.share.groupIds}
-      ?disabled=${this.busy}
-      @sx-share-groups-change=${(e: CustomEvent<{ groupIds: string[] }>) => emit(this, 'sx-share-update', { id: r.share.id, patch: { groupIds: e.detail.groupIds } })}
-    ></sx-share-groups>`;
+        .groups=${this.groupChoices}
+        .selected=${this.savedGroupIds ?? r.share.groupIds}
+        @sx-share-groups-change=${(e: CustomEvent<{ groupIds: string[] }>) => {
+          this.savedGroupIds = e.detail.groupIds;
+          emit(this, 'sx-share-groups-save', { id: r.share.id, groupIds: e.detail.groupIds });
+        }}
+      ></sx-share-groups>
+      ${this.busy ? html`<div class="hint" role="status">Speichere …</div>` : ''}
+      ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}`;
   }
 
   private async copy() {

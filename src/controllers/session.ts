@@ -974,14 +974,54 @@ export class SessionController {
   updateShare(id: string, patch: SharePatch) {
     return this.act(async () => {
       const { share } = await api.updateShare(id, patch);
-      this.ui.account.shares = this.ui.account.shares.map((s) => (s.id === id ? share : s));
-      const mode = this.store.get().mode;
-      if (mode.kind === 'share' && mode.share.id === id) this.store.set({ mode: { ...mode, share } });
-      if (this.lastShare?.share.id === id) this.lastShare.share = share;
-      // Teilen-Dialog zeigt denselben Törn (z. B. „In Gruppen zeigen“ geändert, F-375)
-      const r = this.ui.share.result;
-      if (r?.share.id === id) this.ui.share.result = { ...r, share };
-    }, patch.rotateKey ? ROTATED : patch.groupIds ? 'Gruppen gespeichert' : undefined);
+      this.applyShare(id, share);
+    }, patch.rotateKey ? ROTATED : undefined);
+  }
+
+  /** Geänderten Törn überall übernehmen: Konto-Liste, geöffneter Törn, zuletzt geteilter. */
+  private applyShare(id: string, share: ShareMeta) {
+    this.ui.account.shares = this.ui.account.shares.map((s) => (s.id === id ? share : s));
+    const mode = this.store.get().mode;
+    if (mode.kind === 'share' && mode.share.id === id) this.store.set({ mode: { ...mode, share } });
+    if (this.lastShare?.share.id === id) this.lastShare.share = share;
+  }
+
+  private groupsSeq = 0;
+  private groupsChain: Promise<void> = Promise.resolve();
+  /** zuletzt vom Server bestätigter Stand (für das Zurücksetzen nach einem Fehler) */
+  private groupsShare: ShareMeta | null = null;
+
+  /**
+   * „In Gruppen zeigen“ am gespeicherten Törn (F-375, F-378): der Dialog zeigt die Auswahl sofort (optimistisch) und
+   * schickt jede Änderung als ganze Liste. Die Anfragen laufen nacheinander, damit die letzte Auswahl gewinnt; den
+   * Dialog-Stand übernimmt erst die Antwort auf die letzte Änderung. Ein Fehler setzt den Dialog auf den Server-Stand
+   * zurück und erscheint im Dialog.
+   */
+  saveShareGroups(id: string, groupIds: string[]): Promise<void> {
+    const seq = ++this.groupsSeq;
+    Object.assign(this.ui.share, { busy: true, error: '' });
+    this.groupsChain = this.groupsChain.then(async () => {
+      try {
+        const { share } = await api.updateShare(id, { groupIds });
+        this.groupsShare = share;
+        this.applyShare(id, share);
+        if (seq === this.groupsSeq) this.setShareResult(id, share);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) this.store.set({ user: null });
+        this.ui.share.error = errorText(e);
+        const r = this.ui.share.result;
+        if (r?.share.id === id) this.setShareResult(id, this.groupsShare?.id === id ? this.groupsShare : r.share);
+      } finally {
+        if (seq === this.groupsSeq) this.ui.share.busy = false;
+      }
+    });
+    return this.groupsChain;
+  }
+
+  /** Teilen-Dialog auf den Stand eines Törns setzen (neues Objekt – der Dialog verwirft seine vorläufige Auswahl). */
+  private setShareResult(id: string, share: ShareMeta) {
+    const r = this.ui.share.result;
+    if (r?.share.id === id) this.ui.share.result = { ...r, share };
   }
 
   deleteShare(id: string) {

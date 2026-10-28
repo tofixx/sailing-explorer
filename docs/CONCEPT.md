@@ -1152,11 +1152,17 @@ verwirrend.“ Gewählt: **beim Teilen auswählen** (F-373 … F-378).
   oder zählt erneut). Ein Bootswechsel ändert die Auswahl nicht. Zeilen ausgeblendeter oder gesperrter Gruppen bleiben
   beim Ersetzen stehen (nicht wählbar, Sperre umkehrbar). Meilensteine werden nur beim Veröffentlichen geprüft, nicht
   beim späteren Ändern der Auswahl.
+  Im Dialog gilt die Auswahl sofort (optimistisch); die Änderungen gehen nacheinander als ganze Liste an den Server,
+  ein Fehler setzt auf den Server-Stand zurück und erscheint im Dialog. Gecachte öffentliche Gruppen-Streams (60 s)
+  und RSS-Feeds (600 s) folgen mit dieser Verzögerung. In „Konto → Freigaben“ nennt die Sichtbarkeit, in welchen
+  Gruppen der Törn (öffentlich) erscheint.
 - **Daten:** `share_groups (share_id, group_id, created_at)` (`0028_share_groups.sql`). Invariante: die Eigentümer:in
   ist Mitglied der Gruppe.
 - **Bestand (Migration):** jeder Törn bekommt die Gruppen seines Boots, in denen die Eigentümer:in Mitglied ist – nicht
   mehr alle Gruppen der Segler:in. Auch nicht öffentliche Törns, damit ein späteres Veröffentlichen sie wie bisher in
-  den Boots-Gruppen zeigt. Gruppen-Ziele bestehender Törn- und Foto-Aktivitäten werden darauf angeglichen.
+  den Boots-Gruppen zeigt. Gruppen-Ziele bestehender Törn- und Foto-Aktivitäten werden darauf angeglichen. Anders als
+  die Vorauswahl beim Anlegen übernimmt die Migration auch ausgeblendete und gesperrte Gruppen (Bestand bleibt
+  erhalten, gelesen wird ohnehin nur Sichtbares).
 - **Löschen:** Törn gelöscht oder abgelaufen, Gruppe gelöscht, Konto gelöscht (auch inaktiv entfernt) → Zeilen weg.
   **Austreten bzw. Entfernen** nimmt die eigenen Törns aus der Gruppe (Zeilen und Stream-Ziele) – ein Wiedereintritt
   stellt sie nicht wieder her. Konten zusammenführen: die Zeilen hängen am Törn und wandern mit, die Mitgliedschaft

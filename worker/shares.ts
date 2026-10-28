@@ -10,7 +10,7 @@ import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuota
 import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, subtractShareStmt } from './storage';
 import { deleteShareNotifications } from './notification-cleanup';
 import { deleteShareActivity, deleteShareGroups, recordVoyage } from './activity';
-import { checkGroupIds, presetShareGroupsStmt, replaceShareGroups, selectedGroupIds } from './share-groups';
+import { checkGroupIds, insertShareGroupsStmt, presetShareGroupsStmt, replaceShareGroups, selectedGroupIds, selectedGroupsOf } from './share-groups';
 import { deleteShareReactions } from './reaction-cleanup';
 import { quotaVerdict } from '../src/domain/limits';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseCommentsMode, parseVisibility } from './validate';
@@ -257,7 +257,7 @@ export async function createShare(request: Request, env: Env): Promise<Response>
       row.visibility === 'public' ? 1 : 0, row.dist_nm, row.started_at,
     ),
     addStorageStmt(env, row.size_bytes),
-    ...(groupIds ? replaceShareGroups(env, row.id, user.id, groupIds, now) : boatId ? [presetShareGroupsStmt(env, row.id, user.id, boatId, now)] : []),
+    ...(groupIds ? [insertShareGroupsStmt(env, row.id, groupIds, now)] : boatId ? [presetShareGroupsStmt(env, row.id, user.id, boatId, now)] : []),
   ]).catch(async (err: unknown) => {
     // nur aufräumen, wenn die Zeile wirklich fehlt (ein Timeout kann trotz Schreiben einen Fehler melden)
     if (!(await env.DB.prepare('SELECT 1 AS x FROM shares WHERE id = ?').bind(row.id).first())) await deleteKeys(env, [shareKey(row.id)]);
@@ -273,7 +273,9 @@ export async function createShare(request: Request, env: Env): Promise<Response>
 export async function listShares(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const { results } = await env.DB.prepare(`${SHARE_SELECT} WHERE s.user_id = ? AND s.locked_at IS NULL ORDER BY s.created_at DESC`).bind(user.id).all<ShareRow>();
-  return json({ shares: results.map((r) => shareShape(r, true)) });
+  // je Törn die Auswahl „In Gruppen zeigen“ (F-375) – für den Hinweis beim Umstellen auf öffentlich
+  const groups = await selectedGroupsOf(env, user.id);
+  return json({ shares: results.map((r) => ({ ...shareShape(r, true), groupIds: groups.get(r.id) ?? [] })) });
 }
 
 /**
