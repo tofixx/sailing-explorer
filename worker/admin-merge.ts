@@ -30,6 +30,9 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
     env.DB.prepare('UPDATE boats SET harbor_id = ?1, home_port = ?2 WHERE harbor_id = ?3').bind(dst.id, dst.name, src.id),
     env.DB.prepare('UPDATE groups SET harbor_id = ?1, home_port = ?2 WHERE harbor_id = ?3').bind(dst.id, dst.name, src.id),
     env.DB.prepare('UPDATE users SET home_harbor_id = ? WHERE home_harbor_id = ?').bind(dst.id, src.id),
+    // Fahrtenbuch: Start- und Zielhafen der Törns (Konzept 19)
+    env.DB.prepare('UPDATE shares SET from_harbor_id = ?1 WHERE from_harbor_id = ?2').bind(dst.id, src.id),
+    env.DB.prepare('UPDATE shares SET to_harbor_id = ?1 WHERE to_harbor_id = ?2').bind(dst.id, src.id),
     // Folgen: wer beiden folgt, folgt danach einmal
     env.DB.prepare(
       `INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at)

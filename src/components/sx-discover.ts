@@ -4,7 +4,8 @@ import { shareImageUrl, type CoverRef, type DiscoverBoat, type DiscoverData, typ
 import { GROUP_KIND_LABEL } from '../domain/groups';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { base } from './shared';
+import { base, logbookTag } from './shared';
+import { recordedNote } from '../domain/logbook';
 
 /**
  * Entdecken: zuletzt gesegelte Törns, Boote und Segler (F-70 ff.).
@@ -364,11 +365,11 @@ export class SxDiscover extends LitElement {
   private voyage(v: DiscoverVoyage) {
     return html`<article class="voyage">
       <div class="thumb">
-        ${v.hasImage ? html`<img src=${shareImageUrl(v.id)} alt="" loading="lazy" decoding="async" />` : icon('map')}
+        ${v.hasImage ? html`<img src=${shareImageUrl(v.id)} alt="" loading="lazy" decoding="async" />` : icon(v.logbook ? 'book' : 'map')}
       </div>
       <div class="info">
         <a class="main" href="/s/${v.id}" title=${v.title}>${v.title}</a>
-        <span class="meta">${fmtNum(v.distNm, 1)} sm · ${fmtDate(v.startedAt ?? v.createdAt)}</span>
+        <span class="meta">${fmtNum(v.distNm, 1)} sm · ${fmtDate(v.startedAt ?? v.createdAt)}${v.logbook ? html` ${logbookTag()}` : ''}</span>
         <div class="chips">
           ${v.sailor
             ? html`<a class="chip" href="/u/${v.sailor.handle}" title="Profil von ${v.sailor.displayName}">${icon('user')}${v.sailor.displayName}</a>`
@@ -392,7 +393,7 @@ export class SxDiscover extends LitElement {
       <span class="txt">
         <span class="t">${b.name}</span>
         ${facts ? html`<span class="meta">${facts}</span>` : ''}
-        <span class="meta">${plural(b.stats.voyages, 'Törn', 'Törns')} · ${fmtNum(b.stats.distNm, 0)} sm</span>
+        <span class="meta">${plural(b.stats.voyages, 'Törn', 'Törns')} · ${fmtNum(b.stats.distNm, 0)} sm${b.stats.recordedNm !== undefined && recordedNote(b.stats.distNm, b.stats.recordedNm) ? ` (${recordedNote(b.stats.distNm, b.stats.recordedNm)})` : ''}</span>
         <span class="meta">Eigner: ${b.owner.displayName}</span>
       </span>
     </a>`;
@@ -405,7 +406,7 @@ export class SxDiscover extends LitElement {
       <span class="txt">
         <span class="t">${p.displayName}</span>
         ${p.bio ? html`<span class="bio">${p.bio}</span>` : ''}
-        <span class="meta">${plural(p.stats.voyages, 'Törn', 'Törns')} · ${fmtNum(p.stats.distNm, 0)} sm${p.stats.boats ? ` · ${plural(p.stats.boats, 'Boot', 'Boote')}` : ''}</span>
+        <span class="meta">${plural(p.stats.voyages, 'Törn', 'Törns')} · ${fmtNum(p.stats.distNm, 0)} sm${p.stats.recordedNm !== undefined && recordedNote(p.stats.distNm, p.stats.recordedNm) ? ` (${recordedNote(p.stats.distNm, p.stats.recordedNm)})` : ''}${p.stats.boats ? ` · ${plural(p.stats.boats, 'Boot', 'Boote')}` : ''}</span>
       </span>
     </a>`;
   }

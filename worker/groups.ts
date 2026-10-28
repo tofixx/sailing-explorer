@@ -1,6 +1,7 @@
 // Vereine und Teams (Konzept 11.1, F-150 … F-157): anlegen, Rollen, Sichtbarkeit, Beitrittsanfragen, Boote,
 // Gruppenseite. Einladungen laufen über worker/invites.ts, Beiträge über worker/posts.ts, Neuigkeiten über stream.ts.
 import type { Env } from './env';
+import { RECORDED_NM_SQL } from './logbook-sql';
 import { currentUser, requireUser, type User } from './auth';
 import { roleFor } from './boats';
 import { randomId } from './crypto';
@@ -376,13 +377,13 @@ async function groupStats(env: Env, groupId: string, now = Date.now()) {
   const row = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM group_members WHERE group_id = ?1) AS members,
        (SELECT COUNT(*) FROM group_boats gb JOIN boats b ON b.id = gb.boat_id WHERE gb.group_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats,
-       COUNT(s.id) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist,
+       COUNT(s.id) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec,
        COALESCE(SUM(CASE WHEN COALESCE(s.started_at, s.created_at) >= ?2 THEN s.dist_nm END), 0) AS season
      FROM shares s WHERE ${PUBLIC_SHARE} AND ${GROUP_SHARES}`,
   )
     .bind(groupId, yearStart)
-    .first<{ members: number; boats: number; voyages: number; dist: number; season: number }>();
-  return { members: row?.members ?? 0, boats: row?.boats ?? 0, voyages: row?.voyages ?? 0, distNm: row?.dist ?? 0, seasonNm: row?.season ?? 0 };
+    .first<{ members: number; boats: number; voyages: number; dist: number; rec: number; season: number }>();
+  return { members: row?.members ?? 0, boats: row?.boats ?? 0, voyages: row?.voyages ?? 0, distNm: row?.dist ?? 0, recordedNm: row?.rec ?? 0, seasonNm: row?.season ?? 0 };
 }
 
 interface MemberRow {

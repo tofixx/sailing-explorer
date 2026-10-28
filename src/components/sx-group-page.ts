@@ -11,6 +11,7 @@ import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
+import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-stream';
@@ -473,7 +474,7 @@ export class SxGroupPage extends LitElement {
       <div class="stat"><div class="eyebrow">Mitglieder</div><div class="v">${s.members}</div></div>
       <div class="stat"><div class="eyebrow">Boote</div><div class="v">${s.boats}</div></div>
       <div class="stat"><div class="eyebrow">Törns</div><div class="v">${s.voyages}</div></div>
-      <div class="stat"><div class="eyebrow">Seemeilen</div><div class="v">${fmtNum(s.distNm, 0)}<small>sm</small></div></div>
+      <div class="stat"><div class="eyebrow">Seemeilen</div><div class="v">${fmtNum(s.distNm, 0)}<small>sm</small></div>${s.recordedNm !== undefined && recordedNote(s.distNm, s.recordedNm) ? html`<div class="hint">${recordedNote(s.distNm, s.recordedNm)}</div>` : ''}</div>
       <div class="stat"><div class="eyebrow">Saison ${new Date().getFullYear()}</div><div class="v">${fmtNum(s.seasonNm, 0)}<small>sm</small></div></div>
     </div>`;
   }

@@ -199,7 +199,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
         title: '9. Wie lange wir Daten speichern',
         blocks: [
           ul(
-            'Törns samt Fotos: bis zum 1. Februar nach ihrer Saison (Kalenderjahr; ab November Hochgeladenes zählt zur nächsten Saison). Mit Unterstützung: bis zum 1. Februar nach der letzten unterstützten Saison. Im Dezember und 14 Tage vor dem Löschen erinnern wir per Mail.',
+            'Törns samt Fotos: bis zum 1. Februar nach ihrer Saison (Kalenderjahr; ab November Hochgeladenes zählt zur nächsten Saison). Mit Unterstützung: bis zum 1. Februar nach der letzten unterstützten Saison. Fahrtenbuch-Einträge ohne GPX-Datei (Häfen, Strecke, Angaben wie Wind, Liegeplatz und Notizen) bleiben eine Saison länger. Im Dezember und 14 Tage vor dem Löschen erinnern wir per Mail.',
             'Titelbilder von Profil, Boot, Verein oder Team: solange es das jeweilige Profil, Boot bzw. die Gruppe gibt; ein ersetztes Bild löschen wir sofort.',
             'Passkeys (öffentlicher Schlüssel, Gerätename, letzte Nutzung): bis du sie entfernst oder dein Konto löschst.',
             'Konten ohne Törns, die 12 Monate nicht angemeldet waren (und keine laufende Unterstützung haben), löschen wir automatisch.',

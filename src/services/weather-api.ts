@@ -43,6 +43,10 @@ export function storedWeatherStatus(tracks: Track[], data: WeatherData): Status 
 /** Lädt stündlichen Wind (Forecast, sonst Archiv) und Seegang (Marine) von Open-Meteo. */
 export async function loadWeather(tracks: Track[]): Promise<{ data: WeatherData | null; status: Status }> {
   const b = bounds(tracks);
+  // Fahrtenbuch ohne GPX: Wetter entlang der geschätzten Route folgt in Phase 2 (Konzept 19.2.2)
+  if (tracks.length && tracks.every((t) => t.estimated)) {
+    return { data: null, status: { level: 'idle', text: 'Fahrtenbuch-Eintrag ohne GPS-Aufzeichnung – Wind und Wellen gibt es nur zu aufgezeichneten Tracks.' } };
+  }
   if (!b || b.tMin == null || b.tMax == null) {
     return { data: null, status: { level: 'warn', text: 'GPX ohne Zeitstempel – Wind und Wellen lassen sich nicht zuordnen. Die Speed-Auswertung funktioniert trotzdem.' } };
   }

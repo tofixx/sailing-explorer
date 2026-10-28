@@ -52,6 +52,14 @@ describe('computeTrackStats', () => {
     expect(pts[200].glitch).toBe(true);
   });
 
+  it('[F-04] Ausreißer zählen nicht zur Distanz (L8)', () => {
+    const pts = steady(400);
+    const clean = computeTrackStats(steady(400)).distNm;
+    pts[200] = P(pts[200].lat + 0.05, 13, pts[200].time); // ≈ 3 sm hin und zurück
+    const s = computeTrackStats(pts);
+    expect(s.distNm).toBeCloseTo(clean, 1);
+  });
+
   it('kommt ohne Zeitstempel aus', () => {
     const s = computeTrackStats([P(54, 13, null), P(54.1, 13, null)]);
     expect(s.hasTime).toBe(false);

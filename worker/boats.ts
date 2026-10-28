@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { RECORDED_NM_SQL } from './logbook-sql';
 import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
 import { HttpError, countKeyFailure, json, readJson } from './http';
@@ -77,11 +78,11 @@ export const BOAT_HARBOR_COLS = `(SELECT slug FROM harbors WHERE id = b.harbor_i
 
 async function stats(env: Env, boatId: string) {
   const s = await env.DB.prepare(
-    `SELECT COUNT(*) AS voyages, COALESCE(SUM(dist_nm), 0) AS dist FROM shares WHERE boat_id = ? AND visibility = 'public' AND hidden_at IS NULL`,
+    `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec FROM shares s WHERE s.boat_id = ? AND s.visibility = 'public' AND s.hidden_at IS NULL`,
   )
     .bind(boatId)
-    .first<{ voyages: number; dist: number }>();
-  return { voyages: s?.voyages ?? 0, distNm: s?.dist ?? 0 };
+    .first<{ voyages: number; dist: number; rec: number }>();
+  return { voyages: s?.voyages ?? 0, distNm: s?.dist ?? 0, recordedNm: s?.rec ?? 0 };
 }
 
 export function boatShape(b: BoatRow, role: Role) {

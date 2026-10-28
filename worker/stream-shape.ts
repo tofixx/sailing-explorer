@@ -24,6 +24,8 @@ export interface ActivityRow {
   s_image: number | null;
   s_vis: string | null;
   s_hidden: number | null;
+  /** gpx | manual (Fahrtenbuch, 0025) */
+  s_source?: string | null;
   b_id: string | null;
   b_name: string | null;
   b_vis: string | null;
@@ -57,6 +59,23 @@ export interface ActivityRow {
   cg_y?: number | null;
 }
 
+/** Sichtbarer Eintrag eines Fahrtenbuch-Bündels */
+export interface LogShare {
+  id: string;
+  title: string;
+  distNm: number;
+}
+
+/** Törn-IDs eines Fahrtenbuch-Bündels aus `data.ids` (Unbekanntes fällt weg). */
+export function logbookIds(data: string): string[] {
+  try {
+    const ids = (JSON.parse(data) as { ids?: unknown }).ids;
+    return Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 export interface Viewer {
   id: string | null;
 }
@@ -81,7 +100,7 @@ function groupVisible(r: ActivityRow): boolean {
  * Prüft eine Aktivität gegen den aktuellen Stand und formt den Eintrag – oder null (Konzept 11.3, Tabelle „Erscheint nur,
  * wenn …“). Rein, damit unit-testbar. `thumbs`: öffentliche Fotos des Törns (für `photos`).
  */
-export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = []): StreamItem | null {
+export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [], logShares: LogShare[] = []): StreamItem | null {
   if (!isActivityKind(r.kind)) return null;
   // Inhalte gesperrter oder gelöschter Konten verschwinden (Konzept 4.4).
   if (r.actor_id && (!r.actor_exists || r.actor_suspended)) return null;
@@ -101,7 +120,10 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [])
       // Nur jetzt öffentliche, nicht ausgeblendete Törns – privat geschaltet, ausgeblendet oder gelöscht: weg.
       if (!r.s_id || r.s_vis !== 'public' || r.s_hidden) return null;
       if (r.kind === 'photos' && !thumbs.length) return null;
-      const voyage = { id: r.s_id, title: r.s_title ?? '', distNm: r.s_dist ?? 0, startedAt: r.s_started, hasImage: !!r.s_image, boat: publicBoat(r) };
+      const voyage = {
+        id: r.s_id, title: r.s_title ?? '', distNm: r.s_dist ?? 0, startedAt: r.s_started, hasImage: !!r.s_image, boat: publicBoat(r),
+        ...(r.s_source === 'manual' ? { logbook: true } : {}),
+      };
       if (r.kind === 'voyage') return { ...base, voyage };
       const count = Math.max(1, Math.floor(Number(data.count) || 1));
       return { ...base, voyage, photos: { count, thumbs: thumbs.slice(0, 4) } };
@@ -134,6 +156,12 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [])
       }
       if (!group) return null;
       return withCover({ ...base, actor: null, group, milestone: { nm, year, subject: 'group', name: group.name, path: `/g/${group.slug}` } }, groupCover(r));
+    }
+    case 'logbook': {
+      // Nachträge (F-308): nur die jetzt öffentlichen Einträge des Bündels; keiner mehr da → weg.
+      if (!actor || !logShares.length) return null;
+      const distNm = logShares.reduce((s, x) => s + x.distNm, 0);
+      return { ...base, logbook: { count: logShares.length, distNm, voyages: logShares.slice(0, 5).map(({ id, title }) => ({ id, title })) } };
     }
     case 'harbor': {
       // Neues Boot im Hafen: nur öffentliches Boot und nicht ausgeblendeter Hafen.

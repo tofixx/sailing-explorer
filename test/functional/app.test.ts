@@ -1595,3 +1595,41 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(toasts()).toContain('Veröffentlicht');
   });
 });
+
+describe('Fahrtenbuch (Konzept 19)', () => {
+  it('[F-312] Gast: „Ins Fahrtenbuch eintragen“ fragt erst nach der Anmeldung, danach öffnet sich das Formular', async () => {
+    await startApp();
+    await vi.waitFor(() => expect(state().backend).toBe(true));
+    emit('sx-logbook-start');
+    const login = el<{ open: boolean; reason: string }>('sx-login-dialog');
+    const form = el<{ open: boolean; share: unknown }>('sx-logbook-form');
+    expect(login.open).toBe(true);
+    expect(login.reason).toMatch(/Fahrtenbuch/);
+    expect(form.open).toBeFalsy();
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    FakeChannel.all[0].receive('login');
+    await vi.waitFor(() => expect(form.open).toBe(true));
+    expect(form.share).toBeNull();
+  });
+
+  it('[F-302] Eintrag ohne GPX: gestrichelter Schätz-Track aus der Route, Distanz mit Herkunft, keine Speed-Werte, Panel mit Angaben', async () => {
+    const meta = {
+      id: 'LogShareId23456789', title: 'Potsdam → Werder', summary: '', visibility: 'public', view: '', isOwner: false, distNm: 14, startedAt: T0, endedAt: null,
+      source: 'manual', distSource: 'stated', from: { id: 'H1', slug: 'potsdam', name: 'Potsdam', lat: 52.39, lon: 13.06 },
+      to: { id: 'H2', slug: 'werder', name: 'Werder', lat: 52.38, lon: 12.94 }, log: { wind: { bft: 4, dir: 'W' } },
+    };
+    server.shares.set(meta.id, { meta, payload: { v: 1, tracks: [], route: [[52.39, 13.06], [52.38, 12.94]] } });
+    await startApp(`/s/${meta.id}`);
+    await settled();
+    const t = state().tracks;
+    expect(t).toHaveLength(1);
+    expect(t[0]).toMatchObject({ estimated: true, raw: '' });
+    expect(t[0].points.map((p) => [p.lat, p.lon])).toEqual([[52.39, 13.06], [52.38, 12.94]]);
+    const kpis = el<{ items: Array<{ key: string; value: string; note?: string }> }>('sx-kpis').items;
+    expect(kpis).toEqual([expect.objectContaining({ key: 'dist', value: '14,0', note: 'Angabe' })]);
+    // kein Wetter-Abruf für geschätzte Routen
+    expect(server.calls.some((c) => c.url.includes('open-meteo.com'))).toBe(false);
+    expect(el<{ share: { id: string } }>('sx-logbook-panel').share.id).toBe(meta.id);
+    expect(el<HTMLElement>('#logbook-panel').hidden).toBe(false);
+  });
+});

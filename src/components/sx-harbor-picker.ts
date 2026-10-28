@@ -23,7 +23,8 @@ export class SxHarborPicker extends LitElement {
     open: { state: true },
     active: { state: true },
   };
-  declare value: HarborRef | null;
+  /** Vorbelegung; im Fahrtenbuch mit Position */
+  declare value: (HarborRef & { lat?: number | null; lon?: number | null }) | null;
   declare results: HarborSearchHit[];
   declare label: string;
   declare inputId: string;
@@ -113,11 +114,21 @@ export class SxHarborPicker extends LitElement {
     return hit ? { harborId: hit.id } : { name: t };
   }
 
+  /** Position der aktuellen Wahl, soweit bekannt (Fahrtenbuch, L3) – bei einem neuen Namen null. */
+  get position(): { lat: number; lon: number } | null {
+    const c = this.choice;
+    if (!('harborId' in c) || !c.harborId) return null;
+    const known: Array<{ id: string; lat?: number | null; lon?: number | null }> = [...this.results, ...(this.value ? [this.value] : [])];
+    const h = known.find((r) => r.id === c.harborId);
+    return h && h.lat != null && h.lon != null ? { lat: h.lat, lon: h.lon } : null;
+  }
+
   private onInput(e: Event) {
     this.text = (e.target as HTMLInputElement).value;
     this.selected = null;
     this.active = -1;
     this.open = true;
+    emit(this, 'sx-harbor-change');
     if (this.timer) clearTimeout(this.timer);
     const query = this.text.trim();
     if (harborKey(query).length < HARBOR_LIMITS.queryMin) {
@@ -131,6 +142,7 @@ export class SxHarborPicker extends LitElement {
     this.selected = { id: h.id, slug: h.slug, name: h.name };
     this.text = h.name;
     this.open = false;
+    emit(this, 'sx-harbor-change');
   }
 
   private onKey(e: KeyboardEvent) {

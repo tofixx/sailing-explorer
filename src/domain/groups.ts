@@ -125,8 +125,8 @@ export const isFollowKind = oneOf(FOLLOW_KINDS);
 
 // ---------------------------------------------------------------- Neuigkeiten
 
-/** `harbor` = „Neues Boot im Hafen“ (Konzept 12.4). */
-export const ACTIVITY_KINDS = ['voyage', 'photos', 'member', 'boat', 'post', 'milestone', 'harbor'] as const;
+/** `harbor` = „Neues Boot im Hafen“ (Konzept 12.4), `logbook` = gebündelte Fahrtenbuch-Nachträge (Konzept 19, F-308). */
+export const ACTIVITY_KINDS = ['voyage', 'photos', 'member', 'boat', 'post', 'milestone', 'harbor', 'logbook'] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 export const isActivityKind = oneOf(ACTIVITY_KINDS);
 
@@ -173,7 +173,10 @@ export interface StreamItem {
   actor: { handle: string; displayName: string } | null;
   /** Gruppe als Kontext (Beitrag, Mitglied, Boot) */
   group: { slug: string; name: string; kind: GroupKind } | null;
-  voyage?: { id: string; title: string; distNm: number; startedAt: number | null; hasImage: boolean; boat: { id: string; name: string } | null };
+  /** `logbook`: Fahrtenbuch-Eintrag ohne GPX (Abzeichen, F-302) */
+  voyage?: { id: string; title: string; distNm: number; startedAt: number | null; hasImage: boolean; boat: { id: string; name: string } | null; logbook?: boolean };
+  /** gebündelte Nachträge (F-308): sichtbare Einträge (höchstens 5) und Anzahl/Summe aller sichtbaren */
+  logbook?: { count: number; distNm: number; voyages: Array<{ id: string; title: string }> };
   photos?: { count: number; thumbs: string[] };
   post?: { id: string; body: string; link: string | null; canDelete: boolean };
   boat?: { id: string; name: string };
@@ -205,7 +208,13 @@ const who = (i: StreamItem, fallback: string) => i.actor?.displayName || fallbac
 export function streamHeadline(i: StreamItem): string {
   switch (i.kind) {
     case 'voyage':
-      return `${who(i, 'Ein:e Segler:in')} hat einen Törn geteilt: ${i.voyage?.title ?? 'Törn'}`;
+      return i.voyage?.logbook
+        ? `${who(i, 'Ein:e Segler:in')} hat einen Törn ins Fahrtenbuch eingetragen: ${i.voyage.title}`
+        : `${who(i, 'Ein:e Segler:in')} hat einen Törn geteilt: ${i.voyage?.title ?? 'Törn'}`;
+    case 'logbook': {
+      const n = i.logbook?.count ?? 0;
+      return `${who(i, 'Ein:e Segler:in')} hat ${n === 1 ? 'einen Törn' : `${fmtNum(n, 0)} Törns`} ins Fahrtenbuch nachgetragen (${fmtNum(i.logbook?.distNm ?? 0, 0)} sm)`;
+    }
     case 'photos': {
       const n = i.photos?.count ?? 0;
       return `${who(i, 'Ein:e Segler:in')}: ${n === 1 ? '1 neues Foto' : `${fmtNum(n, 0)} neue Fotos`} zu ${i.voyage?.title ?? 'einem Törn'}`;
@@ -227,6 +236,7 @@ export function streamHeadline(i: StreamItem): string {
 export function streamPath(i: StreamItem): string {
   if (i.voyage) return `/s/${i.voyage.id}`;
   if (i.kind === 'milestone' && i.milestone) return i.milestone.path;
+  if (i.kind === 'logbook') return i.logbook?.voyages.length === 1 ? `/s/${i.logbook.voyages[0].id}` : i.actor ? `/u/${i.actor.handle}` : '/';
   if (i.kind === 'harbor' && i.boat) return `/b/${i.boat.id}`;
   if (i.group) return `/g/${i.group.slug}`;
   if (i.boat) return `/b/${i.boat.id}`;

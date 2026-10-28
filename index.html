@@ -34,6 +34,9 @@
         </main>
         <aside class="sidebar" aria-label="Auswertung">
           <sx-voyage-byline hidden></sx-voyage-byline>
+          <sx-panel heading="Fahrtenbuch" id="logbook-panel" hidden>
+            <sx-logbook-panel></sx-logbook-panel>
+          </sx-panel>
           <sx-panel heading="Bedingungen">
             <span slot="aside" id="conditions-ctx" class="num"></span>
             <sx-conditions></sx-conditions>
@@ -84,6 +87,7 @@
     <sx-account-dialog></sx-account-dialog>
     <sx-invite-dialog></sx-invite-dialog>
     <sx-report-dialog></sx-report-dialog>
+    <sx-logbook-form></sx-logbook-form>
     <sx-photo-lightbox></sx-photo-lightbox>
     <sx-photo-upload></sx-photo-upload>
     <sx-install-hint hidden></sx-install-hint>

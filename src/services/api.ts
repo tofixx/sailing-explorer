@@ -13,6 +13,7 @@ import type { MapStyleId } from '../domain/map-style';
 import type { VoyageRole } from '../domain/crew-roles';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 import type { NotificationItem, NotificationKind, NotifyPrefs } from '../domain/notifications';
+import type { DistSource, LatLon, Logbook, ShareSource } from '../domain/logbook';
 
 export type { Visibility };
 
@@ -52,6 +53,40 @@ export interface ShareMeta extends Linkable {
   sailor?: { handle: string; displayName: string } | null;
   /** nur in der Einzelansicht (F-228): Vereine/Teams, in denen der Törn erschienen ist und die der Betrachter sehen darf */
   groups?: Array<{ slug: string; name: string; kind: string }>;
+  // ---- Fahrtenbuch (Konzept 19); fehlt bei älteren Servern
+  source?: ShareSource;
+  distSource?: DistSource;
+  endedAt?: number | null;
+  from?: LogHarbor | null;
+  to?: LogHarbor | null;
+  log?: Logbook;
+}
+
+/** Start- bzw. Zielhafen eines Törns (ausgeblendete Häfen: null) */
+export interface LogHarbor {
+  id: string;
+  slug: string;
+  name: string;
+  lat: number | null;
+  lon: number | null;
+}
+
+/** Hafen-Eingabe im Fahrtenbuch: vorhandener oder neuer, jeweils optional mit Position (L3) */
+export type HarborInput = { harborId: string; lat?: number; lon?: number } | { name: string; lat?: number; lon?: number };
+
+/** POST /api/shares/manual (F-300) */
+export interface ManualShareInput {
+  title?: string;
+  startedAt: number;
+  endedAt?: number | null;
+  timed?: boolean;
+  fromHarbor: HarborInput;
+  toHarbor?: HarborInput | null;
+  distNm?: number | null;
+  boatId?: string | null;
+  visibility: Visibility;
+  ownerRole?: VoyageRole | null;
+  log?: Logbook;
 }
 
 /** Unterstützen-Konfiguration aus /api/config (null = auf diesem Server nicht eingerichtet). */
@@ -74,6 +109,9 @@ export interface SupportStatus {
   supporterUntil: number | null;
   sharesUsed: number;
   sharesFree: number;
+  /** Fahrtenbuch-Einträge der laufenden Saison und Grenze (L1); fehlt bei älteren Servern */
+  logEntriesUsed?: number;
+  logEntriesMax?: number;
   /** Grenze der aktuellen Stufe (kostenlos = sharesFree) */
   sharesMax: number;
   /** belegter Speicher (Tracks + Übersichtsbilder) und Obergrenze der aktuellen Stufe in Bytes */
@@ -254,6 +292,8 @@ export type ProfileInput = Pick<Profile, 'handle' | 'displayName' | 'bio' | 'vis
 export interface PageStats {
   voyages: number;
   distNm: number;
+  /** davon aufgezeichnet (F-303); fehlt bei älteren Servern */
+  recordedNm?: number;
 }
 
 /** Entdecken: nur öffentliche Inhalte (siehe worker/discover.ts). */
@@ -266,6 +306,8 @@ export interface DiscoverVoyage {
   createdAt: number;
   trackCount: number;
   hasImage: boolean;
+  /** Fahrtenbuch-Eintrag ohne GPX (Abzeichen) */
+  logbook?: boolean;
   boat: { id: string; name: string } | null;
   /** null: Profil nicht öffentlich – Autor:in erscheint ohne Link als „Segler:in“ */
   sailor: { handle: string; displayName: string } | null;
@@ -303,6 +345,14 @@ export type SharePatch = Partial<Pick<ShareMeta, 'title' | 'visibility' | 'view'
   boatId?: string | null;
   /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
   rotateKey?: boolean;
+  // Fahrtenbuch (F-301): Angaben und Häfen; Datum/Strecke nur bei Einträgen ohne GPX
+  log?: Logbook;
+  fromHarbor?: HarborInput | null;
+  toHarbor?: HarborInput | null;
+  startedAt?: number;
+  endedAt?: number | null;
+  timed?: boolean;
+  distNm?: number | null;
 };
 
 export interface SharePayload {
@@ -310,6 +360,8 @@ export interface SharePayload {
   tracks: Array<{ name: string; gpx: string }>;
   /** beim Teilen mitgespeicherte Wetterdaten (ältere Freigaben: fehlt) */
   weather?: WeatherData;
+  /** Fahrtenbuch-Eintrag ohne GPX: Route aus den Hafenpositionen (tracks ist dann leer) */
+  route?: LatLon[];
 }
 
 export class ApiError extends Error {
@@ -376,7 +428,7 @@ export const api = {
 
   createShare: (
     gz: Uint8Array<ArrayBuffer>,
-    meta: { title: string; summary: string; view: string; trackCount: number; visibility: Visibility; boatId: string | null; distNm: number; startedAt: number | null },
+    meta: { title: string; summary: string; view: string; trackCount: number; visibility: Visibility; boatId: string | null; distNm: number; startedAt: number | null; endedAt?: number | null },
   ) =>
     call<{ share: ShareMeta }>('/api/shares', {
       method: 'POST',
@@ -389,10 +441,14 @@ export const api = {
         'X-Share-Visibility': meta.visibility,
         'X-Share-Distance': meta.distNm.toFixed(2),
         ...(meta.startedAt ? { 'X-Share-Started': String(meta.startedAt) } : {}),
+        ...(meta.startedAt && meta.endedAt ? { 'X-Share-Ended': String(meta.endedAt) } : {}),
         ...(meta.boatId ? { 'X-Share-Boat': meta.boatId } : {}),
       },
       body: gz,
     }),
+
+  /** Fahrtenbuch-Eintrag ohne GPX (F-300) */
+  createManualShare: (input: ManualShareInput) => call<{ share: ShareMeta }>('/api/shares/manual', jsonInit('POST', input)),
 
   myProfile: () => call<{ profile: Profile; exists: boolean }>('/api/me/profile'),
   saveProfile: (p: ProfileInput) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),
@@ -449,7 +505,9 @@ export const api = {
 /** Fremde Daten: Struktur prüfen, bevor sie weiterverarbeitet werden. */
 export function validatePayload(input: unknown): SharePayload {
   const p = input as Partial<SharePayload> | null;
-  if (!p || p.v !== 1 || !Array.isArray(p.tracks) || p.tracks.length < 1 || p.tracks.length > 20) {
+  // Fahrtenbuch-Einträge haben keine Tracks, aber eine Route (1–50 Punkte)
+  const route = p ? parseRoute((p as { route?: unknown }).route) : null;
+  if (!p || p.v !== 1 || !Array.isArray(p.tracks) || p.tracks.length < (route ? 0 : 1) || p.tracks.length > 20) {
     throw new Error('Ungültiges Freigabe-Format');
   }
   for (const t of p.tracks) {
@@ -457,7 +515,14 @@ export function validatePayload(input: unknown): SharePayload {
   }
   // Ungültiges Wetter verwirft nur das Wetter, nicht die Freigabe – die App lädt dann selbst nach.
   const weather = p.weather === undefined ? null : parseWeatherData(p.weather);
-  return { v: 1, tracks: p.tracks as SharePayload['tracks'], ...(weather ? { weather } : {}) };
+  return { v: 1, tracks: p.tracks as SharePayload['tracks'], ...(weather ? { weather } : {}), ...(route ? { route } : {}) };
+}
+
+/** Route eines Fahrtenbuch-Eintrags: 1–50 gültige [lat, lon]-Paare, sonst null. */
+function parseRoute(input: unknown): LatLon[] | null {
+  if (!Array.isArray(input) || input.length < 1 || input.length > 50) return null;
+  const ok = input.every((p) => Array.isArray(p) && p.length === 2 && Math.abs(Number(p[0])) <= 90 && Math.abs(Number(p[1])) <= 180 && p.every((v) => typeof v === 'number' && Number.isFinite(v)));
+  return ok ? (input as LatLon[]) : null;
 }
 
 // ================================================================ Kommentare & Melden (Phase D)
@@ -730,7 +795,7 @@ export interface GroupPageData {
   group: GroupInfo;
   parent: GroupRef | null;
   teams: GroupRef[];
-  stats: { members: number; boats: number; voyages: number; distNm: number; seasonNm: number };
+  stats: { members: number; boats: number; voyages: number; distNm: number; recordedNm?: number; seasonNm: number };
   members: GroupMember[];
   others: number;
   boats: GroupBoat[];
@@ -867,6 +932,9 @@ export type StreamFilter = { kind: 'harbor' | 'club'; slug: string } | null;
 
 export interface HarborSearchHit extends HarborRef {
   boats: number;
+  /** Position (fehlt bei älteren Servern bzw. Häfen ohne Position) */
+  lat?: number | null;
+  lon?: number | null;
 }
 
 export interface HarborPageData {
@@ -874,7 +942,7 @@ export interface HarborPageData {
   club: GroupRef | null;
   /** Vereine und Teams mit diesem Heimathafen (Konzept 13.3) – fehlt bei älteren Servern */
   groups?: GroupRef[];
-  stats: { boats: number; voyages: number; distNm: number; seasonNm: number };
+  stats: { boats: number; voyages: number; distNm: number; recordedNm?: number; seasonNm: number };
   boats: Array<{ id: string; name: string; boatType: string; lengthM: number | null; owner: { handle: string; displayName: string } | null }>;
   voyages: ShareMeta[];
   social: FollowStats;

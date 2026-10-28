@@ -122,7 +122,9 @@ export class MapView {
       this.trackGroups.set(t, group);
       for (const p of pts) this.pointTrack.set(p, t);
       const trackColor = cssVar(this.el, t.color);
-      const values = range ? smoothedMetric(pts, metric) : null;
+      // Fahrtenbuch ohne GPX: gestrichelt in der Trackfarbe, nie nach Metrik eingefärbt (Konzept 19.2.1, F-302)
+      const dash = t.estimated ? `${weight * 2} ${weight * 2}` : undefined;
+      const values = range && !t.estimated ? smoothedMetric(pts, metric) : null;
       const colorAt = (i: number): string => {
         if (!range || !values) return trackColor;
         const a = values[i - 1];
@@ -134,25 +136,26 @@ export class MapView {
       };
 
       // Halo unter der Linie für Kontrast auf jeder Grundkarte
-      L.polyline(pts.map((p) => [p.lat, p.lon] as L.LatLngTuple), { color: halo, weight: weight + 3, opacity: 0.7, interactive: false }).addTo(group);
+      L.polyline(pts.map((p) => [p.lat, p.lon] as L.LatLngTuple), { color: halo, weight: weight + 3, opacity: 0.7, dashArray: dash, interactive: false }).addTo(group);
 
       let run: L.LatLngTuple[] = [[pts[0].lat, pts[0].lon]];
       let runColor = pts.length > 1 ? colorAt(1) : trackColor;
       for (let i = 1; i < pts.length; i++) {
         const c = colorAt(i);
         if (c !== runColor) {
-          L.polyline(run, { color: runColor, weight, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(group);
+          L.polyline(run, { color: runColor, weight, opacity: 1, lineCap: 'butt', lineJoin: 'round', dashArray: dash, interactive: false }).addTo(group);
           run = [run[run.length - 1]];
           runColor = c;
         }
         run.push([pts[i].lat, pts[i].lon]);
       }
-      L.polyline(run, { color: runColor, weight, opacity: 1, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(group);
+      L.polyline(run, { color: runColor, weight, opacity: 1, lineCap: 'butt', lineJoin: 'round', dashArray: dash, interactive: false }).addTo(group);
 
       const name = escapeHtml(t.name);
       const s = pts[0];
       const e = pts[pts.length - 1];
-      for (const [kind, p, label] of [['start', s, 'Start'], ['end', e, 'Ziel']] as const) {
+      const ends = t.estimated && pts.length === 1 ? ([['start', s, 'Rundtörn']] as const) : ([['start', s, 'Start'], ['end', e, 'Ziel']] as const);
+      for (const [kind, p, label] of ends) {
         const icon = L.divIcon({ className: 'sx-marker', html: endpointPin(kind, t.color), iconSize: [28, 36], iconAnchor: [14, 34], tooltipAnchor: [0, -30] });
         L.marker([p.lat, p.lon], { icon, keyboard: false, zIndexOffset: kind === 'end' ? 600 : 500 })
           .bindTooltip(`<b>${label}</b><br>${name}`, { className: 'sx-tip', direction: 'top' })
@@ -214,6 +217,8 @@ export class MapView {
       paddingTopLeft: [48, 48],
       paddingBottomRight: [48, 64],
       animate: false,
+      // Rundtörn im Fahrtenbuch: nur ein Hafen – nicht bis zur höchsten Stufe hineinzoomen
+      ...(latlngs.every((p) => p.lat === latlngs[0].lat && p.lon === latlngs[0].lon) ? { maxZoom: 13 } : {}),
     });
   }
 

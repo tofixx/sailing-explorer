@@ -4,7 +4,7 @@ import { linkify } from '../domain/comment-text';
 import { GROUP_KIND_LABEL, streamHeadline } from '../domain/groups';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
-import { base, emit } from './shared';
+import { base, emit, logbookTag } from './shared';
 import './sx-reactions';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
@@ -15,6 +15,7 @@ const KIND_ICON: Record<StreamItem['kind'], IconName> = {
   post: 'comment',
   milestone: 'pennant',
   harbor: 'anchor',
+  logbook: 'book',
 };
 
 /**
@@ -198,10 +199,10 @@ export class SxStream extends LitElement {
         const facts = [`${fmtNum(v.distNm, 1)} sm`, fmtDate(v.startedAt ?? i.createdAt)];
         return html`<div class="head">
             ${this.who(i)}
-            <span class="what">${i.kind === 'voyage' ? 'hat einen Törn geteilt:' : `${i.photos!.count === 1 ? '1 neues Foto' : `${i.photos!.count} neue Fotos`} zu`}
+            <span class="what">${i.kind === 'voyage' ? (v.logbook ? 'hat einen Törn ins Fahrtenbuch eingetragen:' : 'hat einen Törn geteilt:') : `${i.photos!.count === 1 ? '1 neues Foto' : `${i.photos!.count} neue Fotos`} zu`}
               <a href="/s/${v.id}">${v.title}</a></span>
           </div>
-          <div class="ctx">${facts.join(' · ')}${v.boat ? html` · ${icon('sail')} <a href="/b/${v.boat.id}">${v.boat.name}</a>` : ''}</div>
+          <div class="ctx">${facts.join(' · ')}${v.boat ? html` · ${icon('sail')} <a href="/b/${v.boat.id}">${v.boat.name}</a>` : ''}${v.logbook ? html` ${logbookTag()}` : ''}</div>
           ${i.kind === 'photos'
             ? html`<div class="thumbs">${i.photos!.thumbs.map((id) => html`<a href="/s/${v.id}?foto=${id}"><img src=${photoImageUrl(id, 't')} alt="" loading="lazy" decoding="async" /></a>`)}</div>`
             : v.hasImage
@@ -219,6 +220,16 @@ export class SxStream extends LitElement {
           </div>
           <p class="body">${this.text(p.body)}</p>
           ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}`;
+      }
+      case 'logbook': {
+        // gebündelte Nachträge (F-308): bis zu fünf Einträge verlinkt
+        const l = i.logbook!;
+        return html`<div class="head">
+            ${this.who(i)}
+            <span class="what">hat ${l.count === 1 ? 'einen Törn' : `${l.count} Törns`} ins Fahrtenbuch nachgetragen</span>
+          </div>
+          <div class="ctx">${fmtNum(l.distNm, 0)} sm · ${l.voyages.map((v, n) => html`${n ? ', ' : ''}<a href="/s/${v.id}">${v.title}</a>`)}${l.count > l.voyages.length ? ' …' : ''}
+            ${logbookTag()}</div>`;
       }
       case 'member':
         return html`<div class="head">${i.actor ? this.who(i) : html`<span>Ein neues Mitglied</span>`} <span class="what">ist beigetreten</span> ${this.groupLink(i)}</div>`;

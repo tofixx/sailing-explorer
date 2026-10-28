@@ -74,6 +74,10 @@ export class SxKpis extends LitElement {
         font-variant-numeric: tabular-nums;
         line-height: 1.3;
       }
+      .note {
+        font-size: var(--fs-xs);
+        color: var(--text-3);
+      }
       .val small {
         font-size: var(--fs-s);
         font-weight: 600;
@@ -88,7 +92,7 @@ export class SxKpis extends LitElement {
       ${this.items.map((k) => {
         const tone = k.colorVar ? `--tone: var(${k.colorVar})` : '';
         const body = html`<div class="lbl"><i></i>${k.label}${k.point ? icon('map') : ''}</div>
-          <div class="val">${k.value}<small>${k.unit}</small></div>`;
+          <div class="val">${k.value}<small>${k.unit}</small></div>${k.note ? html`<div class="note">${k.note}</div>` : ''}`;
         if (!k.point) return html`<div class="kpi" style=${tone}>${body}</div>`;
         const show = () => emit(this, 'sx-kpi-hover', k.point);
         const hide = () => emit(this, 'sx-kpi-hover', null);

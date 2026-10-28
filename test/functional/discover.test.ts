@@ -186,8 +186,8 @@ describe('F-72 Entdecken: Boote und Segler', () => {
     expect(handles).not.toContain(empty.handle);
     expect(handles).not.toContain(onlyLinks.handle);
     expect(handles).not.toContain(priv.handle);
-    expect(d.people.find((p) => p.handle === withVoyage.handle)?.stats).toEqual({ voyages: 1, distNm: 5, boats: 0 });
-    expect(d.people.find((p) => p.handle === withBoat.handle)?.stats).toEqual({ voyages: 0, distNm: 0, boats: 1 });
+    expect(d.people.find((p) => p.handle === withVoyage.handle)?.stats).toEqual({ voyages: 1, distNm: 5, recordedNm: 5, boats: 0 });
+    expect(d.people.find((p) => p.handle === withBoat.handle)?.stats).toEqual({ voyages: 0, distNm: 0, recordedNm: 0, boats: 1 });
   });
 });
 

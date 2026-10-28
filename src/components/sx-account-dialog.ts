@@ -11,7 +11,7 @@ import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
 import { CHANNELS, CHANNEL_LABEL, CHOOSABLE, CHOOSABLE_LABEL, DEFAULT_CHANNELS, MANDATORY_HINT, type Channel } from '../domain/notifications';
-import { base, dialogStyles, emit, inviteTarget, pendingLabel } from './shared';
+import { base, dialogStyles, emit, inviteTarget, pendingLabel, logbookTag } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
 import './sx-admin-reports';
@@ -866,7 +866,7 @@ export class SxAccountDialog extends LitElement {
     const open = this.expanded === s.id;
     return html`<li>
       <div class="meta">
-        <div class="title" title=${s.title}>${s.title}</div>
+        <div class="title" title=${s.title}>${s.title}${s.source === 'manual' ? html` ${logbookTag()}` : ''}</div>
         <div class="sub">
           ${s.summary || plural(s.trackCount, 'Track', 'Tracks')} · ${fmtDate(s.createdAt)}
           ${this.expiry(s)}
@@ -916,12 +916,20 @@ export class SxAccountDialog extends LitElement {
       return html`<div class="status on">
         <div class="quota">${icon('pennant')} <b>Unterstützer bis ${st.supporterUntil ? fmtDate(st.supporterUntil) : '–'}</b></div>
         <div class="quota usage">${icon('folder')} ${usageText(st)}</div>
+        ${this.logQuota(st)}
       </div>`;
     }
     return html`<div class="status">
       ${st.supporterUntil ? html`<div class="quota">${icon('pennant')} Unterstützung abgelaufen am ${fmtDate(st.supporterUntil)}</div>` : ''}
       <div class="quota usage">${icon('info')} Kostenlos: ${usageText(st)}</div>
+      ${this.logQuota(st)}
     </div>`;
+  }
+
+  /** Fahrtenbuch-Einträge der laufenden Saison (L1) – eigenes Kontingent neben den Törns. */
+  private logQuota(st: SupportStatus) {
+    if (st.logEntriesUsed === undefined || !st.logEntriesMax) return '';
+    return html`<div class="quota usage">${icon('book')} ${st.logEntriesUsed} von ${st.logEntriesMax} Fahrtenbuch-Einträgen in dieser Saison</div>`;
   }
 
   private sharesTab() {
@@ -929,7 +937,7 @@ export class SxAccountDialog extends LitElement {
       ${this.supportSummary()}
       ${this.shares.length
         ? html`<ul>${this.shares.map((s) => this.shareRow(s))}</ul>`
-        : html`<div class="empty">Noch nichts geteilt. Lade einen Track und klicke auf „Teilen“.</div>`}
+        : html`<div class="empty">Noch nichts geteilt. Lade einen Track und klicke auf „Teilen“ – oder trag einen Törn ohne GPX ins Fahrtenbuch ein.</div>`}
       <sx-support variant="offer" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy}></sx-support>
     `;
   }

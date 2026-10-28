@@ -306,9 +306,10 @@ describe('F-43 Eigentum und Boot-Zuordnung', () => {
     const t = Date.parse('2026-06-13T10:00:00Z');
     const ok = await newShare(s.cookie, { distNm: 28.4, startedAt: t });
     expect(ok).toMatchObject({ distNm: 28.4, startedAt: t });
-    const res = await createShare(h, s.cookie, { headers: { 'X-Share-Distance': '1e12', 'X-Share-Started': String(Date.now() + 10 * 86_400_000) } });
+    // unplausible Distanz: abgelehnt (F-311); Start in der Zukunft: verworfen
+    expect((await createShare(h, s.cookie, { headers: { 'X-Share-Distance': '1e12' } })).status).toBe(400);
+    const res = await createShare(h, s.cookie, { headers: { 'X-Share-Distance': '12', 'X-Share-Started': String(Date.now() + 10 * 86_400_000) } });
     const bad = (await getJson<{ share: Share }>(res)).share;
-    expect(bad.distNm).toBeLessThanOrEqual(100_000);
     expect(bad.startedAt).toBeNull();
     const neg = (await getJson<{ share: Share }>(await createShare(h, s.cookie, { headers: { 'X-Share-Distance': '-5' } }))).share;
     expect(neg.distNm).toBe(0);
@@ -385,7 +386,7 @@ describe('F-45 Profil- und Bootsseiten', () => {
     expect(res.status).toBe(200);
     const p = await getJson<{ profile: Record<string, unknown>; stats: { voyages: number; distNm: number }; boats: Boat[]; voyages: Share[] }>(res);
     expect(p.profile).toMatchObject({ handle: s.handle, displayName: 'Käpt’n Test', bio: 'Ostsee', visibility: 'public', isSelf: false });
-    expect(p.stats).toEqual({ voyages: 2, distNm: 30.5 });
+    expect(p.stats).toEqual({ voyages: 2, distNm: 30.5, recordedNm: 30.5 });
     expect(p.voyages).toHaveLength(2);
     expect(p.voyages.every((v) => v.isOwner === false)).toBe(true);
     expect(p.boats.map((b) => b.name)).toEqual(['Alpha']);
@@ -414,7 +415,7 @@ describe('F-45 Profil- und Bootsseiten', () => {
     await newShare(admin.cookie, { listed: true, boatId: b.id, distNm: 8 });
     await newShare(owner.cookie, { listed: false, boatId: b.id, distNm: 99 });
     const r = await getJson<{ boat: Boat; stats: { voyages: number; distNm: number }; voyages: Share[] }>(await h.fetch(`/api/boats/${b.id}`));
-    expect(r.stats).toEqual({ voyages: 2, distNm: 20 });
+    expect(r.stats).toEqual({ voyages: 2, distNm: 20, recordedNm: 20 });
     expect(r.voyages).toHaveLength(2);
     expect(r.boat.role).toBeNull();
   });

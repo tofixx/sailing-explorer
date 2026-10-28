@@ -1968,3 +1968,334 @@ Umsetzung: `migrations/0022_crew_roles.sql`, `src/domain/crew-roles.ts`, `worker
 Noch offen (eigene Schritte): Stammcrew-Schalter, Titel, Boot-Beiträge und „Törns zuordnen“ (F-270 … F-274, brauchen
 `boat_admins.role` aus ROLLEN.md Schritt 1); Meilennachweis-Export und „In mein Fahrtenbuch übernehmen“ (F-277, F-278,
 mit dem Fahrtenbuch); Ausnahme M1 (Eckdaten nicht öffentlicher Törns im eigenen Nachweis) kommt mit dem Export.
+
+## 19. Fahrtenbuch – Törns ohne GPX-Datei
+
+Ziel: Törns auch **ohne GPX** anlegen – mit Angaben wie in einem Fahrtenbuch –, ehrlich als „nicht aufgezeichnet“
+gekennzeichnet, und dasselbe Fahrtenbuch-Feldset auch für GPX-Törns. Anforderungen F-300 … F-315 (F-2xx sind auf anderen Branches vergeben);
+die endgültigen Texte stehen in `docs/REQUIREMENTS.md`.
+
+**Umsetzungsstand (Branch `feature/fahrtenbuch`):** Phase 1 umgesetzt – Migration `0025_logbook.sql`, `src/domain/logbook.ts`,
+`worker/logbook.ts`, `POST /api/shares/manual`, `PATCH /api/shares/:id` mit `log`/Häfen, Kontingent (L1), Aufbewahrung (L2),
+Hafenposition (L3), Meilensteine (L4), nur angemeldet (L5), keine Medien (L6), Formular `sx-logbook-form` mit kleiner Karte für die
+Hafenposition (`sx-position-picker`), Panel `sx-logbook-panel`, gestrichelte Linie, Abzeichen, „davon aufgezeichnet“, Stream-Bündel
+`logbook`. Aus L8 umgesetzt: Obergrenze, `X-Share-Ended`, 60 Tage, 30 kn in Browser und Worker, Ausreißer aus der Distanz;
+**offen** (Phase 3, F-315): Hinweis bei > 10 % Abweichung für Eigentümer und Moderation.
+
+Abweichungen von der Skizze unten (gehen ihr vor):
+
+| Punkt | Umsetzung |
+|---|---|
+| Rolle an Bord | nicht `log.role`, sondern `shares.owner_role` aus den Crew-Rollen (Konzept 15) – `POST /api/shares/manual { ownerRole }` |
+| Uhrzeiten | `log.timed` merkt, ob Abfahrt (und Ankunft) eine Uhrzeit haben; ohne gilt 12 Uhr Ortszeit und die 120-sm-je-Tag-Regel |
+| Hafen ohne Position | mindestens einer der beiden Häfen braucht eine Position (400 `harbor_position`); fremde Häfen ohne Position setzt nur die Anleger:in (403) |
+| Stream-Ziel Starthafen | noch nicht: der Hafen-Stream zeigt Törns nur über öffentliche Boote (`harborKeep`); kommt mit „Törns ab/nach diesem Hafen“ (Phase 3) |
+| Bündel `logbook` | Gegenstand ist das Konto, die Törns stehen in `data.ids` (höchstens 100) und werden beim Lesen geprüft; nachts fällt ein Bündel ohne vorhandene Törns |
+| Wetter | kein Abruf für geschätzte Routen (Hinweis in „Bedingungen“) – `routeTrack` mit Zeiten und Wetter folgt in Phase 2 (F-314) |
+| Medien-Sperre F-309 | schon in Phase 1 (statt Phase 2) |
+| Distanz bei Änderung | Meilensteine werden beim PATCH der Strecke nicht neu geprüft (wie bei GPX-Törns) |
+
+### 19.0 Entscheidungen des Betreibers (Oktober 2026)
+
+Diese Entscheidungen gehen allen Vorschlägen unten vor; betroffene Stellen sind angepasst.
+
+| # | Entscheidung | Folge |
+|---|---|---|
+| L1 | **Eigenes Kontingent: 100 Fahrtenbuch-Einträge pro Jahr** (offene Frage 1 erledigt). | Zählt je Saison der **Abfahrt** (`seasonOf(started_at)`), getrennt von den 3 kostenlosen Törns; gleich für kostenlos und Unterstützer (bestätigt). Gelöschte Einträge geben den Platz frei. Darüber 409 `quota` „100 Fahrtenbuch-Einträge für 2026 erreicht“. |
+| L2 | **Manuelle Einträge bleiben 2 Jahre** (offene Frage 2 erledigt). | Gelöscht am 1. Februar nach der **zweiten** Saison ab Anlegen (angelegt 2026 → gelöscht 1.2.2028), bzw. nach der letzten unterstützten Saison, wenn die später endet. Eigene Regel `manualExpiry` neben `shareExpiry` und `EXPIRES_SQL` (Test vergleicht beide). Wird GPX nachgereicht, gilt ab dann die Törn-Regel (5.5) – die Oberfläche sagt das vorher, falls der Eintrag dadurch früher gelöscht würde. |
+| L3 | **Hafenposition: wer den Hafen anlegt, setzt die Position; danach nur die Anleger:in** (offene Frage 4 erledigt). | Wer im Fahrtenbuch einen neuen Hafen anlegt, ist damit Anleger:in (`harbors.created_by`) und setzt die Position gleich mit (Klick auf die Karte). Ändern danach: Anleger:in und Moderation, wie heute F-171. Für migrierte Häfen ohne Position **und** ohne Anleger:in (Altbestand, `created_by = NULL`) gilt dieselbe Regel sinngemäß: wer als Erste:r die Position setzt, wird Anleger:in (bestätigt). |
+| L4 | **Meilensteine zählen Fahrtenbuch-Meilen mit** (offene Frage 3 erledigt). | Wie K6: Meilensteine und Saison-Summen zählen beides, Kennzahlen nennen den Anteil „aufgezeichnet“. |
+| L5 | **Nur angemeldet** (offene Frage 5 erledigt). | Ohne Konto gäbe es keinen Eigentümer, keine Zuordnung (Boot, Crew, Hafen) und keinen Löschpfad. Gäste sehen „Anmelden, um ins Fahrtenbuch einzutragen“ und kommen danach direkt ins Formular (wie F-31). |
+| L6 | **Fahrtenbuch-Einträge bekommen keine Medien** und umgehen keine Upload-Grenzen. | Keine Fotos (`POST /api/shares/:id/photos` → 409 `no_media_manual`), kein gespeichertes Übersichtsbild (`PUT /api/shares/:id/image` → 409), Link-Vorschau ohne Bild. Die Payload (Route + Wetter) ist auf **32 KB** begrenzt und zählt zum Speicher wie jeder Törn. Fotos gibt es erst, wenn GPX nachgereicht wird – dann ist es ein normaler Törn mit allen Kontingenten (3 Törns, Fotos nur Unterstützer, 200 MB). Sonst könnte ein kostenloses Konto über 100 Einträge × 1,5 MB Übersichtsbild ≈ 150 MB belegen statt 40,5 MB. |
+| L7 | **Rollen der Crew werden konfigurierbar – eigenes Konzept, noch nicht entschieden.** | Ideen des Betreibers: eine Stammcrew am Boot darf z. B. Beiträge für das Boot schreiben (also nicht jede:r), Gäste bei Charter brauchen ein eigenes Modell. Das Fahrtenbuch speichert vorerst nur die Rolle des Eigentümers (`log.role`); Crew-Rollen kommen später aus dem Crew-Konzept, ohne Umbau hier. |
+| L8 | **GPX-Plausibilisierung wie in 19.5.1 und Ausreißer raus aus der Distanz.** | Obergrenze 2.000 sm je Törn, Endzeit als Header, Dauer ≤ 60 Tage, Distanz ≤ Dauer × 30 kn, gleiche Regel im Browser; `computeTrackStats` zählt Segmente zu Ausreißer-Punkten nicht mehr zur Distanz (Bestand bleibt, wie gespeichert); Hinweis bei > 10 % Abweichung für Eigentümer und Moderation. |
+
+#### Kurzfassung der Empfehlungen
+
+| # | Empfehlung | Warum |
+|---|---|---|
+| K1 | **Kein eigenes Objekt:** ein Fahrtenbuch-Eintrag ist ein Törn in `shares` mit `source = 'manual'`. | Sichtbarkeit, Schlüssel-Links, Kommentare, Fotos, Crew, Reaktionen, Stream, Meldungen, Galerien, Aufbewahrung und alle Löschpfade hängen an `share_id` – eine eigene Tabelle müsste jeden davon verdoppeln. |
+| K2 | **Ein Feldset für beide:** Fahrtenbuch-Angaben (Häfen, Ankunft, Wind, Motorstunden, Segelführung, Liegeplatz, Notizen, Rolle) stehen in D1 an jedem Törn, egal ob GPX oder manuell. | Der GPX-Törn bekommt Motorstunden und Notizen, der manuelle Eintrag später den Track – ohne Umbau. |
+| K3 | **Herkunft der Distanz** als eigene Spalte `dist_source` = `track` · `route` · `stated`; überall, wo Seemeilen summiert werden, zusätzlich „davon aufgezeichnet“. | Prinzip „Daten ehrlich zeigen“. Eine Zahl, eine Quelle. |
+| K4 | **Strecke als synthetischer Track** im Browser (Start → Wegpunkte → Ziel, verdichtet, Zeiten linear zwischen Abfahrt und Ankunft) – gestrichelt gezeichnet, ohne Speed-Kennzahlen. | Karte, Wetter-Nachladen (`loadWeather`), Zeit-Diagramm und Hover lassen sich weiterverwenden; nur Speed-Werte werden unterdrückt. |
+| K5 | **Eigenes Kontingent** für Fahrtenbuch-Einträge: **100 pro Jahr** (L1), sie zählen **nicht** zu den 3 kostenlosen Törns; GPX nachreichen macht daraus einen normalen Törn (zählt dann). | Ein Eintrag kostet ≈ 2–5 KB statt ≈ 300 KB; ein Fahrtenbuch mit 3 Einträgen pro Saison ist nutzlos. Bezahlt wird weiter für Tracks, Fotos, Privatsphäre. |
+| K6 | **Keine Ranglisten** für geschätzte Meilen – es gibt heute ohnehin keine Ranglisten oder Rekorde. Meilensteine und Saison-Summen zählen beides, mit Kennzeichnung; Max-Speed, „längste Etappe“ o. Ä. künftig nur aus Tracks. | Das Fahrtenbuch ist der klassische Meilennachweis (SKS: Logbuchauszug); wer ohne Plotter segelt, darf nicht schlechter dastehen. Auch GPX-Distanzen meldet heute der Client (`X-Share-Distance`), der Server prüft sie nicht. |
+| K7 | **Nachträge fluten den Stream nicht:** Einträge, deren Abfahrt länger als 14 Tage zurückliegt, kommen gebündelt („hat 6 Törns ins Fahrtenbuch nachgetragen“) statt einzeln. | Wer im November die Saison nachträgt, würde sonst Dutzende Neuigkeiten erzeugen. |
+
+### 19.1 Was gehört in einen Fahrtenbuch-Eintrag?
+
+Vorbild: Yacht-/Charter-Logbücher (Kopf: Datum, Schiff, Skipper, Crew, Von/Nach; stündliche Zeilen mit Kurs,
+Logstand, Wind, Seegang, Barometer, Segelführung, Motor, Position; Tagesabschluss mit Distanz, Motorstunden,
+Liegeplatz) und der **Meilennachweis** für SKS/SSS (Datum, Von/Nach, Seemeilen, Funktion an Bord, Fahrtgebiet,
+Unterschrift des Skippers). Für Freizeitsegler auf Havel und Ostsee zählt der **Tagesabschluss**, nicht die
+stündliche Zeile.
+
+| Feld | Stufe | Begründung |
+|---|---|---|
+| Datum der Abfahrt | **Pflicht** | Saison, Sortierung, Meilensteine, Wetter |
+| Starthafen (`sx-harbor-picker`) | **Pflicht** | Ort auf der Karte, Hafenseite, Stream-Ziel |
+| Zielhafen | **Pflicht**, Vorgabe = Starthafen („zurück in den Heimathafen“) | Tagestörns enden meist dort, wo sie begannen |
+| Strecke (sm) | **Pflicht**, vorbefüllt aus Wegpunkten | Kern des Meilennachweises |
+| Boot | empfohlen | Bootskennzahlen; wie heute (`checkBoat`) |
+| Abfahrt/Ankunft Uhrzeit, Ankunftsdatum | empfohlen | Dauer, Ø-Fahrt, Wetter nachladen; mehrtägige Törns |
+| Rolle an Bord (Skipper, Co-Skipper/Wachführer, Crew) | empfohlen | Meilennachweis unterscheidet die Funktion |
+| Crew | wie heute (`share_crew`, Einladung) | nichts Neues |
+| Wind: Stärke (Bft 0–12) und Richtung (8 Striche) | optional, **oder** aus Wetterdaten | Segler notieren Bft, nicht kn; Modellwerte gibt es zusätzlich, beide mit Quelle |
+| Seegang (glatt · leicht · mäßig · grob) | optional | eine Auswahl reicht, keine Meter |
+| Motorstunden (0,1 h) | optional | in Charter-Logbüchern Standard, für Eigner nützlich (Wartung) |
+| Segelführung/Reffs | optional, Kurztext ≤ 120 Zeichen | z. B. „Groß 1. Reff, Fock“ – eine Auswahlliste wäre je Bootstyp anders |
+| Liegeplatz | optional, Kurztext ≤ 120 Zeichen | mit Hinweis „öffentlich sichtbar“ (Steg/Box verrät, wo das Boot liegt) |
+| Notizen | optional, ≤ 2000 Zeichen | ersetzt die Bemerkungsspalte |
+| Fotos | **keine** (L6) | erst nach GPX nachreichen |
+
+**Bewusst weggelassen (überladen):** stündliche Einträge, Kurse (rwK/KdW), Logstand, Barometer, Positionen je Stunde,
+Diesel/Wasser/Hafengeld, Wachplan, Unterschrift. Wer so genau protokolliert, hat in der Regel einen Plotter und lädt
+GPX hoch. Eine digitale Unterschrift des Skippers wäre ein eigenes Thema (L7).
+
+### 19.2 Darstellung ohne Track
+
+#### 19.2.1 Karte
+
+| Fall | Darstellung |
+|---|---|
+| Start ≠ Ziel, ohne Wegpunkte | Hafen-Marker Start/Ziel, **gestrichelte** Linie in der Trackfarbe, Beschriftung „Strecke nicht aufgezeichnet“ |
+| mit Wegpunkten (von Hand gesetzt, höchstens 50) | gestrichelte Linie Start → Wegpunkte → Ziel, Wegpunkte als kleine Ringe |
+| Rundtörn (Start = Ziel) ohne Wegpunkte | nur der Hafen-Marker mit Etikett „Rundtörn · 14 sm (Angabe)“, Karte zoomt auf den Hafen; Hinweis „Wegpunkte setzen, um die Route zu zeigen“ (für den Eigentümer) |
+| Hafen ohne Position | Formular verlangt einen Klick auf die Karte („Wo liegt der Hafen?“). Neuer Hafen: die Anleger:in setzt die Position beim Anlegen; danach ändert sie nur die Anleger:in bzw. die Moderation (L3) |
+
+Wegpunkte setzen: Modus wie „Ort setzen“ bei Fotos (F-102): Klick fügt hinzu, Ziehen verschiebt, Klick auf einen
+Punkt entfernt, Esc beendet; die Distanz der Linie wird live angezeigt und füllt „Strecke“, solange man sie nicht
+selbst überschrieben hat.
+
+Gestrichelt statt neuer Farbe: Prinzip „Eine Farbe = eine Bedeutung“ – die Farbe sagt weiter „dieser Törn“, die
+Strichelung sagt „geschätzt“. Einfärbung nach Speed ist für manuelle Einträge deaktiviert (F-11-Mechanik „Metrik ohne
+Daten“), nach Wind/Böen/Wellen nur, wenn Wetter geladen ist.
+
+#### 19.2.2 Technisch: synthetischer Track (rein, `src/domain/logbook.ts`)
+
+`routeTrack(route, departAt, arriveAt)` erzeugt einen `Track` mit Punkten alle ≈ 0,25 sm entlang der Linie und linear
+verteilten Zeiten, markiert mit `estimated: true` (neues Feld an `Track`). Damit funktionieren unverändert:
+`map.fit`, Zeichnen (mit Strichelung), `loadWeather` + `attachConditions` (Wetter zur Route), Zeit-Diagramm für Wind
+und Wellen, Hover-Verknüpfung. Unterdrückt wird alles, was echte Zeitstempel voraussetzt: `computeTrackStats` liefert
+für `estimated` keine Speeds, `kpis()` zeigt statt „Max. Fahrt“ nichts und statt „Ø Fahrt“ „≈ 4,1 kn (geschätzt)“ aus
+Strecke/Dauer. Ohne Uhrzeiten gibt es keine Zeiten an den Punkten – dann auch kein Modellwetter (wie F-05).
+
+#### 19.2.3 Kennzeichnung überall
+
+| Stelle | Anzeige |
+|---|---|
+| Törn-Ansicht, Kopf | Abzeichen „Fahrtenbuch“ (Icon Buch), Tooltip „Ohne GPS-Aufzeichnung – Strecke vom Segler angegeben“ |
+| Kennzahl Distanz | „14,0 sm“ + Unterzeile „Angabe“ bzw. „aus Wegpunkten“ |
+| Wind | „4 Bft W (Fahrtenbuch)“ und – falls geladen – „Modell: Ø 11 kn“; beide Quellen genannt |
+| Listen (Meine Törns, Profil, Boot, Hafen, Entdecken, Galerie-Kacheln) | dasselbe Abzeichen; Kachelbild = schematische Linie statt Track |
+| Stream (`voyage`) | „Lisa hat einen Törn ins Fahrtenbuch eingetragen: Potsdam → Werder, 14 sm“ |
+| Profil, Boot, Verein, Hafen – Kennzahlen | „1.234 sm · davon 1.020 sm aufgezeichnet“ (nur wenn es Einträge gibt) |
+| Meilenstein | zählt beides (K6); Text bleibt „500 sm in der Saison 2026“ |
+| Übersichtsbild (F-47) | nur zum Herunterladen/Teilen im Browser (gestrichelte Linie, Zusatz „Fahrtenbuch“), **nicht gespeichert**, keine og:image (L6) |
+
+### 19.3 Datenmodell
+
+#### 19.3.1 Entscheidung: gleiche Tabelle
+
+| Option | Vorteil | Nachteil | Urteil |
+|---|---|---|---|
+| **A: `shares` + `source`** | alle Funktionen und Löschpfade erben; ein Törn kann von manuell zu GPX wechseln, ohne ID, Link, Kommentare, Fotos, Reaktionen zu verlieren | jede Kennzahlen-Abfrage muss `dist_source` kennen (nur dort, wo summiert wird) | **empfohlen** |
+| B: eigene Tabelle `log_entries` | sauber getrennt | Sichtbarkeit, Schlüssel, Kommentare, Fotos, Crew, Reaktionen, Meldungen, Stream, Galerien, Cron, `purgeUser` alle doppelt; „GPX nachreichen“ = Umzug zwischen Tabellen | nein |
+
+#### 19.3.2 Migration (Vorschlag `0025_logbook.sql`)
+
+```sql
+-- Herkunft des Törns und der Distanz (Werte prüft worker/validate.ts, kein CHECK – Prinzip Architektur 7).
+ALTER TABLE shares ADD COLUMN source TEXT NOT NULL DEFAULT 'gpx';           -- gpx | manual
+ALTER TABLE shares ADD COLUMN dist_source TEXT NOT NULL DEFAULT 'track';    -- track | route | stated
+ALTER TABLE shares ADD COLUMN ended_at INTEGER;                             -- Ankunft (UTC ms), auch aus GPX
+ALTER TABLE shares ADD COLUMN from_harbor_id TEXT REFERENCES harbors(id) ON DELETE SET NULL;
+ALTER TABLE shares ADD COLUMN to_harbor_id   TEXT REFERENCES harbors(id) ON DELETE SET NULL;
+-- Fahrtenbuch-Angaben für GPX- und manuelle Törns, kleines JSON (≤ 4 KB), Schema in src/domain/logbook.ts.
+ALTER TABLE shares ADD COLUMN log TEXT NOT NULL DEFAULT '{}';
+CREATE INDEX shares_from_harbor ON shares(from_harbor_id, started_at DESC) WHERE from_harbor_id IS NOT NULL;
+CREATE INDEX shares_to_harbor   ON shares(to_harbor_id,   started_at DESC) WHERE to_harbor_id IS NOT NULL;
+CREATE INDEX shares_user_source ON shares(user_id, source);                -- Kontingent je Art
+```
+
+`log` (validiert in `worker/validate.ts` über eine reine Funktion `parseLog` in `src/domain/logbook.ts`):
+
+```ts
+interface Logbook {
+  role?: 'skipper' | 'co' | 'crew';
+  engineH?: number;                 // 0–500, 0,1 h
+  wind?: { bft: number; dir: 'N' | 'NO' | 'O' | 'SO' | 'S' | 'SW' | 'W' | 'NW' | null };
+  sea?: 'calm' | 'slight' | 'moderate' | 'rough';
+  sails?: string;                   // ≤ 120
+  berth?: string;                   // ≤ 120
+  notes?: string;                   // ≤ 2000, bereinigt wie Kommentare (cleanComment), kein HTML
+}
+```
+
+**Geometrie und Wetter in R2**, im bestehenden Format: `shares/<id>` = gzip
+`{"v":1,"tracks":[],"route":[[lat,lon],…],"weather":{…}}`. `PAYLOAD_PREFIX` bleibt gültig, `getShareData`,
+`removeShare`, Speicherzähler und Cron bleiben unverändert; `size_bytes` ist die (kleine) Payload-Größe.
+`validatePayload` im Client muss `tracks: []` mit `route` akzeptieren. Alternativ ginge die Route als JSON in D1 – dann
+bräuchte das Wetter trotzdem R2; ein Ort für Geometrie ist einfacher.
+
+#### 19.3.3 Auswirkungen
+
+| Bereich | Wirkung |
+|---|---|
+| Kontingent | neues Feld `logEntriesPerSeason = 100` in `limitsFor`, gleich für beide Stufen (L1); `supportStatus` zählt `source = 'manual'` der laufenden Saison (nach `started_at`) getrennt; `sharesUsed` zählt nur `gpx`. Speicher zählt wie immer `size_bytes` (+ Fotos). Notbremse gilt (sie bremst neue Einträge mit) |
+| Speicher | ≈ 0,5 KB D1-Zeile + 1–5 KB R2 (mit Wetter); 10.000 Einträge ≈ 50 MB – kein Engpass |
+| Aufbewahrung (L2) | **2 Jahre**: 1. Februar nach der zweiten Saison ab Anlegen bzw. nach der letzten unterstützten Saison, wenn später. `EXPIRES_SQL` bekommt einen Zweig `CASE WHEN s.source = 'manual'` (+ 1 Jahr auf das Saisonende), `shareExpiry` ein Argument `source`; Erinnerungsmail 14 Tage vorher wie F-66, dazu der Export-Hinweis (Phase 3). Fotos an manuellen Einträgen leben ebenso lange (zählen weiter zum Speicher) |
+| Sichtbarkeit | unverändert (E1: kostenlos öffentlich; F-80 ff.). Liegeplatz und Notizen folgen dem Törn |
+| Kommentare, Reaktionen, Meldungen | unverändert – hängen an `share_id` |
+| Crew | Einladen wie heute; die eigene Rolle steht in `log.role`, Rollen der Crew kommen aus dem eigenen Crew-Konzept (L7) |
+| Fotos, Übersichtsbild | keine (L6); Payload ≤ 32 KB, zählt zum Speicher |
+| Stream | `recordVoyage` wie bisher bei öffentlichen Einträgen, Ziel zusätzlich `harbor` = Starthafen (heute nur Hafen des Boots). Nachträge (Abfahrt > 14 Tage zurück) → gebündelte Aktivität `logbook` je Konto und Tag (`bucket = logbook:<user>:<tag>`, Muster `recordPhotos`); Meilensteine nur für die laufende Saison (wie heute) |
+| Kennzahlen | Abfragen in `boats.ts`, `discover.ts`, `groups.ts`, `harbors.ts`, `activity.ts` bekommen zusätzlich `SUM(CASE WHEN dist_source = 'track' THEN dist_nm END) AS dist_rec` |
+| Hafenseite | neu möglich: „Törns ab/nach diesem Hafen“ (öffentlich, über die neuen Indizes) – Phase 3 |
+| Löschkonzept | **keine neuen Löschpfade**: Zeile, R2-Payload, Fotos, Kommentare, Crew, Reaktionen, Aktivitäten gehen über `removeShare` (Einzeln, Ablauf, Konto, inaktiv, Moderation). Hafen gelöscht → `ON DELETE SET NULL`. Das Bündel `logbook` fällt mit den Aktivitäten des Kontos bzw. nach 12 Monaten; enthält es nur gelöschte Törns, wird es beim Lesen verworfen (Prüfung wie `photos`-Bündel) |
+
+#### 19.3.4 Keine Medien (L6)
+
+Fahrtenbuch-Einträge haben weder Fotos noch ein gespeichertes Übersichtsbild. Der Worker prüft `source` vor allen
+anderen Prüfungen beim Foto-Upload und beim Übersichtsbild (409). Wird GPX nachgereicht (19.4), gelten ab dann
+die normalen Regeln. Damit gibt es keinen Weg, über Fahrtenbuch-Einträge mehr Speicher oder Fotos zu bekommen als
+über Törns.
+
+### 19.4 Nachträglich GPX und Fahrtenbuch für GPX-Törns
+
+| Richtung | Ablauf |
+|---|---|
+| Manuell → aufgezeichnet | „GPX hinzufügen“ in der Törn-Ansicht (Eigentümer). `PUT /api/shares/:id/data` mit GPX-Payload wie `createShare`: Prüfung Törn-Kontingent (der Eintrag wird ein normaler Törn → kostenlos ggf. 402), Speicher, Notbremse. Danach `source = 'gpx'`, `dist_source = 'track'`, `dist_nm`/`started_at`/`ended_at` aus dem Track; Häfen, `log`, Kommentare, Crew, Reaktionen, Link bleiben; ab jetzt sind Fotos und Übersichtsbild möglich. Keine neue `voyage`-Aktivität; Meilensteine werden mit der Differenz geprüft. Liegen Start/Ende des Tracks > 2 km von den Häfen, fragt die Oberfläche, ob die Häfen angepasst werden sollen |
+| GPX → Fahrtenbuch-Angaben | Panel „Fahrtenbuch“ in jeder eigenen Törn-Ansicht: dieselben Felder (`log`, Häfen). Häfen werden aus Start/Ende des Tracks vorgeschlagen (nächster Hafen mit Position ≤ 1 km). Datum, Uhrzeit und Strecke kommen aus dem Track und sind dort nicht editierbar |
+| Aufgezeichnet → manuell | nicht vorgesehen (Track löschen = Törn löschen); vermeidet „Track weg, Meilen behalten“ |
+
+### 19.5 Missbrauch und Fairness
+
+| Risiko | Gegenmaßnahme |
+|---|---|
+| erfundene Seemeilen | Plausibilität im Server (`plausibleDistance` in `logbook.ts`, getestet): Angabe ≥ Länge der Route; mit Uhrzeiten ≤ Dauer × 15 kn; ohne Uhrzeiten ≤ 120 sm je Kalendertag; absolute Grenze 2.000 sm je Eintrag; mehrtägig höchstens 30 Tage. Sonst 400 `implausible_distance` mit deutscher Meldung |
+| Nachtragen in Massen | Kontingent 100 je Saison der Abfahrt (L1), 20 neue Einträge pro Konto und Tag (429 `log_quota`), Abfahrt nicht älter als 5 Jahre und nicht in der Zukunft (+ 1 Tag) |
+| Stream-Spam | Bündelung der Nachträge (K7) |
+| Ranglisten | gibt es nicht; falls sie kommen, nur `dist_source = 'track'`. Max-Speed, Ø-Fahrt-Rekorde, „längste Etappe“ immer nur aus Tracks |
+| Meilensteine/Saison-Summen | zählen beides, Kennzahlen nennen den Anteil „aufgezeichnet“ (K3, K6). entschieden (L4) |
+| ehrlich bleiben bei GPX | siehe 19.5.1 |
+| Inhalte | Notizen, Liegeplatz, Segelführung wie Kommentare bereinigt; der Törn bleibt als Ganzes meldbar (F-114) |
+
+#### 19.5.1 GPX-Plausibilisierung
+
+**Heute:** Der Worker parst GPX nicht (CPU-Limit 10 ms, Prinzip „Billig im Betrieb“). Distanz, Startzeit und
+Track-Anzahl schickt der Browser als Header (`X-Share-Distance`, `X-Share-Started`, `X-Share-Tracks`); der Server
+begrenzt nur auf 0–100.000 sm bzw. „Start nicht in der Zukunft“. Wer die API direkt aufruft, kann also eine kleine
+GPX-Datei mit „5.000 sm“ hochladen – und die zählt in Profil-, Boots-, Vereins- und Hafensummen und löst Meilensteine
+aus. Die Törn-Ansicht selbst ist ehrlich: Sie rechnet die Distanz im Browser aus der Datei neu.
+
+**Vorschlag (billig, ohne Parsen im Worker):**
+
+| Prüfung | Regel | Fehler |
+|---|---|---|
+| Obergrenze je Törn | `dist_nm` ≤ 2.000 sm (statt 100.000) | 400 `implausible_distance` |
+| Dauer | neuer Header `X-Share-Ended`; Ende ≥ Start, Dauer ≤ 60 Tage | 400 |
+| Geschwindigkeit | mit Start und Ende: `dist_nm` ≤ Dauer × 30 kn (großzügig, auch für Motor und schnelle Boote); ohne Zeitstempel (F-05) nur die Obergrenze | 400 `implausible_distance` |
+| Gleiche Regel im Browser | `plausibleDistance` aus `src/domain/logbook.ts` läuft vor dem Hochladen; die Oberfläche erklärt, statt dass der Server überrascht | – |
+| Ausreißer | `computeTrackStats` summiert die Distanz heute **inklusive** der als Ausreißer markierten Sprünge (nur Speed und Max-Speed lassen sie weg, F-04). Ein einziger GPS-Sprung kann die Strecke stark aufblähen. Entschieden (L8): Segmente zu Ausreißer-Punkten aus `distNm` herausnehmen; F-04 wird entsprechend ergänzt | – |
+| Abweichung sichtbar machen | die Törn-Ansicht vergleicht die gespeicherte Distanz mit der aus der Datei; weicht sie > 10 % ab, sehen Eigentümer und Moderation einen Hinweis, Admins in der Meldungs-Ansicht ebenfalls | – |
+
+**Nicht möglich im Free Tier:** echte Nachprüfung im Worker oder im Cron (beide haben 10 ms CPU; eine 12-MB-Datei zu
+parsen dauert deutlich länger). Gegen gezielte Manipulation bleiben Melden (F-114) und die Moderation. Da es keine
+Ranglisten gibt, ist der Schaden auf eigene Summen und Meilensteine begrenzt.
+
+Neue Anforderung: **F-311** Plausibilität für GPX-Törns wie oben (Obergrenze, Dauer, 30 kn), gleiche Regel in Browser
+und Worker, Test je Grenze.
+
+### 19.6 API-Skizze
+
+Alle Mutationen same-origin, fremde/unsichtbare Törns 404 – wie bisher.
+
+| Methode | Pfad | Wer | Zweck |
+|---|---|---|---|
+| POST | `/api/shares/manual` | angemeldet, nicht gesperrt | JSON `{ title?, startedAt, endedAt?, fromHarbor, toHarbor, distNm?, route?, boatId?, visibility, log, weather? }`; `fromHarbor`/`toHarbor` = `{ harborId }` oder `{ name, lat?, lon? }` (wie `sx-harbor-picker`). Server prüft Kontingent `logEntries`, Notbremse, Sichtbarkeit (E1), Plausibilität, baut die gzip-Payload, schreibt R2 + D1 in einem Ablauf wie `createShare` (Aufräumen bei D1-Fehler). Titel-Vorschlag „Potsdam → Werder“ bzw. „Rundtörn ab Potsdam“. 201 |
+| PATCH | `/api/shares/:id` | Eigentümer | zusätzlich `log`, `fromHarbor`, `toHarbor`; nur bei `manual` auch `startedAt`, `endedAt`, `distNm`, `route`, `weather` (schreibt Payload neu, Speicherzähler per Differenz) |
+| PUT | `/api/shares/:id/data` | Eigentümer | GPX nachreichen (19.4); nur für `source = 'manual'`, sonst 409 |
+| GET | `/api/shares/:id`, `/data` | wie heute | `shareShape` zusätzlich `source`, `distSource`, `endedAt`, `from`/`to` (`{ slug, name, lat, lon }`, ausgeblendete Häfen null), `log` |
+| GET | `/api/me/support` | selbst | zusätzlich `logEntriesUsed` (laufende Saison), `logEntriesMax` (100) |
+| POST/PATCH | `/api/harbors`, `/api/harbors/:id` | angemeldet | `POST` nimmt `lat`/`lon` mit (Anleger:in setzt die Position beim Anlegen); `PATCH` Position wie F-171, zusätzlich: Hafen ohne Position und ohne Anleger:in → wer sie setzt, wird Anleger:in (L3) |
+| GET | `/api/me/logbook.csv` | selbst | Meilennachweis: Datum, Von, Nach, sm, Quelle, Rolle, Boot, Dauer – Phase 3 |
+| GET | `/api/harbors/:id/voyages` | alle | öffentliche Törns ab/nach dem Hafen – Phase 3 |
+
+### 19.7 Oberfläche (Skizze)
+
+**Einstieg** (`sx-empty-state`, Kopfzeile, FAB): „Track anlegen“ öffnet eine kleine Auswahl
+„GPX-Datei laden“ · „Ohne GPX eintragen (Fahrtenbuch)“. Die Einstiegskarte bekommt unter „GPX-Datei wählen“ den Link
+„Kein Track? Ins Fahrtenbuch eintragen“. Gäste: Anmeldedialog, danach geht es weiter (wie F-31) – ohne Server gibt es
+nichts zu analysieren, und ohne Konto keinen Eigentümer und keinen Löschpfad (L5).
+
+**Formular** `sx-logbook-form` (Seitenleiste über der Karte, mobil Bottom-Sheet; Karte bleibt sichtbar):
+
+```
+┌ Törn eintragen ─────────────────────────────┐
+│ Datum      [So, 12.10.2026]  Uhrzeit [10:30]│
+│ Von        [Potsdam – Yachthafen ▾]         │
+│ Nach       [Werder ▾]   ☐ zurück nach Von   │
+│ Strecke    [14,2] sm  · aus Wegpunkten  ✎   │
+│            [Wegpunkte auf der Karte setzen] │
+│ Boot       [Möwe ▾]                         │
+│ ▸ Mehr Angaben                              │
+│   Ankunft [12.10.] [16:00] · Rolle [Skipper]│
+│   Wind [4] Bft aus [W ▾] [Aus Wetterdaten]  │
+│   Seegang [leicht ▾] · Motor [0,5] h        │
+│   Segelführung [Groß 1. Reff, Fock]         │
+│   Liegeplatz [Steg B, Box 12] ⓘ öffentlich  │
+│   Notizen [...]                             │
+│ Titel [Potsdam → Werder]                    │
+│ Sichtbarkeit (sx-visibility-picker)         │
+│ 4 von 100 Einträgen 2026 ·      [Speichern]│
+└─────────────────────────────────────────────┘
+```
+
+„Aus Wetterdaten“ lädt über den synthetischen Track (19.2.2) und setzt Bft/Richtung als Vorschlag; gespeichert wird
+beides mit Quelle. Nach dem Speichern öffnet sich die normale Törn-Ansicht (`/s/<id>`).
+
+**Törn-Ansicht:** Panel „Fahrtenbuch“ (für alle Törns, nur befüllte Felder; Eigentümer „Bearbeiten“), Abzeichen
+„Fahrtenbuch“, Kennzahlen nach 19.2.3, für manuelle Einträge des Eigentümers „GPX hinzufügen“.
+
+**Konto:** „x von y Fahrtenbuch-Einträgen“ neben „x von 3 Törns“; „Meine Törns“ mit Filter „Fahrtenbuch“ und
+(Phase 3) „Meilennachweis exportieren“.
+
+Neue/angepasste Teile: `src/domain/logbook.ts` (Schema, `parseLog`, `routeTrack`, `plausibleDistance`,
+Titel-Vorschlag – rein, getestet), `sx-logbook-form`, `sx-logbook-panel`, `src/map/route-layer.ts` (Wegpunkte setzen,
+Strichelung), `sx-kpis`/`summary.ts` (geschätzt), Abzeichen in `sx-stream`, `sx-discover`, `sx-profile-page`,
+`sx-account-dialog`, `worker/shares.ts` (+ `worker/logbook.ts` für Anlegen/Nachreichen), `worker/validate.ts`,
+`worker/supporter.ts`, `worker/activity.ts`, Kennzahlen-Abfragen.
+
+### 19.8 Anforderungen (Entwurf – gültig ist `docs/REQUIREMENTS.md`)
+
+- **F-300** Fahrtenbuch-Eintrag ohne GPX anlegen (Pflicht: Datum, Start- und Zielhafen, Strecke), angemeldet; Törn mit `source = 'manual'`.
+- **F-301** Fahrtenbuch-Felder (Rolle, Motorstunden, Wind Bft/Richtung, Seegang, Segelführung, Liegeplatz, Notizen, Ankunft) für GPX- und manuelle Törns; Validierung und Grenzen wie in 19.3.2.
+- **F-302** Darstellung: gestrichelte Linie bzw. Hafen-Marker, Wegpunkte von Hand (≤ 50), keine Speed-Kennzahlen, Abzeichen „Fahrtenbuch“ in allen Listen.
+- **F-303** Distanz-Herkunft `track`/`route`/`stated`; Kennzahlen von Profil, Boot, Gruppe, Hafen nennen „davon aufgezeichnet“.
+- **F-304** Plausibilitätsgrenzen für Distanz und Datum (19.5), 400 `implausible_distance`; 20 Einträge pro Tag.
+- **F-305** Kontingent: 100 Fahrtenbuch-Einträge je Saison der Abfahrt, für alle Stufen, getrennt von `shares` (409 `quota`); `GET /api/me/support` liefert es.
+- **F-306** Aufbewahrung manueller Einträge: 1. Februar nach der zweiten Saison ab Anlegen bzw. nach der letzten unterstützten Saison; nach GPX-Nachreichen gilt F-65.
+- **F-307** Hafenposition: Anleger:in setzt sie beim Anlegen; Ändern Anleger:in und Moderation; Altbestand ohne Anleger:in und ohne Position – wer sie zuerst setzt, wird Anleger:in.
+- **F-308** Nachträge älter als 14 Tage erscheinen gebündelt im Stream; Meilensteine wie F-166.
+- **F-313** GPX nachreichen: Eintrag wird aufgezeichneter Törn, ID, Link, Kommentare, Crew, Reaktionen bleiben; Kontingent wie neuer Törn, danach Fotos möglich.
+- **F-309** Keine Medien an Fahrtenbuch-Einträgen: Foto-Upload und Übersichtsbild → 409; Payload ≤ 32 KB; nach GPX-Nachreichen normale Regeln.
+- **F-314** Wetter für manuelle Einträge über die geschätzte Route, mit Quellenangabe neben den eigenen Angaben.
+- **F-310** Löschen: keine neuen Pfade; Test, dass Ablauf, Konto löschen und Moderation manuelle Einträge samt Payload, Zähleranteil und Bündel entfernen.
+
+### 19.9 Offene Fragen an den Betreiber
+
+Entschieden: Kontingent (L1), Aufbewahrung (L2), Hafenposition (L3), Meilensteine (L4), Gäste (L5), Medien (L6), GPX-Plausibilität (L8); die Annahmen in L1 (100 je Abfahrtsjahr, für alle) und L3 (Altbestand-Häfen) sind bestätigt.
+Crew-Rollen bekommen ein eigenes Konzept (L7).
+
+Keine offenen Fragen mehr.
+
+### 19.10 Aufwand (grob)
+
+| Phase | Inhalt | Aufwand |
+|---|---|---|
+| **1 – Kern** | Migration 0025, `logbook.ts` (Schema, Plausibilität, Titel), `POST /api/shares/manual`, `PATCH` mit `log`/Häfen, `shareShape`, Kontingent `logEntries`, Formular ohne Wegpunkte (Start/Ziel, Strecke manuell, Häfen mit Position setzen), gestrichelte Linie/Hafen-Marker, Abzeichen, Kennzahlen „davon aufgezeichnet“, Stream-Bündelung, Aufbewahrung 2 Jahre (`manualExpiry`/`EXPIRES_SQL`), Hafenposition beim Anlegen, Tests F-300–F-312, Doku | 4–5 Tage |
+| **2 – Karte und Wetter** | Wegpunkte setzen (`route-layer`), `routeTrack` + Wetter nachladen, Wind-Vorschlag, Zeit-Diagramm ohne Speed, Fahrtenbuch-Panel für GPX-Törns mit Hafen-Vorschlag, Medien-Sperre F-309 | 3 Tage |
+| **3 – Abrunden** | GPX nachreichen (F-313), Meilennachweis-CSV, Hafenseite „Törns ab hier“, Übersichtsbild zum Herunterladen für manuelle Einträge, GPX-Plausibilität F-311 | 2–3 Tage |
+
+Vor jedem Merge: Review-Agent nach `CLAUDE.md` (insbesondere Prüfpunkt 6, Löschkonzept), `npm run check` grün.

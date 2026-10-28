@@ -19,6 +19,8 @@ import { voyageRole, type VoyageRole } from '../src/domain/crew-roles';
 import { clearConfirmations } from './crew-cleanup';
 export { EXPIRES_SQL };
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
+import { isDistSource, plausibleGpx, readLog, type DistSource, type ShareSource } from '../src/domain/logbook';
+import { applyLogPatch, type LogPatchBody } from './logbook';
 
 export interface ShareRow {
   id: string;
@@ -54,16 +56,39 @@ export interface ShareRow {
   owner_role?: string | null;
   role_confirmed_at?: number | null;
   role_confirmed_by?: string | null;
+  /** Fahrtenbuch (0025, Konzept 19): gpx | manual, Herkunft der Distanz, Ankunft, Häfen, Angaben als JSON */
+  source?: string;
+  dist_source?: string;
+  ended_at?: number | null;
+  from_harbor_id?: string | null;
+  to_harbor_id?: string | null;
+  log?: string;
   /** aus dem JOIN mit boats */
   boat_name?: string | null;
   boat_visibility?: string | null;
   boat_hidden_at?: number | null;
+  /** aus den JOINs mit harbors (nur nicht ausgeblendete) */
+  hf_slug?: string | null;
+  hf_name?: string | null;
+  hf_lat?: number | null;
+  hf_lon?: number | null;
+  ht_slug?: string | null;
+  ht_name?: string | null;
+  ht_lat?: number | null;
+  ht_lon?: number | null;
 }
+
+/** Hafen am Törn, wie ihn die Antwort nennt – ausgeblendete Häfen fehlen (null). */
+const harborAt = (id: string | null | undefined, slug: string | null | undefined, name: string | null | undefined, lat: number | null | undefined, lon: number | null | undefined) =>
+  id && slug ? { id, slug, name: name ?? '', lat: lat ?? null, lon: lon ?? null } : null;
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
-const SHARE_COLS = `s.*, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at`;
-const SHARE_FROM = 'shares s LEFT JOIN boats b ON b.id = s.boat_id';
+const SHARE_COLS = `s.*, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at,
+  hf.slug AS hf_slug, hf.name AS hf_name, hf.lat AS hf_lat, hf.lon AS hf_lon, ht.slug AS ht_slug, ht.name AS ht_name, ht.lat AS ht_lat, ht.lon AS ht_lon`;
+const SHARE_FROM = `shares s LEFT JOIN boats b ON b.id = s.boat_id
+  LEFT JOIN harbors hf ON hf.id = s.from_harbor_id AND hf.hidden_at IS NULL
+  LEFT JOIN harbors ht ON ht.id = s.to_harbor_id AND ht.hidden_at IS NULL`;
 export const SHARE_SELECT = `SELECT ${SHARE_COLS} FROM ${SHARE_FROM}`;
 
 export function shareShape(row: ShareRow, isOwner: boolean) {
@@ -94,6 +119,13 @@ export function shareShape(row: ShareRow, isOwner: boolean) {
     commentsMode: row.comments_mode ?? 'on',
     /** nur der Eigentümer erfährt, dass sein Törn bis zur Prüfung ausgeblendet ist */
     hiddenAt: isOwner ? (row.hidden_at ?? null) : null,
+    // Fahrtenbuch (Konzept 19, F-300 … F-303)
+    source: (row.source === 'manual' ? 'manual' : 'gpx') as ShareSource,
+    distSource: (isDistSource(row.dist_source) ? row.dist_source : 'track') as DistSource,
+    endedAt: row.ended_at ?? null,
+    from: harborAt(row.from_harbor_id, row.hf_slug, row.hf_name, row.hf_lat, row.hf_lon),
+    to: harborAt(row.to_harbor_id, row.ht_slug, row.ht_name, row.ht_lat, row.ht_lon),
+    log: readLog(row.log),
   };
 }
 
@@ -136,8 +168,13 @@ export async function ownedShare(request: Request, env: Env, id: string) {
   return { row, user };
 }
 
+/** Fahrtenbuch-Einträge ohne GPX bekommen keine Medien (L6, F-309) – geprüft vor allen anderen Grenzen. */
+export function assertMediaAllowed(row: Pick<ShareRow, 'source'>): void {
+  if (row.source === 'manual') throw new HttpError(409, 'no_media_manual', 'Fahrtenbuch-Einträge ohne GPX haben keine Fotos und kein Übersichtsbild.');
+}
+
 /** Ein Boot darf nur zugeordnet werden, wenn man es verwalten darf. */
-async function checkBoat(env: Env, userId: string, boatId: unknown): Promise<string | null> {
+export async function checkBoat(env: Env, userId: string, boatId: unknown): Promise<string | null> {
   if (boatId === null || boatId === '' || boatId === undefined) return null;
   if (typeof boatId !== 'string' || !BOAT_ID_RE.test(boatId) || !(await canManageBoat(env, userId, boatId))) {
     throw new HttpError(400, 'invalid_boat', 'Dieses Boot kannst du nicht zuordnen.');
@@ -212,6 +249,13 @@ export async function createShare(request: Request, env: Env): Promise<Response>
 
   const now = Date.now();
   const started = Number(h.get('X-Share-Started'));
+  const startedAt = Number.isFinite(started) && started > 0 && started < now + 86_400_000 ? started : null;
+  const ended = Number(h.get('X-Share-Ended'));
+  const endedAt = startedAt !== null && Number.isFinite(ended) && ended > 0 && ended < now + 86_400_000 ? ended : null;
+  const distNm = Math.max(0, Number(h.get('X-Share-Distance')) || 0);
+  // Plausibilität wie im Browser (L8, F-311): Obergrenze, Dauer, mittlere Geschwindigkeit
+  const implausible = plausibleGpx(distNm, startedAt, endedAt);
+  if (implausible) throw new HttpError(400, 'implausible_distance', implausible);
   const row: ShareRow = {
     id: randomId(),
     user_id: user.id,
@@ -225,9 +269,10 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     created_at: now,
     updated_at: now,
     boat_id: boatId,
-    // Angaben des Clients nur plausibilisiert übernehmen – sie dienen nur der Anzeige.
-    dist_nm: Math.max(0, Math.min(100_000, Number(h.get('X-Share-Distance')) || 0)),
-    started_at: Number.isFinite(started) && started > 0 && started < now + 86_400_000 ? started : null,
+    // Angaben des Clients nur plausibilisiert übernehmen – sie zählen in Summen und Meilensteinen.
+    dist_nm: distNm,
+    started_at: startedAt,
+    ended_at: endedAt,
     has_image: 0,
   };
 
@@ -238,11 +283,11 @@ export async function createShare(request: Request, env: Env): Promise<Response>
   // Scheitert D1 nach dem Upload (z. B. Konto parallel gelöscht), bleibt sonst eine Datei ohne Zeile zurück.
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO shares (id, user_id, title, summary, visibility, share_key, view, size_bytes, track_count, created_at, updated_at, boat_id, listed, dist_nm, started_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO shares (id, user_id, title, summary, visibility, share_key, view, size_bytes, track_count, created_at, updated_at, boat_id, listed, dist_nm, started_at, ended_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       row.id, row.user_id, row.title, row.summary, row.visibility, row.share_key, row.view, row.size_bytes, row.track_count, now, now, row.boat_id,
-      row.visibility === 'public' ? 1 : 0, row.dist_nm, row.started_at,
+      row.visibility === 'public' ? 1 : 0, row.dist_nm, row.started_at, row.ended_at ?? null,
     ),
     addStorageStmt(env, row.size_bytes),
   ]).catch(async (err: unknown) => {
@@ -295,7 +340,7 @@ export async function getShareData(request: Request, env: Env, id: string): Prom
 /** PATCH /api/shares/:id – Titel, Sichtbarkeit, Link erneuern (rotateKey), Boot, gespeicherte Ansicht. */
 export async function updateShare(request: Request, env: Env, id: string): Promise<Response> {
   const { row, user } = await ownedShare(request, env, id);
-  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown; commentsMode?: unknown }>(request);
+  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown; commentsMode?: unknown } & LogPatchBody>(request);
   const previous = row.visibility;
   const previousBoat = row.boat_id;
   if (body.title !== undefined) {
@@ -318,13 +363,28 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
     if (!mode) throw new HttpError(400, 'invalid_comments_mode', 'Unbekannte Einstellung für Kommentare.');
     row.comments_mode = mode;
   }
+  // Fahrtenbuch-Angaben und Häfen; bei Einträgen ohne GPX auch Datum und Strecke (F-301)
+  const { payload } = await applyLogPatch(env, user, row, body);
   const boatChanged = body.boatId !== undefined && row.boat_id !== previousBoat;
   row.updated_at = Date.now();
   // Ein anderes Boot ändert, was der Skipper bestätigt hat (Konzept 15): Bestätigungen fallen.
   if (boatChanged) await env.DB.batch(clearConfirmations(env, row.id));
-  await env.DB.prepare('UPDATE shares SET title = ?, visibility = ?, share_key = ?, listed = ?, boat_id = ?, view = ?, comments_mode = ?, updated_at = ? WHERE id = ?')
-    .bind(row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.comments_mode ?? 'on', row.updated_at, row.id)
-    .run();
+  // Neue Route (≤ 32 KB): Datei ersetzen, Speicherzähler um die Differenz verschieben
+  const previousBytes = row.size_bytes;
+  if (payload) {
+    await env.TRACKS.put(shareKey(row.id), payload, { httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' }, customMetadata: { owner: row.user_id } });
+    row.size_bytes = payload.length;
+  }
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE shares SET title = ?, visibility = ?, share_key = ?, listed = ?, boat_id = ?, view = ?, comments_mode = ?, updated_at = ?,
+         summary = ?, log = ?, from_harbor_id = ?, to_harbor_id = ?, started_at = ?, ended_at = ?, dist_nm = ?, dist_source = ?, size_bytes = ? WHERE id = ?`,
+    ).bind(
+      row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.comments_mode ?? 'on', row.updated_at,
+      row.summary, row.log ?? '{}', row.from_harbor_id ?? null, row.to_harbor_id ?? null, row.started_at, row.ended_at ?? null, row.dist_nm, row.dist_source ?? 'track', row.size_bytes, row.id,
+    ),
+    ...(payload ? [addStorageStmt(env, row.size_bytes - previousBytes)] : []),
+  ]);
   const saved = await getShareRow(env, row.id);
   // Erst öffentlich geschaltet: jetzt (einmal je Törn) in die Neuigkeiten.
   if (previous !== 'public' && row.visibility === 'public') await recordVoyage(env, row, row.updated_at);
@@ -384,6 +444,7 @@ function isJpeg(b: Uint8Array): boolean {
  */
 export async function putShareImage(request: Request, env: Env, id: string): Promise<Response> {
   const { row, user } = await ownedShare(request, env, id);
+  assertMediaAllowed(row);
   await assertActive(env, user);
   if ((request.headers.get('Content-Type') || '') !== 'image/jpeg') throw new HttpError(415, 'unsupported_media_type', 'Nur JPEG-Bilder.');
   const bytes = await readBodyCapped(request, LIMITS.imageBytes);

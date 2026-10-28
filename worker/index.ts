@@ -2,6 +2,7 @@ import type { Env } from './env';
 import { canonicalRedirect } from './canonical';
 import { deleteAccount, logout, me, peekLink, requestLink, verifyCode, verifyLink } from './auth';
 import { HttpError, errorResponse, json } from './http';
+import { createManualShare } from './logbook';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
@@ -99,6 +100,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/discover$/, (r, env) => getDiscover(r, env)],
   ['GET', /^\/api\/shares$/, (r, env) => listShares(r, env)],
   ['POST', /^\/api\/shares$/, (r, env) => createShare(r, env)],
+  ['POST', /^\/api\/shares\/manual$/, (r, env) => createManualShare(r, env)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => getShareMeta(r, env, id)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/data$/, (r, env, [id]) => getShareData(r, env, id)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/image$/, (r, env, [id]) => getShareImage(r, env, id)],

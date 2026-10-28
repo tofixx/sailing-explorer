@@ -115,6 +115,40 @@ export async function recordPhotos(env: Env, s: ShareForActivity, count = 1, now
   });
 }
 
+/** Höchstens so viele Törns merkt sich ein Fahrtenbuch-Bündel (die Anzeige zählt nur noch sichtbare). */
+const LOGBOOK_IDS_MAX = 100;
+
+/**
+ * Nachgetragene Fahrtenbuch-Einträge (Abfahrt > 14 Tage zurück, K7, F-308): gebündelt „hat n Törns ins Fahrtenbuch
+ * nachgetragen“ je Konto und Tag statt einzeln. Gegenstand ist das Konto; die Törns stehen in `data.ids` und werden
+ * beim Lesen geprüft (gelöschte, private, ausgeblendete fallen weg). Meilensteine wie bei einem Törn.
+ */
+export async function recordLogbook(env: Env, s: ShareForActivity, now = Date.now()): Promise<void> {
+  await safely('logbook', async () => {
+    const id = randomId();
+    const bucket = `logbook:${s.user_id}:${dayKey(now)}`;
+    // Ziele hängen am Bündel, das es (nach diesem Batch) gibt – auch wenn es schon bestand
+    const bundleTarget = (kind: TargetKind, targetSql: string, ...args: unknown[]) =>
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO activity_target (activity_id, target_kind, target_id, created_at)
+         SELECT a.id, '${kind}', x.id, ?2 FROM activity a, (${targetSql}) x WHERE a.bucket = ?1`,
+      ).bind(bucket, now, ...args);
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE activity SET data = json_set(data, '$.ids', json(CASE WHEN json_array_length(data, '$.ids') < ${LOGBOOK_IDS_MAX}
+           THEN json_insert(json_extract(data, '$.ids'), '$[#]', ?1) ELSE json_extract(data, '$.ids') END)), updated_at = ?2 WHERE bucket = ?3`,
+      ).bind(s.id, now, bucket),
+      insertStmt(env, id, { kind: 'logbook', actorId: s.user_id, subjectKind: 'user', subjectId: s.user_id, data: { ids: [s.id] }, bucket }, now),
+      bundleTarget('user', 'SELECT ?3 AS id', s.user_id),
+      bundleTarget('group', 'SELECT group_id AS id FROM group_members WHERE user_id = ?3', s.user_id),
+      ...(s.boat_id
+        ? [bundleTarget('boat', 'SELECT ?3 AS id', s.boat_id), bundleTarget('group', 'SELECT group_id AS id FROM group_boats WHERE boat_id = ?3', s.boat_id)]
+        : []),
+    ]);
+    await recordMilestones(env, s, now);
+  });
+}
+
 /** Neues Mitglied (Einladung oder Anfrage angenommen). */
 export async function recordMember(env: Env, groupId: string, userId: string, now = Date.now()): Promise<void> {
   await safely('member', async () => {
@@ -283,7 +317,8 @@ export function nightlyActivityCleanup(env: Env, now: number): D1PreparedStateme
          OR (subject_kind = 'post' AND NOT EXISTS (SELECT 1 FROM posts WHERE id = activity.subject_id))
          OR (subject_kind = 'boat' AND NOT EXISTS (SELECT 1 FROM boats WHERE id = activity.subject_id))
          OR (subject_kind = 'group' AND NOT EXISTS (SELECT 1 FROM groups WHERE id = activity.subject_id))
-         OR (kind = 'photos' AND NOT EXISTS (SELECT 1 FROM photos WHERE share_id = activity.subject_id))`,
+         OR (kind = 'photos' AND NOT EXISTS (SELECT 1 FROM photos WHERE share_id = activity.subject_id))
+         OR (kind = 'logbook' AND NOT EXISTS (SELECT 1 FROM shares WHERE id IN (SELECT value FROM json_each(activity.data, '$.ids'))))`,
     ),
     env.DB.prepare(
       `DELETE FROM activity_target WHERE
