@@ -4,7 +4,7 @@ import { linkify } from '../domain/comment-text';
 import { GROUP_KIND_LABEL, streamHeadline } from '../domain/groups';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
-import { base, emit } from './shared';
+import { base, coverBanner, coverBannerStyles, emit } from './shared';
 import './sx-reactions';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
@@ -52,6 +52,7 @@ export class SxStream extends LitElement {
 
   static styles = [
     base,
+    coverBannerStyles,
     css`
       :host {
         display: block;
@@ -151,10 +152,6 @@ export class SxStream extends LitElement {
       .cover {
         aspect-ratio: 1200 / 630;
       }
-      /* Titelbild (COVER_BANNER_RATIO) mit gespeichertem Ausschnitt */
-      .banner {
-        aspect-ratio: 3 / 1;
-      }
       .tools {
         margin-left: auto;
       }
@@ -237,7 +234,7 @@ export class SxStream extends LitElement {
   private banner(i: StreamItem) {
     if (!i.cover) return '';
     const href = i.milestone?.path ?? (i.boat ? `/b/${i.boat.id}` : i.actor ? `/u/${i.actor.handle}` : null);
-    const img = html`<img class="banner" src=${i.cover.src} style="object-position: 50% ${i.cover.y}%" alt="" loading="lazy" decoding="async" />`;
+    const img = coverBanner(i.cover, 'banner');
     return href ? html`<a href=${href} tabindex="-1" aria-hidden="true">${img}</a>` : img;
   }
 

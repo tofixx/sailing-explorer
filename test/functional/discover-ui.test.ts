@@ -3,6 +3,9 @@
 // Häfen, Beitreten-Knöpfe je Beitrittsstufe – Komponente, reine Regeln und Controller (Netz gefälscht).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../src/components/sx-discover';
+import '../../src/components/sx-page-media';
+import type { SxCover } from '../../src/components/sx-page-media';
+import { coverBannerStyles, coverPosition } from '../../src/components/shared';
 import { SxDiscover } from '../../src/components/sx-discover';
 import { DiscoverController, SEARCH_DELAY_MS } from '../../src/controllers/discover';
 import { Store, initialState } from '../../src/services/store';
@@ -44,16 +47,33 @@ afterEach(() => {
 // ---------------------------------------------------------------- F-330 Titelbilder
 
 describe('F-330 Titelbilder auf /entdecken', () => {
+  const boat = { id: 'B1', name: 'Möwe', boatType: '', lengthM: null, homePort: '', createdAt: 0, owner: { handle: 'a', displayName: 'A' }, stats: { voyages: 0, distNm: 0 } };
+
   it('[F-330] Boots-Titelbild als breiter 3:1-Streifen mit gespeichertem Ausschnitt, nie hochkant', async () => {
-    const boat = { id: 'B1', name: 'Möwe', boatType: '', lengthM: null, homePort: '', createdAt: 0, owner: { handle: 'a', displayName: 'A' }, stats: { voyages: 0, distNm: 0 } };
     const el = await mount({ data: data({ boats: [{ ...boat, cover: { src: '/api/covers/b/B1/v1', y: 20 } }] }) });
     const img = el.shadowRoot.querySelector<HTMLImageElement>('.card img.cv')!;
+    expect(img.classList.contains('cover-banner')).toBe(true);
     expect(img.style.objectPosition).toBe('50% 20%');
-    // dasselbe Seitenverhältnis wie der Kopf der Bootsseite (COVER_BANNER_RATIO = 3)
+    // derselbe Streifen wie im Kopf der Bootsseite (COVER_BANNER_RATIO = 3), über die volle Kartenbreite
     const css = SxDiscover.styles.map((s) => String(s)).join('\n');
+    expect(css).toContain(String(coverBannerStyles));
+    expect(String(coverBannerStyles)).toMatch(/aspect-ratio: 3 \/ 1;[^}]*object-fit: cover/);
     const rule = /\.card \.cv \{[^}]*\}/.exec(css)?.[0] ?? '';
-    expect(rule).toContain('aspect-ratio: 3 / 1');
-    expect(rule).toContain('object-fit: cover');
+    expect(rule).toContain('width: calc(100% + 2 * var(--s-4))');
+    expect(rule).toContain('min-width: 0');
+    expect(rule).not.toContain('aspect-ratio');
+  });
+
+  it('[F-330] gleicher Ausschnitt wie im Seitenkopf: Karte und sx-cover setzen dieselbe Position', async () => {
+    const el = await mount({ data: data({ boats: [{ ...boat, cover: { src: '/api/covers/b/B1/v1', y: 73 } }] }) });
+    const card = el.shadowRoot.querySelector<HTMLImageElement>('.card img.cv')!;
+    const head = document.createElement('sx-cover') as SxCover;
+    Object.assign(head, { kind: 'b', targetId: 'B1', src: '/api/covers/b/B1/v1', focusY: 73 });
+    document.body.append(head);
+    await head.updateComplete;
+    const headImg = head.shadowRoot!.querySelector<HTMLImageElement>('.frame img')!;
+    expect(card.style.objectPosition).toBe(headImg.style.objectPosition);
+    expect(card.getAttribute('style')).toBe(coverPosition(73));
   });
 });
 

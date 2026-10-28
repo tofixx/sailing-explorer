@@ -16,7 +16,7 @@ import { GROUP_KIND_LABEL, JOIN_ACTION_LABEL, joinAction } from '../domain/group
 import { SEARCH_LIMITS } from '../domain/search';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { base, emit } from './shared';
+import { base, coverBanner, coverBannerStyles, emit } from './shared';
 
 /** Abschnitte der Seite /entdecken – „Alle“ oder einer allein (F-332). */
 export const DISCOVER_SECTIONS = [
@@ -78,6 +78,7 @@ export class SxDiscover extends LitElement {
 
   static styles = [
     base,
+    coverBannerStyles,
     css`
       :host {
         display: block;
@@ -341,8 +342,8 @@ export class SxDiscover extends LitElement {
         transform: translateY(-1px);
       }
       /*
-       * Titelbild über der Karte: derselbe breite 3:1-Streifen wie im Seitenkopf (COVER_BANNER_RATIO) mit dem
-       * gespeicherten Ausschnitt – nie hochkant oder quadratisch beschnitten (F-330).
+       * Titelbild über der Karte: derselbe Streifen wie im Seitenkopf (coverBannerStyles, gleiches 3:1 und gleicher
+       * Ausschnitt) über die volle Kartenbreite – nie hochkant oder quadratisch beschnitten (F-330).
        */
       .card.has-cover {
         flex-wrap: wrap;
@@ -357,13 +358,7 @@ export class SxDiscover extends LitElement {
            Karte (Seite seitlich verschiebbar) und wird über das Seitenverhältnis hochkant riesig */
         width: calc(100% + 2 * var(--s-4));
         min-width: 0;
-        max-width: none;
-        height: auto;
         margin: calc(-1 * var(--s-3)) calc(-1 * var(--s-4)) 0;
-        aspect-ratio: 3 / 1;
-        object-fit: cover;
-        display: block;
-        background: var(--surface-2);
       }
       .card .ic {
         flex: none;
@@ -497,7 +492,7 @@ export class SxDiscover extends LitElement {
 
   /** Karten-Anfang: mit Titelbild (Konzept 13.2) darüber, sonst schlicht. */
   private cardStart(cover: CoverRef | null | undefined) {
-    return cover ? html`<img class="cv" src=${cover.src} style="object-position: 50% ${cover.y}%" alt="" loading="lazy" decoding="async" />` : '';
+    return cover ? coverBanner(cover, 'cv') : '';
   }
 
   private boat(b: DiscoverBoat) {

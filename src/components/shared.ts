@@ -1,4 +1,5 @@
-import { css } from 'lit';
+import { css, html } from 'lit';
+import type { CoverRef } from '../domain/cover';
 
 /** Gemeinsame Grundstile aller Komponenten – nutzt ausschließlich Tokens. */
 export const base = css`
@@ -249,6 +250,34 @@ export const dialogStyles = css`
 `;
 
 /** Eingabe „E-Mail oder Profilname“: mit @ in der Mitte eine Adresse, sonst ein Profilname (führendes @ erlaubt). */
+/**
+ * Titelbild-Streifen (Konzept 13.2): überall dasselbe 3:1-Banner (`COVER_BANNER_RATIO`) mit dem gespeicherten
+ * Ausschnitt – im Seitenkopf (sx-cover), auf /entdecken und in den Neuigkeiten, damit der Eigner überall denselben
+ * Ausschnitt sieht, den er im Kopf eingestellt hat (F-211, F-330). Feste Breite ohne Mindestbreite aus der Datei.
+ */
+export const coverBannerStyles = css`
+  .cover-banner {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: auto;
+    aspect-ratio: 3 / 1;
+    object-fit: cover;
+    background: var(--surface-2);
+  }
+`;
+
+/** Ausschnitt eines Titelbilds: horizontal mittig, vertikal die gespeicherte Fokus-Position (F-211). */
+export function coverPosition(y: number): string {
+  return `object-position: 50% ${y}%`;
+}
+
+/** Titelbild als Streifen in Listen (Entdecken, Neuigkeiten) – braucht `coverBannerStyles`. */
+export function coverBanner(cover: CoverRef, cls = '') {
+  return html`<img class="cover-banner ${cls}" src=${cover.src} style=${coverPosition(cover.y)} alt="" loading="lazy" decoding="async" />`;
+}
+
 export function inviteTarget(raw: string): { email: string } | { handle: string } {
   const v = raw.trim();
   return v.indexOf('@') > 0 ? { email: v } : { handle: v.replace(/^@/, '') };
