@@ -125,6 +125,11 @@ const LOGBOOK_IDS_MAX = 100;
  */
 export async function recordLogbook(env: Env, s: ShareForActivity, now = Date.now()): Promise<void> {
   await safely('logbook', async () => {
+    // schon in einem Bündel (z. B. privat und wieder öffentlich geschaltet): nicht noch einmal
+    const listed = await env.DB.prepare(
+      `SELECT 1 AS x FROM activity a, json_each(a.data, '$.ids') j WHERE a.kind = 'logbook' AND a.actor_id = ?1 AND j.value = ?2 LIMIT 1`,
+    ).bind(s.user_id, s.id).first();
+    if (listed) return;
     const id = randomId();
     const bucket = `logbook:${s.user_id}:${dayKey(now)}`;
     // Ziele hängen am Bündel, das es (nach diesem Batch) gibt – auch wenn es schon bestand

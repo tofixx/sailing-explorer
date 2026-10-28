@@ -7,7 +7,7 @@ import { requireUser } from './auth';
 import { randomId } from './crypto';
 import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { nextShareKey } from './access';
-import { assertActive, isAdmin } from './moderation';
+import { LOCKED, assertActive, isAdmin, isLockedTarget } from './moderation';
 import { deleteKeys, shareKey } from './photo-keys';
 import { checkStorageQuota, supportStatus, visibilityRequiresSupport } from './supporter';
 import { addStorageStmt, checkBrake, currentBrake } from './storage';
@@ -55,6 +55,8 @@ async function resolveHarbor(env: Env, user: Pick<User, 'id'>, input: unknown): 
   }
   const wantsPosition = (i.lat !== undefined && i.lat !== null) || (i.lon !== undefined && i.lon !== null);
   if (wantsPosition && h.lat === null) {
+    // gesperrte Häfen ändert niemand (Konzept 18.2) – auch nicht über das Fahrtenbuch
+    if (await isLockedTarget(env, 'harbor', h.id)) throw LOCKED();
     const pos = parseHarborPosition(i.lat, i.lon);
     if (!pos || pos.lat === null || pos.lon === null) throw new HttpError(400, 'invalid_position', 'Ungültige Position des Hafens.');
     if (!mayPlaceHarbor(h, user.id, isAdmin(env, user.id))) throw new HttpError(403, 'forbidden', 'Die Position setzt, wer den Hafen angelegt hat.');
@@ -252,11 +254,12 @@ export async function applyLogPatch(env: Env, user: Pick<User, 'id'>, row: Share
   const previous = readLog(row.log);
   if (body.log !== undefined) {
     const log = logOrThrow(body.log);
-    // `timed` gehört zu Datum/Uhrzeit, nicht zu den Angaben – es bleibt, solange es nicht eigens geändert wird
+    // `timed` gehört zu Datum/Uhrzeit (nur über `body.timed` samt Prüfung), nicht zu den Angaben
+    delete log.timed;
     if (previous.timed) log.timed = true;
     row.log = JSON.stringify(log);
   }
-  if (body.timed !== undefined) row.log = JSON.stringify({ ...readLog(row.log), timed: body.timed === true || undefined });
+  if (body.timed !== undefined && manual) row.log = JSON.stringify({ ...readLog(row.log), timed: body.timed === true || undefined });
 
   const harborChanged = body.fromHarbor !== undefined || body.toHarbor !== undefined;
   let from: HarborRow | null = null;

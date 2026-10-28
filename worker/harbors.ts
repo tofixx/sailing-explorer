@@ -228,7 +228,7 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
       lengthM: b.length_m,
       owner: b.owner_public && b.owner_handle ? { handle: b.owner_handle, displayName: b.owner_name ?? '' } : null,
     })),
-    voyages: voyages.map((r) => shareShape(r, false)),
+    voyages: voyages.map((r) => shareShape(r, false, false)),
     social: await followStats(env, 'harbor', h.id, user?.id ?? null),
     // Verein zuordnen: nur Vereine, die das Konto verwaltet, und nur wenn frei oder schon einer davon
     clubChoices: !h.club_id || ownClub || isAdmin(env, user?.id) ? manageable.map((c) => ({ id: c.id, slug: c.slug, name: c.name })) : [],

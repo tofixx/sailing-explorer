@@ -7,9 +7,9 @@ import { canView, nextShareKey, requestKey } from './access';
 import { assertActive, deleteShareReports, isAdmin, logLockedView } from './moderation';
 import { deleteKeys, photoKeysForShares, previewKey, shareKey } from './photo-keys';
 import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
-import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, subtractShareStmt } from './storage';
+import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, replacePayloadStmt, subtractShareStmt } from './storage';
 import { deleteShareNotifications } from './notification-cleanup';
-import { deleteShareActivity, recordVoyage } from './activity';
+import { deleteShareActivity, recordLogbook, recordVoyage } from './activity';
 import { deleteShareReactions } from './reaction-cleanup';
 import { quotaVerdict } from '../src/domain/limits';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseCommentsMode, parseVisibility } from './validate';
@@ -19,7 +19,7 @@ import { voyageRole, type VoyageRole } from '../src/domain/crew-roles';
 import { clearConfirmations } from './crew-cleanup';
 export { EXPIRES_SQL };
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
-import { isDistSource, plausibleGpx, readLog, type DistSource, type ShareSource } from '../src/domain/logbook';
+import { isBackfill, isDistSource, plausibleGpx, readLog, type DistSource, type ShareSource } from '../src/domain/logbook';
 import { applyLogPatch, type LogPatchBody } from './logbook';
 
 export interface ShareRow {
@@ -91,7 +91,8 @@ const SHARE_FROM = `shares s LEFT JOIN boats b ON b.id = s.boat_id
   LEFT JOIN harbors ht ON ht.id = s.to_harbor_id AND ht.hidden_at IS NULL`;
 export const SHARE_SELECT = `SELECT ${SHARE_COLS} FROM ${SHARE_FROM}`;
 
-export function shareShape(row: ShareRow, isOwner: boolean) {
+/** `withLog`: Fahrtenbuch-Angaben mitliefern (Einzelansicht, eigene Liste) – öffentliche Listen brauchen sie nicht. */
+export function shareShape(row: ShareRow, isOwner: boolean, withLog = true) {
   // Nicht öffentliche Boote nennt nur der Eigentümer der Freigabe (F-82).
   // Ausgeblendete Boote (Meldung) ebenso.
   const boat = row.boat_id && (isOwner || (row.boat_visibility === 'public' && !row.boat_hidden_at)) ? { id: row.boat_id, name: row.boat_name ?? '' } : null;
@@ -125,7 +126,7 @@ export function shareShape(row: ShareRow, isOwner: boolean) {
     endedAt: row.ended_at ?? null,
     from: harborAt(row.from_harbor_id, row.hf_slug, row.hf_name, row.hf_lat, row.hf_lon),
     to: harborAt(row.to_harbor_id, row.ht_slug, row.ht_name, row.ht_lat, row.ht_lon),
-    log: readLog(row.log),
+    ...(withLog ? { log: readLog(row.log) } : {}),
   };
 }
 
@@ -370,12 +371,13 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
   // Ein anderes Boot ändert, was der Skipper bestätigt hat (Konzept 15): Bestätigungen fallen.
   if (boatChanged) await env.DB.batch(clearConfirmations(env, row.id));
   // Neue Route (≤ 32 KB): Datei ersetzen, Speicherzähler um die Differenz verschieben
-  const previousBytes = row.size_bytes;
   if (payload) {
     await env.TRACKS.put(shareKey(row.id), payload, { httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' }, customMetadata: { owner: row.user_id } });
     row.size_bytes = payload.length;
   }
   await env.DB.batch([
+    // Zähler vor dem UPDATE um die Differenz zur gespeicherten Größe verschieben (auch bei parallelen Änderungen stimmig)
+    ...(payload ? [replacePayloadStmt(env, row.id, row.size_bytes)] : []),
     env.DB.prepare(
       `UPDATE shares SET title = ?, visibility = ?, share_key = ?, listed = ?, boat_id = ?, view = ?, comments_mode = ?, updated_at = ?,
          summary = ?, log = ?, from_harbor_id = ?, to_harbor_id = ?, started_at = ?, ended_at = ?, dist_nm = ?, dist_source = ?, size_bytes = ? WHERE id = ?`,
@@ -383,11 +385,12 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
       row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.comments_mode ?? 'on', row.updated_at,
       row.summary, row.log ?? '{}', row.from_harbor_id ?? null, row.to_harbor_id ?? null, row.started_at, row.ended_at ?? null, row.dist_nm, row.dist_source ?? 'track', row.size_bytes, row.id,
     ),
-    ...(payload ? [addStorageStmt(env, row.size_bytes - previousBytes)] : []),
   ]);
   const saved = await getShareRow(env, row.id);
-  // Erst öffentlich geschaltet: jetzt (einmal je Törn) in die Neuigkeiten.
-  if (previous !== 'public' && row.visibility === 'public') await recordVoyage(env, row, row.updated_at);
+  // Erst öffentlich geschaltet: jetzt (einmal je Törn) in die Neuigkeiten – Fahrtenbuch-Nachträge gebündelt (F-308).
+  if (previous !== 'public' && row.visibility === 'public') {
+    await (row.source === 'manual' && isBackfill(row.started_at, row.created_at) ? recordLogbook(env, row, row.updated_at) : recordVoyage(env, row, row.updated_at));
+  }
   // mit Kontext wie GET: die Törn-Ansicht übernimmt die Antwort (Gruppen folgen der neuen Sichtbarkeit)
   return json({ share: await shareDetail(env, saved ?? row, true, user.id) });
 }
@@ -418,7 +421,7 @@ export async function publicShares(env: Env, where: 'user' | 'boat', id: string)
   )
     .bind(id)
     .all<ShareRow>();
-  return results.map((r) => shareShape(r, false));
+  return results.map((r) => shareShape(r, false, false));
 }
 
 /** Öffentliche Törns, auf denen das Konto als Crew eingetragen ist (Profil „Mitgesegelt“, Konzept 10.6). */
@@ -429,7 +432,7 @@ export async function crewShares(env: Env, userId: string): Promise<Array<Return
   )
     .bind(userId)
     .all<ShareRow & { crew_role: string }>();
-  return results.map((r) => ({ ...shareShape(r, false), crewRole: voyageRole(r.crew_role) }));
+  return results.map((r) => ({ ...shareShape(r, false, false), crewRole: voyageRole(r.crew_role) }));
 }
 
 /** JPEG: beginnt mit FF D8 FF. */

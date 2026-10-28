@@ -375,7 +375,8 @@ describe('F-310 Löschen: keine neuen Pfade', () => {
 
   it('[F-310] Hafen gelöscht oder zusammengeführt: Törns verlieren bzw. wechseln den Hafen', async () => {
     const p = await s.person();
-    const m = await manual(p);
+    // eigene Häfen – die gemeinsamen bleiben für die anderen Tests
+    const m = await manual(p, { fromHarbor: { name: port('Merge A'), ...POTSDAM }, toHarbor: { name: port('Merge B'), ...WERDER } });
     const db = await h.db();
     const ids = await db.prepare('SELECT from_harbor_id AS f, to_harbor_id AS t FROM shares WHERE id = ?').bind(m.id).first<{ f: string; t: string }>();
     await db.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)').bind(ADMIN_ID, 'logbook-admin@example.org', Date.now() - 10 * DAY).run();
@@ -398,5 +399,57 @@ describe('F-311 GPX-Plausibilität (L8)', () => {
     const ok = await up({ 'X-Share-Distance': '80', 'X-Share-Started': String(t), 'X-Share-Ended': String(t + 3 * 3_600_000) });
     expect(ok.status).toBe(201);
     expect(((await ok.json()) as { share: LogShare }).share.endedAt).toBe(t + 3 * 3_600_000);
+  });
+});
+
+describe('Review-Befunde', () => {
+  it('[F-308] Nachtrag erst privat, dann öffentlich: ins Bündel, nie einzeln; erneutes Umschalten fügt nichts doppelt hinzu', async () => {
+    const p = await s.person({ profile: 'public', supporter: true });
+    const m = await manual(p, { startedAt: recent(40), visibility: 'private' });
+    for (const v of ['public', 'private', 'public']) expect((await s.send('PATCH', `/api/shares/${m.id}`, p.cookie, { visibility: v })).status).toBe(200);
+    const { results } = await (await h.db()).prepare('SELECT kind, data FROM activity WHERE actor_id = ?').bind(p.user.id).all<{ kind: string; data: string }>();
+    expect(results.map((r) => r.kind)).toEqual(['logbook']);
+    expect(JSON.parse(results[0].data)).toEqual({ ids: [m.id] });
+  });
+
+  it('[F-307] gesperrte Häfen bekommen auch über das Fahrtenbuch keine Position', async () => {
+    const a = await s.person();
+    const created = (await (await s.send('POST', '/api/harbors', a.cookie, { name: port('Gesperrt') })).json()) as { harbor: { id: string } };
+    await (await h.db()).prepare("INSERT INTO locks (target_kind, target_id, locked_at, until, locked_by) VALUES ('harbor', ?, ?, ?, 'x')").bind(created.harbor.id, Date.now(), Date.now() + DAY).run();
+    const res = await s.send('POST', '/api/shares/manual', a.cookie, entry({ fromHarbor: { harborId: created.harbor.id, ...POTSDAM } }));
+    expect(res.status).toBe(409);
+    expect((await (await h.db()).prepare('SELECT lat FROM harbors WHERE id = ?').bind(created.harbor.id).first<{ lat: number | null }>())?.lat).toBeNull();
+  });
+
+  it('[F-310] Moderation löscht einen Eintrag samt Payload und Zähleranteil', async () => {
+    const p = await s.person({ profile: 'public' });
+    const m = await manual(p);
+    const db = await h.db();
+    const counter = async () => (await db.prepare("SELECT value FROM counters WHERE name = 'storage_bytes'").first<{ value: number }>())?.value ?? 0;
+    const before = await counter();
+    const reporter = await s.person();
+    expect((await s.send('POST', '/api/reports', reporter.cookie, { kind: 'share', id: m.id, reason: 'abuse', note: '' })).status).toBe(201);
+    await db.prepare('INSERT OR IGNORE INTO users (id, email, created_at) VALUES (?, ?, ?)').bind(ADMIN_ID, 'logbook-admin@example.org', Date.now() - 10 * DAY).run();
+    const admin = await login(h, 'logbook-admin@example.org');
+    const list = (await (await s.send('GET', '/api/admin/reports', admin.cookie)).json()) as { reports: Array<{ id: string; targetId: string }> };
+    const r = list.reports.find((x) => x.targetId === m.id)!;
+    expect((await s.send('POST', `/api/admin/reports/${r.id}`, admin.cookie, { action: 'delete' })).status).toBe(200);
+    expect(await db.prepare('SELECT 1 AS x FROM shares WHERE id = ?').bind(m.id).first()).toBeNull();
+    expect(await (await h.r2()).head(`shares/${m.id}`)).toBeNull();
+    expect(await counter()).toBe(before - m.sizeBytes);
+  });
+
+  it('[F-301] PATCH: neue Route verschiebt den Speicherzähler um die Differenz; timed nur über das eigene Feld', async () => {
+    const p = await s.person();
+    const db = await h.db();
+    const counter = async () => (await db.prepare("SELECT value FROM counters WHERE name = 'storage_bytes'").first<{ value: number }>())?.value ?? 0;
+    const m = await manual(p);
+    const before = await counter();
+    const moved = ((await (await s.send('PATCH', `/api/shares/${m.id}`, p.cookie, { toHarbor: { name: port('Ferch'), lat: 52.3212, lon: 12.9345 } })).json()) as { share: LogShare }).share;
+    expect(await counter()).toBe(before + moved.sizeBytes - m.sizeBytes);
+    const res = await s.send('PATCH', `/api/shares/${m.id}`, p.cookie, { log: { timed: true, notes: 'x' } });
+    expect(((await res.json()) as { share: LogShare }).share.log).toEqual({ notes: 'x' });
+    // öffentliche Listen ohne Fahrtenbuch-Angaben
+    expect(((await (await s.send('GET', `/api/shares/${m.id}`, p.cookie)).json()) as { share: LogShare }).share.log).toEqual({ notes: 'x' });
   });
 });

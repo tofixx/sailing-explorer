@@ -1994,6 +1994,10 @@ Abweichungen von der Skizze unten (gehen ihr vor):
 | Wetter | kein Abruf für geschätzte Routen (Hinweis in „Bedingungen“) – `routeTrack` mit Zeiten und Wetter folgt in Phase 2 (F-314) |
 | Medien-Sperre F-309 | schon in Phase 1 (statt Phase 2) |
 | Distanz bei Änderung | Meilensteine werden beim PATCH der Strecke nicht neu geprüft (wie bei GPX-Törns) |
+| Abgelehnter Eintrag | Häfen, die dabei neu angelegt bzw. positioniert wurden, bleiben (wie beim Boot-Formular) – sie sind gültige Häfen; zählen aufs Hafen-Tageslimit |
+| Öffentlich schalten | ein privat angelegter Nachtrag kommt beim Öffentlich-Schalten ins Bündel, nie einzeln; ein Törn steht in höchstens einem Bündel |
+| Listen | Profil-, Boots- und Hafenlisten liefern keine Fahrtenbuch-Angaben (`log`), nur Einzelansicht und eigene Liste |
+| Ältere Oberflächen | ein gecachter alter Client zeigt `logbook`-Bündel als leeren Eintrag und Einträge ohne GPX nicht – übergangsweise hingenommen |
 
 ### 19.0 Entscheidungen des Betreibers (Oktober 2026)
 

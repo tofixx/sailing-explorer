@@ -54,6 +54,12 @@ export const replaceImageStmt = (env: Env, shareId: string, newBytes: number) =>
     newBytes, shareId, STORAGE_COUNTER,
   );
 
+/** Neue Payload eines Törns (Fahrtenbuch-Route): vor dem UPDATE im selben Batch die Differenz zur alten Größe buchen. */
+export const replacePayloadStmt = (env: Env, shareId: string, newBytes: number) =>
+  env.DB.prepare('UPDATE counters SET value = MAX(0, value + ?1 - COALESCE((SELECT size_bytes FROM shares WHERE id = ?2), ?1)) WHERE name = ?3').bind(
+    newBytes, shareId, STORAGE_COUNTER,
+  );
+
 /** Vor dem Löschen aller Törns (und Fotos) eines Kontos im selben Batch. */
 export const subtractUserStmt = (env: Env, userId: string) =>
   env.DB.prepare(
