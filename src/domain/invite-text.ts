@@ -1,12 +1,16 @@
 // Texte zu Einladungen (Konzept 10, 14) an einer Stelle – für Einladungsdialog, Posteingang im Konto und Hinweise.
 // Rein, ohne DOM: Ziel- und Personennamen sind Nutzertext und werden von Lit beim Einsetzen escaped.
 
+import { VOYAGE_ROLE_SHORT, type VoyageRole } from './crew-roles';
+
 export type InviteKindText = 'boat_admin' | 'crew' | 'group' | 'friend';
 
 interface InviteLike {
   kind: InviteKindText;
   groupKind?: 'club' | 'team' | null;
   target: string | null;
+  /** nur Crew: Rolle, als die eingeladen wird (Konzept 15) */
+  role?: VoyageRole;
 }
 
 const quote = (s: string | null, fallback: string) => `„${s || fallback}“`;
@@ -21,7 +25,7 @@ export function inviteWhat(i: InviteLike): string {
     case 'boat_admin':
       return `ein, das Boot ${quote(i.target, 'Boot')} mitzuverwalten`;
     default:
-      return `ein, in die Crew des Törns ${quote(i.target, 'Törn')}`;
+      return `ein, ${i.role && i.role !== 'crew' ? `als ${VOYAGE_ROLE_SHORT[i.role]} ` : ''}in die Crew des Törns ${quote(i.target, 'Törn')}`;
   }
 }
 

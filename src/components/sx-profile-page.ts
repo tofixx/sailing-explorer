@@ -1,6 +1,7 @@
 import { LitElement, css, html } from 'lit';
-import type { Boat, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, Profile, PublicHome, ShareMeta, StreamPage } from '../services/api';
+import type { Boat, CrewVoyage, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, Profile, PublicHome, ShareMeta, StreamPage } from '../services/api';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
+import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
@@ -19,7 +20,7 @@ const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
 };
 
 export type PageData =
-  | ({ kind: 'profile'; profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[]; social?: FollowStats; home?: PublicHome } & PageMedia)
+  | ({ kind: 'profile'; profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: CrewVoyage[]; social?: FollowStats; home?: PublicHome } & PageMedia)
   | ({ kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[] } & PageMedia)
   /** Hafenseite /h/<slug> (Konzept 12.2) mit Neuigkeiten des Hafens */
   | ({ kind: 'harbor'; stream?: StreamPage | null } & HarborPageData);
@@ -253,14 +254,14 @@ export class SxProfilePage extends LitElement {
     `,
   ];
 
-  private voyages(list: ShareMeta[]) {
+  private voyages(list: CrewVoyage[]) {
     if (!list.length) return html`<div class="empty">Noch keine öffentlichen Törns.</div>`;
     return html`<div class="cards">
       ${list.map(
         (v) => html`<a class="card" href="/s/${v.id}">
           <span class="t">${icon('map')}${v.title}</span>
           <span class="s">${v.summary || `${fmtNum(v.distNm, 1)} sm`}</span>
-          <span class="s">${v.boat ? html`${icon('sail')} ${v.boat.name} · ` : ''}${fmtDate(v.startedAt ?? v.createdAt)}</span>
+          <span class="s">${v.boat ? html`${icon('sail')} ${v.boat.name} · ` : ''}${fmtDate(v.startedAt ?? v.createdAt)}${v.crewRole ? ` · als ${VOYAGE_ROLE_SHORT[v.crewRole]}` : ''}</span>
         </a>`,
       )}
     </div>`;

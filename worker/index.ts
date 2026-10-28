@@ -6,6 +6,7 @@ import { canViewShare, createShare, deleteShare, getShareData, getShareImage, ge
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
 import { getDiscover } from './discover';
+import { confirmCrew, setCrewRole, setOwnerRole, unconfirmCrew } from './crew-roles';
 import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteCrew, inviteFriend, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
 import { withPageHeaders } from './security';
 import { createCheckout, freeShares, getSupport, stripeWebhook, supportConfig } from './supporter';
@@ -107,6 +108,11 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/crew$/, (r, env, [id]) => getCrew(r, env, id)],
   ['POST', /^\/api\/shares\/([A-Za-z0-9]+)\/invites$/, (r, env, [id]) => inviteCrew(r, env, id)],
   ['DELETE', /^\/api\/shares\/([A-Za-z0-9]+)\/crew\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => removeCrew(r, env, id, who)],
+  // ---- Rollen am Törn (Konzept 15): worker/crew-roles.ts ----
+  ['PUT', /^\/api\/shares\/([A-Za-z0-9]+)\/crew\/([A-Za-z0-9]+)\/role$/, (r, env, [id, who]) => setCrewRole(r, env, id, who)],
+  ['PUT', /^\/api\/shares\/([A-Za-z0-9]+)\/role$/, (r, env, [id]) => setOwnerRole(r, env, id)],
+  ['POST', /^\/api\/shares\/([A-Za-z0-9]+)\/confirm$/, (r, env, [id]) => confirmCrew(r, env, id)],
+  ['DELETE', /^\/api\/shares\/([A-Za-z0-9]+)\/confirm\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => unconfirmCrew(r, env, id, who)],
   // ---- Kommentare & Melden (Phase D): worker/community.ts ----
   ...communityRoutes,
   // ---- Fotos (Phase C, Konzept 6.3): worker/photos.ts ----

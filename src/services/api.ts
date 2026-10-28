@@ -10,6 +10,7 @@ import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, Stream
 import type { CoverKind, CoverRef } from '../domain/cover';
 import type { HarborRef } from '../domain/harbors';
 import type { MapStyleId } from '../domain/map-style';
+import type { VoyageRole } from '../domain/crew-roles';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 import type { NotificationItem, NotificationKind, NotifyPrefs } from '../domain/notifications';
 
@@ -154,10 +155,22 @@ export interface BoatAdmins {
 }
 
 export interface CrewMember {
-  /** nur für den Eigentümer (zum Entfernen) */
+  /** nur für Eigentümer und Skipper (zum Entfernen, Rolle setzen, Bestätigen) */
   id: string | null;
   handle: string | null;
   displayName: string;
+  role: VoyageRole;
+  /** Bestätigung durch den Skipper – nur für Eigentümer und Skipper */
+  confirmed: Confirmation | null;
+}
+
+/** Törn im Profil-Abschnitt „Mitgesegelt“ – mit der Rolle der Person an Bord. */
+export type CrewVoyage = ShareMeta & { crewRole?: VoyageRole };
+
+/** Bestätigung durch den Skipper (Konzept 15): Zeitpunkt und Name; `by` null = Konto gelöscht. */
+export interface Confirmation {
+  at: number;
+  by: string | null;
 }
 
 /** Crew eines Törns – für Besucher nur bei öffentlichen Törns, namentlich nur mit öffentlichem Profil (Konzept 10.6). */
@@ -169,6 +182,14 @@ export interface Crew {
   isOwner: boolean;
   /** angemeldetes Konto ist selbst in der Crew */
   isCrew: boolean;
+  /** angemeldetes Konto ist Skipper (Eigentümer oder Crew) – darf bestätigen */
+  isSkipper: boolean;
+  /** Rolle des Eigentümers, null = nicht angegeben */
+  ownerRole: VoyageRole | null;
+  /** Bestätigung des Eigentümers (nur für Eigentümer und Skipper) */
+  ownerConfirmed: Confirmation | null;
+  /** eigene Rolle und Bestätigung als Crew-Mitglied */
+  me: { role: VoyageRole; confirmed: Confirmation | null } | null;
   invites: PendingInvite[];
 }
 
@@ -183,6 +204,8 @@ export interface InvitePeek {
   /** an eine E-Mail-Adresse gebunden (welche, verrät der Server nicht) */
   bound: boolean;
   expiresAt: number;
+  /** nur Crew: Rolle beim Annehmen */
+  role?: VoyageRole;
   /** null: nicht angemeldet bzw. nicht an eine Adresse gebunden */
   emailMatches: boolean | null;
   isOwner: boolean;
@@ -210,6 +233,8 @@ export interface MyInvite {
   target: string | null;
   /** nur bei Gruppen */
   groupKind?: 'club' | 'team';
+  /** nur Crew */
+  role?: VoyageRole;
   inviter: string;
   expiresAt: number;
 }
@@ -369,7 +394,7 @@ export const api = {
   myProfile: () => call<{ profile: Profile; exists: boolean }>('/api/me/profile'),
   saveProfile: (p: ProfileInput) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),
   profile: (handle: string, key?: string | null) =>
-    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: ShareMeta[]; social?: FollowStats; home?: PublicHome } & PageMedia>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
+    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: CrewVoyage[]; social?: FollowStats; home?: PublicHome } & PageMedia>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
 
   myBoats: () => call<{ boats: Boat[] }>('/api/boats'),
   createBoat: (b: BoatInput) => call<{ boat: Boat }>('/api/boats', jsonInit('POST', b)),
@@ -384,9 +409,19 @@ export const api = {
   removeBoatAdmin: (id: string, userId: string) =>
     call<void>(`/api/boats/${encodeURIComponent(id)}/admins/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
   crew: (shareId: string, key?: string | null) => call<Crew>(`/api/shares/${encodeURIComponent(shareId)}/crew`, keyInit(key)),
-  /** to null = Einladungslink */
-  inviteCrew: (shareId: string, to: InviteTo | null) =>
-    call<InviteCreated>(`/api/shares/${encodeURIComponent(shareId)}/invites`, jsonInit('POST', to ?? {})),
+  /** to null = Einladungslink; role = Rolle beim Annehmen (Co-Skipper, Crew, Gast) */
+  inviteCrew: (shareId: string, to: InviteTo | null, role: VoyageRole = 'crew') =>
+    call<InviteCreated>(`/api/shares/${encodeURIComponent(shareId)}/invites`, jsonInit('POST', { ...(to ?? {}), role })),
+  /** userId 'me' = eigene Rolle */
+  setCrewRole: (shareId: string, userId: string, role: VoyageRole) =>
+    call<{ role: VoyageRole }>(`/api/shares/${encodeURIComponent(shareId)}/crew/${encodeURIComponent(userId)}/role`, jsonInit('PUT', { role })),
+  setOwnerRole: (shareId: string, role: VoyageRole | null) => call<{ role: VoyageRole | null }>(`/api/shares/${encodeURIComponent(shareId)}/role`, jsonInit('PUT', { role })),
+  /** userIds 'all' = alle; owner = auch den Eigentümer */
+  confirmCrew: (shareId: string, userIds: string[] | 'all', owner = false) =>
+    call<{ confirmedAt: number }>(`/api/shares/${encodeURIComponent(shareId)}/confirm`, jsonInit('POST', { userIds, owner })),
+  /** userId 'owner' = Bestätigung des Eigentümers */
+  unconfirmCrew: (shareId: string, userId: string) =>
+    call<void>(`/api/shares/${encodeURIComponent(shareId)}/confirm/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
   /** userId 'me' = sich selbst entfernen */
   removeCrew: (shareId: string, userId: string) =>
     call<void>(`/api/shares/${encodeURIComponent(shareId)}/crew/${encodeURIComponent(userId)}`, { method: 'DELETE' }),

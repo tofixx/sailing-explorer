@@ -15,6 +15,8 @@ import { quotaVerdict } from '../src/domain/limits';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseCommentsMode, parseVisibility } from './validate';
 import { EXPIRES_SQL } from './expiry-sql';
 import { shareContext } from './share-context';
+import { voyageRole, type VoyageRole } from '../src/domain/crew-roles';
+import { clearConfirmations } from './crew-cleanup';
 export { EXPIRES_SQL };
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
 
@@ -48,6 +50,10 @@ export interface ShareRow {
   locked_at?: number | null;
   /** aus EXPIRES_SQL */
   expires_at?: number | null;
+  /** eigene Rolle am Törn (0022): skipper | co | crew | guest, NULL = nicht angegeben */
+  owner_role?: string | null;
+  role_confirmed_at?: number | null;
+  role_confirmed_by?: string | null;
   /** aus dem JOIN mit boats */
   boat_name?: string | null;
   boat_visibility?: string | null;
@@ -56,8 +62,9 @@ export interface ShareRow {
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
-export const SHARE_SELECT = `SELECT s.*, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at
-  FROM shares s LEFT JOIN boats b ON b.id = s.boat_id`;
+const SHARE_COLS = `s.*, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at`;
+const SHARE_FROM = 'shares s LEFT JOIN boats b ON b.id = s.boat_id';
+export const SHARE_SELECT = `SELECT ${SHARE_COLS} FROM ${SHARE_FROM}`;
 
 export function shareShape(row: ShareRow, isOwner: boolean) {
   // Nicht öffentliche Boote nennt nur der Eigentümer der Freigabe (F-82).
@@ -288,6 +295,7 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
   const { row, user } = await ownedShare(request, env, id);
   const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown; commentsMode?: unknown }>(request);
   const previous = row.visibility;
+  const previousBoat = row.boat_id;
   if (body.title !== undefined) {
     const t = cleanText(body.title, LIMITS.titleLength);
     if (!t) throw new HttpError(400, 'invalid_title', 'Titel darf nicht leer sein.');
@@ -308,7 +316,10 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
     if (!mode) throw new HttpError(400, 'invalid_comments_mode', 'Unbekannte Einstellung für Kommentare.');
     row.comments_mode = mode;
   }
+  const boatChanged = body.boatId !== undefined && row.boat_id !== previousBoat;
   row.updated_at = Date.now();
+  // Ein anderes Boot ändert, was der Skipper bestätigt hat (Konzept 15): Bestätigungen fallen.
+  if (boatChanged) await env.DB.batch(clearConfirmations(env, row.id));
   await env.DB.prepare('UPDATE shares SET title = ?, visibility = ?, share_key = ?, listed = ?, boat_id = ?, view = ?, comments_mode = ?, updated_at = ? WHERE id = ?')
     .bind(row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.comments_mode ?? 'on', row.updated_at, row.id)
     .run();
@@ -349,14 +360,14 @@ export async function publicShares(env: Env, where: 'user' | 'boat', id: string)
 }
 
 /** Öffentliche Törns, auf denen das Konto als Crew eingetragen ist (Profil „Mitgesegelt“, Konzept 10.6). */
-export async function crewShares(env: Env, userId: string): Promise<ReturnType<typeof shareShape>[]> {
+export async function crewShares(env: Env, userId: string): Promise<Array<ReturnType<typeof shareShape> & { crewRole: VoyageRole }>> {
   const { results } = await env.DB.prepare(
-    `${SHARE_SELECT} JOIN share_crew c ON c.share_id = s.id
+    `SELECT ${SHARE_COLS}, c.role AS crew_role FROM ${SHARE_FROM} JOIN share_crew c ON c.share_id = s.id
      WHERE c.user_id = ? AND s.visibility = 'public' AND s.hidden_at IS NULL ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
   )
     .bind(userId)
-    .all<ShareRow>();
-  return results.map((r) => shareShape(r, false));
+    .all<ShareRow & { crew_role: string }>();
+  return results.map((r) => ({ ...shareShape(r, false), crewRole: voyageRole(r.crew_role) }));
 }
 
 /** JPEG: beginnt mit FF D8 FF. */

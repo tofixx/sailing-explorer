@@ -5,6 +5,7 @@ import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
 import { isAdmin } from './moderation';
 import { publicShares } from './shares';
+import { clearBoatConfirmations } from './crew-cleanup';
 import { boatCleanup, recordHarborBoat } from './activity';
 import { harborFromBoatInput, type HarborRow } from './harbors';
 import { followStats } from './follows';
@@ -277,6 +278,8 @@ export async function removeBoat(env: Env, id: string): Promise<void> {
   await removeCoverOf(env, 'b', id);
   await env.DB.batch([
     ...boatCleanup(env, id),
+    // Ohne Boot gilt keine Bestätigung des Skippers mehr (Konzept 15) – vor dem Lösen der Zuordnung.
+    ...clearBoatConfirmations(env, '= ?', id),
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM boat_admins WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM invites WHERE boat_id = ?').bind(id),

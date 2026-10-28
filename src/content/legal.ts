@@ -155,6 +155,7 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
             '„Nur mit Link“: nur wer den geheimen Link kennt. „Nur ich“: nur du. Beide Stufen gibt es mit einer laufenden Unterstützung; kostenlos ist alles, was du teilst, öffentlich.',
             'Profil-, Boots- und Gruppenseiten zeigen nur öffentliche Törns. Mitgliedschaften in Gruppen machen nichts sichtbar, was nicht ohnehin öffentlich ist; geschlossene Gruppen sehen nur ihre Mitglieder.',
             'In den Neuigkeiten erscheinen nur öffentliche Inhalte; dein Name nur, wenn dein Profil öffentlich ist. Bei Reaktionen sehen andere deinen Namen nur mit öffentlichem Profil, sonst nur die Anzahl.',
+            'Crew eines Törns: Andere sehen Mitglieder und ihre Rolle an Bord (Skipper:in, Co-Skipper:in, Crew, Gast) nur auf öffentlichen Törns und nur mit öffentlichem Profil. Bestätigt die Skipperin bzw. der Skipper deine Rolle für den Meilennachweis, sehen das nur du, die Eigentümer:in und die Skipper:in; löschst du dein Konto, bleiben deine Bestätigungen ohne Bezug zu deinem Konto stehen.',
             'Deine E-Mail-Adresse ist nie öffentlich.',
           ),
           p('Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (du nutzt die App, um genau das zu teilen). Zeige keine Daten anderer Personen ohne deren Einverständnis (z. B. Personen auf Fotos).'),

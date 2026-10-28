@@ -8,6 +8,7 @@ import { isAdmin, ownsLockedSql, purgeUserReports } from './moderation';
 import { deleteKeys, photoKeysForUser, shareFileKeys } from './photo-keys';
 import { boatCleanup, userActivityCleanup } from './activity';
 import { purgeUserGroups } from './groups';
+import { clearBoatConfirmations } from './crew-cleanup';
 import { TOKEN_RE, normalizeEmail, timingSafeEqual } from './validate';
 
 const SECURE_COOKIE = '__Host-sx_session';
@@ -290,11 +291,15 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
     env.DB.prepare('DELETE FROM passkeys WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM webauthn_challenges WHERE user_id = ?').bind(user.id),
     // Explizit statt nur per ON DELETE CASCADE: Törns anderer Nutzer verlieren nur die Bootszuordnung.
+    ...clearBoatConfirmations(env, 'IN (SELECT id FROM boats WHERE owner_id = ?)', user.id),
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id),
     env.DB.prepare('DELETE FROM boat_admins WHERE user_id = ? OR boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id, user.id),
     // Einladungen und Crew-Einträge (fielen auch per ON DELETE CASCADE, hier ausdrücklich).
     env.DB.prepare('DELETE FROM invites WHERE inviter_id = ? OR invitee_id = ? OR boat_id IN (SELECT id FROM boats WHERE owner_id = ?)').bind(user.id, user.id, user.id),
     env.DB.prepare('DELETE FROM share_crew WHERE user_id = ?').bind(user.id),
+    // Bestätigungen, die das Konto als Skipper gegeben hat, bleiben gültig – ohne Konto-ID (Konzept 15).
+    env.DB.prepare('UPDATE share_crew SET confirmed_by = NULL WHERE confirmed_by = ?').bind(user.id),
+    env.DB.prepare('UPDATE shares SET role_confirmed_by = NULL WHERE role_confirmed_by = ?').bind(user.id),
     env.DB.prepare('DELETE FROM boats WHERE owner_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(user.id),
     // Unterstützungen bleiben als Buchung erhalten (Frist: retention.ts), verlieren aber den Bezug zum Konto.

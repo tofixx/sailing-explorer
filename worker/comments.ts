@@ -224,7 +224,7 @@ export async function getSettings(request: Request, env: Env): Promise<Response>
 /**
  * PATCH /api/me/settings – `{ notify: { comment: 'mail', … } }` (Kanäle je Art), `{ notifyGroups: 'off' | 'weekly' }`,
  * `{ mapStyle: <Stil> | null }` und weiter `{ notifyComments: 'off' | 'daily' }` (= Kommentare keine/Mail). Neu auf
- * „Mail“ zählt erst ab jetzt. Auch gesperrte Konten dürfen abschalten. Der Kartenstil (Konzept 15) ist reine
+ * „Mail“ zählt erst ab jetzt. Auch gesperrte Konten dürfen abschalten. Der Kartenstil (Konzept 16) ist reine
  * Darstellung und gilt auf allen Geräten des Kontos.
  */
 export async function patchSettings(request: Request, env: Env): Promise<Response> {

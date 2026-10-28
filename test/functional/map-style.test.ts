@@ -1,4 +1,4 @@
-// Funktionale Tests: Kartenstil als Profil-Standard (F-217, Konzept 15) über PATCH /api/me/settings.
+// Funktionale Tests: Kartenstil als Profil-Standard (F-217, Konzept 16) über PATCH /api/me/settings.
 // Echter Worker in workerd (Miniflare) mit lokaler D1 – siehe worker-harness.ts.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { login, startWorker, type Harness } from './worker-harness';
