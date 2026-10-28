@@ -4,9 +4,10 @@ import type { SharePurpose } from '../components/sx-share-dialog';
 import { PasskeyExistsError, PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
 import { disablePush } from '../services/push';
 import { deviceName } from '../domain/device';
-import { passkeyApi } from '../services/api';
+import { passkeyApi, groupApi } from '../services/api';
 import { inviteAcceptedText } from '../domain/invite-text';
 import type { VoyageRole } from '../domain/crew-roles';
+import { plausibleGpx } from '../domain/logbook';
 import { shareSummary } from '../domain/summary';
 import { needsSupport, type SupportTier } from '../domain/support';
 import {
@@ -67,6 +68,8 @@ export class SessionController {
   private passkeyLogin = new PreparedOptions(() => passkeyApi.loginOptions());
   private passkeyRegister = new PreparedOptions(() => passkeyApi.registerOptions());
   private pendingShare = false;
+  /** nach der Anmeldung fortsetzen (z. B. Fahrtenbuch-Formular, L5) */
+  private pendingAction: (() => void) | null = null;
   /** Zweck des zuletzt geöffneten Dialogs – nach der Anmeldung geht es damit weiter */
   private pendingPurpose: SharePurpose = 'share';
   private lastShare: { key: string; share: ShareMeta } | null = null;
@@ -130,6 +133,13 @@ export class SessionController {
     } catch {
       /* offline */
     }
+  }
+
+  /** Angemeldet: gleich weiter; sonst erst anmelden, danach geht es direkt weiter (wie F-31). */
+  requireLogin(reason: string, then: () => void): void {
+    if (this.store.get().user) return then();
+    this.pendingAction = then;
+    this.openLogin(reason);
   }
 
   openLogin(reason = ''): void {
@@ -337,6 +347,10 @@ export class SessionController {
     if (this.pendingShare && this.store.get().user) {
       this.pendingShare = false;
       this.share(this.pendingPurpose);
+    } else if (this.pendingAction && this.store.get().user) {
+      const next = this.pendingAction;
+      this.pendingAction = null;
+      next();
     } else if (this.pendingInvite && this.store.get().user) {
       // Einladung nach der Anmeldung (auch aus einem anderen Tab) wieder zeigen – angenommen wird erst per Klick.
       void this.openInvite(this.pendingInvite);
@@ -808,10 +822,22 @@ export class SessionController {
     this.ui.share.busy = true;
     this.ui.share.error = '';
     try {
+      const starts = s.tracks.map((t) => t.stats.start).filter((x): x is number => x != null);
+      const ends = s.tracks.map((t) => t.stats.end).filter((x): x is number => x != null);
+      const distNm = s.tracks.reduce((sum, t) => sum + t.stats.distNm, 0);
+      const startedAt = starts.length ? Math.min(...starts) : null;
+      const endedAt = ends.length ? Math.max(...ends) : null;
+      // gleiche Plausibilität wie der Server (L8, F-311) – erklären statt überraschen
+      const implausible = s.tracks.some((t) => t.estimated)
+        ? 'Ein Fahrtenbuch-Eintrag lässt sich nicht als Track speichern.'
+        : plausibleGpx(distNm, startedAt, endedAt);
+      if (implausible) {
+        this.ui.share.error = implausible;
+        return;
+      }
       // Wetter wird beim Einstellen einmal geladen und mitgespeichert – Betrachter rufen Open-Meteo nicht erneut ab.
       const payload = validatePayload({ v: 1, tracks: s.tracks.map((t) => ({ name: t.name, gpx: t.raw })), ...(s.weather ? { weather: s.weather } : {}) });
       const gz = await gzipString(JSON.stringify(payload));
-      const starts = s.tracks.map((t) => t.stats.start).filter((x): x is number => x != null);
       const { share } = await api.createShare(gz, {
         title: d.title,
         summary: shareSummary(s.tracks),
@@ -819,8 +845,9 @@ export class SessionController {
         trackCount: s.tracks.length,
         visibility: d.visibility,
         boatId: d.boatId,
-        distNm: s.tracks.reduce((sum, t) => sum + t.stats.distNm, 0),
-        startedAt: starts.length ? Math.min(...starts) : null,
+        distNm,
+        startedAt,
+        endedAt,
       });
       this.lastShare = { key: this.tracksKey(), share };
       this.store.set({ saved: true });
@@ -893,6 +920,16 @@ export class SessionController {
 
   // ---------------------------------------------------------------- Konto, Profil, Boote
 
+  /** „Meine Gruppen“ im Konto (F-348) – auch nach Austreten, Stummschalten, Übergeben. */
+  async refreshMyGroups(): Promise<void> {
+    if (!this.store.get().user) return;
+    try {
+      this.ui.account.myGroups = await groupApi.mine();
+    } catch {
+      this.ui.account.myGroups = { groups: [], requests: [] };
+    }
+  }
+
   async openAccount(tab: AccountTab = 'shares'): Promise<void> {
     if (!this.store.get().user) return this.openLogin();
     this.ui.share.open = false; // keine gestapelten Dialoge
@@ -903,6 +940,7 @@ export class SessionController {
         api.listShares(), api.myBoats(), api.myProfile(), api.myInvites().catch(() => ({ invites: [] })), this.refreshSupport(),
       ]);
       Object.assign(this.ui.account, { shares: shares.shares, boats: boats.boats, profile: me.profile, profileExists: me.exists, myInvites: invites.invites });
+      void this.refreshMyGroups();
       // Passkeys nebenbei – ohne Server-Unterstützung bleibt der Abschnitt einfach weg; Optionen schon vorladen (Safari)
       if (passkeysSupported()) {
         passkeyApi.list().then((r) => (this.ui.account.passkeys = r.passkeys), () => (this.ui.account.passkeys = null));

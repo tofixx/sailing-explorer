@@ -6,7 +6,7 @@ import { HttpError, json, readJson } from './http';
 import { requireUser } from './auth';
 import { randomId } from './crypto';
 import { adminIds, adminLogStmt, isLockedTarget, requireActiveUser, requireAdmin } from './moderation';
-import { leaveGroupStmts, loadGroup, roleIn } from './groups';
+import { leaveGroupStmts, loadGroup, roleIn, transferGroupStmts } from './groups';
 import { harborVisible, loadHarbor } from './harbors';
 import { claimResultMail, claimTransferMail, sendMail } from './mail';
 import { notifyClaim, notifyClaimResult, notifyClaimTransfer } from './notifications';
@@ -259,21 +259,17 @@ function transferStmts(env: Env, t: Target, to: string, before: string | null, p
   if (t.kind === 'harbor') {
     return [env.DB.prepare('UPDATE harbors SET created_by = ?, verified_at = ?, updated_at = ? WHERE id = ?').bind(to, now, now, t.id)];
   }
-  if (before === to) return [env.DB.prepare('UPDATE groups SET verified_at = ? WHERE id = ?').bind(now, t.id)];
+  const verify = env.DB.prepare('UPDATE groups SET verified_at = ? WHERE id = ?').bind(now, t.id);
+  if (before === to) return [verify];
+  // wie jede Übergabe (bisheriger wird Admin), danach je Wahl Mitglied oder raus – und verifiziert
   const prev = !before
     ? []
     : previous === 'remove'
       ? leaveGroupStmts(env, t.id, before)
-      : [env.DB.prepare('UPDATE group_members SET role = ? WHERE group_id = ? AND user_id = ?').bind(previous, t.id, before)];
-  return [
-    ...prev,
-    env.DB.prepare(
-      `INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?1, ?2, 'owner', ?3)
-       ON CONFLICT(group_id, user_id) DO UPDATE SET role = 'owner'`,
-    ).bind(t.id, to, now),
-    env.DB.prepare('DELETE FROM group_requests WHERE group_id = ? AND user_id = ?').bind(t.id, to),
-    env.DB.prepare('UPDATE groups SET owner_id = ?, verified_at = ?, updated_at = ? WHERE id = ?').bind(to, now, now, t.id),
-  ];
+      : previous === 'member'
+        ? [env.DB.prepare(`UPDATE group_members SET role = 'member' WHERE group_id = ? AND user_id = ?`).bind(t.id, before)]
+        : [];
+  return [...transferGroupStmts(env, t.id, before, to, now), ...prev, verify];
 }
 
 /** Fehlertext der Zusicherung in `decideClaim` (NOT-NULL-Verletzung an `claims.status`). */
@@ -292,7 +288,7 @@ export async function decideClaim(request: Request, env: Env, id: string): Promi
   const admin = await requireAdmin(request, env);
   const claim = SHARE_ID_RE.test(id) ? await env.DB.prepare('SELECT * FROM claims WHERE id = ?').bind(id).first<ClaimRow>() : null;
   if (!claim) throw new HttpError(404, 'not_found', 'Diesen Antrag gibt es nicht (mehr).');
-  const DECIDED = () => new HttpError(409, 'claim_decided', 'Über diesen Antrag ist inzwischen entschieden oder der Eigner hat gewechselt – bitte neu laden.');
+  const DECIDED = () => new HttpError(409, 'claim_decided', 'Über diesen Antrag ist inzwischen entschieden oder der Eigentümer hat gewechselt – bitte neu laden.');
   if (claim.status !== 'open' || !claim.user_id) throw DECIDED();
   const body = await readJson<{ decision?: unknown; note?: unknown; previous?: unknown }>(request);
   const now = Date.now();
@@ -307,7 +303,7 @@ export async function decideClaim(request: Request, env: Env, id: string): Promi
   }
   if (body.decision !== 'accept') throw new HttpError(400, 'invalid_decision', 'Bitte annehmen oder ablehnen.');
   const previous: unknown = body.previous ?? 'admin';
-  if (!isPreviousAction(previous)) throw new HttpError(400, 'invalid_previous', 'Unbekannte Wahl für die bisherige Eigner:in.');
+  if (!isPreviousAction(previous)) throw new HttpError(400, 'invalid_previous', 'Unbekannte Wahl für den bisherigen Eigentümer.');
   // Ziel prüfen (ausgeblendet, gesperrt, kein Verein mehr → 409) – Sichtbarkeit zählt hier nicht
   let t: Target;
   try {

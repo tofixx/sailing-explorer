@@ -10,7 +10,8 @@ import { commentLength } from '../domain/comment-text';
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { base, emit } from './shared';
+import { base, emit, onMapStyles } from './shared';
+import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-stream';
@@ -337,6 +338,7 @@ export class SxGroupPage extends LitElement {
         text-align: right;
       }
     `,
+    onMapStyles,
   ];
 
   // ------------------------------------------------------------ Formular (Anlegen und Bearbeiten)
@@ -382,7 +384,7 @@ export class SxGroupPage extends LitElement {
         <div class="row"><span class="faint">/g/</span><input type="text" maxlength="30" pattern="[a-z0-9-]{3,30}" .value=${d.slug ?? ''} aria-describedby="slug-hint"
           @input=${(e: Event) => this.set({ slug: (e.target as HTMLInputElement).value.toLowerCase() })} /></div>
         <span class="hint" id="slug-hint">3–30 Zeichen: a–z, 0–9 und Bindestrich.</span></label>
-      <div><label class="label" for="gh">Heimathafen (optional)</label>
+      <div><label class="label" for="gh">Heimathafen${(create ? d.kind : g?.kind) === 'club' ? ' (Pflicht für Vereine – sein Ort auf der Karte)' : ' (optional)'}</label>
         <sx-harbor-picker input-id="gh" label="Heimathafen" .value=${g?.harbor ?? null}></sx-harbor-picker></div>
       <label><span class="label">Beschreibung (optional)</span>
         <textarea maxlength="1000" .value=${d.description ?? ''} @input=${(e: Event) => this.set({ description: (e.target as HTMLTextAreaElement).value })}></textarea></label>
@@ -394,7 +396,7 @@ export class SxGroupPage extends LitElement {
             </select></sx-filter-select></label>`
         : ''}
       ${this.visibilityOptions(g?.visibility, owner)}
-      ${!owner ? html`<p class="hint">Die Sichtbarkeit ändert nur der Eigner.</p>` : ''}
+      ${!owner ? html`<p class="hint">Die Sichtbarkeit ändert nur der Eigentümer.</p>` : ''}
       <fieldset class="opts" style="border:0;padding:0;margin:0">
         <legend class="label">Beitreten</legend>
         ${(JOIN_MODES as readonly JoinMode[]).map(
@@ -423,6 +425,8 @@ export class SxGroupPage extends LitElement {
       ${this.signedIn
         ? html`<form class="box" @submit=${(e: Event) => {
             e.preventDefault();
+            const problem = this.harborProblem(this.draft.kind === 'club');
+            if (problem) return void (this.formError = problem);
             emit(this, 'sx-group-create', { ...this.draft, ...this.harborInput() });
           }}>
             ${this.fields(true, null)}
@@ -434,11 +438,16 @@ export class SxGroupPage extends LitElement {
   }
 
   /** Hafen aus der Auswahl (Konzept 13.3): vorhandener per ID, neuer Name als Text – der Server erkennt Dubletten. */
-  private harborInput(): Pick<GroupInput, 'harborId' | 'homePort'> {
+  private harborInput(): Pick<GroupInput, 'harborId' | 'homePort' | 'homePortPos'> {
     const picker = this.renderRoot.querySelector<SxHarborPicker>('sx-harbor-picker');
     if (!picker) return {};
     const c = picker.choice;
-    return 'name' in c ? { homePort: c.name } : { harborId: c.harborId };
+    return 'name' in c ? { homePort: c.name, homePortPos: c.pos } : { harborId: c.harborId };
+  }
+
+  /** Hafen-Pflicht vorab prüfen (F-353/F-354), statt erst auf den Fehler des Servers zu warten. */
+  private harborProblem(required: boolean): string | null {
+    return this.renderRoot.querySelector<SxHarborPicker>('sx-harbor-picker')?.problem(required) ?? null;
   }
 
   /** Bearbeiten öffnen: Entwurf aus der aktuellen Gruppe. */
@@ -450,6 +459,9 @@ export class SxGroupPage extends LitElement {
   private editForm(g: GroupInfo) {
     return html`<form class="box" aria-label="Gruppe bearbeiten" @submit=${(e: Event) => {
         e.preventDefault();
+        // Bearbeiten: nur die Lage eines neuen Hafens prüfen – bestehende Vereine ohne Hafen bleiben bearbeitbar
+        const problem = this.harborProblem(false);
+        if (problem) return void (this.formError = problem);
         const patch: GroupInput = { ...this.draft, ...this.harborInput() };
         if (g.role !== 'owner' || patch.visibility === g.visibility) delete patch.visibility;
         if (g.role !== 'owner') delete patch.approveBy;
@@ -475,16 +487,26 @@ export class SxGroupPage extends LitElement {
       <div class="stat"><div class="eyebrow">Mitglieder</div><div class="v">${s.members}</div></div>
       <div class="stat"><div class="eyebrow">Boote</div><div class="v">${s.boats}</div></div>
       <div class="stat"><div class="eyebrow">Törns</div><div class="v">${s.voyages}</div></div>
-      <div class="stat"><div class="eyebrow">Seemeilen</div><div class="v">${fmtNum(s.distNm, 0)}<small>sm</small></div></div>
+      <div class="stat"><div class="eyebrow">Seemeilen</div><div class="v">${fmtNum(s.distNm, 0)}<small>sm</small></div>${s.recordedNm !== undefined && recordedNote(s.distNm, s.recordedNm) ? html`<div class="hint">${recordedNote(s.distNm, s.recordedNm)}</div>` : ''}</div>
       <div class="stat"><div class="eyebrow">Saison ${new Date().getFullYear()}</div><div class="v">${fmtNum(s.seasonNm, 0)}<small>sm</small></div></div>
     </div>`;
+  }
+
+  /** Mitglieder: Glocke statt „Folgen“ – durchgestrichen = Neuigkeiten stumm (F-346). */
+  private muteButton(id: string, muted: boolean) {
+    const label = muted ? 'Neuigkeiten wieder anzeigen' : 'Neuigkeiten stumm schalten';
+    return html`<button class="btn ghost icon" type="button" aria-pressed=${muted ? 'true' : 'false'} title=${muted ? 'Stumm – Neuigkeiten erscheinen nicht in deinem Stream und der Wochenmail' : 'Neuigkeiten erscheinen in deinem Stream – zum Stummschalten tippen'} aria-label=${label}
+      ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-mute', { id, muted: !muted })}>${icon(muted ? 'bell-off' : 'bell')}</button>`;
   }
 
   private joinActions(d: GroupPageData) {
     const g = d.group;
     const m = d.membership;
-    if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : '';
-    if (m.role) return m.role === 'owner' ? '' : html`<button class="btn ghost" @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id })}>${icon('logout')} Austreten</button>`;
+    // Gäste: erst anmelden; bei „Nur auf Einladung“ nur der Hinweis wie für Angemeldete (F-333)
+    if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : html`<span class="faint">Beitritt nur auf Einladung</span>`;
+    if (m.role) return html`${this.muteButton(g.id, !!m.muted)}${m.role === 'owner'
+        ? html`<span class="faint" title="Übergib die Gruppe in der Mitgliederliste an einen Admin – danach kannst du austreten.">Eigentümer</span>`
+        : html`<button class="btn ghost" @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id })}>${icon('logout')} Austreten</button>`}`;
     if (m.requested) return html`<span class="faint">Anfrage gestellt</span><button class="btn ghost" @click=${() => emit(this, 'sx-group-withdraw', { id: g.id })}>Anfrage zurückziehen</button>`;
     if (m.canJoin) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitreten</button>`;
     if (m.canRequest) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitritt anfragen</button>`;
@@ -512,7 +534,10 @@ export class SxGroupPage extends LitElement {
       </div>
       <div class="actions">
         ${this.joinActions(d)}
-        ${v === 'public' ? html`<sx-follow kind="group" target-id=${g.id} label=${g.name} .stats=${d.social} ?signed-in=${this.signedIn}></sx-follow>` : ''}
+        ${v === 'public' && !d.membership.role
+          ? html`<sx-follow kind="group" target-id=${g.id} label=${g.name} .stats=${d.social} ?signed-in=${this.signedIn}
+              title="Folgen: Neuigkeiten der Gruppe in deinem Stream, ohne Mitglied zu sein"></sx-follow>`
+          : ''}
         ${v !== 'private' || manager ? html`<button class="btn" @click=${() => emit(this, 'sx-page-share', { path: v === 'unlisted' && !manager ? location.pathname : path, title: g.name })}>${icon('share')} Teilen</button>` : ''}
         ${manager
           ? html`<button class="btn" @click=${() => this.startEdit(g)}>${icon('pencil')} Bearbeiten</button>`
@@ -609,6 +634,9 @@ export class SxGroupPage extends LitElement {
             ${m.role !== 'member' ? html`<span class="role">${GROUP_ROLE_LABEL[m.role]}</span>` : ''}
             ${owner && m.id && m.role !== 'owner'
               ? html`<button class="btn small ghost" @click=${() => emit(this, 'sx-group-role', { id: g.id, userId: m.id, role: m.role === 'admin' ? 'member' : 'admin' })}>${m.role === 'admin' ? 'Admin absetzen' : 'Zum Admin'}</button>`
+              : ''}
+            ${owner && m.id && m.role === 'admin'
+              ? html`<button class="btn small ghost" @click=${() => confirm(`„${g.name}“ an ${m.displayName} übergeben? Du bleibst Admin und kannst danach austreten.`) && emit(this, 'sx-group-transfer', { id: g.id, userId: m.id })}>Übergeben</button>`
               : ''}
             ${m.id && !m.isSelf && m.role !== 'owner' && (owner || m.role === 'member') && canManageGroup(g.role)
               ? html`<button class="btn small ghost danger" aria-label="${m.displayName} entfernen" @click=${() => confirm(`${m.displayName} aus der Gruppe entfernen?`) && emit(this, 'sx-group-remove', { id: g.id, userId: m.id })}>${icon('x')}</button>`

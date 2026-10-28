@@ -42,6 +42,8 @@ export interface Track {
   stats: TrackStats;
   color: string;
   hidden: boolean;
+  /** Fahrtenbuch-Eintrag ohne GPX: schematische Linie, gestrichelt, ohne Speed (Konzept 19) */
+  estimated?: boolean;
 }
 
 export type MetricKey = 'speed' | 'wind' | 'gust' | 'wave';

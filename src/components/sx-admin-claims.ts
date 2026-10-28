@@ -114,7 +114,7 @@ export class SxAdminClaims extends LitElement {
       <textarea id="note-${c.id}" name="note-${c.id}" maxlength=${CLAIM_LIMITS.noteMax}></textarea>
       <div class="row">
         ${choose
-          ? html`<label class="label" for="previous-${c.id}">Bisheriger Eigner</label>
+          ? html`<label class="label" for="previous-${c.id}">Bisheriger Eigentümer</label>
               <select id="previous-${c.id}" name="previous-${c.id}" style="width:auto">
                 ${PREVIOUS_ACTIONS.map((a) => html`<option value=${a}>${PREVIOUS_ACTION_LABEL[a]}</option>`)}
               </select>`
@@ -139,14 +139,14 @@ export class SxAdminClaims extends LitElement {
       <dl>
         <dt>Antrag</dt><dd>${fmtDate(c.createdAt)}${c.decidedAt ? ` · entschieden ${fmtDate(c.decidedAt)}` : ''}</dd>
         <dt>Antragsteller:in</dt><dd>${c.applicant ? `${c.applicant.displayName}${c.applicant.handle ? ` (@${c.applicant.handle})` : ''} · ${c.applicant.id} · ${age(c.applicant.since)}` : 'Konto gelöscht'}</dd>
-        <dt>${c.kind === 'harbor' ? 'Anleger:in heute' : 'Eigner heute'}</dt>
+        <dt>${c.kind === 'harbor' ? 'Anleger:in heute' : 'Eigentümer heute'}</dt>
         <dd>${c.holder ? `${c.holder.displayName} · ${c.holder.id} · ${age(c.holder.since)}${c.holder.id === c.applicant?.id ? ' – dieselbe Person' : ''}` : 'niemand'}</dd>
         ${c.role ? html`<dt>Funktion</dt><dd>${c.role}</dd>` : nothing}
         ${c.reason ? html`<dt>Begründung</dt><dd>${c.reason}</dd>` : nothing}
         ${c.contact ? html`<dt>Kontakt</dt><dd>${c.contact}</dd>` : nothing}
         ${c.evidenceUrl ? html`<dt>Beleg</dt><dd><a href=${c.evidenceUrl} target="_blank" rel="noopener noreferrer nofollow">${c.evidenceUrl}</a></dd>` : nothing}
         ${c.note ? html`<dt>Entscheidung</dt><dd>${c.note}</dd>` : nothing}
-        ${c.previousAction && c.previousAction !== 'none' ? html`<dt>Bisheriger Eigner</dt><dd>${PREVIOUS_ACTION_LABEL[c.previousAction as PreviousAction] ?? c.previousAction}</dd>` : nothing}
+        ${c.previousAction && c.previousAction !== 'none' ? html`<dt>Bisheriger Eigentümer</dt><dd>${PREVIOUS_ACTION_LABEL[c.previousAction as PreviousAction] ?? c.previousAction}</dd>` : nothing}
       </dl>
       ${this.actions(c)}
     </li>`;

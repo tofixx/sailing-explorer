@@ -1,6 +1,7 @@
 // Häfen (Konzept 12.2, F-171 … F-175): Autovervollständigung, Anlegen mit Dubletten-Erkennung, Bearbeiten,
 // Hafenseite. Häfen sind immer öffentlich (nur Name und Ort); gelistet werden darin nur öffentliche Boote und Törns.
 import type { Env } from './env';
+import { RECORDED_NM_SQL } from './logbook-sql';
 import { currentUser, requireUser, type User } from './auth';
 import { randomId } from './crypto';
 import { HttpError, json, readJson } from './http';
@@ -9,9 +10,9 @@ import { SHARE_SELECT, shareShape, type ShareRow } from './shares';
 import { followStats } from './follows';
 import { harborActivityCleanup } from './activity';
 import { LIMITS, SHARE_ID_RE, cleanText } from './validate';
-import { HARBOR_LIMITS, harborKey, harborSlugBase, isHarborSlug, parseHarborPosition, type HarborRef } from '../src/domain/harbors';
+import { HARBOR_LIMITS, harborKey, harborSlugBase, isHarborSlug, mayPlaceHarbor, parseHarborPosition, type HarborRef } from '../src/domain/harbors';
 import { canManageGroup } from '../src/domain/groups';
-import { claimTargetCleanup } from './claim-cleanup';
+import { claimTargetCleanup, mayAdoptHarbor } from './claim-cleanup';
 
 const DAY = 86_400_000;
 
@@ -59,7 +60,11 @@ export const harborVisible = (h: HarborRow | null, admin = false): h is HarborRo
  * Hafen zu einem Namen: vorhandener mit gleichem normalisiertem Namen (auch wenn ausgeblendet: dann Fehler statt
  * Dublette) oder ein neuer. Neue zählen gegen „10 pro Konto und Tag“; gesperrte Konten legen keine an.
  */
-export async function harborForName(env: Env, user: Pick<User, 'id'>, rawName: unknown): Promise<{ harbor: HarborRow; created: boolean }> {
+/**
+ * Hafen zum Namen: vorhandener (gleicher Vergleichsname) oder neu angelegt. `pos`: Lage des neuen Hafens; mit
+ * `requirePos` (Anlegen über die Oberfläche, F-353) ohne Lage 400 `position_required`.
+ */
+export async function harborForName(env: Env, user: Pick<User, 'id'>, rawName: unknown, pos: { lat: number; lon: number } | null = null, requirePos = false): Promise<{ harbor: HarborRow; created: boolean }> {
   const name = cleanText(rawName, HARBOR_LIMITS.nameMax);
   const key = harborKey(name);
   if (!key) throw new HttpError(400, 'invalid_name', 'Bitte einen Hafennamen angeben.');
@@ -68,6 +73,7 @@ export async function harborForName(env: Env, user: Pick<User, 'id'>, rawName: u
     if (existing.hidden_at) throw INVALID_HARBOR();
     return { harbor: existing, created: false };
   }
+  if (requirePos && !pos) throw new HttpError(400, 'position_required', 'Bitte die Lage des neuen Hafens auf der Karte antippen.');
   await assertActive(env, user);
   const now = Date.now();
   const today = (await env.DB.prepare('SELECT COUNT(*) AS n FROM harbors WHERE created_by = ? AND created_at > ?').bind(user.id, now - DAY).first<{ n: number }>())?.n ?? 0;
@@ -79,10 +85,10 @@ export async function harborForName(env: Env, user: Pick<User, 'id'>, rawName: u
   for (let i = 0; i < 5 && (await taken(slug)); i++) {
     slug = `${base.slice(0, 24)}-${randomId(5).toLowerCase()}`;
   }
-  const h: HarborRow = { id: randomId(), slug, name, name_key: key, lat: null, lon: null, club_id: null, created_by: user.id, hidden_at: null, created_at: now, updated_at: now };
+  const h: HarborRow = { id: randomId(), slug, name, name_key: key, lat: pos?.lat ?? null, lon: pos?.lon ?? null, club_id: null, created_by: user.id, hidden_at: null, created_at: now, updated_at: now };
   try {
-    await env.DB.prepare('INSERT INTO harbors (id, slug, name, name_key, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(h.id, h.slug, h.name, h.name_key, h.created_by, now, now)
+    await env.DB.prepare('INSERT INTO harbors (id, slug, name, name_key, lat, lon, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(h.id, h.slug, h.name, h.name_key, h.lat, h.lon, h.created_by, now, now)
       .run();
   } catch (err) {
     // gleichzeitig angelegt (eindeutiger name_key) – dann den vorhandenen nehmen
@@ -94,10 +100,11 @@ export async function harborForName(env: Env, user: Pick<User, 'id'>, rawName: u
 }
 
 /**
- * Hafen-Eingabe am Boot: `harborId` (Zeichenkette oder null) hat Vorrang, sonst `homePort` als Text (alte Clients).
- * undefined = keine Änderung, null = keinen Hafen.
+ * Hafen-Eingabe am Boot bzw. an der Gruppe: `harborId` (Zeichenkette oder null) hat Vorrang, sonst `homePort` als
+ * Text. Schickt die Oberfläche `homePortPos` mit (auch null), braucht ein neuer Hafen eine Lage (F-353); alte Clients
+ * ohne das Feld legen ihn wie bisher ohne Lage an. undefined = keine Änderung, null = keinen Hafen.
  */
-export async function harborFromBoatInput(env: Env, user: Pick<User, 'id'>, input: { harborId?: unknown; homePort?: unknown }): Promise<HarborRow | null | undefined> {
+export async function harborFromBoatInput(env: Env, user: Pick<User, 'id'>, input: { harborId?: unknown; homePort?: unknown; homePortPos?: unknown }): Promise<HarborRow | null | undefined> {
   if (input.harborId !== undefined) {
     if (input.harborId === null || input.harborId === '') return null;
     const h = await loadHarbor(env, input.harborId);
@@ -106,7 +113,11 @@ export async function harborFromBoatInput(env: Env, user: Pick<User, 'id'>, inpu
   }
   if (input.homePort !== undefined) {
     if (!cleanText(input.homePort, LIMITS.nameLength)) return null;
-    return (await harborForName(env, user, input.homePort)).harbor;
+    const withPos = input.homePortPos !== undefined;
+    const raw = input.homePortPos as { lat?: unknown; lon?: unknown } | null | undefined;
+    const p = raw ? parseHarborPosition(raw.lat, raw.lon) : null;
+    const pos = p && p.lat !== null && p.lon !== null ? { lat: p.lat, lon: p.lon } : null;
+    return (await harborForName(env, user, input.homePort, pos, withPos)).harbor;
   }
   return undefined;
 }
@@ -121,21 +132,28 @@ export async function searchHarbors(request: Request, env: Env): Promise<Respons
   const like = `%${key.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const prefix = `${key.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const { results } = await env.DB.prepare(
-    `SELECT h.id, h.slug, h.name, h.verified_at, (SELECT COUNT(*) FROM boats b WHERE b.harbor_id = h.id) AS boats
+    `SELECT h.id, h.slug, h.name, h.lat, h.lon, h.verified_at, (SELECT COUNT(*) FROM boats b WHERE b.harbor_id = h.id) AS boats
      FROM harbors h WHERE h.hidden_at IS NULL AND h.name_key LIKE ?1 ESCAPE '\\'
      ORDER BY (h.name_key LIKE ?2 ESCAPE '\\') DESC, boats DESC, h.name LIMIT ?3`,
   )
     .bind(like, prefix, HARBOR_LIMITS.search)
-    .all<{ id: string; slug: string; name: string; verified_at: number | null; boats: number }>();
-  return json({ harbors: results.map((h) => ({ ...harborRef(h), boats: h.boats, verified: !!h.verified_at })) }, { headers: { 'Cache-Control': 'public, max-age=60' } });
+    .all<{ id: string; slug: string; name: string; lat: number | null; lon: number | null; verified_at: number | null; boats: number }>();
+  // Position für das Fahrtenbuch (fehlt sie, fragt das Formular danach – L3)
+  return json({ harbors: results.map((h) => ({ ...harborRef(h), lat: h.lat, lon: h.lon, boats: h.boats, verified: !!h.verified_at })) }, { headers: { 'Cache-Control': 'public, max-age=60' } });
 }
 
-/** POST /api/harbors – `{ name }`: vorhandener Hafen (200) oder neuer (201). */
+/**
+ * POST /api/harbors – `{ name, lat?, lon? }`: vorhandener Hafen (200) oder neuer (201). Wer neu anlegt, setzt die
+ * Position gleich mit (L3, F-307); für vorhandene Häfen gilt PATCH.
+ */
 export async function createHarbor(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const { name } = await readJson<{ name?: unknown }>(request);
-  const { harbor, created } = await harborForName(env, user, name);
-  return json({ harbor: harborRef(harbor), created }, { status: created ? 201 : 200 });
+  const { name, lat, lon } = await readJson<{ name?: unknown; lat?: unknown; lon?: unknown }>(request);
+  const pos = lat === undefined && lon === undefined ? null : parseHarborPosition(lat, lon);
+  if (pos === undefined) throw new HttpError(400, 'invalid_position', 'Ungültige Position.');
+  const { harbor, created } = await harborForName(env, user, name, pos && pos.lat !== null && pos.lon !== null ? { lat: pos.lat, lon: pos.lon } : null, true);
+  // Position mit (Fahrtenbuch, F-307)
+  return json({ harbor: { ...harborRef(harbor), lat: harbor.lat, lon: harbor.lon }, created }, { status: created ? 201 : 200 });
 }
 
 /** Verein des Hafens nur, wenn öffentlich und nicht ausgeblendet. */
@@ -185,13 +203,13 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     .all<ShareRow>();
   const yearStart = Date.UTC(new Date().getUTCFullYear(), 0, 1);
   const stats = await env.DB.prepare(
-    `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist,
+    `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec,
        COALESCE(SUM(CASE WHEN COALESCE(s.started_at, s.created_at) >= ?2 THEN s.dist_nm END), 0) AS season
      FROM shares s JOIN boats b ON b.id = s.boat_id
      WHERE b.harbor_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL AND s.visibility = 'public' AND s.hidden_at IS NULL`,
   )
     .bind(h.id, yearStart)
-    .first<{ voyages: number; dist: number; season: number }>();
+    .first<{ voyages: number; dist: number; rec: number; season: number }>();
   // Vereine, die das Konto verwaltet – zur Zuordnung „Verein des Hafens“
   const { results: manageable } = user
     ? await env.DB.prepare(
@@ -216,7 +234,7 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     harbor: harborShape(env, h, user?.id ?? null),
     club: club ? { slug: club.slug, name: club.name, kind: club.kind } : null,
     groups,
-    stats: { boats: boats.length, voyages: stats?.voyages ?? 0, distNm: stats?.dist ?? 0, seasonNm: stats?.season ?? 0 },
+    stats: { boats: boats.length, voyages: stats?.voyages ?? 0, distNm: stats?.dist ?? 0, recordedNm: stats?.rec ?? 0, seasonNm: stats?.season ?? 0 },
     boats: boats.map((b) => ({
       id: b.id,
       name: b.name,
@@ -224,7 +242,7 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
       lengthM: b.length_m,
       owner: b.owner_public && b.owner_handle ? { handle: b.owner_handle, displayName: b.owner_name ?? '' } : null,
     })),
-    voyages: voyages.map((r) => shareShape(r, false)),
+    voyages: voyages.map((r) => shareShape(r, false, false)),
     social: await followStats(env, 'harbor', h.id, user?.id ?? null),
     // Verein zuordnen: nur Vereine, die das Konto verwaltet, und nur wenn frei oder schon einer davon
     clubChoices: !clubLocked && (!h.club_id || ownClub || isAdmin(env, user?.id) || isRep) ? manageable.map((c) => ({ id: c.id, slug: c.slug, name: c.name })) : [],
@@ -241,7 +259,10 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
   if (!harborVisible(h, admin)) throw HARBOR_NOT_FOUND();
   const input = await readJson<{ name?: unknown; lat?: unknown; lon?: unknown; clubId?: unknown }>(request);
   const editsBasics = input.name !== undefined || input.lat !== undefined || input.lon !== undefined;
-  if (editsBasics && !canEditHarbor(env, h, user.id)) throw new HttpError(403, 'forbidden', 'Name und Position ändert, wer den Hafen angelegt hat.');
+  // Altbestand ohne Anleger:in und ohne Position (L3, F-307): wer als Erste:r die Position setzt, wird Anleger:in.
+  // Je verifizierte Häfen übernimmt so niemand (Konzept 20.5, F-367).
+  const adopts = input.name === undefined && h.created_by === null && h.lat === null && mayPlaceHarbor(h, user.id) && (await mayAdoptHarbor(env, h.id));
+  if (editsBasics && !adopts && !canEditHarbor(env, h, user.id)) throw new HttpError(403, 'forbidden', 'Name und Position ändert, wer den Hafen angelegt hat.');
   // Gesperrte Häfen (Konzept 18.2) ändert niemand – auch die Moderation erst nach dem Entsperren
   if (await isLockedTarget(env, 'harbor', h.id)) throw LOCKED();
   const before = h.name;
@@ -259,6 +280,7 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
     if (!pos) throw new HttpError(400, 'invalid_position', 'Bitte Breite (−90 bis 90) und Länge (−180 bis 180) angeben – oder beides leer lassen.');
     h.lat = pos.lat;
     h.lon = pos.lon;
+    if (adopts && pos.lat !== null) h.created_by = user.id;
   }
   // Verifizierter Hafen (Konzept 20.5, F-371): den Verein ordnen nur Hafen-Vertretung und Moderation zu
   if (input.clubId !== undefined && h.verified_at && h.created_by !== user.id && !admin) {
@@ -282,7 +304,7 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
   }
   h.updated_at = Date.now();
   await env.DB.batch([
-    env.DB.prepare('UPDATE harbors SET name = ?, name_key = ?, lat = ?, lon = ?, club_id = ?, updated_at = ? WHERE id = ?').bind(h.name, h.name_key, h.lat, h.lon, h.club_id, h.updated_at, h.id),
+    env.DB.prepare('UPDATE harbors SET name = ?, name_key = ?, lat = ?, lon = ?, club_id = ?, created_by = ?, updated_at = ? WHERE id = ?').bind(h.name, h.name_key, h.lat, h.lon, h.club_id, h.created_by, h.updated_at, h.id),
     // Anzeige-Kopie an den Booten nachführen
     env.DB.prepare('UPDATE boats SET home_port = ? WHERE harbor_id = ?').bind(h.name, h.id),
     env.DB.prepare('UPDATE groups SET home_port = ? WHERE harbor_id = ?').bind(h.name, h.id),

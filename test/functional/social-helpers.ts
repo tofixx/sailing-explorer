@@ -51,7 +51,12 @@ export function social(h: Harness) {
   }
 
   async function group(owner: Person, o: Record<string, unknown> = {}): Promise<GroupOut> {
-    const res = await send('POST', '/api/groups', owner.cookie, { kind: 'club', name: 'Segelclub Möwe', slug: uniq('sc'), ...o });
+    const club = (o.kind ?? 'club') === 'club' && o.harborId === undefined && o.homePort === undefined;
+    // Vereine brauchen einen Heimathafen (F-354) – Testhafen weit weg (Südpazifik), stört keine Umgebung-Tests
+    const auto = club
+      ? ((await (await send('POST', '/api/harbors', owner.cookie, { name: uniq('Testhafen'), lat: -45, lon: -170 })).json()) as { harbor: { id: string } }).harbor.id
+      : undefined;
+    const res = await send('POST', '/api/groups', owner.cookie, { kind: 'club', name: 'Segelclub Möwe', slug: uniq('sc'), ...(auto ? { harborId: auto } : {}), ...o });
     expect(res.status, await res.clone().text()).toBe(201);
     return ((await res.json()) as { group: GroupOut }).group;
   }

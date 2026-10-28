@@ -59,3 +59,11 @@ export interface HarborRef {
   slug: string;
   name: string;
 }
+
+/**
+ * Darf das Konto die Position eines Hafens setzen (L3, F-307)? Anleger:in und Moderation immer; hat der Hafen weder
+ * Position noch Anleger:in (Altbestand), darf es jede:r als Erste:r – und wird damit Anleger:in.
+ */
+export function mayPlaceHarbor(h: { lat: number | null; created_by: string | null }, userId: string, admin = false): boolean {
+  return admin || h.created_by === userId || (h.created_by === null && h.lat === null);
+}

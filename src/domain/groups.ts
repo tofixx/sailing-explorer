@@ -12,7 +12,7 @@ export const GROUP_KIND_LABEL: Record<GroupKind, string> = { club: 'Verein', tea
 
 export const GROUP_ROLES = ['owner', 'admin', 'member'] as const;
 export type GroupRole = (typeof GROUP_ROLES)[number];
-export const GROUP_ROLE_LABEL: Record<GroupRole, string> = { owner: 'Eigner', admin: 'Admin', member: 'Mitglied' };
+export const GROUP_ROLE_LABEL: Record<GroupRole, string> = { owner: 'Eigentümer', admin: 'Admin', member: 'Mitglied' };
 
 /** Beitritt: per Einladung oder Anfrage (Standard) bzw. nur per Einladung. */
 /** Beitritt in drei Stufen (Konzept 14.1): offen (sofort Mitglied), auf Anfrage (Admins bestätigen), nur auf Einladung. */
@@ -34,6 +34,24 @@ export function effectiveJoinMode(g: { join_mode: JoinMode; visibility: string; 
   return g.join_mode === 'open' && (g.visibility !== 'public' || g.hidden_at) ? 'request' : g.join_mode;
 }
 
+/** Was eine Gruppenkarte anbietet (F-333): beitreten, anfragen – oder nur einen Hinweis. */
+export type JoinAction = 'join' | 'request' | 'requested' | 'member' | 'invite';
+export const JOIN_ACTION_LABEL: Record<JoinAction, string> = {
+  join: 'Beitreten',
+  request: 'Anfragen',
+  requested: 'Angefragt',
+  member: 'Mitglied',
+  invite: 'Nur auf Einladung',
+};
+
+/** Knopf bzw. Hinweis je Beitrittsstufe und eigenem Stand; null ohne Stufe (ältere Server). */
+export function joinAction(mode: JoinMode | undefined, state: { member: boolean; requested: boolean }): JoinAction | null {
+  if (!mode) return null;
+  if (state.member) return 'member';
+  if (state.requested) return 'requested';
+  return mode === 'open' ? 'join' : mode === 'request' ? 'request' : 'invite';
+}
+
 /**
  * Wird eine angenommene Einladung sofort zur Mitgliedschaft? Ja, wenn die Gruppe (effektiv) offen ist oder die
  * einladende Person Anfragen bestätigen darf; sonst entsteht eine Beitrittsanfrage. `mode` = effectiveJoinMode.
@@ -46,8 +64,8 @@ export const APPROVERS = ['members', 'admins', 'owner'] as const;
 export type Approvers = (typeof APPROVERS)[number];
 export const APPROVERS_LABEL: Record<Approvers, string> = {
   members: 'Alle Mitglieder',
-  admins: 'Eigner und Admins',
-  owner: 'Nur der Eigner',
+  admins: 'Eigentümer und Admins',
+  owner: 'Nur der Eigentümer',
 };
 export const isApprovers = (v: unknown): v is Approvers => typeof v === 'string' && (APPROVERS as readonly string[]).includes(v);
 
@@ -125,8 +143,8 @@ export const isFollowKind = oneOf(FOLLOW_KINDS);
 
 // ---------------------------------------------------------------- Neuigkeiten
 
-/** `harbor` = „Neues Boot im Hafen“ (Konzept 12.4). */
-export const ACTIVITY_KINDS = ['voyage', 'photos', 'member', 'boat', 'post', 'milestone', 'harbor'] as const;
+/** `harbor` = „Neues Boot im Hafen“ (Konzept 12.4), `logbook` = gebündelte Fahrtenbuch-Nachträge (Konzept 19, F-308). */
+export const ACTIVITY_KINDS = ['voyage', 'photos', 'member', 'boat', 'post', 'milestone', 'harbor', 'logbook'] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 export const isActivityKind = oneOf(ACTIVITY_KINDS);
 
@@ -171,9 +189,14 @@ export interface StreamItem {
   createdAt: number;
   /** Handelnde Person – nur mit öffentlichem Profil, sonst null */
   actor: { handle: string; displayName: string } | null;
+  /** Beitritt ohne öffentliches Profil: Spaßname statt Name (F-349, wie F-134) – nie der gewählte Name */
+  alias?: string;
   /** Gruppe als Kontext (Beitrag, Mitglied, Boot) */
   group: { slug: string; name: string; kind: GroupKind } | null;
-  voyage?: { id: string; title: string; distNm: number; startedAt: number | null; hasImage: boolean; boat: { id: string; name: string } | null };
+  /** `logbook`: Fahrtenbuch-Eintrag ohne GPX (Abzeichen, F-302) */
+  voyage?: { id: string; title: string; distNm: number; startedAt: number | null; hasImage: boolean; boat: { id: string; name: string } | null; logbook?: boolean };
+  /** gebündelte Nachträge (F-308): sichtbare Einträge (höchstens 5) und Anzahl/Summe aller sichtbaren */
+  logbook?: { count: number; distNm: number; voyages: Array<{ id: string; title: string }> };
   photos?: { count: number; thumbs: string[] };
   post?: { id: string; body: string; link: string | null; canDelete: boolean };
   boat?: { id: string; name: string };
@@ -199,13 +222,19 @@ export function reactionSubjectOf(i: Pick<StreamItem, 'id' | 'kind' | 'voyage' |
   return { subject: 'activity', id: i.id };
 }
 
-const who = (i: StreamItem, fallback: string) => i.actor?.displayName || fallback;
+const who = (i: StreamItem, fallback: string) => i.actor?.displayName || i.alias || fallback;
 
 /** Kurzer Satz zu einem Eintrag (ohne Beitragstext) – gleich in App, RSS und Mail. */
 export function streamHeadline(i: StreamItem): string {
   switch (i.kind) {
     case 'voyage':
-      return `${who(i, 'Ein:e Segler:in')} hat einen Törn geteilt: ${i.voyage?.title ?? 'Törn'}`;
+      return i.voyage?.logbook
+        ? `${who(i, 'Ein:e Segler:in')} hat einen Törn ins Fahrtenbuch eingetragen: ${i.voyage.title}`
+        : `${who(i, 'Ein:e Segler:in')} hat einen Törn geteilt: ${i.voyage?.title ?? 'Törn'}`;
+    case 'logbook': {
+      const n = i.logbook?.count ?? 0;
+      return `${who(i, 'Ein:e Segler:in')} hat ${n === 1 ? 'einen Törn' : `${fmtNum(n, 0)} Törns`} ins Fahrtenbuch nachgetragen (${fmtNum(i.logbook?.distNm ?? 0, 0)} sm)`;
+    }
     case 'photos': {
       const n = i.photos?.count ?? 0;
       return `${who(i, 'Ein:e Segler:in')}: ${n === 1 ? '1 neues Foto' : `${fmtNum(n, 0)} neue Fotos`} zu ${i.voyage?.title ?? 'einem Törn'}`;
@@ -227,6 +256,7 @@ export function streamHeadline(i: StreamItem): string {
 export function streamPath(i: StreamItem): string {
   if (i.voyage) return `/s/${i.voyage.id}`;
   if (i.kind === 'milestone' && i.milestone) return i.milestone.path;
+  if (i.kind === 'logbook') return i.logbook?.voyages.length === 1 ? `/s/${i.logbook.voyages[0].id}` : i.actor ? `/u/${i.actor.handle}` : '/';
   if (i.kind === 'harbor' && i.boat) return `/b/${i.boat.id}`;
   if (i.group) return `/g/${i.group.slug}`;
   if (i.boat) return `/b/${i.boat.id}`;

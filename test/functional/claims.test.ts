@@ -43,7 +43,7 @@ async function claimId(p: Person, kind: 'group' | 'harbor', id: string): Promise
   return st.claim!.id;
 }
 async function harbor(p: Person, name = s.uniq('Hafen')) {
-  return (await ok<{ harbor: { id: string; slug: string } }>(await s.send('POST', '/api/harbors', p.cookie, { name }))).harbor;
+  return (await ok<{ harbor: { id: string; slug: string } }>(await s.send('POST', '/api/harbors', p.cookie, { name, lat: 52.4, lon: 13.05 }))).harbor;
 }
 const role = async (g: GroupOut, p: Person) => (await one<{ role: string }>('SELECT role FROM group_members WHERE group_id = ? AND user_id = ?', g.id, p.user.id))?.role ?? null;
 const bell = async (p: Person) => (await ok<{ items: Array<{ kind: string; title: string; what: string; href: string; text: string }> }>(await s.send('GET', '/api/notifications', p.cookie))).items;
@@ -292,8 +292,9 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
     expect((await s.send('DELETE', '/api/account', rep.cookie)).status).toBe(200);
     expect(await one('SELECT owner_id, verified_at FROM groups WHERE id = ?', club.id)).toEqual({ owner_id: member.user.id, verified_at: null });
     expect(await role(club, squatter)).toBe('admin');
-    // … und die Sperre bleibt: kein neuer Antrag, und auch der nächste Wechsel überspringt ihn
+    // … und die Sperre bleibt: kein neuer Antrag, keine Übergabe an ihn (F-347), und der nächste Wechsel überspringt ihn
     expect(await s.errorOf(await claim(squatter, 'group', club.id))).toBe('claim_blocked');
+    expect(await s.errorOf(await s.send('POST', `/api/groups/${club.id}/owner`, member.cookie, { userId: squatter.user.id }))).toBe('claim_blocked');
     expect((await s.send('DELETE', '/api/account', member.cookie)).status).toBe(200);
     expect(await one('SELECT COUNT(*) AS n FROM groups WHERE id = ? AND owner_id = ?', club.id, squatter.user.id)).toEqual({ n: 0 });
     // Hafen: kein Übernehmen per „Position zuerst“ bei je verifizierten Häfen
@@ -309,6 +310,22 @@ describe('Verifizierte Vertretung (Konzept 20)', () => {
     expect((await s.send('DELETE', '/api/account', hrep.cookie)).status).toBe(200);
     expect(await one('SELECT verified_at FROM harbors WHERE id = ?', hb.id)).toEqual({ verified_at: null });
     expect(await adoptable(hb.id)).toBe(false);
+    // per PATCH (Fahrtenbuch L3, F-307): Hafen ohne Anleger:in und ohne Position bleibt für den Verdrängten zu
+    await run('UPDATE harbors SET lat = NULL, lon = NULL, created_by = NULL WHERE id = ?', hb.id);
+    expect((await s.send('PATCH', `/api/harbors/${hb.id}`, squatter.cookie, { lat: 52.4, lon: 13.05 })).status).toBe(403);
+    expect(await one('SELECT created_by FROM harbors WHERE id = ?', hb.id)).toEqual({ created_by: null });
+  });
+
+  it('[F-369] Übergabe durch den Eigentümer (F-347) beendet die Verifizierung', async () => {
+    const owner = await s.person();
+    const adm = await s.person();
+    const club = await s.group(owner);
+    await s.join(owner, club, adm);
+    await ok(await s.send('PATCH', `/api/groups/${club.id}/members/${adm.user.id}`, owner.cookie, { role: 'admin' }));
+    await ok(await decide(await claimId(owner, 'group', club.id), { decision: 'accept' }));
+    expect(await one('SELECT verified_at IS NOT NULL AS v FROM groups WHERE id = ?', club.id)).toEqual({ v: 1 });
+    await ok(await s.send('POST', `/api/groups/${club.id}/owner`, owner.cookie, { userId: adm.user.id }));
+    expect(await one('SELECT owner_id, verified_at FROM groups WHERE id = ?', club.id)).toEqual({ owner_id: adm.user.id, verified_at: null });
   });
 
   it('[F-368] Glocke für Admins, Antragsteller:in und Verdrängte; Mails mit Begründung und Widerspruch', async () => {

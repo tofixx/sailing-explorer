@@ -1,6 +1,7 @@
 // Vereine und Teams (Konzept 11.1, F-150 … F-157): anlegen, Rollen, Sichtbarkeit, Beitrittsanfragen, Boote,
 // Gruppenseite. Einladungen laufen über worker/invites.ts, Beiträge über worker/posts.ts, Neuigkeiten über stream.ts.
 import type { Env } from './env';
+import { RECORDED_NM_SQL } from './logbook-sql';
 import { currentUser, requireUser, type User } from './auth';
 import { roleFor } from './boats';
 import { randomId } from './crypto';
@@ -58,7 +59,7 @@ export interface GroupRow {
 }
 
 export const GROUP_NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Gruppe gibt es nicht oder sie ist geschlossen.');
-const FORBIDDEN = (msg = 'Das dürfen nur Eigner und Admins der Gruppe.') => new HttpError(403, 'forbidden', msg);
+const FORBIDDEN = (msg = 'Das dürfen nur Eigentümer und Admins der Gruppe.') => new HttpError(403, 'forbidden', msg);
 
 export const GROUP_ID_RE = SHARE_ID_RE;
 
@@ -121,7 +122,7 @@ async function memberGroup(request: Request, env: Env, id: string, need: 'member
   }
   if (g.hidden_at && !canManageGroup(role)) throw GROUP_NOT_FOUND();
   if (need === 'manager' && !canManageGroup(role)) throw FORBIDDEN();
-  if (need === 'owner' && role !== 'owner') throw FORBIDDEN('Das darf nur der Eigner der Gruppe.');
+  if (need === 'owner' && role !== 'owner') throw FORBIDDEN('Das darf nur der Eigentümer der Gruppe.');
   return { user, group: g, role };
 }
 
@@ -159,6 +160,8 @@ interface GroupInput {
   slug?: unknown;
   description?: unknown;
   homePort?: unknown;
+  /** Lage eines neuen Hafens zu `homePort` (F-353) */
+  homePortPos?: unknown;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort (Freitext, alte Clients) */
   harborId?: unknown;
   visibility?: unknown;
@@ -235,6 +238,8 @@ export async function createGroup(request: Request, env: Env): Promise<Response>
     g.parent_id = parent.id;
   }
   await applyHarbor(env, user, g, input);
+  // Ein Verein hat seinen Ort über den Heimathafen (F-354) – ohne ihn erschiene er nirgends in „Umgebung“
+  if (g.kind === 'club' && !g.harbor_id) throw new HttpError(400, 'harbor_required', 'Ein Verein braucht einen Heimathafen – wähle ihn aus oder lege ihn mit seiner Lage an.');
   if (await slugTaken(env, g.slug, null)) throw SLUG_TAKEN();
   try {
     await env.DB.batch([
@@ -263,11 +268,13 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   const before = { approveBy: g.approve_by, joinMode: g.join_mode };
   const next = applyInput(g, input);
   if ((g.approve_by !== before.approveBy || g.join_mode !== before.joinMode) && role !== 'owner') {
-    throw FORBIDDEN('Beitritt und wer Anfragen bestätigt, legt der Eigner fest.');
+    throw FORBIDDEN('Beitritt und wer Anfragen bestätigt, legt der Eigentümer fest.');
   }
   await applyHarbor(env, user, g, input);
+  // Bestehende Vereine ohne Hafen dürfen weiter bearbeitet werden – nur ausdrücklich entfernen geht nicht (F-354)
+  if (g.kind === 'club' && !g.harbor_id && (input.harborId === null || input.harborId === '')) throw new HttpError(400, 'harbor_required', 'Ein Verein braucht einen Heimathafen.');
   if (next && next !== previous) {
-    if (role !== 'owner') throw FORBIDDEN('Die Sichtbarkeit ändert nur der Eigner.');
+    if (role !== 'owner') throw FORBIDDEN('Die Sichtbarkeit ändert nur der Eigentümer.');
     await checkVisibilityChoice(env, g.owner_id, next, previous);
     g.visibility = next;
   }
@@ -365,19 +372,19 @@ export async function purgeUserGroups(env: Env, userId: string): Promise<D1Prepa
 export async function listMyGroups(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const { results } = await env.DB.prepare(
-    `SELECT g.*, m.role AS my_role, (SELECT COUNT(*) FROM group_members x WHERE x.group_id = g.id) AS members
+    `SELECT g.*, m.role AS my_role, m.muted_at AS my_muted, (SELECT COUNT(*) FROM group_members x WHERE x.group_id = g.id) AS members
      FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? AND g.locked_at IS NULL ORDER BY g.name`,
   )
     .bind(user.id)
-    .all<GroupRow & { my_role: GroupRole; members: number }>();
+    .all<GroupRow & { my_role: GroupRole; my_muted: number | null; members: number }>();
   const { results: requests } = await env.DB.prepare(
-    `SELECT g.slug, g.name, g.kind, r.created_at FROM group_requests r JOIN groups g ON g.id = r.group_id WHERE r.user_id = ? ORDER BY r.created_at DESC`,
+    `SELECT g.id, g.slug, g.name, g.kind, r.created_at FROM group_requests r JOIN groups g ON g.id = r.group_id WHERE r.user_id = ? ORDER BY r.created_at DESC`,
   )
     .bind(user.id)
-    .all<{ slug: string; name: string; kind: GroupKind; created_at: number }>();
+    .all<{ id: string; slug: string; name: string; kind: GroupKind; created_at: number }>();
   return json({
-    groups: results.map((g) => ({ ...groupShape(g, g.my_role), members: g.members })),
-    requests: requests.map((r) => ({ ...short(r), createdAt: r.created_at })),
+    groups: results.map((g) => ({ ...groupShape(g, g.my_role), members: g.members, muted: g.my_muted !== null })),
+    requests: requests.map((r) => ({ id: r.id, ...short(r), createdAt: r.created_at })),
   });
 }
 
@@ -390,13 +397,13 @@ async function groupStats(env: Env, groupId: string, now = Date.now()) {
   const row = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM group_members WHERE group_id = ?1) AS members,
        (SELECT COUNT(*) FROM group_boats gb JOIN boats b ON b.id = gb.boat_id WHERE gb.group_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats,
-       COUNT(s.id) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist,
+       COUNT(s.id) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec,
        COALESCE(SUM(CASE WHEN COALESCE(s.started_at, s.created_at) >= ?2 THEN s.dist_nm END), 0) AS season
      FROM shares s WHERE ${PUBLIC_SHARE} AND ${GROUP_SHARES}`,
   )
     .bind(groupId, yearStart)
-    .first<{ members: number; boats: number; voyages: number; dist: number; season: number }>();
-  return { members: row?.members ?? 0, boats: row?.boats ?? 0, voyages: row?.voyages ?? 0, distNm: row?.dist ?? 0, seasonNm: row?.season ?? 0 };
+    .first<{ members: number; boats: number; voyages: number; dist: number; rec: number; season: number }>();
+  return { members: row?.members ?? 0, boats: row?.boats ?? 0, voyages: row?.voyages ?? 0, distNm: row?.dist ?? 0, recordedNm: row?.rec ?? 0, seasonNm: row?.season ?? 0 };
 }
 
 interface MemberRow {
@@ -455,6 +462,7 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     .all<{ slug: string; name: string; kind: GroupKind }>();
 
   const requested = !!user && !role && !!(await env.DB.prepare('SELECT 1 AS x FROM group_requests WHERE group_id = ? AND user_id = ?').bind(group.id, user.id).first());
+  const muted = !!user && !!role && !!(await env.DB.prepare('SELECT 1 AS x FROM group_members WHERE group_id = ? AND user_id = ? AND muted_at IS NOT NULL').bind(group.id, user.id).first());
   const approver = canApprove(role, group.approve_by);
   const mode = effectiveJoinMode(group);
   return json({
@@ -469,9 +477,15 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     // Titelbild und neueste öffentliche Fotos aus Törns der Boote und Mitglieder (Konzept 13)
     ...pageCover('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request)),
     photos: await galleryPhotos(env, 'group', group.id),
+    // Ort für die Karte im Hintergrund (F-351): Position des Heimathafens, sonst null
+    place: group.harbor_id
+      ? ((await env.DB.prepare('SELECT lat, lon FROM harbors WHERE id = ? AND hidden_at IS NULL AND lat IS NOT NULL AND lon IS NOT NULL').bind(group.harbor_id).first<{ lat: number; lon: number }>()) ?? null)
+      : null,
     membership: {
       role,
       requested,
+      /** Neuigkeiten stumm geschaltet (F-346) */
+      muted,
       canRequest: !!user && !role && mode === 'request' && !requested,
       /** offen (nur öffentliche Gruppen): direkt beitreten (Konzept 14.1) */
       canJoin: !!user && !role && mode === 'open',
@@ -538,8 +552,52 @@ export async function setMemberRole(request: Request, env: Env, id: string, who:
   const { role } = await readJson<{ role?: unknown }>(request);
   if (role !== 'admin' && role !== 'member') throw new HttpError(400, 'invalid_role', 'Rolle: Admin oder Mitglied.');
   const res = await env.DB.prepare(`UPDATE group_members SET role = ? WHERE group_id = ? AND user_id = ? AND role <> 'owner'`).bind(role, group.id, who).run();
-  if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Diese Person ist kein Mitglied (oder der Eigner).');
+  if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Diese Person ist kein Mitglied (oder der Eigentümer).');
   return json({ role });
+}
+
+/**
+ * Eigner wechseln (F-347, auch Admin-Bereich F-236): neuer Eigner (Mitgliedschaft angelegt bzw. hochgestuft), der
+ * bisherige bleibt Admin, eine offene Anfrage des neuen entfällt. Ohne Antrag endet dabei eine Verifizierung
+ * (Konzept 20.6) – der angenommene Antrag (worker/claims.ts) setzt sie danach neu.
+ */
+export const transferGroupStmts = (env: Env, groupId: string, from: string | null, to: string, now: number) => [
+  // ohne bisherigen Eigner (Admin-Bereich: verwaiste Gruppe) bleibt nur das Einsetzen
+  ...(from ? [env.DB.prepare(`UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?`).bind(groupId, from)] : []),
+  env.DB.prepare(
+    `INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?1, ?2, 'owner', ?3)
+     ON CONFLICT(group_id, user_id) DO UPDATE SET role = 'owner'`,
+  ).bind(groupId, to, now),
+  env.DB.prepare('DELETE FROM group_requests WHERE group_id = ? AND user_id = ?').bind(groupId, to),
+  env.DB.prepare('UPDATE groups SET owner_id = ?, updated_at = ?, verified_at = NULL WHERE id = ?').bind(to, now, groupId),
+];
+
+/**
+ * POST /api/groups/:id/owner `{ userId }` – der Eigner übergibt die Gruppe an einen Admin (F-347); danach ist er
+ * selbst Admin und kann austreten. Nur an Admins – das Vertrauen ist schon ausgesprochen.
+ */
+export async function transferGroup(request: Request, env: Env, id: string): Promise<Response> {
+  const { user, group } = await memberGroup(request, env, id, 'owner');
+  const { userId } = await readJson<{ userId?: unknown }>(request);
+  if (typeof userId !== 'string' || userId === user.id) throw new HttpError(400, 'invalid_user', 'Wähle einen Admin der Gruppe.');
+  if ((await roleIn(env, userId, group.id)) !== 'admin') throw new HttpError(400, 'not_admin', 'Übergeben geht nur an einen Admin der Gruppe.');
+  // Sperre gegen Rückübernahme (Konzept 20.5, F-367)
+  if (await env.DB.prepare(`SELECT 1 AS x WHERE ${displacedSql('group', '?1', '?2')}`).bind(group.id, userId).first()) {
+    throw new HttpError(409, 'claim_blocked', 'Dieser Person wurde die Verwaltung nach einer Prüfung entzogen – Übergabe nicht möglich.');
+  }
+  const target = await env.DB.prepare('SELECT suspended_at, locked_at FROM users WHERE id = ?').bind(userId).first<{ suspended_at: number | null; locked_at: number | null }>();
+  if (!target || target.suspended_at || target.locked_at) throw new HttpError(400, 'invalid_user', 'Dieses Konto kann die Gruppe nicht übernehmen.');
+  await env.DB.batch(transferGroupStmts(env, group.id, user.id, userId, Date.now()));
+  return json({ owner: userId });
+}
+
+/** PUT /api/groups/:id/mute `{ muted }` – eigene Mitgliedschaft stumm schalten bzw. wieder laut (F-346). */
+export async function muteGroup(request: Request, env: Env, id: string): Promise<Response> {
+  const { user, group } = await memberGroup(request, env, id, 'member');
+  const { muted } = await readJson<{ muted?: unknown }>(request);
+  if (typeof muted !== 'boolean') throw new HttpError(400, 'invalid_mute', 'muted: true oder false.');
+  await env.DB.prepare('UPDATE group_members SET muted_at = ? WHERE group_id = ? AND user_id = ?').bind(muted ? Date.now() : null, group.id, user.id).run();
+  return json({ muted });
 }
 
 /** DELETE /api/groups/:id/members/:userId – austreten (`me`) bzw. entfernen nach Rolle (Konzept 11.1). */
@@ -548,8 +606,8 @@ export async function removeMember(request: Request, env: Env, id: string, who: 
   const target = who === 'me' ? user.id : who;
   const targetRole = target === user.id ? role : await roleIn(env, target, group.id);
   if (!targetRole) throw new HttpError(404, 'not_found', 'Diese Person ist kein Mitglied.');
-  if (target === user.id && role === 'owner') throw new HttpError(400, 'owner_cannot_leave', 'Der Eigner kann die Gruppe nicht verlassen – nur löschen.');
-  if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigner.');
+  if (target === user.id && role === 'owner') throw new HttpError(400, 'owner_cannot_leave', 'Übergib die Gruppe zuerst an einen Admin – oder lösche sie.');
+  if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigentümer.');
   await env.DB.batch(leaveGroupStmts(env, group.id, target));
   return new Response(null, { status: 204 });
 }
@@ -653,22 +711,30 @@ export async function removeGroupBoat(request: Request, env: Env, id: string, bo
 
 // ---------------------------------------------------------------- Liste für /entdecken
 
-/** Öffentliche Vereine und Teams (nicht ausgeblendet, Eigner nicht gesperrt), neueste zuerst. */
-export async function publicGroups(env: Env, limit: number) {
-  const { results } = await env.DB.prepare(
+/**
+ * Öffentliche Vereine und Teams (nicht ausgeblendet, Eigner nicht gesperrt), neueste zuerst. `search`: zusätzliche
+ * Bedingung mit Platzhalter ?2 (Suche auf /entdecken, F-331). `near`: Hafen-IDs (JSON, nächste zuerst) – nur Gruppen
+ * mit Heimathafen dort, nach Nähe sortiert (F-344).
+ */
+export async function publicGroups(env: Env, limit: number, search?: { where: string; like: string }, near?: string | null) {
+  const stmt = env.DB.prepare(
     `SELECT g.id, g.slug, g.name, g.kind, g.home_port, g.description, g.join_mode, g.created_at, g.verified_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members,
        c.ver AS cover_ver, c.focus_y AS cover_y
      FROM groups g LEFT JOIN covers c ON c.kind = 'g' AND c.object_id = g.id
      WHERE g.visibility = 'public' AND g.hidden_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL)
-     ORDER BY g.created_at DESC, g.id LIMIT ?`,
-  )
-    .bind(limit)
+       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL) ${search?.where ?? ''}
+       ${near ? `AND g.harbor_id IN (SELECT value FROM json_each(?3))` : ''}
+     ORDER BY ${near ? `${nearRank('g.harbor_id')}, ` : ''}g.created_at DESC, g.id LIMIT ?1`,
+  );
+  const { results } = await (near ? stmt.bind(limit, search?.like ?? '', near) : search ? stmt.bind(limit, search.like) : stmt.bind(limit))
     .all<{ id: string; slug: string; name: string; kind: GroupKind; home_port: string; description: string; join_mode: JoinMode; created_at: number; verified_at: number | null; members: number; cover_ver: string | null; cover_y: number | null }>();
   return results.map((g) => ({
     id: g.id, slug: g.slug, name: g.name, kind: g.kind, homePort: g.home_port, description: g.description, joinMode: g.join_mode, createdAt: g.created_at, members: g.members, verified: g.kind === 'club' && !!g.verified_at,
     cover: coverRef('g', g.id, g.cover_ver, g.cover_y),
   }));
 }
+
+/** Rang eines Hafens in der Nähe-Liste ?3 (JSON-Array, nächste zuerst) – für ORDER BY. */
+export const nearRank = (col: string) => `(SELECT CAST(key AS INTEGER) FROM json_each(?3) WHERE value = ${col})`;
 
 export type { User };

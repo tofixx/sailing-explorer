@@ -1,4 +1,7 @@
 import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamFilter, type StreamPage } from '../services/api';
+import { locate, nearCenter, readNearPrefs, writeNearPrefs, type NearPrefs } from '../services/near-prefs';
+import { roundCoord, type NearRadius, type StreamMode } from '../domain/near';
+import type { NearInfo } from '../components/sx-home-feed';
 import type { Store } from '../services/store';
 import type { SxGroupPage } from '../components/sx-group-page';
 import type { SxHomeFeed } from '../components/sx-home-feed';
@@ -17,6 +20,12 @@ export interface GroupsUi {
   onPersonalStream?: (at: number | undefined) => void;
   /** wartet, bis Backend und Anmeldung bekannt sind */
   ready?: () => Promise<void>;
+  /** Mitgliedschaften geändert (Austreten, stumm, übergeben) – z. B. „Meine Gruppen“ im Konto neu laden */
+  onMembership?: () => void;
+  /** Beitritte ein-/ausgeblendet – Community-Badge neu zählen (F-350) */
+  onJoinsChanged?: () => void;
+  /** Anfrage läuft (sperrt die Knöpfe in „Meine Gruppen“ gegen Doppelklicks) */
+  onMembershipBusy?: (busy: boolean) => void;
 }
 
 /**
@@ -31,6 +40,10 @@ export class GroupsController {
   private filter: StreamFilter = null;
   /** laufendes Laden der Startseite (Schlüssel: angemeldet und Filter) */
   private homeLoading: { key: string; p: Promise<void> } | null = null;
+  /** Heimathafen – Mittelpunkt der Umgebung ohne Standort (Modus, Umkreis, Standort: immer frisch aus near-prefs) */
+  private homeHarbor: { slug: string; name: string } | null = null;
+  /** tatsächlich gezeigter Modus (Umgebung ohne Mittelpunkt fällt auf „Alles“ zurück) – fürs Nachladen */
+  private shown: StreamMode = 'all';
 
   constructor(
     private store: Store,
@@ -155,11 +168,32 @@ export class GroupsController {
   }
 
   withdraw(id: string) {
-    return this.act(() => groupApi.withdraw(id), 'Anfrage zurückgezogen');
+    return this.membership(() => groupApi.withdraw(id), 'Anfrage zurückgezogen');
   }
 
   leave(id: string) {
-    return this.act(() => groupApi.removeMember(id, 'me'), 'Du bist ausgetreten.');
+    return this.membership(() => groupApi.removeMember(id, 'me'), 'Du bist ausgetreten.');
+  }
+
+  /** Neuigkeiten der Gruppe stumm bzw. wieder anzeigen (F-346). */
+  mute(d: { id: string; muted: boolean }) {
+    return this.membership(() => groupApi.mute(d.id, d.muted), d.muted ? 'Stumm – Neuigkeiten dieser Gruppe erscheinen nicht mehr in deinem Stream.' : 'Neuigkeiten dieser Gruppe erscheinen wieder.');
+  }
+
+  /** Eigner übergibt an einen Admin (F-347). */
+  transfer(d: { id: string; userId: string }) {
+    return this.membership(() => groupApi.transfer(d.id, d.userId), 'Übergeben – du bist jetzt Admin und kannst austreten.');
+  }
+
+  /** Mitgliedschaft geändert: Seite (falls offen) und Startseite neu, „Meine Gruppen“ benachrichtigen. */
+  private async membership(fn: () => Promise<unknown>, done: string) {
+    this.ui.onMembershipBusy?.(true);
+    const ok = await this.act(fn, done).finally(() => this.ui.onMembershipBusy?.(false));
+    if (ok) {
+      this.homeLoaded = false;
+      this.ui.onMembership?.();
+    }
+    return ok;
   }
 
   decide(d: { id: string; userId: string; approve: boolean }) {
@@ -232,7 +266,13 @@ export class GroupsController {
     if (!home.stream?.cursor) return;
     home.loading = true;
     try {
-      const next = scope === 'public' ? await socialApi.publicStream(home.stream.cursor, this.filter) : await groupApi.myStream(home.stream.cursor);
+      const center = this.nearCenter();
+      const next =
+        scope !== 'public'
+          ? await groupApi.myStream(home.stream.cursor)
+          : this.shown === 'near' && center
+            ? await socialApi.nearStream(home.stream.cursor, center.center, readNearPrefs().radius)
+            : await socialApi.publicStream(home.stream.cursor, this.filter);
       home.stream = { ...next, items: [...home.stream.items, ...next.items] };
     } catch (e) {
       this.ui.toast(errorText(e));
@@ -259,7 +299,7 @@ export class GroupsController {
     }
     if (this.homeLoaded && !force) return;
     const signedIn = this.signedIn();
-    const key = `${signedIn}:${JSON.stringify(this.filter)}`;
+    const key = `${signedIn}:${JSON.stringify(this.filter)}:${JSON.stringify(readNearPrefs())}`;
     // Gleiche Anfrage läuft schon (z. B. Backend und Konto melden sich kurz nacheinander) – nicht doppelt laden.
     if (this.homeLoading?.key === key) return this.homeLoading.p;
     const p = this.fetchHome(signedIn);
@@ -276,16 +316,54 @@ export class GroupsController {
     this.homeLoaded = true;
     Object.assign(home, { loading: true, signedIn });
     try {
+      const prefs = readNearPrefs();
+      const chosen: StreamMode = prefs.mode === 'mine' && !signedIn ? 'near' : prefs.mode;
+      // Angemeldet: der persönliche Stream (mit Gelesen-Stand) nur für „Mitgliedschaften“; sonst genügt die Heimat.
+      let personal: StreamPage | null = null;
       if (signedIn) {
-        const [stream, mine, sugg] = await Promise.all([groupApi.myStream(), groupApi.mine(), groupApi.suggestions().catch(() => ({ people: [] }))]);
-        Object.assign(home, { stream, groups: mine.groups, suggestions: sugg.people, filters: null, filter: null });
+        const [stream, homeInfo, mine, sugg] = await Promise.all([
+          chosen === 'mine' ? groupApi.myStream() : Promise.resolve(null),
+          chosen === 'mine' ? Promise.resolve(null) : socialApi.home().catch(() => null),
+          groupApi.mine(),
+          groupApi.suggestions().catch(() => ({ people: [] })),
+        ]);
+        personal = stream ?? { items: [], cursor: null, hasGroups: mine.groups.length > 0, home: { club: homeInfo?.club ?? null, harbor: homeInfo?.harbor ?? null } };
+        this.homeHarbor = personal.home?.harbor ?? null;
+        Object.assign(home, { groups: mine.groups, suggestions: sugg.people });
       } else {
-        const page = await socialApi.publicStream(null, this.filter);
-        Object.assign(home, { stream: page, filters: page.filters ?? home.filters ?? null, filter: this.filter, groups: [], suggestions: [] });
+        this.homeHarbor = null;
+        Object.assign(home, { groups: [], suggestions: [] });
       }
+      let stream: StreamPage | null = chosen === 'mine' ? personal : null;
+      let near: NearInfo | null = null;
+      if (chosen === 'near') {
+        const center = this.nearCenter();
+        if (!center) near = { state: 'missing', source: null, places: 0, center: null };
+        else {
+          const source = center.source;
+          try {
+            const page = await socialApi.nearStream(null, center.center, prefs.radius);
+            stream = page;
+            near = { state: 'ok', source, places: page.near?.places ?? 0, center: page.near?.center?.name ?? (source === 'geo' ? center.label : null) };
+          } catch (e) {
+            // Heimathafen ohne Position: Hinweis; sonst (Netz, Server) still „Alles“ statt einer leeren Startseite
+            near = e instanceof ApiError && e.status === 422 ? { state: 'no_position', source, places: 0, center: personal?.home?.harbor?.name ?? null } : null;
+          }
+        }
+      }
+      // Ohne Umgebung (kein Mittelpunkt) zeigt die Startseite alles – mit Hinweis, wie die Umgebung möglich wird.
+      let filters = home.filters ?? null;
+      if (!stream) {
+        const page = await socialApi.publicStream(null, this.filter);
+        stream = page;
+        filters = page.filters ?? filters;
+      }
+      this.shown = chosen === 'near' && near?.state === 'ok' ? 'near' : chosen === 'mine' ? 'mine' : 'all';
+      Object.assign(home, { stream, personal, mode: chosen, shown: this.shown, radius: prefs.radius, joins: prefs.joins, near, filters, filter: this.filter });
       home.hidden = false;
       this.ui.onCommunity?.(true);
-      if (signedIn) this.ui.onPersonalStream?.(home.stream?.at);
+      // „Gelesen“ (F-222) nur, wenn der persönliche Stream wirklich angezeigt wird
+      if (signedIn && this.shown === 'mine') this.ui.onPersonalStream?.(personal?.at);
     } catch {
       home.hidden = true;
       this.homeLoaded = false;
@@ -293,6 +371,60 @@ export class GroupsController {
     } finally {
       home.loading = false;
     }
+  }
+
+  // ---------------------------------------------------------------- Stream-Modus und Umgebung (F-340 … F-343)
+
+  /** Mittelpunkt der Umgebung: grober Standort dieses Geräts, sonst der Heimathafen. */
+  private nearCenter() {
+    return nearCenter(this.homeHarbor);
+  }
+
+  /** Wahl ändern – frisch gelesen, damit eine Änderung auf /entdecken (Standort) nicht überschrieben wird. */
+  private async savePrefs(patch: Partial<NearPrefs>): Promise<void> {
+    writeNearPrefs({ ...readNearPrefs(), ...patch });
+    await this.loadHome(true);
+  }
+
+  /** Umgebung, Alles oder Mitgliedschaften (gemerkt auf diesem Gerät). */
+  setMode(mode: StreamMode): Promise<void> {
+    if (mode === 'mine' && !this.signedIn()) {
+      this.ui.openLogin('Für deine Mitgliedschaften bitte anmelden.');
+      return Promise.resolve();
+    }
+    return this.savePrefs({ mode });
+  }
+
+  /** Beitrittsmeldungen ein-/ausblenden (F-350) – nur Anzeige, kein Neuladen. */
+  setJoins(show: boolean): void {
+    writeNearPrefs({ ...readNearPrefs(), joins: show });
+    this.ui.home.joins = show;
+    // Badge zählt nur, was man sieht
+    this.ui.onJoinsChanged?.();
+  }
+
+  setRadius(radius: NearRadius): Promise<void> {
+    return this.savePrefs({ radius, mode: 'near' });
+  }
+
+  /** „Meine Umgebung“: Standort einmalig holen, grob runden, nur auf diesem Gerät merken. */
+  async useLocation(): Promise<void> {
+    try {
+      const geo = await locate();
+      await this.savePrefs({ geo, geoFrom: 'device', mode: 'near' });
+    } catch (e) {
+      this.ui.toast(`${errorText(e)} Alternativ: Heimathafen im Konto wählen.`, 6000);
+    }
+  }
+
+  /** Ort auf der Karte gewählt (F-355, z. B. auf Reisen) – gerundet wie der Standort. */
+  usePlace(p: { lat: number; lon: number }): Promise<void> {
+    return this.savePrefs({ geo: { lat: roundCoord(p.lat), lon: roundCoord(p.lon) }, geoFrom: 'map', mode: 'near' });
+  }
+
+  /** Standort vergessen – danach gilt wieder der Heimathafen (falls gewählt). */
+  forgetLocation(): Promise<void> {
+    return this.savePrefs({ geo: null });
   }
 
   /** Eingrenzung im öffentlichen Stream (Hafen, Verein, Team oder alles). */

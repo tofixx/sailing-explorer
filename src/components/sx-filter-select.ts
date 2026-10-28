@@ -1,14 +1,9 @@
 import { LitElement, css, html } from 'lit';
 import { base } from './shared';
+import { filterKey } from '../domain/search';
 
-/** Vergleichsform: klein, ohne Akzente (ö → o), Leerraum zusammengefasst. */
-export const filterKey = (s: string): string =>
-  s
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+/** Vergleichsform: liegt in src/domain/search.ts (auch für die Suche auf /entdecken), hier weiter angeboten. */
+export { filterKey };
 
 /**
  * Lange Auswahllisten per Eingabe filtern (F-290): umschließt ein normales `<select>` (bleibt im Formular, Events wie

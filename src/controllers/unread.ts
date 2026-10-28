@@ -1,4 +1,5 @@
 import { groupApi } from '../services/api';
+import { readNearPrefs } from '../services/near-prefs';
 import type { Store } from '../services/store';
 import { UNREAD_MAX, UNREAD_POLL_MS, UNREAD_REFRESH_MS, unreadLabel } from '../domain/unread';
 
@@ -53,7 +54,7 @@ export class UnreadController {
     this.last = Date.now();
     const gen = this.gen;
     this.running = this.saving
-      .then(() => groupApi.unread())
+      .then(() => groupApi.unread(readNearPrefs().joins))
       .then((r) => {
         if (gen === this.gen) this.set(r.more ? UNREAD_MAX + 1 : r.count);
       })

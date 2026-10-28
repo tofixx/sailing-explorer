@@ -8,7 +8,7 @@ import { loadGroup, loadGroupBySlug, visibleGroup } from './groups';
 import { harborVisible, loadHarbor, loadHarborBySlug, HARBOR_NOT_FOUND } from './harbors';
 import { homeShape, homeStmt, type HomeRow } from './home';
 import { isAdmin } from './moderation';
-import { shapeItem, type ActivityRow, type Viewer } from './stream-shape';
+import { logbookIds, shapeItem, type ActivityRow, type LogShare, type Viewer } from './stream-shape';
 import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
 import {
   STREAM_PAGE, STREAM_SCAN, canManageGroup, decodeCursor, encodeCursor, reactionSubjectOf,
@@ -16,11 +16,12 @@ import {
 } from '../src/domain/groups';
 import { emptyReactions, summarizeReactions, type ReactionKind } from '../src/domain/reactions';
 import { UNREAD_MAX, UNREAD_SCAN, seenUntil } from '../src/domain/unread';
+import { DEFAULT_RADIUS, NEAR_MAX_PLACES, boundingBox, isNearRadius, parseCenter, withinRadius, type LatLon } from '../src/domain/near';
 
 const ROWS_SQL = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subject_id, a.group_id, a.data, a.created_at,
     ap.handle AS actor_handle, ap.display_name AS actor_name, (ap.visibility = 'public' AND ap.hidden_at IS NULL) AS actor_public,
     (au.suspended_at IS NOT NULL) AS actor_suspended, (au.id IS NOT NULL) AS actor_exists,
-    s.id AS s_id, s.title AS s_title, s.dist_nm AS s_dist, s.started_at AS s_started, s.has_image AS s_image, s.visibility AS s_vis, s.hidden_at AS s_hidden,
+    s.id AS s_id, s.title AS s_title, s.dist_nm AS s_dist, s.started_at AS s_started, s.has_image AS s_image, s.visibility AS s_vis, s.hidden_at AS s_hidden, s.source AS s_source,
     b.id AS b_id, b.name AS b_name, b.visibility AS b_vis, b.hidden_at AS b_hidden,
     EXISTS (SELECT 1 FROM users bu WHERE bu.id = b.owner_id AND bu.suspended_at IS NOT NULL) AS b_owner_suspended,
     g.id AS g_id, g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.hidden_at AS g_hidden, gm.role AS g_role,
@@ -111,6 +112,25 @@ async function photoThumbs(env: Env, rows: ActivityRow[]): Promise<Map<string, s
 }
 
 /**
+ * Fahrtenbuch-Bündel (F-308): die darin genannten Törns, die jetzt öffentlich und nicht ausgeblendet sind, je Bündel
+ * neueste zuerst. Eine Abfrage für die ganze Seite.
+ */
+async function logbookShares(env: Env, rows: ActivityRow[]): Promise<Map<string, LogShare[]>> {
+  const bundles = rows.filter((r) => r.kind === 'logbook').map((r) => ({ id: r.id, ids: logbookIds(r.data) }));
+  const out = new Map<string, LogShare[]>();
+  const all = [...new Set(bundles.flatMap((b) => b.ids))];
+  if (!all.length) return out;
+  const { results } = await env.DB.prepare(
+    `SELECT id, title, dist_nm FROM shares WHERE id IN (SELECT value FROM json_each(?)) AND visibility = 'public' AND hidden_at IS NULL AND locked_at IS NULL`,
+  )
+    .bind(JSON.stringify(all))
+    .all<{ id: string; title: string; dist_nm: number }>();
+  const byId = new Map(results.map((s) => [s.id, { id: s.id, title: s.title, distNm: s.dist_nm }]));
+  for (const b of bundles) out.set(b.id, b.ids.map((id) => byId.get(id)).filter((s): s is LogShare => !!s).reverse());
+  return out;
+}
+
+/**
  * Prüft Kandidaten (neueste zuerst) und liefert höchstens eine Seite sichtbarer Einträge. Der Cursor zeigt auf den
  * letzten zurückgegebenen bzw. – wenn trotz voller Kandidatenliste weniger sichtbar waren – auf den letzten geprüften.
  * `keep`: zusätzlicher Filter (z. B. Hafen-Stream: nur Törns öffentlicher Boote).
@@ -121,12 +141,13 @@ async function resolve(env: Env, viewer: Viewer, candidates: Candidate[], scanne
   const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(viewer.id ?? '', JSON.stringify(ids)).all<ActivityRow>();
   const byId = new Map(rows.map((r) => [r.id, r]));
   const thumbs = await photoThumbs(env, rows);
+  const logs = await logbookShares(env, rows);
   const items: StreamItem[] = [];
   let last: Candidate | null = null;
   for (const c of candidates) {
     const r = byId.get(c.id);
     last = c;
-    const item = r ? shapeItem(r, viewer, thumbs.get(r.s_id ?? '') ?? []) : null;
+    const item = r ? shapeItem(r, viewer, thumbs.get(r.s_id ?? '') ?? [], logs.get(r.id) ?? []) : null;
     if (item && keep(item)) items.push(item);
     if (items.length >= STREAM_PAGE) break;
   }
@@ -144,7 +165,7 @@ export async function visibleActivity(env: Env, viewerId: string | null, id: str
     const { results } = await env.DB.prepare(`SELECT id FROM photos WHERE share_id = ? AND visibility = 'public' AND hidden_at IS NULL LIMIT 4`).bind(row.s_id).all<{ id: string }>();
     thumbs = results.map((p) => p.id);
   }
-  return shapeItem(row, { id: viewerId }, thumbs);
+  return shapeItem(row, { id: viewerId }, thumbs, (await logbookShares(env, [row])).get(row.id) ?? []);
 }
 
 const cursorOf = (request: Request): StreamCursor => {
@@ -199,6 +220,8 @@ export async function personalStream(request: Request, env: Env): Promise<Respon
  */
 export async function streamUnread(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
+  // ?joins=0: Beitritte sind auf dem Gerät ausgeblendet – dann zählen sie auch nicht (F-350)
+  const joins = new URL(request.url).searchParams.get('joins') !== '0';
   const headers = { 'Cache-Control': 'private, no-store' };
   const row = await env.DB.prepare('SELECT stream_seen_at AS seen FROM users WHERE id = ?').bind(user.id).first<{ seen: number | null }>();
   if (row?.seen == null) {
@@ -211,7 +234,7 @@ export async function streamUnread(request: Request, env: Env): Promise<Response
   if (candidates.length) {
     const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(user.id, JSON.stringify(candidates.map((c) => c.id))).all<ActivityRow>();
     const thumbs = await photoThumbs(env, rows);
-    for (const r of rows) if (r.actor_id !== user.id && shapeItem(r, { id: user.id }, thumbs.get(r.s_id ?? '') ?? [])) count++;
+    for (const r of rows) if (r.actor_id !== user.id && (joins || r.kind !== 'member') && shapeItem(r, { id: user.id }, thumbs.get(r.s_id ?? '') ?? [])) count++;
   }
   return json({ count: Math.min(count, UNREAD_MAX), more: count > UNREAD_MAX }, { headers });
 }
@@ -368,4 +391,74 @@ export async function publicStream(request: Request, env: Env): Promise<Response
   }
   const withFilters = first ? async () => ({ ...(await compute()), filters: await publicFilters(env) }) : compute;
   return cachedPage(request, env, `stream/public?${filterKey}&cursor=${cursorParam(request)}`, withFilters, user?.id ?? null);
+}
+
+// ---------------------------------------------------------------- Umgebung (F-340, F-341)
+
+/**
+ * Häfen mit Position im Umkreis (nächste zuerst) und die öffentlichen Gruppen mit Heimathafen dort – die Orte, deren
+ * Neuigkeiten die Umgebung bilden. Vereine und Teams haben ihren Ort über den Heimathafen.
+ */
+export async function placesNear(env: Env, center: LatLon, km: number) {
+  const b = boundingBox(center, km);
+  const { results } = await env.DB.prepare(
+    `SELECT id, slug, name, lat, lon FROM harbors
+     WHERE hidden_at IS NULL AND lat BETWEEN ?1 AND ?2 AND lon BETWEEN ?3 AND ?4`,
+  )
+    .bind(b.minLat, b.maxLat, b.minLon, b.maxLon)
+    .all<{ id: string; slug: string; name: string; lat: number; lon: number }>();
+  const harbors = withinRadius(center, km, results);
+  const groups = harbors.length
+    ? (
+        await env.DB.prepare(
+          `SELECT g.id FROM json_each(?1) AS h JOIN groups g ON g.harbor_id = h.value
+           WHERE g.visibility = 'public' AND g.hidden_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL)
+           ORDER BY h.key LIMIT ?2`,
+        )
+          .bind(JSON.stringify(harbors.map((h) => h.id)), Math.max(0, NEAR_MAX_PLACES - harbors.length))
+          .all<{ id: string }>()
+      ).results
+    : [];
+  return { harbors, groups };
+}
+
+/**
+ * GET /api/stream/near?lat=&lon=&r= bzw. ?harbor=<slug>&r= – öffentliche Neuigkeiten der Umgebung: aus Häfen im Umkreis
+ * `r` km (10, 25, 50, 100; Standard 25) und aus öffentlichen Vereinen und Teams mit Heimathafen dort. Mittelpunkt ist
+ * ein auf 0,1° gerundeter Standort oder ein Hafen mit Position (sonst 422 `no_position`). Ohne Betrachter geprüft wie
+ * der öffentliche Stream, 60 s gecacht; der Schlüssel enthält nur gerundeten Mittelpunkt, Umkreis und Cursor. Die
+ * erste Seite nennt Zahl der Orte und den Mittelpunkt-Hafen.
+ */
+export async function nearStream(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const user = await currentUser(request, env);
+  const c = cursorOf(request);
+  const rParam = url.searchParams.get('r');
+  if (rParam !== null && !isNearRadius(rParam)) throw new HttpError(400, 'invalid_radius', 'Umkreis 10, 25, 50 oder 100 km.');
+  const km = rParam !== null ? Number(rParam) : DEFAULT_RADIUS;
+  const slug = url.searchParams.get('harbor');
+  let center: LatLon | null;
+  let place: { slug: string; name: string } | null = null;
+  if (slug) {
+    const h = await loadHarborBySlug(env, slug);
+    if (!harborVisible(h)) throw HARBOR_NOT_FOUND();
+    if (h.lat === null || h.lon === null) throw new HttpError(422, 'no_position', 'Für diesen Hafen ist noch keine Position eingetragen.');
+    center = { lat: h.lat, lon: h.lon };
+    place = { slug: h.slug, name: h.name };
+  } else {
+    center = parseCenter(url.searchParams.get('lat'), url.searchParams.get('lon'));
+    if (!center) throw new HttpError(400, 'invalid_center', 'Standort oder Hafen fehlt.');
+  }
+  const first = !url.searchParams.get('cursor');
+  const at = place ? `harbor=${place.slug}` : `lat=${center.lat}&lon=${center.lon}`;
+  const compute = async () => {
+    const { harbors, groups } = await placesNear(env, center, km);
+    const keys = [...harbors.map((h) => ['harbor', h.id]), ...groups.map((g) => ['group', g.id])];
+    const page = keys.length
+      ? await resolve(env, { id: null }, (await env.DB.prepare(PERSONAL_SQL).bind(JSON.stringify(keys), c.at, c.id, STREAM_SCAN).all<Candidate>()).results, STREAM_SCAN, harborKeep)
+      : { items: [], cursor: null };
+    return first ? { ...page, near: { places: harbors.length + groups.length, center: place } } : page;
+  };
+  return cachedPage(request, env, `stream/near?${at}&r=${km}&cursor=${cursorParam(request)}`, compute, user?.id ?? null);
 }

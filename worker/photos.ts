@@ -7,7 +7,7 @@ import { randomId } from './crypto';
 import { HttpError, countKeyFailure, json, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, requestKey } from './access';
 import { assertActive, isAdmin, logLockedView } from './moderation';
-import { ownedShare, visibleShare } from './shares';
+import { assertMediaAllowed, ownedShare, visibleShare } from './shares';
 import { storageQuotaError, supportConfigured, supportStatus } from './supporter';
 import { addPhotoStmt, checkBrake, currentBrake, subtractPhotoStmt } from './storage';
 import { inspectImage, type PhotoFormat } from './image';
@@ -174,6 +174,7 @@ export async function listPhotos(request: Request, env: Env, shareId: string): P
  */
 export async function uploadPhoto(request: Request, env: Env, shareId: string): Promise<Response> {
   const { row: share, user } = await ownedShare(request, env, shareId);
+  assertMediaAllowed(share);
   await assertActive(env, user);
 
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM photos WHERE share_id = ?').bind(share.id).first<{ n: number }>();

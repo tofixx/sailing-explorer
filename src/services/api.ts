@@ -14,6 +14,7 @@ import type { MapStyleId } from '../domain/map-style';
 import type { VoyageRole } from '../domain/crew-roles';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 import type { NotificationItem, NotificationKind, NotifyPrefs } from '../domain/notifications';
+import type { DistSource, LatLon, Logbook, ShareSource } from '../domain/logbook';
 
 export type { Visibility };
 
@@ -53,6 +54,40 @@ export interface ShareMeta extends Linkable {
   sailor?: { handle: string; displayName: string } | null;
   /** nur in der Einzelansicht (F-228): Vereine/Teams, in denen der Törn erschienen ist und die der Betrachter sehen darf */
   groups?: Array<{ slug: string; name: string; kind: string }>;
+  // ---- Fahrtenbuch (Konzept 19); fehlt bei älteren Servern
+  source?: ShareSource;
+  distSource?: DistSource;
+  endedAt?: number | null;
+  from?: LogHarbor | null;
+  to?: LogHarbor | null;
+  log?: Logbook;
+}
+
+/** Start- bzw. Zielhafen eines Törns (ausgeblendete Häfen: null) */
+export interface LogHarbor {
+  id: string;
+  slug: string;
+  name: string;
+  lat: number | null;
+  lon: number | null;
+}
+
+/** Hafen-Eingabe im Fahrtenbuch: vorhandener oder neuer, jeweils optional mit Position (L3) */
+export type HarborInput = { harborId: string; lat?: number; lon?: number } | { name: string; lat?: number; lon?: number };
+
+/** POST /api/shares/manual (F-300) */
+export interface ManualShareInput {
+  title?: string;
+  startedAt: number;
+  endedAt?: number | null;
+  timed?: boolean;
+  fromHarbor: HarborInput;
+  toHarbor?: HarborInput | null;
+  distNm?: number | null;
+  boatId?: string | null;
+  visibility: Visibility;
+  ownerRole?: VoyageRole | null;
+  log?: Logbook;
 }
 
 /** Unterstützen-Konfiguration aus /api/config (null = auf diesem Server nicht eingerichtet). */
@@ -75,6 +110,9 @@ export interface SupportStatus {
   supporterUntil: number | null;
   sharesUsed: number;
   sharesFree: number;
+  /** Fahrtenbuch-Einträge der laufenden Saison und Grenze (L1); fehlt bei älteren Servern */
+  logEntriesUsed?: number;
+  logEntriesMax?: number;
   /** Grenze der aktuellen Stufe (kostenlos = sharesFree) */
   sharesMax: number;
   /** belegter Speicher (Tracks + Übersichtsbilder) und Obergrenze der aktuellen Stufe in Bytes */
@@ -123,6 +161,8 @@ export interface Boat extends Linkable {
 export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'lengthM' | 'sailNumber' | 'homePort' | 'description' | 'ownerLabel' | 'visibility'>> & {
   /** Hafen (Konzept 12.2): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
+  /** Lage eines neuen Hafens zu homePort (Pflicht beim Anlegen, F-353) */
+  homePortPos?: { lat: number; lon: number } | null;
   /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
   rotateKey?: boolean;
 };
@@ -255,6 +295,8 @@ export type ProfileInput = Pick<Profile, 'handle' | 'displayName' | 'bio' | 'vis
 export interface PageStats {
   voyages: number;
   distNm: number;
+  /** davon aufgezeichnet (F-303); fehlt bei älteren Servern */
+  recordedNm?: number;
 }
 
 /** Entdecken: nur öffentliche Inhalte (siehe worker/discover.ts). */
@@ -267,6 +309,8 @@ export interface DiscoverVoyage {
   createdAt: number;
   trackCount: number;
   hasImage: boolean;
+  /** Fahrtenbuch-Eintrag ohne GPX (Abzeichen) */
+  logbook?: boolean;
   boat: { id: string; name: string } | null;
   /** null: Profil nicht öffentlich – Autor:in erscheint ohne Link als „Segler:in“ */
   sailor: { handle: string; displayName: string } | null;
@@ -304,6 +348,14 @@ export type SharePatch = Partial<Pick<ShareMeta, 'title' | 'visibility' | 'view'
   boatId?: string | null;
   /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
   rotateKey?: boolean;
+  // Fahrtenbuch (F-301): Angaben und Häfen; Datum/Strecke nur bei Einträgen ohne GPX
+  log?: Logbook;
+  fromHarbor?: HarborInput | null;
+  toHarbor?: HarborInput | null;
+  startedAt?: number;
+  endedAt?: number | null;
+  timed?: boolean;
+  distNm?: number | null;
 };
 
 export interface SharePayload {
@@ -311,6 +363,8 @@ export interface SharePayload {
   tracks: Array<{ name: string; gpx: string }>;
   /** beim Teilen mitgespeicherte Wetterdaten (ältere Freigaben: fehlt) */
   weather?: WeatherData;
+  /** Fahrtenbuch-Eintrag ohne GPX: Route aus den Hafenpositionen (tracks ist dann leer) */
+  route?: LatLon[];
 }
 
 export class ApiError extends Error {
@@ -377,7 +431,7 @@ export const api = {
 
   createShare: (
     gz: Uint8Array<ArrayBuffer>,
-    meta: { title: string; summary: string; view: string; trackCount: number; visibility: Visibility; boatId: string | null; distNm: number; startedAt: number | null },
+    meta: { title: string; summary: string; view: string; trackCount: number; visibility: Visibility; boatId: string | null; distNm: number; startedAt: number | null; endedAt?: number | null },
   ) =>
     call<{ share: ShareMeta }>('/api/shares', {
       method: 'POST',
@@ -390,10 +444,14 @@ export const api = {
         'X-Share-Visibility': meta.visibility,
         'X-Share-Distance': meta.distNm.toFixed(2),
         ...(meta.startedAt ? { 'X-Share-Started': String(meta.startedAt) } : {}),
+        ...(meta.startedAt && meta.endedAt ? { 'X-Share-Ended': String(meta.endedAt) } : {}),
         ...(meta.boatId ? { 'X-Share-Boat': meta.boatId } : {}),
       },
       body: gz,
     }),
+
+  /** Fahrtenbuch-Eintrag ohne GPX (F-300) */
+  createManualShare: (input: ManualShareInput) => call<{ share: ShareMeta }>('/api/shares/manual', jsonInit('POST', input)),
 
   myProfile: () => call<{ profile: Profile; exists: boolean }>('/api/me/profile'),
   saveProfile: (p: ProfileInput) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),
@@ -436,7 +494,13 @@ export const api = {
   acceptMyInvite: (id: string) => call<InviteAccepted>(`/api/me/invites/${encodeURIComponent(id)}/accept`, { method: 'POST' }),
   declineMyInvite: (id: string) => call<void>(`/api/me/invites/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
-  discover: (limit: number) => call<DiscoverData>(`/api/discover?limit=${limit}`),
+  /** `near`: nur aus der Umgebung, nächste zuerst (F-344) */
+  discover: (limit: number, query = '', near?: { center: NearCenter; r: number } | null) =>
+    call<DiscoverData>(
+      `/api/discover?limit=${limit}${query ? `&q=${encodeURIComponent(query)}` : ''}${
+        near ? `&r=${near.r}&${'harbor' in near.center ? `harbor=${encodeURIComponent(near.center.harbor)}` : `lat=${near.center.lat}&lon=${near.center.lon}`}` : ''
+      }`,
+    ),
 
   /** Lädt den Payload; der Browser entpackt gzip, wir begrenzen die Größe. */
   async shareData(id: string, key?: string | null): Promise<SharePayload> {
@@ -450,7 +514,9 @@ export const api = {
 /** Fremde Daten: Struktur prüfen, bevor sie weiterverarbeitet werden. */
 export function validatePayload(input: unknown): SharePayload {
   const p = input as Partial<SharePayload> | null;
-  if (!p || p.v !== 1 || !Array.isArray(p.tracks) || p.tracks.length < 1 || p.tracks.length > 20) {
+  // Fahrtenbuch-Einträge haben keine Tracks, aber eine Route (1–50 Punkte)
+  const route = p ? parseRoute((p as { route?: unknown }).route) : null;
+  if (!p || p.v !== 1 || !Array.isArray(p.tracks) || p.tracks.length < (route ? 0 : 1) || p.tracks.length > 20) {
     throw new Error('Ungültiges Freigabe-Format');
   }
   for (const t of p.tracks) {
@@ -458,7 +524,14 @@ export function validatePayload(input: unknown): SharePayload {
   }
   // Ungültiges Wetter verwirft nur das Wetter, nicht die Freigabe – die App lädt dann selbst nach.
   const weather = p.weather === undefined ? null : parseWeatherData(p.weather);
-  return { v: 1, tracks: p.tracks as SharePayload['tracks'], ...(weather ? { weather } : {}) };
+  return { v: 1, tracks: p.tracks as SharePayload['tracks'], ...(weather ? { weather } : {}), ...(route ? { route } : {}) };
+}
+
+/** Route eines Fahrtenbuch-Eintrags: 1–50 gültige [lat, lon]-Paare, sonst null. */
+function parseRoute(input: unknown): LatLon[] | null {
+  if (!Array.isArray(input) || input.length < 1 || input.length > 50) return null;
+  const ok = input.every((p) => Array.isArray(p) && p.length === 2 && Math.abs(Number(p[0])) <= 90 && Math.abs(Number(p[1])) <= 180 && p.every((v) => typeof v === 'number' && Number.isFinite(v)));
+  return ok ? (input as LatLon[]) : null;
 }
 
 // ================================================================ Kommentare & Melden (Phase D)
@@ -731,14 +804,16 @@ export interface GroupRequest {
 
 export interface GroupPageData {
   group: GroupInfo;
+  /** Ort für die Karte im Hintergrund (Heimathafen mit Position, F-351) */
+  place?: { lat: number; lon: number } | null;
   parent: GroupRef | null;
   teams: GroupRef[];
-  stats: { members: number; boats: number; voyages: number; distNm: number; seasonNm: number };
+  stats: { members: number; boats: number; voyages: number; distNm: number; recordedNm?: number; seasonNm: number };
   members: GroupMember[];
   others: number;
   boats: GroupBoat[];
   social: FollowStats;
-  membership: { role: GroupRole | null; requested: boolean; canRequest: boolean; canJoin?: boolean; canInvite?: boolean; canApprove?: boolean };
+  membership: { role: GroupRole | null; requested: boolean; canRequest: boolean; canJoin?: boolean; canInvite?: boolean; canApprove?: boolean; muted?: boolean };
   /** Titelbild samt Ausschnitt und Galerie (Konzept 13) – fehlen bei älteren Servern */
   cover?: string | null;
   coverY?: number;
@@ -749,6 +824,8 @@ export interface GroupPageData {
 
 export interface MyGroup extends GroupInfo {
   members: number;
+  /** Neuigkeiten stumm geschaltet (F-346) */
+  muted?: boolean;
 }
 
 export interface StreamPage {
@@ -786,15 +863,38 @@ export interface DiscoverGroup {
   verified?: boolean;
 }
 
+/** Hafen auf /entdecken (F-332): öffentliche Boote und Vereine/Teams dort */
+export interface DiscoverHarbor {
+  slug: string;
+  name: string;
+  boats: number;
+  groups: number;
+  /** Entfernung zum Mittelpunkt (nur mit Umgebung, F-344) */
+  km?: number;
+}
+
 export interface DiscoverData {
   /** Vereine und Teams – fehlt bei älteren Servern */
   groups?: DiscoverGroup[];
+  /** Häfen und Suchschlüssel der Antwort ('' = ohne Suche, F-331) – fehlen bei älteren Servern */
+  harbors?: DiscoverHarbor[];
+  query?: string;
+  /** Antwort gilt für die Umgebung (F-344) */
+  near?: boolean;
+}
+
+/** Mitgliedschaften für die Beitreten-Knöpfe auf /entdecken (F-333): Slugs der Gruppen. */
+export interface DiscoverMembership {
+  member: string[];
+  requested: string[];
 }
 
 export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy'>> & {
   kind?: GroupKind;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
+  /** Lage eines neuen Hafens zu homePort (Pflicht beim Anlegen, F-353) */
+  homePortPos?: { lat: number; lon: number } | null;
   parentId?: string | null;
   rotateKey?: boolean;
 };
@@ -804,7 +904,11 @@ export type FollowKind = 'user' | 'boat' | 'group' | 'harbor';
 const gid = (id: string) => encodeURIComponent(id);
 
 export const groupApi = {
-  mine: () => call<{ groups: MyGroup[]; requests: Array<GroupRef & { createdAt: number }> }>('/api/groups'),
+  mine: () => call<{ groups: MyGroup[]; requests: Array<GroupRef & { id?: string; createdAt: number }> }>('/api/groups'),
+  /** Eigner übergibt an einen Admin (F-347) */
+  transfer: (id: string, userId: string) => call<{ owner: string }>(`/api/groups/${gid(id)}/owner`, jsonInit('POST', { userId })),
+  /** eigene Mitgliedschaft stumm bzw. laut (F-346) */
+  mute: (id: string, muted: boolean) => call<{ muted: boolean }>(`/api/groups/${gid(id)}/mute`, jsonInit('PUT', { muted })),
   create: (g: GroupInput) => call<{ group: GroupInfo }>('/api/groups', jsonInit('POST', g)),
   bySlug: (slug: string, key?: string | null) => call<GroupPageData>(`/api/groups/slug/${encodeURIComponent(slug)}`, keyInit(key)),
   get: (id: string, key?: string | null) => call<GroupPageData>(`/api/groups/${gid(id)}`, keyInit(key)),
@@ -829,7 +933,8 @@ export const groupApi = {
     call<StreamPage>(`/api/groups/${gid(id)}/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, keyInit(key)),
   myStream: (cursor?: string | null) => call<StreamPage>(`/api/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
   /** Community-Badge (F-221): neue Einträge seit dem Gelesen-Zeitpunkt, höchstens 99 (`more`: mehr) */
-  unread: () => call<{ count: number; more: boolean }>('/api/stream/unread'),
+  /** `joins` false: Beitritte nicht mitzählen (auf dem Gerät ausgeblendet, F-350) */
+  unread: (joins = true) => call<{ count: number; more: boolean }>(`/api/stream/unread${joins ? '' : '?joins=0'}`),
   /** Stream bis `at` gelesen (F-222) */
   seen: (at?: number) => call<{ ok: true }>('/api/stream/seen', jsonInit('POST', { at })),
   suggestions: () => call<{ people: Suggestion[] }>('/api/me/suggestions'),
@@ -868,12 +973,23 @@ export interface PublicStreamPage extends StreamPage {
 }
 
 /** Eingrenzung des öffentlichen Streams: Hafen oder öffentliche Gruppe (`club` = Verein oder Team); null = alles */
+/** Umgebung (F-340): Mittelpunkt als gerundeter Standort oder Hafen mit Position */
+export type NearCenter = { lat: number; lon: number } | { harbor: string };
+
+export interface NearStreamPage extends StreamPage {
+  /** nur auf der ersten Seite: Zahl der Orte im Umkreis und der Mittelpunkt-Hafen (null = Standort) */
+  near?: { places: number; center: { slug: string; name: string } | null };
+}
+
 export type StreamFilter = { kind: 'harbor' | 'club'; slug: string } | null;
 
 export interface HarborSearchHit extends HarborRef {
   boats: number;
   /** verifizierter Hafen (Konzept 20.4) – fehlt bei älteren Servern */
   verified?: boolean;
+  /** Position (fehlt bei älteren Servern bzw. Häfen ohne Position) */
+  lat?: number | null;
+  lon?: number | null;
 }
 
 export interface HarborPageData {
@@ -881,7 +997,7 @@ export interface HarborPageData {
   club: GroupRef | null;
   /** Vereine und Teams mit diesem Heimathafen (Konzept 13.3) – fehlt bei älteren Servern */
   groups?: GroupRef[];
-  stats: { boats: number; voyages: number; distNm: number; seasonNm: number };
+  stats: { boats: number; voyages: number; distNm: number; recordedNm?: number; seasonNm: number };
   boats: Array<{ id: string; name: string; boatType: string; lengthM: number | null; owner: { handle: string; displayName: string } | null }>;
   voyages: ShareMeta[];
   social: FollowStats;
@@ -909,12 +1025,16 @@ const q = (params: Record<string, string | null | undefined>) => {
 
 export const socialApi = {
   searchHarbors: (query: string) => call<{ harbors: HarborSearchHit[] }>(`/api/harbors${q({ q: query })}`),
-  createHarbor: (name: string) => call<{ harbor: HarborRef; created: boolean }>('/api/harbors', jsonInit('POST', { name })),
+  /** `pos`: Lage des neuen Hafens (Pflicht beim Anlegen, F-353) */
+  createHarbor: (name: string, pos?: { lat: number; lon: number } | null) =>
+    call<{ harbor: HarborRef; created: boolean }>('/api/harbors', jsonInit('POST', { name, ...(pos ? { lat: pos.lat, lon: pos.lon } : {}) })),
   harbor: (slug: string) => call<HarborPageData>(`/api/harbors/slug/${encodeURIComponent(slug)}`),
   updateHarbor: (id: string, patch: HarborPatch) => call<{ harbor: HarborPageData['harbor'] }>(`/api/harbors/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
   harborStream: (id: string, cursor?: string | null) => call<StreamPage>(`/api/harbors/${encodeURIComponent(id)}/stream${q({ cursor })}`),
   home: () => call<HomeInfo>('/api/me/home'),
   saveHome: (patch: { clubId?: string | null; harborId?: string | null }) => call<HomeInfo>('/api/me/home', jsonInit('PUT', patch)),
+  nearStream: (cursor: string | null, center: NearCenter, r: number) =>
+    call<NearStreamPage>(`/api/stream/near${q({ cursor, r: String(r), ...('harbor' in center ? { harbor: center.harbor } : { lat: String(center.lat), lon: String(center.lon) }) })}`),
   publicStream: (cursor?: string | null, filter?: StreamFilter) =>
     call<PublicStreamPage>(`/api/stream/public${q({ cursor, harbor: filter?.kind === 'harbor' ? filter.slug : null, club: filter?.kind === 'club' ? filter.slug : null })}`),
   /** kind null = zurücknehmen; Schlüssel für „Nur mit Link“-Törns als X-Share-Key */

@@ -90,7 +90,8 @@ describe('F-86 Migration 0006_visibility', () => {
   it('alle Indizes auf shares sind neu angelegt; kein SQL-CHECK mehr auf visibility', async () => {
     const db = await h.db();
     const idx = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'shares' AND name NOT LIKE 'sqlite_%' ORDER BY name").all<{ name: string }>();
-    expect(idx.results.map((r) => r.name)).toEqual(['shares_boat', 'shares_created', 'shares_public_recent', 'shares_user']);
+    // alle Indizes nach allen Migrationen (0025 fügt die Fahrtenbuch-Indizes hinzu)
+    expect(idx.results.map((r) => r.name)).toEqual(['shares_boat', 'shares_created', 'shares_from_harbor', 'shares_public_recent', 'shares_to_harbor', 'shares_user', 'shares_user_manual']);
     const ddl = await db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'shares'").first<{ sql: string }>();
     expect(ddl!.sql).not.toMatch(/CHECK/i);
     expect(ddl!.sql).toContain('share_key');
