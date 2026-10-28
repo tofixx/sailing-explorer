@@ -4,7 +4,13 @@ import type { Mode } from '../services/store';
 import { icon, logo } from './icons';
 import { base, emit, pickGpx } from './shared';
 
-/** Kopfzeile: Marke, Sitzungsstatus, Hauptaktionen. */
+/** Angezeigter Bereich: Törn-Ansicht, Community (Startseite), Entdecken oder eine andere Seite (Profil, Gruppe …). */
+export type TopbarSection = 'track' | 'community' | 'discover' | 'page';
+
+/** Community von einer Seite aus: Startseite mit Stream, auch wenn Tracks im Browser liegen (F-220). */
+export const COMMUNITY_HREF = '/?community';
+
+/** Kopfzeile: Marke, Bereiche (Törn · Community · Entdecken, Konzept 12.10), Sitzungsstatus, Hauptaktionen. */
 export class SxTopbar extends LitElement {
   static properties = {
     user: { attribute: false },
@@ -13,6 +19,8 @@ export class SxTopbar extends LitElement {
     backend: { type: Boolean },
     home: { type: Boolean, reflect: true },
     saved: { type: Boolean },
+    section: { attribute: false },
+    unread: { attribute: false },
   };
   declare user: User | null;
   declare mode: Mode;
@@ -22,6 +30,9 @@ export class SxTopbar extends LitElement {
   declare home: boolean;
   /** geladene Tracks sind als Freigabe gespeichert */
   declare saved: boolean;
+  declare section: TopbarSection;
+  /** Badge an „Community“ (F-221): leer = keins, sonst Zahl bzw. „99+“ */
+  declare unread: string;
 
   constructor() {
     super();
@@ -31,6 +42,8 @@ export class SxTopbar extends LitElement {
     this.backend = false;
     this.home = false;
     this.saved = false;
+    this.section = 'track';
+    this.unread = '';
   }
 
   static styles = [
@@ -94,6 +107,85 @@ export class SxTopbar extends LitElement {
       .spacer {
         flex: 1;
       }
+      /* Bereiche: sichtbare Reiter statt Umschalten über das Logo (F-220) */
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: var(--s-1);
+      }
+      .tab {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: var(--control-h);
+        padding: 0 var(--s-3);
+        border: 0;
+        border-radius: var(--radius);
+        background: transparent;
+        color: var(--text-2);
+        font: 600 var(--fs-m) / 1 var(--font);
+        text-decoration: none;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .tab svg {
+        width: 20px;
+        height: 20px;
+      }
+      .tab:hover {
+        background: var(--surface-hover);
+        color: var(--text);
+      }
+      .tab[aria-current] {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      .badge {
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 9px;
+        background: var(--err);
+        color: #fff;
+        font: 700 var(--fs-xs) / 18px var(--font);
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+      /* Neben den Reitern ist für die Statuspille kein Platz mehr: mittig unter der Kopfzeile, über der Karte */
+      @media (max-width: 1150px) {
+        .chip.status {
+          position: absolute;
+          top: calc(100% + var(--s-2));
+          left: 50%;
+          transform: translateX(-50%);
+          max-width: calc(100vw - 2 * var(--s-4));
+          box-shadow: var(--shadow-1);
+        }
+      }
+      /* Törn-Ansicht mit Seitenleiste: mittig über der Karte statt über der ganzen Breite; auf der Community-Ansicht
+         läge sie über dem Stream – dort genügt der Reiter „Törn“ */
+      @media (max-width: 1150px) and (min-width: 761px) {
+        :host(:not([home])) .chip.status {
+          left: calc((100% - var(--sidebar-w)) / 2);
+        }
+        :host([home]) .chip.status {
+          display: none;
+        }
+      }
+      @media (max-width: 900px) and (min-width: 761px) {
+        .brand .name {
+          display: none;
+        }
+        .btn.upload .label-text {
+          display: none;
+        }
+        .btn.upload {
+          padding: 0;
+          width: var(--control-h);
+        }
+      }
       .actions {
         display: flex;
         gap: var(--s-2);
@@ -141,11 +233,11 @@ export class SxTopbar extends LitElement {
       .chip.status {
         max-width: none;
       }
-      /* Text staffelt sich mit der Breite: lang (Desktop) · kurz (schmaler, Handy) */
+      /* Text staffelt sich mit der Breite: lang (breiter Desktop) · kurz (neben den Reitern, Handy) */
       .chip .mid {
         display: none;
       }
-      @media (max-width: 1150px) {
+      @media (max-width: 1450px) {
         .chip .long {
           display: none;
         }
@@ -154,6 +246,32 @@ export class SxTopbar extends LitElement {
         }
       }
       @media (max-width: 760px) {
+        /* Handy: die Bereiche als eigene Reiterzeile über die volle Breite unter der Kopfzeile */
+        :host {
+          flex-wrap: wrap;
+          row-gap: 0;
+          align-content: flex-start;
+        }
+        .brand {
+          height: var(--topbar-h);
+        }
+        .nav {
+          order: 10;
+          flex: 0 0 calc(100% + 2 * var(--s-4));
+          margin: 0 calc(-1 * var(--s-4));
+          gap: 0;
+          border-top: 1px solid var(--border-soft);
+        }
+        .tab {
+          flex: 1;
+          min-height: 44px;
+          border-radius: 0;
+          font-size: var(--fs-s);
+        }
+        .tab[aria-current] {
+          background: transparent;
+          box-shadow: inset 0 -2px 0 var(--accent);
+        }
         .label-text {
           display: none;
         }
@@ -163,15 +281,6 @@ export class SxTopbar extends LitElement {
         /* Handy: kurz, aber neben dem Logo sichtbar */
         .chip .long {
           display: none;
-        }
-        /* In der vollen Leiste ist kein Platz: Statuspille mittig unter der Kopfzeile, über der Karte */
-        .chip.status {
-          position: absolute;
-          top: calc(100% + var(--s-2));
-          left: 50%;
-          transform: translateX(-50%);
-          max-width: calc(100vw - 2 * var(--s-4));
-          box-shadow: var(--shadow-1);
         }
         .chip {
           max-width: 18ch;
@@ -211,6 +320,36 @@ export class SxTopbar extends LitElement {
     emit(this, this.home ? 'sx-track-view' : 'sx-home');
   };
 
+  /** Community: aus der Törn-Ansicht ohne Neuladen (Tracks bleiben), sonst als Link zur Startseite. */
+  private onCommunity = (e: MouseEvent) => {
+    if (this.section !== 'track' && this.section !== 'community') return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    emit(this, 'sx-home');
+  };
+
+  private nav() {
+    // Ohne Backend gibt es weder Community noch Entdecken – dann bleibt es beim Logo und „Mein Törn“.
+    if (!this.backend) return nothing;
+    const current = (s: TopbarSection) => (this.section === s ? 'page' : nothing);
+    const badge = this.user && this.unread ? this.unread : '';
+    return html`<nav class="nav" aria-label="Bereiche">
+      ${this.hasTracks
+        ? html`<button class="tab" aria-current=${current('track')} @click=${() => emit(this, 'sx-track-view')} title="Zur Törn-Ansicht mit Karte">
+            ${icon('map')}<span>Törn</span>
+          </button>`
+        : nothing}
+      <a class="tab" href=${COMMUNITY_HREF} aria-current=${current('community')} @click=${this.onCommunity}
+        title=${badge ? `Community – ${badge} neue Einträge${this.section === 'community' ? ' (klicken zum Neuladen)' : ''}` : 'Community – Neuigkeiten aus Verein, Hafen und Team'}
+        aria-label=${badge ? `Community, ${badge} neue Einträge` : 'Community'}>
+        ${icon('community')}<span>Community</span>${badge ? html`<span class="badge" aria-hidden="true">${badge}</span>` : nothing}
+      </a>
+      <a class="tab" href="/entdecken" aria-current=${current('discover')} title="Öffentliche Törns, Boote, Segler und Vereine entdecken">
+        ${icon('compass')}<span>Entdecken</span>
+      </a>
+    </nav>`;
+  }
+
   private chip() {
     if (this.mode.kind === 'share') {
       const s = this.mode.share;
@@ -245,13 +384,14 @@ export class SxTopbar extends LitElement {
       <a class="brand" href="/" aria-label="Sail Explorer – Startseite" @click=${this.onBrand}>
         <span class="mark">${logo()}</span><span class="name">Sail Explorer</span>
       </a>
+      ${this.nav()}
       ${this.chip()}
       <span class="spacer"></span>
       <div class="actions">
         <button class="btn collapse upload" @click=${() => pickGpx(this)} title="Track anlegen – GPX-Dateien laden" aria-label="Track anlegen">
           ${icon('upload')}<span class="label-text">Track anlegen</span>
         </button>
-        ${this.hasTracks && this.home
+        ${this.hasTracks && this.home && !this.backend
           ? html`<button class="btn collapse" @click=${() => emit(this, 'sx-track-view')} title="Zurück zur Törn-Ansicht">
               ${icon('map')}<span class="label-text">Mein Törn</span>
             </button>`

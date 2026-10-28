@@ -87,7 +87,7 @@ interface Server {
   /** Antwort von /api/shares/:id/crew (fehlt = 404) */
   crew?: Record<string, unknown>;
   /** Vereine, Teams, Neuigkeiten (Konzept 11): Gruppenseite, Gruppen-Stream, eigene Gruppen, persönlicher Stream, Vorschläge */
-  groups?: { page?: Record<string, unknown>; stream?: unknown; mine?: unknown; myStream?: unknown; suggestions?: unknown; publicStream?: unknown };
+  groups?: { page?: Record<string, unknown>; stream?: unknown; mine?: unknown; myStream?: unknown; suggestions?: unknown; publicStream?: unknown; unread?: { count: number; more: boolean } };
   /** Verein, Hafen, Reaktionen (Konzept 12): Hafenseite, Hafen-Stream, Heimat, Reaktionen eines Törns */
   social?: { harbor?: Record<string, unknown>; harborStream?: unknown; home?: Record<string, unknown>; reactions?: Record<string, unknown> };
 }
@@ -151,6 +151,8 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     if (/^\/api\/groups\/[A-Za-z0-9]+\/posts$/.test(url) && method === 'POST') return json({ post: { id: 'P1' } }, 201);
     if (url === '/api/groups' && method === 'GET') return server.user ? json(gr.mine ?? { groups: [], requests: [] }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
     if (url.startsWith('/api/stream/public')) return json(gr.publicStream ?? { items: [], cursor: null, filters: { harbors: [], clubs: [] } });
+    if (url === '/api/stream/unread') return server.user ? json(gr.unread ?? { count: 0, more: false }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
+    if (url === '/api/stream/seen' && method === 'POST') return json({ ok: true });
     if (url.startsWith('/api/stream')) return server.user ? json(gr.myStream ?? { items: [], cursor: null, hasGroups: false }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
     if (url === '/api/me/suggestions') return json(gr.suggestions ?? { people: [] });
     if (url.startsWith('/api/follows/')) return json({ followers: 1, following: 0, isFollowing: method === 'PUT' });
@@ -1064,6 +1066,14 @@ describe('F-40 Ohne Backend', () => {
     expect(state().mode).toEqual({ kind: 'link', title: 'Geteilter Track' });
   });
 
+  it('[F-260] ohne Backend: große Einstiegskarte, keine Mitmachen-Karte', async () => {
+    server.backend = 'html';
+    await startApp();
+    await settled();
+    expect(el<{ community: boolean }>('sx-empty-state').community).toBe(false);
+    expect(el<{ hidden: boolean }>('sx-join-card').hidden).toBe(true);
+  });
+
   it('[F-40] zu große Tracks: verständlicher Hinweis statt riesiger URL', async () => {
     server.backend = 'html';
     await startApp();
@@ -1392,6 +1402,123 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(el<{ hidden: boolean }>('sx-empty-state').hidden).toBe(true);
     emit('sx-home');
     expect(el<{ hidden: boolean }>('sx-empty-state').hidden).toBe(false);
+  });
+
+  const topbar = () => el<{ section: string; unread: string }>('sx-topbar');
+  const seenCalls = () => server.calls.filter((c) => c.url === '/api/stream/seen');
+
+  it('[F-260] Startseite: Mitmachen-Karte sichtbar; angemeldet steht der Stream vor Entdecken', async () => {
+    server.groups = {};
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    const join = el<{ hidden: boolean; signedIn: boolean }>('sx-join-card');
+    expect(join.hidden).toBe(false);
+    expect(join.signedIn).toBe(false);
+    expect(el<{ streamFirst: boolean }>('sx-empty-state').streamFirst).toBe(false);
+  });
+
+  it('[F-260] Startseite angemeldet: Stream zuerst, Mitmachen mit nächsten Schritten', async () => {
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { myStream: { items: [post], cursor: null, hasGroups: true }, mine: { groups: [], requests: [] } };
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    expect(el<{ streamFirst: boolean }>('sx-empty-state').streamFirst).toBe(true);
+    expect(el<{ signedIn: boolean }>('sx-join-card').signedIn).toBe(true);
+  });
+
+  it('[F-262] Link-Vorschau der Startseite beschreibt die Community', () => {
+    const html = readFileSync(resolve('index.html'), 'utf8');
+    expect(/<meta property="og:description" content="([^"]*)"/.exec(html)?.[1]).toMatch(/^Segel-Community:/);
+    expect(/<meta name="description" content="([^"]*)"/.exec(html)?.[1]).toMatch(/Verein, Hafen und Team/);
+  });
+
+  it('[F-220] Kopfzeile kennt den Bereich: Community auf der Startseite, Törn mit Tracks, Entdecken auf /entdecken', async () => {
+    server.groups = {};
+    await startApp();
+    expect(topbar().section).toBe('community');
+    await load(file('a.gpx', leg('A')));
+    expect(topbar().section).toBe('track');
+    emit('sx-home');
+    expect(topbar().section).toBe('community');
+    emit('sx-track-view');
+    expect(topbar().section).toBe('track');
+  });
+
+  it('[F-220] /entdecken: Bereich „Entdecken“', async () => {
+    server.groups = {};
+    await startApp('/entdecken');
+    expect(topbar().section).toBe('discover');
+  });
+
+  it('[F-220] ?community (Reiter von einer Seite aus): Startseite statt Törn-Ansicht, Tracks bleiben, Parameter verschwindet', async () => {
+    server.groups = {};
+    h.ws.data = { tracks: [{ id: 'w1', name: 'A', gpx: leg('A'), hidden: false }], weather: null, savedAt: Date.now() };
+    await startApp('/?community');
+    expect(state().tracks).toHaveLength(1);
+    expect(state().home).toBe(true);
+    expect(topbar().section).toBe('community');
+    expect(location.search).toBe('');
+  });
+
+  it('[F-221] Gäste: kein Badge, keine Abfrage', async () => {
+    server.groups = { unread: { count: 4, more: false } };
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    expect(server.calls.some((c) => c.url === '/api/stream/unread')).toBe(false);
+    expect(topbar().unread).toBe('');
+  });
+
+  it('[F-221] Badge: Angemeldete sehen die Zahl neuer Einträge, „99+“ darüber', async () => {
+    h.ws.data = { tracks: [{ id: 'w1', name: 'A', gpx: leg('A'), hidden: false }], weather: null, savedAt: Date.now() };
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { unread: { count: 99, more: true } };
+    await startApp();
+    await vi.waitFor(() => expect(topbar().unread).toBe('99+'));
+    // Törn-Ansicht: Stream im Hintergrund geladen, aber nicht gezeigt – noch nicht gelesen
+    expect(topbar().section).toBe('track');
+    expect(seenCalls()).toHaveLength(0);
+  });
+
+  it('[F-222] Community öffnen: Stream wird neu geladen, Badge verschwindet, gelesen bis zum Stand der angezeigten Seite', async () => {
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { unread: { count: 3, more: false }, myStream: { items: [post], cursor: null, hasGroups: true, at: 1_700_000_000_000 }, mine: { groups: [], requests: [] } };
+    h.ws.data = { tracks: [{ id: 'w1', name: 'A', gpx: leg('A'), hidden: false }], weather: null, savedAt: Date.now() };
+    await startApp();
+    await vi.waitFor(() => expect(topbar().unread).toBe('3'));
+    const streams = () => server.calls.filter((c) => c.url === '/api/stream').length;
+    await vi.waitFor(() => expect(home().stream).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(streams()).toBe(1);
+    emit('sx-home');
+    await vi.waitFor(() => expect(seenCalls()).toHaveLength(1));
+    expect(streams()).toBe(2);
+    expect(JSON.parse(String(seenCalls()[0].body))).toEqual({ at: 1_700_000_000_000 });
+    expect(topbar().unread).toBe('');
+  });
+
+  it('[F-222] im verdeckten Tab (Strg-Klick) erst gelesen, wenn er sichtbar wird', async () => {
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { unread: { count: 2, more: false }, myStream: { items: [post], cursor: null, hasGroups: true, at: 1_700_000_000_000 }, mine: { groups: [], requests: [] } };
+    const vis = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      await startApp('/?community');
+      await vi.waitFor(() => expect(home().stream).not.toBeNull());
+      await new Promise((r) => setTimeout(r, 0));
+      expect(seenCalls()).toHaveLength(0);
+      vis.mockReturnValue('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.waitFor(() => expect(seenCalls()).toHaveLength(1));
+    } finally {
+      vis.mockRestore();
+    }
+  });
+
+  it('[F-222] ohne Tracks ist die Community die Startseite: sofort gelesen', async () => {
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { unread: { count: 2, more: false }, myStream: { items: [post], cursor: null, hasGroups: true, at: 1_700_000_000_000 }, mine: { groups: [], requests: [] } };
+    await startApp();
+    await vi.waitFor(() => expect(seenCalls()).toHaveLength(1));
+    await vi.waitFor(() => expect(topbar().unread).toBe(''));
   });
 
   it('[F-178] Filter-Chip lädt den öffentlichen Stream gefiltert neu', async () => {

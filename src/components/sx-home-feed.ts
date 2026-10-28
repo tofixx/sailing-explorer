@@ -10,13 +10,13 @@ import './sx-stream';
 
 /**
  * Herzstück der Startseite (Konzept 12.6, F-182): der Community-Stream.
- * - Gäste: „Neues aus der Community“ (öffentlicher Stream) mit Filter-Chips nach Hafen und Verein und „Anmelden &
- *   mitmachen“.
+ * - Gäste: „Neues aus der Community“ (öffentlicher Stream) mit Filter-Chips nach Hafen und Verein; „Anmelden &
+ *   mitmachen“ steht in der Seitenleiste (sx-join-card, F-261).
  * - Angemeldete: „Neuigkeiten aus deinem Verein, Hafen und Team“, Heimat (Verein, Hafen), eigene Gruppen,
  *   „Leute, die du kennen könntest“; ohne Gruppen „Tritt deinem Verein bei“.
  * - Nach der Anmeldung (ohne Gruppe oder ohne Heimathafen) eine Willkommens-Karte (Konzept 14.3): Heimathafen wählen,
  *   Verein oder Team beitreten bzw. gründen, Freunde einladen.
- * Rein präsentational; meldet `sx-stream-more`, `sx-stream-filter`, `sx-follow`, `sx-login`, `sx-account`,
+ * Rein präsentational; meldet `sx-stream-more`, `sx-stream-filter`, `sx-follow`, `sx-account`,
  * `sx-home-harbor` { harbor }, `sx-home-join` { id, name }, `sx-friend-invite` { email | null }, `sx-invite-copy`.
  */
 const WELCOME_KEY = 'sx-welcome-dismissed';
@@ -163,26 +163,6 @@ export class SxHomeFeed extends LitElement {
       }
       .filters .chip {
         flex: none;
-      }
-      .join {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: var(--s-2) var(--s-3);
-        padding: var(--s-3);
-        border-radius: var(--radius);
-        background: var(--accent-soft);
-      }
-      .join p {
-        margin: 0;
-        flex: 1;
-        min-width: 200px;
-        color: var(--text-2);
-      }
-      .join .btn.primary {
-        min-height: max(44px, var(--control-h));
-        font-size: var(--fs-l);
-        padding: 0 var(--s-5);
       }
       .cta {
         display: grid;
@@ -417,10 +397,6 @@ export class SxHomeFeed extends LitElement {
           <p class="intro">Was Seglerinnen und Segler aus Vereinen, Häfen und Teams gerade teilen.</p>
         </div>
       </header>
-      <div class="join">
-        <p>Speichere deine Törns, tritt deinem Verein bei, folge deinem Hafen und reagiere auf die Törns der anderen.</p>
-        <button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden &amp; mitmachen</button>
-      </div>
       ${this.filterChips()}
       <sx-stream scope="public" .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.loading}
         empty-text="Hier ist noch nichts los. Teile den ersten öffentlichen Törn – er erscheint sofort in der Community."></sx-stream>

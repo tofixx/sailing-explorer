@@ -707,6 +707,8 @@ export interface StreamPage {
   cursor: string | null;
   /** nur im persönlichen Stream */
   hasGroups?: boolean;
+  /** nur im persönlichen Stream: Stand der Seite (ms) – bis hierhin gilt er nach dem Anzeigen als gelesen (F-222) */
+  at?: number;
   /** nur im persönlichen Stream: Heimatverein und Heimathafen (Konzept 12.4) */
   home?: { club: { slug: string; name: string } | null; harbor: { slug: string; name: string } | null };
 }
@@ -775,6 +777,10 @@ export const groupApi = {
   stream: (id: string, cursor?: string | null, key?: string | null) =>
     call<StreamPage>(`/api/groups/${gid(id)}/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, keyInit(key)),
   myStream: (cursor?: string | null) => call<StreamPage>(`/api/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
+  /** Community-Badge (F-221): neue Einträge seit dem Gelesen-Zeitpunkt, höchstens 99 (`more`: mehr) */
+  unread: () => call<{ count: number; more: boolean }>('/api/stream/unread'),
+  /** Stream bis `at` gelesen (F-222) */
+  seen: (at?: number) => call<{ ok: true }>('/api/stream/seen', jsonInit('POST', { at })),
   suggestions: () => call<{ people: Suggestion[] }>('/api/me/suggestions'),
   follow: (kind: FollowKind, id: string, on: boolean) => call<FollowStats>(`/api/follows/${kind}/${encodeURIComponent(id)}`, { method: on ? 'PUT' : 'DELETE' }),
 };

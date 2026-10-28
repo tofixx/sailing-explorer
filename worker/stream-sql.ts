@@ -33,3 +33,12 @@ export const PERSONAL_SQL = `SELECT t.activity_id AS id, MAX(t.created_at) AS at
   GROUP BY t.activity_id
   ORDER BY at DESC, id DESC
   LIMIT ?4`;
+
+/** Kandidaten für das Community-Badge (F-221): dieselbe Schlüsselliste, alles nach dem Gelesen-Zeitpunkt. */
+export const UNREAD_SQL = `SELECT t.activity_id AS id, MAX(t.created_at) AS at
+  FROM json_each(?1) AS k CROSS JOIN activity_target t
+    ON t.target_kind = json_extract(k.value, '$[0]') AND t.target_id = json_extract(k.value, '$[1]')
+  WHERE t.created_at > ?2
+  GROUP BY t.activity_id
+  ORDER BY at DESC, id DESC
+  LIMIT ?3`;

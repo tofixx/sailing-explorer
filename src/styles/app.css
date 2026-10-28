@@ -94,6 +94,10 @@ body {
     top: 0;
     z-index: 1000;
   }
+  /* Kopfzeile mit eigener Reiterzeile (Konzept 12.10) – Höhe nach Inhalt */
+  .app {
+    grid-template-rows: auto 1fr;
+  }
   .workspace {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto;

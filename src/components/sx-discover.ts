@@ -8,7 +8,7 @@ import { base } from './shared';
 
 /**
  * Entdecken: zuletzt gesegelte Törns, Boote und Segler (F-70 ff.).
- * variant="strip" – kompakte Leiste unter der Einstiegskarte; variant="page" – Seite /entdecken.
+ * variant="strip" – Entdecken-Vorschau auf der Startseite (F-260); variant="page" – Seite /entdecken (alles).
  * Rein präsentational: Daten kommen vom Controller, Links sind normale Seitenwechsel.
  */
 export class SxDiscover extends LitElement {
@@ -430,10 +430,11 @@ export class SxDiscover extends LitElement {
     const crew = [
       ...this.data.boats.slice(0, 4).map((b) => html`<a class="chip" href="/b/${b.id}" title="Boot ${b.name}">${icon('sail')}${b.name}</a>`),
       ...this.data.people.slice(0, 4).map((p) => html`<a class="chip" href="/u/${p.handle}" title="Profil von ${p.displayName}">${icon('user')}${p.displayName}</a>`),
+      ...(this.data.groups ?? []).slice(0, 4).map((g) => html`<a class="chip" href="/g/${g.slug}" title="${GROUP_KIND_LABEL[g.kind]} ${g.name}">${icon(g.kind === 'club' ? 'anchor' : 'pennant')}${g.name}</a>`),
     ];
     return html`<section class="strip" aria-labelledby="strip-t">
       <header>
-        <h2 class="eyebrow" id="strip-t">${icon('globe')} Community · Zuletzt gesegelt</h2>
+        <h2 class="eyebrow" id="strip-t">${icon('compass')} Entdecken · Zuletzt gesegelt</h2>
         <a href="/entdecken">Alle entdecken</a>
       </header>
       ${list.length

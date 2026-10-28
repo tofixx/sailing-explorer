@@ -3,18 +3,19 @@
 // Index, nie die Quelle. Reaktionen (Konzept 12.5) werden je Seite in einer Abfrage dazugelesen.
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
-import { HttpError, json } from './http';
+import { HttpError, json, readJson } from './http';
 import { loadGroup, loadGroupBySlug, visibleGroup } from './groups';
 import { harborVisible, loadHarbor, loadHarborBySlug, HARBOR_NOT_FOUND } from './harbors';
 import { homeShape, homeStmt, type HomeRow } from './home';
 import { isAdmin } from './moderation';
 import { shapeItem, type ActivityRow, type Viewer } from './stream-shape';
-import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL } from './stream-sql';
+import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
 import {
   STREAM_PAGE, STREAM_SCAN, canManageGroup, decodeCursor, encodeCursor, reactionSubjectOf,
   type StreamCursor, type StreamItem,
 } from '../src/domain/groups';
 import { emptyReactions, summarizeReactions, type ReactionKind } from '../src/domain/reactions';
+import { UNREAD_MAX, UNREAD_SCAN, seenUntil } from '../src/domain/unread';
 
 const ROWS_SQL = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subject_id, a.group_id, a.data, a.created_at,
     ap.handle AS actor_handle, ap.display_name AS actor_name, (ap.visibility = 'public' AND ap.hidden_at IS NULL) AS actor_public,
@@ -95,6 +96,20 @@ async function addMine(env: Env, page: StreamPageOut, viewerId: string | null): 
 
 // ---------------------------------------------------------------- Prüfen beim Lesen
 
+/** Vorschaubilder für Foto-Bündel: öffentliche, nicht ausgeblendete Fotos öffentlicher Törns (je Törn neueste zuerst). */
+async function photoThumbs(env: Env, rows: ActivityRow[]): Promise<Map<string, string[]>> {
+  const photoShares = [...new Set(rows.filter((r) => r.kind === 'photos' && r.s_id).map((r) => r.s_id!))];
+  const thumbs = new Map<string, string[]>();
+  if (!photoShares.length) return thumbs;
+  const { results } = await env.DB.prepare(
+    `SELECT id, share_id FROM photos WHERE share_id IN (SELECT value FROM json_each(?)) AND visibility = 'public' AND hidden_at IS NULL ORDER BY created_at DESC`,
+  )
+    .bind(JSON.stringify(photoShares))
+    .all<{ id: string; share_id: string }>();
+  for (const p of results) thumbs.set(p.share_id, [...(thumbs.get(p.share_id) ?? []), p.id]);
+  return thumbs;
+}
+
 /**
  * Prüft Kandidaten (neueste zuerst) und liefert höchstens eine Seite sichtbarer Einträge. Der Cursor zeigt auf den
  * letzten zurückgegebenen bzw. – wenn trotz voller Kandidatenliste weniger sichtbar waren – auf den letzten geprüften.
@@ -105,17 +120,7 @@ async function resolve(env: Env, viewer: Viewer, candidates: Candidate[], scanne
   const ids = candidates.map((c) => c.id);
   const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(viewer.id ?? '', JSON.stringify(ids)).all<ActivityRow>();
   const byId = new Map(rows.map((r) => [r.id, r]));
-  // Vorschaubilder für Foto-Bündel: öffentliche, nicht ausgeblendete Fotos öffentlicher Törns
-  const photoShares = [...new Set(rows.filter((r) => r.kind === 'photos' && r.s_id).map((r) => r.s_id!))];
-  const thumbs = new Map<string, string[]>();
-  if (photoShares.length) {
-    const { results } = await env.DB.prepare(
-      `SELECT id, share_id FROM photos WHERE share_id IN (SELECT value FROM json_each(?)) AND visibility = 'public' AND hidden_at IS NULL ORDER BY created_at DESC`,
-    )
-      .bind(JSON.stringify(photoShares))
-      .all<{ id: string; share_id: string }>();
-    for (const p of results) thumbs.set(p.share_id, [...(thumbs.get(p.share_id) ?? []), p.id]);
-  }
+  const thumbs = await photoThumbs(env, rows);
   const items: StreamItem[] = [];
   let last: Candidate | null = null;
   for (const c of candidates) {
@@ -176,11 +181,49 @@ export async function personalTargets(env: Env, userId: string): Promise<{ keys:
 export async function personalStream(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const c = cursorOf(request);
+  // Stand dieser Seite: bis hierhin gilt der Stream als gelesen, sobald er angezeigt wird (POST /api/stream/seen).
+  const at = Date.now();
   const { keys, home, groups } = await personalTargets(env, user.id);
   const { results } = await env.DB.prepare(PERSONAL_SQL).bind(JSON.stringify(keys), c.at, c.id, STREAM_SCAN).all<Candidate>();
   const page = await resolve(env, { id: user.id }, results, STREAM_SCAN);
   const { club, harbor } = homeShape(home);
-  return json({ ...page, hasGroups: groups > 0, home: { club, harbor } }, { headers: { 'Cache-Control': 'private, no-store' } });
+  return json({ ...page, at, hasGroups: groups > 0, home: { club, harbor } }, { headers: { 'Cache-Control': 'private, no-store' } });
+}
+
+// ---------------------------------------------------------------- Ungelesen (Community-Badge, Konzept 12.10)
+
+/**
+ * GET /api/stream/unread – wie viele Einträge des persönlichen Streams seit dem Gelesen-Zeitpunkt dazugekommen sind
+ * (F-221): dieselben Ziele und dieselbe Prüfung beim Lesen wie der Stream, eigene Aktivitäten zählen nicht. Höchstens
+ * UNREAD_SCAN Kandidaten; `more` heißt „mehr als UNREAD_MAX“. Noch nie geöffnet: ab jetzt zählen.
+ */
+export async function streamUnread(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const headers = { 'Cache-Control': 'private, no-store' };
+  const row = await env.DB.prepare('SELECT stream_seen_at AS seen FROM users WHERE id = ?').bind(user.id).first<{ seen: number | null }>();
+  if (row?.seen == null) {
+    await env.DB.prepare('UPDATE users SET stream_seen_at = ? WHERE id = ? AND stream_seen_at IS NULL').bind(Date.now(), user.id).run();
+    return json({ count: 0, more: false }, { headers });
+  }
+  const { keys } = await personalTargets(env, user.id);
+  const { results: candidates } = await env.DB.prepare(UNREAD_SQL).bind(JSON.stringify(keys), row.seen, UNREAD_SCAN).all<Candidate>();
+  let count = 0;
+  if (candidates.length) {
+    const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(user.id, JSON.stringify(candidates.map((c) => c.id))).all<ActivityRow>();
+    const thumbs = await photoThumbs(env, rows);
+    for (const r of rows) if (r.actor_id !== user.id && shapeItem(r, { id: user.id }, thumbs.get(r.s_id ?? '') ?? [])) count++;
+  }
+  return json({ count: Math.min(count, UNREAD_MAX), more: count > UNREAD_MAX }, { headers });
+}
+
+/** POST /api/stream/seen { at } – Stream bis `at` (Stand der angezeigten Seite) gelesen; nur vorwärts (F-222). */
+export async function markStreamSeen(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const body = await readJson<{ at?: unknown }>(request);
+  const at = seenUntil(body.at, Date.now());
+  // MAX in SQL: ein anderes Gerät kann schon weiter sein – nie zurück.
+  await env.DB.prepare('UPDATE users SET stream_seen_at = MAX(COALESCE(stream_seen_at, 0), ?1) WHERE id = ?2').bind(at, user.id).run();
+  return json({ ok: true });
 }
 
 // ---------------------------------------------------------------- Streams einzelner Ziele (Gruppe, Hafen)

@@ -120,8 +120,7 @@ describe('sx-reactions', () => {
 // ---------------------------------------------------------------- Startseite
 
 describe('Startseite (F-182)', () => {
-  it('[F-182] Gäste: „Neues aus der Community“, „Anmelden & mitmachen“, Filter-Chips nach Hafen und Verein', async () => {
-    const login = listen('sx-login');
+  it('[F-182] Gäste: „Neues aus der Community“ mit Filter-Chips nach Hafen und Verein; „Anmelden & mitmachen“ steht in der Seitenleiste (F-261)', async () => {
     const filter = listen('sx-stream-filter');
     const el = await mount('sx-home-feed', {
       signedIn: false,
@@ -132,8 +131,7 @@ describe('Startseite (F-182)', () => {
     await settle(el);
     expect(text(el.shadowRoot)).toContain('Neues aus der Community');
     expect(text(el.shadowRoot)).not.toContain('Neuigkeiten aus deinem Verein');
-    button(el.shadowRoot, /Anmelden & mitmachen/)!.click();
-    expect(login).toHaveLength(1);
+    expect(button(el.shadowRoot, /Anmelden & mitmachen/)).toBeUndefined();
     expect(button(el.shadowRoot, /^ *Alle/)!.getAttribute('aria-pressed')).toBe('true');
     button(el.shadowRoot, /Potsdam/)!.click();
     expect(filter).toEqual([{ filter: { kind: 'harbor', slug: 'potsdam' } }]);
@@ -163,7 +161,7 @@ describe('Startseite (F-182)', () => {
     const el = await mount('sx-empty-state', { community: true, samples: [{ file: 'f', label: 'Beispiel' }] });
     expect(el.hasAttribute('community')).toBe(true);
     expect(el.shadowRoot.querySelector('.card.compact')).not.toBeNull();
-    expect(el.shadowRoot.querySelector('h1')).toBeNull(); // die Überschrift der Seite gehört dem Stream
+    expect(el.shadowRoot.querySelector('h1:not(.sr-only)')).toBeNull(); // keine große Einstiegskarte – sichtbar führt der Stream, das h1 „Community“ ist nur für Screenreader (F-260)
     expect(button(el.shadowRoot, /GPX-Datei wählen/)).toBeDefined();
     const fab = el.shadowRoot.querySelector('button.fab')!;
     expect(fab.getAttribute('aria-label')).toBe('Track anlegen – GPX-Datei laden');

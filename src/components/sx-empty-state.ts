@@ -8,10 +8,11 @@ export interface Sample {
 }
 
 /**
- * Startseite über der Karte (Konzept 12.6, F-182). Mit Community (`community`): der Stream (Slot „feed“) ist der
- * Hauptbereich, „Track anlegen“ eine kompakte Karte in der Seitenspalte (dazu Slot „discover“), mobil ein runder Knopf
- * unten rechts. Ohne Community (kein Backend): die große Einstiegskarte wie bisher. Ziehen & Ablegen geht immer – beim
- * Ziehen erscheint eine Ablagefläche. Unten Impressum und Datenschutz.
+ * Startseite über der Karte (Konzept 12.6, F-182, F-260). Mit Community (`community`) ist sie die Community-Seite:
+ * Hauptspalte mit Entdecken-Vorschau (Slot „discover“) und Stream (Slot „feed“) – Gäste sehen zuerst Entdecken,
+ * Angemeldete (`stream-first`) zuerst ihren Stream. Seitenleiste: „Eigenen Törn anlegen“ (kompakte Karte, mobil ein
+ * runder Knopf unten rechts) und „Mitmachen“ (Slot „join“). Ohne Community (kein Backend): die große Einstiegskarte
+ * wie bisher. Ziehen & Ablegen geht immer – beim Ziehen erscheint eine Ablagefläche. Unten Impressum und Datenschutz.
  */
 export class SxEmptyState extends LitElement {
   static properties = {
@@ -19,6 +20,7 @@ export class SxEmptyState extends LitElement {
     dragging: { type: Boolean, reflect: true },
     trackCount: { type: Number },
     community: { type: Boolean, reflect: true },
+    streamFirst: { type: Boolean, reflect: true, attribute: 'stream-first' },
   };
   declare samples: Sample[];
   declare dragging: boolean;
@@ -26,6 +28,8 @@ export class SxEmptyState extends LitElement {
   declare trackCount: number;
   /** Community-Stream verfügbar: Stream groß, Hochladen im Hintergrund */
   declare community: boolean;
+  /** Angemeldet: der persönliche Stream steht vor der Entdecken-Vorschau */
+  declare streamFirst: boolean;
 
   constructor() {
     super();
@@ -33,6 +37,7 @@ export class SxEmptyState extends LitElement {
     this.dragging = false;
     this.trackCount = 0;
     this.community = false;
+    this.streamFirst = false;
   }
 
   static styles = [
@@ -74,9 +79,29 @@ export class SxEmptyState extends LitElement {
         display: grid;
         gap: var(--s-3);
       }
-      .side {
-        position: sticky;
-        top: 0;
+      /* mitlaufend nur, wenn die Seitenleiste ganz auf den Bildschirm passt */
+      @media (min-height: 900px) {
+        .side {
+          position: sticky;
+          top: 0;
+        }
+      }
+      .feed .discover.none {
+        display: none;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+      .feed .discover {
+        order: 0;
+      }
+      :host([stream-first]) .feed .discover {
+        order: 1;
       }
       @media (max-width: 960px) {
         .layout {
@@ -84,6 +109,10 @@ export class SxEmptyState extends LitElement {
         }
         .side {
           position: static;
+        }
+        /* Gäste: „Mitmachen“ zuerst – angemeldet folgt die Seitenleiste dem Stream */
+        :host(:not([stream-first])) .side {
+          order: -1;
         }
       }
 
@@ -333,6 +362,24 @@ export class SxEmptyState extends LitElement {
     `,
   ];
 
+  /** Ist die Entdecken-Leiste ausgeblendet (Fehler), bleibt kein leerer Platz in der Hauptspalte. */
+  private discoverShown = true;
+  private discoverObserver: MutationObserver | null = null;
+  private onDiscover = (e: Event) => {
+    const el = (e.target as HTMLSlotElement).assignedElements()[0];
+    this.discoverObserver?.disconnect();
+    if (!el) return;
+    const sync = () => {
+      const shown = !el.hasAttribute('hidden');
+      if (shown === this.discoverShown) return;
+      this.discoverShown = shown;
+      this.requestUpdate();
+    };
+    this.discoverObserver = new MutationObserver(sync);
+    this.discoverObserver.observe(el, { attributes: true, attributeFilter: ['hidden'] });
+    sync();
+  };
+
   private samplesRow() {
     if (!this.samples.length) return '';
     return html`<div class="samples">
@@ -387,12 +434,13 @@ export class SxEmptyState extends LitElement {
       : '';
     if (!this.community) {
       return html`<div class="solo">${this.bigCard()}<div class="side"><slot name="discover"></slot></div></div>
-        <slot name="feed" hidden></slot>
+        <slot name="feed" hidden></slot><slot name="join" hidden></slot>
         ${this.footer()} ${drop}`;
     }
     return html`<div class="layout">
-        <div class="feed"><slot name="feed"></slot></div>
-        <div class="side">${this.compactCard()}<slot name="discover"></slot></div>
+        <h1 class="sr-only">Community</h1>
+        <div class="feed"><div class="discover ${this.discoverShown ? '' : 'none'}"><slot name="discover" @slotchange=${this.onDiscover}></slot></div><div class="stream"><slot name="feed"></slot></div></div>
+        <div class="side">${this.compactCard()}<slot name="join"></slot></div>
       </div>
       ${this.footer()}
       <button class="fab" type="button" aria-label=${this.trackCount ? 'Weitere GPX-Dateien laden' : 'Track anlegen – GPX-Datei laden'} title="Track anlegen"
