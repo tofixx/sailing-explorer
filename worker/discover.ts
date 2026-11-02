@@ -8,6 +8,7 @@ import { SEARCH_LIMITS, searchKey, searchLike, sqlSearchFold } from '../src/doma
 import { DEFAULT_RADIUS, isNearRadius, parseCenter, type LatLon } from '../src/domain/near';
 import { harborVisible, loadHarborBySlug } from './harbors';
 import { placesNear } from './stream';
+import { seasonStart, type SeasonStats } from '../src/domain/season-stats';
 
 /**
  * Entdecken (F-70 … F-74): zuletzt gesegelte Törns, neue Boote und Segler.
@@ -254,4 +255,31 @@ export async function getDiscover(request: Request, env: Env): Promise<Response>
     // Nur öffentliche Daten, für alle gleich – darf kurz geteilt gecacht werden.
     { headers: { 'Cache-Control': 'public, max-age=60' } },
   );
+}
+
+/** Cache der Saison-Zahlen (F-431): für alle gleich, 10 Minuten. */
+const STATS_TTL = 600;
+
+/** Öffentliche Törns der Saison (Kalenderjahr wie Gruppen- und Hafen-Kennzahlen), ihre Seemeilen und Boote. */
+const SEASON = `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS nm, COUNT(DISTINCT b.id) AS boats
+  FROM shares s
+  LEFT JOIN boats b ON b.id = s.boat_id AND b.visibility = 'public' AND b.hidden_at IS NULL
+  WHERE ${LISTED} AND ${IN_LOGBOOK_SQL} AND COALESCE(s.started_at, s.created_at) >= ?1`;
+
+/**
+ * GET /api/discover/stats – Saison-Zahlen der Community für die Startseite der Gäste (F-431). Zählt nur, was auch
+ * /entdecken zeigt (öffentlich, nicht ausgeblendet, „Sichtbar bis: überall“, Konto nicht gesperrt), gecacht 10 Minuten.
+ */
+export async function getDiscoverStats(request: Request, env: Env, now = Date.now()): Promise<Response> {
+  const origin = new URL(request.url).origin;
+  const cache = typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined;
+  const key = new Request(`${origin}/__cache/discover/stats`);
+  const hit = await cache?.match(key).catch(() => undefined);
+  let stats = hit ? ((await hit.json()) as SeasonStats) : null;
+  if (!stats) {
+    const row = await env.DB.prepare(SEASON).bind(seasonStart(now)).first<{ voyages: number; nm: number; boats: number }>();
+    stats = { season: new Date(now).getUTCFullYear(), voyages: row?.voyages ?? 0, nm: Math.round(row?.nm ?? 0), boats: row?.boats ?? 0 };
+    await cache?.put(key, new Response(JSON.stringify(stats), { headers: { 'Cache-Control': `max-age=${STATS_TTL}` } })).catch(() => undefined);
+  }
+  return json(stats, { headers: { 'Cache-Control': `public, max-age=${STATS_TTL}` } });
 }

@@ -13,8 +13,8 @@ import './sx-place-picker';
 /**
  * Herzstück der Startseite (Konzept 12.6, F-182): der Community-Stream – wahlweise „Umgebung“ (Standard, Umkreis um
  * Standort oder Heimathafen), „Alles“ oder „Mitgliedschaften“ (angemeldet; F-340 … F-343).
- * - Gäste: „Neues aus der Community“ (öffentlicher Stream) mit Filter-Chips nach Hafen und Verein; „Anmelden &
- *   mitmachen“ steht in der Seitenleiste (sx-join-card, F-261).
+ * - Gäste: „Neues aus der Community“ (öffentlicher Stream) mit Filter-Chips nach Hafen und Verein; Einstieg und
+ *   Anmelden zeigt der Gäste-Slider in der Seitenleiste (sx-guest-slider, F-431).
  * - Angemeldete: „Neuigkeiten aus deinem Verein, Hafen und Team“, Heimat (Verein, Hafen), eigene Gruppen,
  *   „Leute, die du kennen könntest“; ohne Gruppen „Tritt deinem Verein bei“.
  * - Nach der Anmeldung (ohne Gruppe oder ohne Heimathafen) eine Willkommens-Karte (Konzept 14.3): Heimathafen wählen,

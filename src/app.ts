@@ -60,7 +60,7 @@ import { GroupsController } from './controllers/groups';
 import { DiscoverController } from './controllers/discover';
 import type { SxGroupPage } from './components/sx-group-page';
 import type { SxHomeFeed } from './components/sx-home-feed';
-import type { SxJoinCard } from './components/sx-join-card';
+import type { SxGuestSlider } from './components/sx-guest-slider';
 import type { FollowKind, GroupInput } from './services/api';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
@@ -85,6 +85,7 @@ import type { SxClaim } from './components/sx-claim';
 import type { ClaimRequest } from './services/api';
 import { PostsController } from './controllers/posts';
 import { ComposeController } from './controllers/compose';
+import { GuestSliderController } from './controllers/guest-slider';
 import { PostLinkController } from './controllers/post-link';
 import { PinsController } from './controllers/pins';
 import type { SxComposeDialog } from './components/sx-compose-dialog';
@@ -163,7 +164,6 @@ export class App {
     logbookBox: $<HTMLElement>('#logbook-panel'),
     groupPage: $<SxGroupPage>('sx-group-page'),
     homeFeed: $<SxHomeFeed>('sx-home-feed'),
-    join: $<SxJoinCard>('sx-join-card'),
     legalPage: $<SxLegalPage>('sx-legal-page'),
     shareReactions: $<SxReactions>('#share-reactions'),
     reactionsPanel: $<HTMLElement>('#reactions-panel'),
@@ -249,7 +249,6 @@ export class App {
       // Startseite: Stream groß, „Track anlegen“ kompakt (Konzept 12.6)
       onCommunity: (visible) => {
         this.ui.empty.community = visible;
-        this.ui.join.hidden = !visible;
       },
       // „Meine Gruppen“ nur nachladen, wenn das Konto offen ist
       onMembership: () => void (this.ui.account.open && this.session.refreshMyGroups()),
@@ -310,6 +309,7 @@ export class App {
       toast: (msg, ms) => this.toast(msg, ms),
       refreshOwn: () => this.posts.load(),
     });
+    new GuestSliderController(this.store, { slider: $<SxGuestSlider>('sx-guest-slider'), feed: this.ui.homeFeed, ready: () => this.session.backendReady });
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
     this.store.subscribe((s, prev) => this.render(s, prev));
@@ -460,8 +460,6 @@ export class App {
       this.ui.page.signedIn = !!s.user;
       // Startseite (F-260/F-261): angemeldet zuerst der eigene Stream, „Mitmachen“ zeigt nächste Schritte
       this.ui.empty.streamFirst = !!s.user;
-      this.ui.join.signedIn = !!s.user;
-      this.ui.join.supportOffered = this.session.supportOffered;
       if (prev) {
         if (this.homeRoute) void this.groups.loadHome(true);
         void this.groups.userChanged();

@@ -7,7 +7,7 @@ import { createManualShare } from './logbook';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
-import { getDiscover } from './discover';
+import { getDiscover, getDiscoverStats } from './discover';
 import { confirmCrew, setCrewRole, setOwnerRole, unconfirmCrew } from './crew-roles';
 import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteCrew, inviteFriend, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
 import { withPageHeaders } from './security';
@@ -102,6 +102,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['POST', /^\/api\/invites\/accept$/, (r, env) => acceptInvite(r, env)],
   ['DELETE', /^\/api\/invites\/([A-Za-z0-9]+)$/, (r, env, [id]) => revokeInvite(r, env, id)],
   ['GET', /^\/api\/discover$/, (r, env) => getDiscover(r, env)],
+  ['GET', /^\/api\/discover\/stats$/, (r, env) => getDiscoverStats(r, env)],
   ['GET', /^\/api\/shares$/, (r, env) => listShares(r, env)],
   ['GET', /^\/api\/me\/share-groups$/, (r, env) => listShareGroupChoices(r, env)],
   ['POST', /^\/api\/shares$/, (r, env) => createShare(r, env)],

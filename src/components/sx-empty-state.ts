@@ -10,8 +10,9 @@ export interface Sample {
 /**
  * Startseite über der Karte (Konzept 12.6, F-182, F-260). Mit Community (`community`) ist sie die Community-Seite:
  * Hauptspalte mit Entdecken-Vorschau (Slot „discover“) und Stream (Slot „feed“) – Gäste sehen zuerst Entdecken,
- * Angemeldete (`stream-first`) zuerst ihren Stream. Seitenleiste: „Eigenen Törn anlegen“ (kompakte Karte mit Hinweis
- * auf „+ Neu“ – der eine Einstieg zum Anlegen, F-405) und „Mitmachen“ (Slot „join“). Ohne Community (kein Backend):
+ * Angemeldete (`stream-first`) zuerst ihren Stream. Seitenleiste: für Gäste der Slider (Slot „join“, F-431), sonst –
+ * und wenn er ausgeblendet ist – „Eigenen Törn anlegen“ (kompakte Karte mit Hinweis auf „+ Neu“, F-405); mit geladenen
+ * Tracks steht die Karte immer da („Zurück zu deinem Törn“). Ohne Community (kein Backend):
  * die große Einstiegskarte wie bisher. Ziehen & Ablegen geht immer als stiller Schnellweg – beim Ziehen erscheint eine
  * Ablagefläche. Unten Impressum und Datenschutz.
  */
@@ -342,21 +343,33 @@ export class SxEmptyState extends LitElement {
 
   /** Ist die Entdecken-Leiste ausgeblendet (Fehler), bleibt kein leerer Platz in der Hauptspalte. */
   private discoverShown = true;
-  private discoverObserver: MutationObserver | null = null;
-  private onDiscover = (e: Event) => {
-    const el = (e.target as HTMLSlotElement).assignedElements()[0];
-    this.discoverObserver?.disconnect();
-    if (!el) return;
-    const sync = () => {
-      const shown = !el.hasAttribute('hidden');
-      if (shown === this.discoverShown) return;
-      this.discoverShown = shown;
-      this.requestUpdate();
+  /** Steht etwas in der Seitenleiste (Gäste-Slider, F-431)? Dann entfällt dort die kompakte Karte. */
+  private joinShown = false;
+  private observers = new Map<string, MutationObserver>();
+
+  /** Beobachtet `hidden` des Elements im Slot und meldet, ob es sichtbar ist. */
+  private watch(name: string, set: (shown: boolean) => void) {
+    return (e: Event) => {
+      const el = (e.target as HTMLSlotElement).assignedElements()[0];
+      this.observers.get(name)?.disconnect();
+      if (!el) return set(false);
+      const sync = () => set(!el.hasAttribute('hidden'));
+      const o = new MutationObserver(sync);
+      o.observe(el, { attributes: true, attributeFilter: ['hidden'] });
+      this.observers.set(name, o);
+      sync();
     };
-    this.discoverObserver = new MutationObserver(sync);
-    this.discoverObserver.observe(el, { attributes: true, attributeFilter: ['hidden'] });
-    sync();
-  };
+  }
+  private onDiscover = this.watch('discover', (shown) => {
+    if (shown === this.discoverShown) return;
+    this.discoverShown = shown;
+    this.requestUpdate();
+  });
+  private onJoin = this.watch('join', (shown) => {
+    if (shown === this.joinShown) return;
+    this.joinShown = shown;
+    this.requestUpdate();
+  });
 
   private samplesRow() {
     if (!this.samples.length) return '';
@@ -415,7 +428,7 @@ export class SxEmptyState extends LitElement {
     return html`<div class="layout">
         <h1 class="sr-only">Community</h1>
         <div class="feed"><div class="discover ${this.discoverShown ? '' : 'none'}"><slot name="discover" @slotchange=${this.onDiscover}></slot></div><div class="stream"><slot name="feed"></slot></div></div>
-        <div class="side">${this.compactCard()}<slot name="join"></slot></div>
+        <div class="side">${this.trackCount || !this.joinShown ? this.compactCard() : ''}<slot name="join" @slotchange=${this.onJoin}></slot></div>
       </div>
       ${this.footer()}
       ${drop}`;
