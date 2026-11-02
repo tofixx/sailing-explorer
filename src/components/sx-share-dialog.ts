@@ -432,7 +432,6 @@ export class SxShareDialog extends LitElement {
     navigator.share?.({ title: this.result.share.title, text: this.result.share.summary, url: this.result.url }).catch(() => {});
   }
 
-  /** Nach dem Speichern: Bestätigung und „Jetzt teilen“. */
   /** Titel nach dem Speichern bzw. Teilen – die Eigentümer:in benennt ihn hier um (F-424), der Link bleibt. */
   private resultTitle(r: ShareResult) {
     return html`<sx-title-edit share-id=${r.share.id} .value=${r.share.title} ?editable=${r.share.isOwner}></sx-title-edit>`;
