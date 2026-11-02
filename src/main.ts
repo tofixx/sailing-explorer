@@ -1,7 +1,7 @@
 import './styles/app.css';
 import './components/sx-topbar';
 import './components/sx-empty-state';
-import './components/sx-join-card';
+import './components/sx-guest-slider';
 import './components/sx-panel';
 import './components/sx-conditions';
 import './components/sx-metric-picker';
@@ -30,9 +30,11 @@ import './components/sx-photo-upload';
 import './components/sx-reactions';
 import './components/sx-harbor-picker';
 import './components/sx-legal-page';
+import './components/sx-guide-page';
 import './components/sx-notifications';
 import './components/sx-logbook-form';
 import './components/sx-compose-dialog';
+import './components/sx-confirm';
 import './components/sx-logbook-panel';
 import { App } from './app';
 

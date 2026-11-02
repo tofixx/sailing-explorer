@@ -1,4 +1,5 @@
 import type { SupportTier } from '../domain/support';
+import type { SeasonStats } from '../domain/season-stats';
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { parseWeatherData, type WeatherData } from '../domain/weather';
 import type { PhotoVisibility, Visibility } from '../domain/visibility';
@@ -521,6 +522,8 @@ export const api = {
   acceptMyInvite: (id: string) => call<InviteAccepted>(`/api/me/invites/${encodeURIComponent(id)}/accept`, { method: 'POST' }),
   declineMyInvite: (id: string) => call<void>(`/api/me/invites/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  /** Saison-Zahlen der Community für die Startseite der Gäste (F-431), gecacht 10 Minuten */
+  discoverStats: () => call<SeasonStats>('/api/discover/stats'),
   /** `near`: nur aus der Umgebung, nächste zuerst (F-344) */
   discover: (limit: number, query = '', near?: { center: NearCenter; r: number } | null) =>
     call<DiscoverData>(

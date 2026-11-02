@@ -18,7 +18,7 @@ liegen in einer einzigen HTML-Seite; „Seiten“ sind ein/ausgeblendete Kompone
 
 | Seite / Route | Komponente | Wer sieht sie | Einstiege (heute) | Verlinkt weiter zu |
 |---|---|---|---|---|
-| **Community** `/` bzw. `/?community` (Startseite mit Stream) | `sx-empty-state` + `sx-home-feed`, `sx-discover` (Leiste), `sx-join-card` | alle; Modi „Umgebung · Alles“ (Gast), dazu „Mitgliedschaften“ (angemeldet) | Logo, Reiter „Community“, Fehlerseiten („Zur Karte“) | Törn, Profil, Boot, Gruppe, Hafen, `/g/neu`, `/entdecken#vereine`, Konto-Dialog (Reiter Profil/Boote/Freigaben) |
+| **Community** `/` bzw. `/?community` (Startseite mit Stream) | `sx-empty-state` + `sx-home-feed`, `sx-discover` (Leiste), `sx-guest-slider` (nur Gäste, F-431; ersetzt das entfernte `sx-join-card`) | alle; Modi „Umgebung · Alles“ (Gast), dazu „Mitgliedschaften“ (angemeldet) | Logo, Reiter „Community“, Fehlerseiten („Zur Karte“) | Törn, Profil, Boot, Gruppe, Hafen, `/g/neu`, `/entdecken#vereine`, Konto-Dialog (Reiter Profil/Boote/Freigaben) |
 | **Gast ohne Backend / ohne Tracks** `/` | `sx-empty-state` große Karte | Gast, kein Stream | Logo | GPX laden, Beispiele, Fahrtenbuch-Formular |
 | **Törn-Ansicht (lokal)** `/` mit Tracks im Browser | Karte + Seitenleiste (`index.html` Z. 35–71) | jeder (nur dieses Gerät) | Reiter „Törn“, Datei laden, Drag & Drop | Teilen-Dialog, Speichern, Konto |
 | **Törn-Ansicht (geteilt)** `/s/<id>[/<key>]` | wie oben + `sx-voyage-byline`, Fahrtenbuch, Crew, Fotos, Reaktionen, Kommentare | je Sichtbarkeit; Eigentümer:in mit Werkzeugen | Stream, Entdecken, Profil/Boot/Hafen-Karten, Glocke, Konto → Freigaben (Knopf, kein Link), „Mein Verlauf“ | Profil (Byline, Crew, Kommentare, Reaktionen), Gruppe (Byline), Hafen (Fahrtenbuch von/nach) – **kein Boot** |
@@ -176,7 +176,7 @@ Mobil zusätzlich: Reiterzeile kostet eine zweite Kopfzeile; „Track anlegen“
 | B14 | Freunde einladen nur in der Willkommens-Karte – nach „Später“ verschwunden | `sx-home-feed.ts` 364, 387 | Einladen zentral im Konto-Menü bzw. auf der eigenen Seite |
 | B15 | Vier Einladungs-UIs (Crew, Gruppe, Boots-Admin, Freund) mit unterschiedlichem Aufbau | `sx-crew.ts` 190/333, `sx-group-page.ts` 584, `sx-account-dialog.ts` 831, `sx-home-feed.ts` 431 | ein `sx-invite-box` (Link erzeugen · per E-Mail · offene Einladungen) |
 | B16 | „Gruppe gründen“ an drei Stellen (Startseiten-Kopf, Willkommen, Entdecken-Fuß) | `sx-home-feed.ts` 423/574; `sx-discover.ts` 664 | nur Entdecken → Vereine (bzw. „+ Neu“) **[streichen]** Startseiten-Kopf |
-| B17 | „Dein Bereich“-Karte dupliziert das Konto (3 Knöpfe in Dialog-Reiter) | `sx-join-card.ts` 141–150 | mit Konto-Menü **[streichen]** |
+| B17 | „Dein Bereich“-Karte dupliziert das Konto (3 Knöpfe in Dialog-Reiter) | `sx-join-card.ts` 141–150 | mit Konto-Menü **[streichen]** – erledigt: Komponente entfernt, für Gäste ersetzt durch den Slider (F-431) |
 | B18 | Drei Reiter-/Filtermuster (tab, Knopfleiste, Chips) | K5 | ein `sx-tabs` (Bereich) + Chips nur für Filter |
 | B19 | Törn-Verwaltung nicht am Törn: Stufe, Löschen nur im Konto; Melden nur im Kommentar-Panel | `sx-comments.ts` 318 | Zahnrad-Menü im Törn-Kopf |
 | B20 | Topbar-Chip wiederholt den Törn-Titel der Seitenleiste | `sx-topbar.ts` 373–379 | **[streichen]** für `share`, Chip nur für Speicherstatus |

@@ -342,13 +342,16 @@ export function pendingLabel(i: { email: string | null; invitee: { handle: strin
   return i.email ?? `Einladungslink · noch ${i.usesLeft}×`;
 }
 
-/** Öffnet die Dateiauswahl für GPX-Dateien und meldet die Auswahl als 'sx-files'. */
-export function pickGpx(host: HTMLElement): void {
+/**
+ * Öffnet die Dateiauswahl für GPX-Dateien und meldet die Auswahl als `sx-files` (neuer Törn) bzw. `sx-files-add`
+ * („GPX hinzufügen“ zum offenen Entwurf, F-435).
+ */
+export function pickGpx(host: HTMLElement, event: 'sx-files' | 'sx-files-add' = 'sx-files'): void {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.gpx,application/gpx+xml';
   input.multiple = true;
-  input.addEventListener('change', () => input.files?.length && emit(host, 'sx-files', input.files));
+  input.addEventListener('change', () => input.files?.length && emit(host, event, input.files));
   input.click();
 }
 

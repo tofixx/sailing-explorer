@@ -563,7 +563,8 @@ describe('F-228 Törn: von wem, in welcher Gruppe', () => {
 
   it('[F-228] Profil nur öffentlich (Eigentümer sieht sich selbst); Gruppen nur öffentliche bzw. für Mitglieder, ausgeblendete nie', async () => {
     const sailor = await s.person({ profile: 'public', supporter: true });
-    const open = await s.group(sailor, { name: 'Offener Club' });
+    // öffentliche Mitgliederliste – sonst nennt der Törn die Gruppe nur Mitgliedern (F-442)
+    const open = await s.group(sailor, { name: 'Offener Club', membersVisible: 'public' });
     const closed = await s.group(sailor, { name: 'Geschlossenes Team', kind: 'team', visibility: 'private' });
     const member = await s.person();
     await s.join(sailor, closed, member);
@@ -593,7 +594,7 @@ describe('F-228 Törn: von wem, in welcher Gruppe', () => {
 
   it('[F-228] öffentlich → „Nur mit Link“ per PATCH: keine Gruppen mehr (auch in der PATCH-Antwort); gesperrtes Konto nennt nichts', async () => {
     const sailor = await s.person({ profile: 'public', supporter: true });
-    const club = await s.group(sailor, { name: 'Club Wechsel' });
+    const club = await s.group(sailor, { name: 'Club Wechsel', membersVisible: 'public' });
     const share = await s.share(sailor, { groups: [club.id] });
     expect((await meta(share.id)).groups.map((g) => g.name)).toEqual(['Club Wechsel']);
     const res = await s.send('PATCH', `/api/shares/${share.id}`, sailor.cookie, { visibility: 'unlisted' });

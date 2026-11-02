@@ -3056,6 +3056,102 @@ Noch zu bestätigen bei der Umsetzung: Auslegung „Gewichtung nach Mitgliederza
 Fotos je Monat, 25 MB kostenlos), Schwellen der Tageszusammenfassung (150 Mitglieder, 15 Einträge/Tag) und des
 Hinweises (100 Personen).
 
+## 22. Gäste-Slider auf der Startseite (F-431, 02.11.2026)
+
+Leitlinie „Weniger ist mehr, ein Weg nach Rom“: Gäste bekommen einen Einstieg statt zweier Karten. Der Slider ersetzt
+„Mitmachen“ (F-261) und für Gäste die Karte „Eigenen Törn anlegen“; jede Folie führt über **einen** vorhandenen Weg
+(+ Neu → GPX, Stream, Anmeldedialog, /entdecken) – es entsteht kein neuer Einstieg (UX-NAVIGATION N1).
+Die vier Folien stellen die Alleinstellungsmerkmale aus 22.1 vor: (1) ausprobieren ohne App und Konto, (2) Revier mit
+Vereinen, Häfen und echten Saison-Zahlen, (3) Fahrtenbuch, (4) wer was sieht – nur, was es schon und kostenlos gibt (keine
+Vereinswertung, kein Jahresbericht).
+
+### 22.1 Positionierung und Alleinstellungsmerkmale
+
+Ton nach außen: deutsch, du-Form, sachlich-freundlich, ohne Superlative und ohne Vergleich mit anderen Produkten.
+
+| Merkmal | Was es heißt | Wo es steht |
+|---|---|---|
+| Ohne App und Konto ausprobieren | GPX in den Browser ziehen, Auswertung sofort; Dateien bleiben lokal, bis man teilt (Security 1) | Startseite, „+ Neu → Törn (GPX)“, Slider Folie 1 |
+| Lokale Strukturen mit Sichtbarkeit nach oben | Verein, Team, Hafen und Boot als eigene Seiten; Beiträge breiten sich vom Verlauf nach oben aus, begrenzt über „Sichtbar bis“ (Konzept 11–14, 21) | Gruppen-, Hafen-, Bootsseiten, Stream, Slider Folie 2 |
+| Fahrtenbuch nach deutschem Muster | Törns mit oder ohne GPX, Seemeilen je Saison und Jahr, Meilensteine (Konzept 19) | Profil „Mein Fahrtenbuch“, Slider Folie 3 |
+| Datenschutz als Prinzip | Stufen Öffentlich, Nur Mitglieder, Nur mit Link, Nur ich; Mitgliederinhalte nur für Mitglieder; Daten mit Ablaufdatum | Teilen-Dialog, Schreib-Dialog, Slider Folie 4 |
+| Auswertung mit Wind und Wellen samt Teilen-Bild | Speed, Wind, Böen und Wellen zur Zeit des Törns, Bild zum Teilen | Törn-Ansicht, Teilen-Dialog |
+| Deutsch und Binnenreviere zuerst | Oberfläche deutsch; Potsdam, Havel und Seen als Startrevier | Texte, Startseite |
+
+### 22.2 Architektur-Skizze
+
+Nach CLAUDE.md „Vor dem ersten Code“:
+
+| Punkt | Festlegung |
+|---|---|
+| Datenmodell | nichts gespeichert, keine Migration; „Ausblenden“ nur im Gerät (`localStorage` `sx-guest-slider-dismissed`) |
+| Querschnitte | Sichtbarkeit: `GET /api/discover/stats` nutzt `LISTED` aus `worker/discover.ts` (öffentlich, nicht ausgeblendet, Konto nicht gesperrt, `reachAtLeastSql(…, 'all')`) und `IN_LOGBOOK_SQL`; Saison = Kalenderjahr wie Gruppen- und Hafen-Kennzahlen (`seasonStart`, `src/domain/season-stats.ts`). Cache: für alle gleich, `public, max-age=600` plus Worker-Cache (Prinzip Erweitern 3). Vereine und Häfen aus dem vorhandenen `/api/discover` (mit Ort aus `near-prefs`, sonst alle). Keine Zähler, Benachrichtigungen, Einbettungen (`/embed` zeigt keine Startseite), Admin. |
+| Lösch- und Sichtbarkeitspfade | nichts zu löschen; ausgeblendete, gemeldete, eingeschränkte oder gesperrte Inhalte fallen über `LISTED` sofort aus den Zahlen, spätestens nach 10 min Cache. Wer sieht es: nur Gäste mit Backend auf `/`; Angemeldete nie (Controller wartet auf `backendReady`). |
+| Komponentenschnitt | `sx-guest-slider` (Properties `stats`, `groups`, `harbors`; Events `sx-compose-open` {gpx}, `sx-login`, `sx-guest-stream`, `sx-guest-dismiss`; Stile aus `base`/`coverBannerStyles`), `GuestSliderController` (Sichtbarkeit, Laden, Ausblenden, Scrollen), in `app.ts` nur erzeugt; Slot „join“ von `sx-empty-state`, das die kompakte Karte zeigt, sobald der Slot leer bzw. versteckt ist. 375 px: Seitenleiste steht über dem Stream, eine Folie je Breite (Scroll-Snap waagerecht), Bild höchstens 16 svh, gesamt ≤ ~60 % der Höhe, keine senkrechte Scroll-Ebene, Punkte ≥ 40 px auf Touch, Pfeile nur mit Maus. |
+| Parallele Arbeit | `feature/beitraege-phase2` (PostLinkController, `app.ts`) – hier nur Verdrahtung in `app.ts`; sonst kein Branch an `sx-empty-state`, `worker/discover.ts`, `index.html`. |
+
+Entfernt: `sx-join-card` (Vorteilsliste und „Anmelden & mitmachen“) samt Verdrahtung; die Liste der Unterstützer-Vorteile
+steht weiter im Unterstützen-Bereich des Kontos.
+
+## 23. Törn-Arbeitsbereich: genau ein Törn
+
+Anlass: Rückmeldung des Betreibers (02.11.2026) – nach dem Abmelden erschien ein gespeicherter Törn als „Entwurf“,
+neue GPX hingen sich an jeden offenen Törn (auch an fremde), und man sah nicht, in welchem Törn man ist. Leitlinie:
+„Weniger ist mehr, ein Weg nach Rom.“ Anforderungen F-432 … F-439, geändert F-06, F-15, F-30, F-75, F-76, F-225, F-405.
+
+### 23.1 Modell
+
+Der Arbeitsbereich (Karte, Seitenleiste) zeigt immer **genau einen Törn**:
+
+| Art | `State.mode` | Status in der Kopfzeile | GPX hinzufügen / entfernen | Gespeichert in |
+|---|---|---|---|---|
+| Entwurf | `local` | „Entwurf · nur dieses Gerät“, Titel = erster Track (sonst „Neuer Törn“) | ja (Track-Liste) | IndexedDB, **ein** Platz `current`, mit Eigentümer (`owner`: Konto-ID bzw. `guest`) |
+| eigener gespeicherter Törn | `share`, `isOwner` | „Gespeichert · Öffentlich / Nur mit Link / Nur ich“ | nein (Server kann Tracks nicht ersetzen, 23.3) | D1/R2 (Konzept 21) |
+| fremde bzw. geteilte Ansicht, Beispiel, `?track=`, `#g=` | `share` bzw. `link` | „Ansicht“ | nein | – |
+
+- **Neuer Törn:** „+ Neu → Törn (GPX)“, die Startkarte ohne Community und Ziehen & Ablegen außerhalb des offenen
+  Entwurfs beginnen einen neuen Entwurf und ersetzen den Arbeitsbereich. Liegt im Entwurfsplatz schon ein Entwurf mit
+  Tracks, fragt nach der Dateiwahl ein Dialog „Entwurf ‚…‘ verwerfen und neuen Törn beginnen?“. Die Frage kommt erst
+  nach der Wahl, weil der Browser die Dateiauswahl nur direkt aus dem Klick öffnet. So gilt die Frage für alle Wege.
+- **Mehrere GPX:** nur über „GPX hinzufügen“ in der Track-Liste des offenen Entwurfs (oder durch Ablegen auf ihm).
+- **Wechsel:** Ein anderer Törn (Stream, „Mein Verlauf“, Link) ersetzt den Arbeitsbereich. Der Entwurf bleibt im
+  Entwurfsplatz, „+ Neu“ bietet dann „Entwurf fortsetzen: ‚…‘“. Das ist kein zweiter Einstieg (N1), weil er nur
+  erscheint, wenn der Entwurf nicht offen ist.
+- **Schließen (×):** leert den Arbeitsbereich und zeigt die Startseite. Ein Entwurf bleibt im Entwurfsplatz.
+- **Verwerfen:** genau an einer Stelle, „Entwurf verwerfen“ unter der Track-Liste des offenen Entwurfs (mit Rückfrage).
+- **Speichern:** Nach „Speichern“ bzw. „Speichern & Link erstellen“ wird aus dem Entwurf – ebenso aus einer Ansicht
+  (Beispiel, `?track=`, `#g=`) – der eigene gespeicherte Törn (`mode: share`, Adresse `/s/<id>`). Ein gespeicherter
+  Entwurf leert den Entwurfsplatz; eine gespeicherte Ansicht lässt einen anderen Entwurf stehen.
+- **Abmelden (auch Konto löschen, Abmelden in einem anderen Tab):** Arbeitsbereich und Entwurfsplatz werden geleert
+  (geteilter Rechner). Das Konto nennt bei „Abmelden“ den Entwurf, der dabei verworfen wird.
+- **Eigentümer:** Der Entwurf merkt sich sein Konto bzw. `guest`. Beim Lesen (nach `/api/auth/me`) und bei jedem
+  Wechsel der Anmeldung gilt: ein Gast-Entwurf geht an das angemeldete Konto über; ein Entwurf eines anderen Kontos –
+  auch wenn die Sitzung ohne Abmelden endete (401, Ablauf, entfernt, auf einem anderen Gerät gelöscht) – wird verworfen.
+- **Mehrere Tabs:** Nach jedem Schreiben meldet der Tab über den BroadcastChannel `sx-draft` „geändert“. Andere Tabs
+  lesen den Entwurf neu; ist er dort offen, zeigen sie den neuen Stand bzw. leeren ihn, mit Hinweis. Es gibt also keinen
+  stillen Rückschrieb eines veralteten Stands (der letzte Schreiber gewinnt, alle sehen ihn).
+- **Start:** Der Entwurf wird einmal gelesen, sobald die Anmeldung bekannt ist (`init()`); neuer Törn, Ablegen und die
+  Startseite warten darauf, damit die Nachfrage auch direkt nach dem Laden greift.
+- **Beispiele** sind eine „Ansicht“ und überschreiben keinen Entwurf.
+
+### 23.2 Skizze (CLAUDE.md)
+
+| Punkt | Entscheidung |
+|---|---|
+| Datenmodell | nichts Neues: kein Server, keine Migration. `State` bekommt `draft` (Titel und Zahl der Tracks im Entwurfsplatz). |
+| Querschnitte | keine Sichtbarkeit, kein Stream, kein Zähler. Abmelden ruft über einen Haken im `SessionController` den Arbeitsbereich. |
+| Löschpfade | Entwurfsplatz: neuer Törn (nach Nachfrage), „Entwurf verwerfen“ (nach Nachfrage), letzter Track entfernt, Speichern, Abmelden bzw. Konto löschen, Sitzungsende bzw. anderes Konto (Eigentümer passt nicht), Website-Daten löschen. Sonst liegt nichts lokal. Datenschutz (`src/content/legal.ts`, Abschnitt 6) nennt diese Wege. |
+| Komponenten | `WorkspaceController` (`src/controllers/workspace.ts`) übernimmt den Ablauf „Tracks“ aus `app.ts` (Laden, Wetter, Entwurf, Freigabe, Link). `sx-topbar` zeigt den Törn-Chip (Titel, Status, ×) als Property `toern`. `sx-compose` bekommt `draft` („Entwurf fortsetzen“). `sx-track-list` bekommt `addable` („GPX hinzufügen“) und Tippen zum Hervorheben. Neu ist `sx-confirm` (geteilte Rückfrage mit `dialogStyles`, mobil randlos, `ask({ … }): Promise<boolean>` für jeden Controller). `sx-account-dialog` bekommt `draft` (Hinweis bei „Abmelden“). Events: `sx-toern-close`, `sx-files-add`, `sx-draft-discard`, `sx-compose-open { kind: 'draft' }`. |
+| 375 px | Der Chip sitzt wie bisher mittig unter der Kopfzeile über der Karte, mit Titel (gekürzt), kurzem Status und × (Tippfläche 44 px, auch am Desktop über einen unsichtbaren Rand). Auf der Startseite ist er ausgeblendet, dort zeigt der Reiter „Törn“ den Weg zurück. |
+| Parallele Arbeit | `feature/beitraege-phase2` (PostLinkController: `openPost`/`revealAnchor` bleiben unberührt), `feature/gaeste-slider` (Startseite: hier nur der Link „weitere GPX hinzufügen“ in `sx-empty-state` gestrichen). |
+
+### 23.3 Offen
+
+- **Tracks an gespeicherten Törns ändern:** `PATCH /api/shares/:id` ersetzt die Nutzlast nur für Fahrtenbuch-Einträge
+  ohne GPX (Route ≤ 32 KB). Für GPX-Törns gibt es keinen Weg, Tracks zu ersetzen oder zu ergänzen. Dafür bräuchte es
+  Plausibilität, Speicherzähler-Differenz, Neuberechnung von Distanz und Zeit sowie Wetter, Fotos (Zeitbezug) und das
+  Vorschaubild. Bis dahin gibt es „GPX hinzufügen“ nur im Entwurf.
+
 ## 24. Sichtbarkeit von Mitgliedschaften, Folgen und Benachrichtigungen
 
 Anlass (Betreiber): Inhalte und Mitgliedschaften in Gruppen sollen ohne Mitgliedschaft nicht sichtbar sein; Folgen,
@@ -3077,7 +3173,7 @@ Mitgliedschaft und Benachrichtigen sind nicht sauber getrennt. Die Entscheidunge
 | „Mitglied von“ (Mein Verein) | `worker/home.ts` `publicHome`, `worker/profiles.ts` | Verein bei öffentlichem Profil | alle | F-444: nur Mitglieder desselben Vereins |
 | Bootsseite „Verein des Boots“ | `worker/boats.ts` `getBoat` | öffentliche Vereine des Boots | alle | F-442 |
 | Gruppen-Beiträge auf dem Profil | `worker/posts.ts` `visitorPosts` | öffentliche Beiträge öffentlicher Gruppen; „Nur Mitglieder“ nur für Mitglieder | je Sichtbarkeit | unverändert (bewusst öffentlicher Inhalt, Betreiber 2) |
-| Törn „in Gruppe gezeigt“ | `worker/share-context.ts` | öffentliche Gruppen eines öffentlichen Törns | alle | unverändert (Eigentümer:in wählt es beim Teilen) – offen, 24.7 |
+| Törn „in Gruppe gezeigt“ | `worker/share-context.ts` | öffentliche Gruppen eines öffentlichen Törns | alle | F-442: Gruppen mit Liste „nur Mitglieder“ nur für ihre Mitglieder (24.7) |
 | Vorschlag „im selben Verein“ | `worker/follows.ts` | Personen aus gemeinsamen Gruppen | nur Mitglieder selbst | unverändert |
 | Wochenmail | `worker/group-digest.ts`, `mail.ts` | Anzahl neuer Mitglieder | Mitglieder | F-448: keine automatischen Zahlen |
 | Benachrichtigungen | `worker/notifications.ts` | Beitrittsanfrage an Verwalter | Verwalter | unverändert, Stufen F-449 |
@@ -3173,13 +3269,58 @@ Gruppenseite, für Folgende im Knopf „Folgst du ▾“, in „Meine Gruppen“
 Einstellungen (Mitgliedschaften und Folgen getrennt, mit Voreinstellung). Häfen und Boote ohne Folgen (eigenes Boot,
 Heimathafen) nutzen die Voreinstellung des Kontos.
 
-### 24.7 Offen für den Betreiber
+### 24.7 Entscheidungen des Betreibers (02.11.2026)
 
-1. Plattform-Admins sehen auf normalen Seiten keine verborgenen Mitgliederlisten (Vorschlag) – oder wie Gruppen-Admins?
-2. Titelbilder im Stream hingen nur an automatischen Einträgen und entfallen mit der grauen Systemzeile (F-213). So
-   lassen oder ein kleines Vorschaubild in der Systemzeile?
-3. „Austreten“ steht im Zahnrad, nicht als eigener „Mitglied ▾“-Knopf im Kopf – reicht das?
-4. Öffentliche Törns, die in einer Gruppe gezeigt werden, und öffentliche Gruppen-Beiträge auf dem Profil verraten weiter
-   die Zugehörigkeit (bewusst öffentliche Inhalte, Betreiber 2). Soll „In Gruppe gezeigt“ bei „Nur Mitglieder“-Listen nur
-   Mitgliedern genannt werden?
-5. Umfragen und Veranstaltungen gibt es noch nicht; die Regel stuft sie als „wichtig“ ein, sobald sie kommen.
+1. Plattform-Admins sehen verborgene Mitgliederlisten auf normalen Seiten nicht – nur im Admin-Bereich.
+2. Die graue Systemzeile automatischer Einträge bleibt ohne Vorschaubild (F-213 zeigt im Stream damit derzeit kein
+   Titelbild).
+3. „Austreten“ bleibt im Zahnrad-Menü, kein zusätzlicher Knopf „Mitglied ▾“.
+4. „In Gruppe gezeigt“ eines öffentlichen Törns (`shareContext`, F-228) nennt eine Gruppe mit Mitgliederliste „nur
+   Mitglieder“ nur ihren Mitgliedern (`membersVisibleSql`, F-442) – sonst verriete der Törn die Mitgliedschaft der
+   Eigentümer:in. Öffentliche Gruppen-Beiträge auf dem Profil bleiben (bewusster Inhalt).
+5. Die Verzögerung durch öffentliche Caches nach dem Umschalten der Listen-Einstellung – Streams höchstens 60 s, RSS
+   höchstens 600 s – ist akzeptiert.
+
+Noch offen: Umfragen und Veranstaltungen gibt es noch nicht; die Regel stuft sie als „wichtig“ ein, sobald sie kommen.
+
+## 25. Anleitung „So zeichnest du deinen Törn auf“ (F-450, 02.11.2026)
+
+Andere Apps zeichnen selbst auf; Sail Explorer lebt vom GPX-Import. Neue Nutzer:innen wissen oft nicht, womit sie
+aufzeichnen und wie sie an eine GPX-Datei kommen. Leitlinie: „Weniger ist mehr, ein Weg nach Rom“ – je Weg wenige
+Schritte, je Gerät eine Empfehlung.
+
+### 25.1 Umsetzung
+
+| Teil | Ort |
+|---|---|
+| Texte als Daten | `src/content/recording-guide.ts` (`RECORDING_GUIDE`, `RECORDING_GUIDE_PATH`) |
+| Seite | `sx-guide-page` unter `/anleitung/aufzeichnen` (Route `guide`, wie `sx-legal-page` ohne Backend), Abschnitte als `<details>` |
+| Einstiege | „+ Neu“-Sheet: Zeile unter „Törn (GPX)“; Startseite: Einstiegskarte ohne Track; Fußzeile „Anleitung“; später der Gäste-Slider (Konzept 22) |
+
+Keine Daten, keine Querschnitte, kein Löschpfad. Offener Punkt: direkter Import von Garmin-`.ADM`-Dateien (spart den
+Umweg über BaseCamp/HomePort) – eigener Auftrag.
+
+### 25.2 Stand und Quellen der App-Angaben (geprüft 02.11.2026)
+
+Wer die Anleitung ändert, prüft diese Angaben mit. „Belegt“ heißt: offizielle Seite oder Handbuch; „Forum“ heißt: nur
+aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
+
+| Angabe | Beleg |
+|---|---|
+| OsmAnd (iOS/Android): Fahrtenaufzeichnung kostenlos (nur Topo, Relief, Wikipedia, Seekarte, Wetter kosten) | belegt: https://osmand.net/docs/user/plugins/ |
+| OsmAnd: Aufzeichnung, Standard alle 5 s, Hinweise zu Akku-Optimierung und iOS-Hintergrund | belegt: https://osmand.net/docs/user/plugins/trip-recording |
+| OsmAnd: Meine Orte → Tracks → ⋮ bzw. lange antippen → Teilen (GPX) | belegt: https://osmand.net/docs/user/personal/tracks/manage-tracks |
+| Open GPX Tracker (iOS + Watch): kostenlos, Open Source, GPX teilen; Watch sendet Datei ans iPhone | belegt (Menüpfad nicht): https://apps.apple.com/de/app/open-gpx-tracker/id984503772, https://github.com/merlos/iOS-Open-GPX-Tracker |
+| OpenTracks (Android): kostenlos, Open Source, Export GPX/KML/KMZ, Teilen mit Apps | belegt (Menüpfad nicht): https://f-droid.org/packages/de.dennisguse.opentracks/, https://codeberg.org/OpenTracksApp/OpenTracks |
+| Geo Tracker (Android): GPX/KML/KMZ, Trip → Als Datei teilen; „Akkuoptimierungen ignorieren“ | belegt (Preis nicht): https://geo-tracker.org/en/docs/sharing/files/ – in der Anleitung nicht genannt |
+| Garmin-Uhren: Aktivität „Segeln“ (z. B. fēnix 8, quatix 8, MARQ) | belegt: Garmin-Handbuch fēnix 8 (Link in der Anleitung) |
+| Garmin Connect: GPX-Export nur im Web über Zahnrad | Forum: https://forums.garmin.com/apps-software/mobile-apps-web/f/garmin-connect-web/84396/how-to-export-as-gpx-in-modern |
+| WorkOutDoors (Apple Watch): kostenpflichtig, zeichnet ohne iPhone auf, Export GPX/FIT/TCX | belegt: https://apps.apple.com/us/app/workoutdoors/id1241909999 |
+| Garmin GPSMAP: Weg zur Datenübertragung, `.ADM`, nur ACTIVE LOG mit Zeitstempel, Umwandlung mit BaseCamp/HomePort | geprüfte Anleitung des Betreibers (Notion „Garmin-Plotter: Daten exportieren und in GPX umwandeln“); Handbuch GPSMAP 800/1000 nennt den Weg, nicht das Format |
+| Raymarine Axiom (LightHouse 4): Meine Daten → Import/Export → Meine Daten speichern → GPX auf microSD | belegt: https://docs.raymarine.com/81406/en-US/latest/SavingUserData-C80AD8A3.html; fehlende Zeitstempel nur laut Forum (2020) |
+| B&G/Simrad/Lowrance: Track exportieren auf Karte/USB; GPX nicht belegt | daher nur allgemein („GPX wählen, sonst Handbuch“) |
+| Navionics Boating: Tracks → Teilen → GPX, nur mit Abo | teilweise (Navionics-Blog, inzwischen auf garmin.com umgeleitet) |
+| Strava: GPX-Export nur auf strava.com („…“ → Export GPX) | belegt: https://support.strava.com/hc/en-us/articles/216918437 |
+| Komoot: Touren als GPX exportieren | teilweise: https://support.komoot.com/hc/en-us/articles/10115477099674 |
+| Aufzeichnungsrate 1–5 s | Empfehlung des Betreibers, keine Herstellerangabe |
+

@@ -22,6 +22,8 @@ export class ComposeController {
       startLogbook: () => void;
       /** nach dem Veröffentlichen: in den Heimatverlauf, Karte hervorheben */
       posted: (post: CreatedPost) => void;
+      /** „Entwurf fortsetzen“ (F-436): den Entwurf aus dem Browser wieder öffnen */
+      resumeDraft: () => void;
     },
   ) {}
 
@@ -32,10 +34,13 @@ export class ComposeController {
 
   /**
    * „+ Neu“ (F-405): eine Art gewählt. „Törn (GPX)“ öffnet die Dateiauswahl sofort – noch in der Klick-Geste, ohne
-   * Anmeldung (lokal ausgewertet, Prinzip Security 1); die Dateien kommen wie beim Ziehen & Ablegen als `sx-files`.
+   * Anmeldung (lokal ausgewertet, Prinzip Security 1); die Dateien kommen als `sx-files` und beginnen einen neuen Törn
+   * (F-434 – liegt ein Entwurf vor, fragt der WorkspaceController nach der Wahl nach). „Entwurf fortsetzen“ öffnet den
+   * Entwurf aus dem Browser wieder (F-436).
    */
   open(kind: ComposeKind): void {
     if (kind === 'gpx') pickGpx(document.body);
+    else if (kind === 'draft') this.ui.resumeDraft();
     else if (kind === 'logbook') this.ui.startLogbook();
     else this.openText();
   }

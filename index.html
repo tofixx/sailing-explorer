@@ -29,7 +29,7 @@
           <sx-empty-state>
             <sx-home-feed slot="feed" hidden></sx-home-feed>
             <sx-discover slot="discover" variant="strip" hidden></sx-discover>
-            <sx-join-card slot="join" hidden></sx-join-card>
+            <sx-guest-slider slot="join" hidden></sx-guest-slider>
           </sx-empty-state>
         </main>
         <aside class="sidebar" aria-label="Auswertung">
@@ -66,7 +66,6 @@
             <sx-time-chart id="speed-chart" label="Geschwindigkeit über die Zeit"></sx-time-chart>
           </sx-panel>
           <sx-panel heading="Tracks">
-            <button slot="aside" id="tracks-aside" class="link-btn" type="button">Alle entfernen</button>
             <sx-track-list></sx-track-list>
             <p class="sources">
               Wind (10 m) und Seegang: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>, stündlich.
@@ -79,6 +78,7 @@
       <sx-discover id="discover-page" variant="page" hidden></sx-discover>
       <sx-group-page hidden></sx-group-page>
       <sx-legal-page hidden></sx-legal-page>
+      <sx-guide-page hidden></sx-guide-page>
       <sx-admin-page hidden></sx-admin-page>
     </div>
     <sx-toast></sx-toast>
@@ -89,6 +89,7 @@
     <sx-report-dialog></sx-report-dialog>
     <sx-logbook-form></sx-logbook-form>
     <sx-compose-dialog></sx-compose-dialog>
+    <sx-confirm></sx-confirm>
     <sx-photo-lightbox></sx-photo-lightbox>
     <sx-photo-upload></sx-photo-upload>
     <sx-install-hint hidden></sx-install-hint>

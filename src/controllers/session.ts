@@ -48,6 +48,10 @@ export interface SessionUi {
   /** Panel „Crew“ in der Törn-Ansicht (sichtbar, wenn es etwas zu zeigen oder zu verwalten gibt) */
   crewPanel: HTMLElement;
   toast: (msg: string, ms?: number) => void;
+  /** abgemeldet (auch in einem anderen Tab, Konto gelöscht): Arbeitsbereich und Entwurf leeren (F-438) */
+  signedOut: () => void;
+  /** Entwurf gespeichert: der Arbeitsbereich wird der eigene Törn (F-437) */
+  saved: (share: ShareMeta) => void;
 }
 
 export interface ShareRequest {
@@ -101,7 +105,10 @@ export class SessionController {
     // Anmeldung in einem anderen Tab (Klick auf den Magic Link) → hier übernehmen
     this.channel?.addEventListener('message', (e) => {
       if (e.data === 'login') this.refreshUser().then(() => this.afterLogin());
-      if (e.data === 'logout') this.store.set({ user: null });
+      if (e.data === 'logout') {
+        this.store.set({ user: null });
+        this.ui.signedOut();
+      }
     });
     // Zurück aus einem anderen Tab (z. B. Zahlung dort abgeschlossen): Status still neu laden.
     window.addEventListener('focus', () => {
@@ -385,6 +392,7 @@ export class SessionController {
     this.channel?.postMessage('logout');
     this.lastShare = null;
     this.closeAll();
+    this.ui.signedOut();
     this.ui.toast(msg);
   }
 
@@ -860,6 +868,7 @@ export class SessionController {
       });
       this.lastShare = { key: this.tracksKey(), share };
       this.store.set({ saved: true });
+      this.ui.saved(share);
       if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: this.supportStatus.sharesUsed + 1 });
       this.showResult(share);
       // Übersichtsbild für die Link-Vorschau – immer im Querformat; Fehler sind nicht kritisch.

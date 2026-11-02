@@ -1,8 +1,8 @@
-import { LitElement, css, html } from 'lit';
+import { LitElement, css, html, nothing } from 'lit';
 import type { Track } from '../domain/types';
 import { fmtDuration, fmtNum, fmtShort, plural } from '../util/html';
 import { icon } from './icons';
-import { base, emit } from './shared';
+import { base, emit, pickGpx } from './shared';
 
 /** Datei-Name für den GPX-Export: Track-Name ohne Sonderzeichen. */
 export function gpxFileName(name: string): string {
@@ -20,13 +20,17 @@ function downloadGpx(t: Track): void {
 }
 
 /**
- * Geladene Tracks: ein-/ausblenden, als GPX herunterladen, entfernen. Die Zeile des im Verlauf bzw. auf der Karte
- * gehoverten Tracks ist hervorgehoben; Hovern über eine Zeile hebt den Track auf der Karte hervor (F-226).
+ * Tracks des offenen Törns, je GPX eine Zeile mit Farbmarke wie auf der Karte (F-432): ein-/ausblenden, als GPX
+ * herunterladen, im Entwurf entfernen, „GPX hinzufügen“ (F-435) und „Entwurf verwerfen“ (`sx-draft-discard`, F-436).
+ * Die Zeile des im Verlauf bzw. auf der Karte gehoverten Tracks ist hervorgehoben; Hovern, Tippen oder Enter/Leertaste
+ * auf einer Zeile hebt den Track auf der Karte hervor (F-226, F-432).
  */
 export class SxTrackList extends LitElement {
-  static properties = { tracks: { attribute: false }, readonly: { type: Boolean }, focused: { type: String } };
+  static properties = { tracks: { attribute: false }, readonly: { type: Boolean }, addable: { type: Boolean }, focused: { type: String } };
   declare tracks: Track[];
   declare readonly: boolean;
+  /** offener Entwurf: „GPX hinzufügen“ und „Entwurf verwerfen“ */
+  declare addable: boolean;
   /** id des hervorgehobenen Tracks */
   declare focused: string | null;
 
@@ -34,6 +38,7 @@ export class SxTrackList extends LitElement {
     super();
     this.tracks = [];
     this.readonly = false;
+    this.addable = false;
     this.focused = null;
   }
 
@@ -92,8 +97,28 @@ export class SxTrackList extends LitElement {
       .glitch {
         color: var(--warn);
       }
+      .meta[role='button'] {
+        cursor: pointer;
+        border-radius: var(--radius-s);
+      }
+      .meta[role='button']:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .draft-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: var(--s-2);
+        margin-top: var(--s-2);
+      }
     `,
   ];
+
+  /** Tippen bzw. Enter/Leertaste: Track auf der Karte hervorheben, erneut aufheben (nur bei mehreren sichtbaren). */
+  private pick(t: Track, focus: boolean, multi: boolean) {
+    if (multi && !t.hidden) emit(this, 'sx-track-focus', focus ? null : t.id);
+  }
 
   render() {
     return html`<ul>
@@ -101,17 +126,20 @@ export class SxTrackList extends LitElement {
         const s = t.stats;
         const dur = s.start != null && s.end != null ? `${fmtDuration((s.end - s.start) / 3_600_000)} h` : null;
         const multi = this.tracks.filter((x) => !x.hidden).length > 1;
+        const focus = multi && !t.hidden && t.id === this.focused;
         return html`<li
-          class="${t.hidden ? 'hidden' : ''} ${multi && !t.hidden && t.id === this.focused ? 'focus' : ''}"
+          class="${t.hidden ? 'hidden' : ''} ${focus ? 'focus' : ''}"
           @mouseenter=${() => multi && !t.hidden && emit(this, 'sx-track-focus', t.id)}
           @mouseleave=${() => multi && emit(this, 'sx-track-focus', null)}
         >
           <span class="sw" style="background:var(${t.color})"></span>
-          <div class="meta">
+          <div class="meta" role=${multi && !t.hidden ? 'button' : nothing} tabindex=${multi && !t.hidden ? 0 : nothing}
+            aria-pressed=${multi && !t.hidden ? String(focus) : nothing} aria-label=${multi && !t.hidden ? `Auf der Karte hervorheben: ${t.name}` : nothing}
+            @click=${() => this.pick(t, focus, multi)} @keydown=${(e: KeyboardEvent) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), this.pick(t, focus, multi))}>
             <div class="name" title=${t.name}>${t.name}</div>
-            <div class="sub">${fmtNum(s.distNm, 1)} sm${dur ? ` · ${dur}` : ''} · ${plural(s.nPts, 'Punkt', 'Punkte')}</div>
+            <div class="sub">${s.start != null ? `${fmtShort(s.start)} → ${s.end != null ? fmtShort(s.end) : '?'}` : 'ohne Zeitstempel'}</div>
             <div class="sub">
-              ${s.start != null ? `${fmtShort(s.start)} → ${s.end != null ? fmtShort(s.end) : '?'}` : 'ohne Zeitstempel'}
+              ${fmtNum(s.distNm, 1)} sm${dur ? ` · ${dur}` : ''} · ${plural(s.nPts, 'Punkt', 'Punkte')}
               ${s.nGlitch ? html` · <span class="glitch" title="Als GPS-Ausreißer erkannt und aus der Statistik entfernt">${s.nGlitch} Ausreißer</span>` : ''}
             </div>
           </div>
@@ -126,7 +154,13 @@ export class SxTrackList extends LitElement {
             : html`<button class="btn ghost small icon" title="Entfernen" aria-label="Entfernen: ${t.name}" @click=${() => emit(this, 'sx-track-remove', t.id)}>${icon('x')}</button>`}
         </li>`;
       })}
-    </ul>`;
+    </ul>
+    ${this.addable
+      ? html`<div class="draft-actions">
+          <button class="btn small add" type="button" title="Weitere GPX-Dateien zu diesem Entwurf hinzufügen" @click=${() => pickGpx(this, 'sx-files-add')}>${icon('plus')} GPX hinzufügen</button>
+          <button class="btn small ghost danger discard" type="button" title="Entwurf mit allen Tracks verwerfen (mit Rückfrage)" @click=${() => emit(this, 'sx-draft-discard')}>${icon('trash')} Entwurf verwerfen</button>
+        </div>`
+      : ''}`;
   }
 }
 customElements.define('sx-track-list', SxTrackList);

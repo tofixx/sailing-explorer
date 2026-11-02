@@ -21,7 +21,7 @@ import { GROUP_LIMITS, groupLimitMessage, groupVerdict } from '../src/domain/lim
 import { canChooseVisibility, DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 import {
   DEFAULT_MEMBERS_VISIBLE, canApprove, canManageGroup, canRemoveMember, canSeeMembers, effectiveJoinMode, isApprovers, isGroupKind, isGroupRole, isJoinMode,
-  isMembersVisible, normalizeSlug, type Approvers, type GroupKind, type GroupRole, type JoinMode, type MembersVisible,
+  isMembersVisible, normalizeSlug, seasonStart, type Approvers, type GroupKind, type GroupRole, type JoinMode, type MembersVisible,
 } from '../src/domain/groups';
 import { funnyName, memberAlias } from '../src/domain/names';
 import { effectivePostBy, isPostBy } from '../src/domain/posts';
@@ -427,7 +427,7 @@ const GROUP_SHARES = `s.id IN (SELECT share_id FROM share_groups WHERE group_id 
 
 /** Kennzahlen: Mitglieder, öffentliche Boote, öffentliche in der Gruppe ausgewählte Törns, Saison (Kalenderjahr). */
 async function groupStats(env: Env, groupId: string, now = Date.now()) {
-  const yearStart = Date.UTC(new Date(now).getUTCFullYear(), 0, 1);
+  const yearStart = seasonStart(now);
   const row = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM group_members WHERE group_id = ?1) AS members,
        (SELECT COUNT(*) FROM group_boats gb JOIN boats b ON b.id = gb.boat_id WHERE gb.group_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats,

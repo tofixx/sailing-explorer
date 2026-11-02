@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { membersVisibleSql } from './member-sql';
 
 /**
  * Wem gehört ein Törn und in welchen Gruppen ist er erschienen (F-228)? Beides nur, soweit der Betrachter es sehen
@@ -6,7 +7,8 @@ import type { Env } from './env';
  * Eigentümer sieht sein eigenes immer; Gruppen nur öffentliche bzw. solche, in denen der Betrachter Mitglied ist
  * (canViewGroup ohne Schlüssel), ausgeblendete nie. Die Gruppen sind die von der Eigentümer:in ausgewählten
  * (share_groups, F-373) – wie im Gruppen-Stream nur, solange der Törn öffentlich und nicht ausgeblendet ist.
- * Gesperrte Konten nennen weder Profil noch Gruppen (wie Entdecken).
+ * Gesperrte Konten nennen weder Profil noch Gruppen (wie Entdecken). Gruppen mit Mitgliederliste „nur Mitglieder“ nennt der
+ * Törn nur ihren Mitgliedern – sonst verriete er die Mitgliedschaft der Eigentümer:in (F-442, Konzept 24.7).
  */
 export async function shareContext(
   env: Env,
@@ -25,7 +27,7 @@ export async function shareContext(
        JOIN groups g ON g.id = sg.group_id AND g.hidden_at IS NULL AND g.locked_at IS NULL
        LEFT JOIN group_members m ON m.group_id = g.id AND m.user_id = ?2
        JOIN users u ON u.id = ?4 AND u.suspended_at IS NULL
-       WHERE ?3 AND sg.share_id = ?1 AND (g.visibility = 'public' OR m.user_id IS NOT NULL)
+       WHERE ?3 AND sg.share_id = ?1 AND (g.visibility = 'public' OR m.user_id IS NOT NULL) AND ${membersVisibleSql('g', '?2')}
        ORDER BY g.kind, g.name LIMIT 10`,
     ).bind(share.id, viewerId, listed, share.user_id),
   ]);

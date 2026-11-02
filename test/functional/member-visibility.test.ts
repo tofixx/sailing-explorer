@@ -170,6 +170,20 @@ describe('F-442 Boote der Gruppe folgen der Mitgliederliste', () => {
   });
 });
 
+describe('F-442 „In Gruppe gezeigt“ am Törn', () => {
+  it('[F-442] öffentlicher Törn nennt eine Gruppe mit Liste „nur Mitglieder“ nur ihren Mitgliedern; öffentliche Liste allen', async () => {
+    const { owner, g, pub, stranger } = await setup();
+    const share = await s.share(pub, { title: 'Gruppentörn', groups: [g.id] });
+    const groups = async (p?: Person) => (await ok<{ share: { groups: Array<{ slug: string }> } }>(await s.send('GET', `/api/shares/${share.id}`, p?.cookie))).share.groups;
+    expect(await groups()).toEqual([]);
+    expect(await groups(stranger)).toEqual([]);
+    expect((await groups(owner)).map((x) => x.slug)).toEqual([g.slug]);
+    expect((await groups(pub)).map((x) => x.slug)).toEqual([g.slug]);
+    await ok(await s.send('PATCH', `/api/groups/${g.id}`, owner.cookie, { membersVisible: 'public' }));
+    expect((await groups()).map((x) => x.slug)).toEqual([g.slug]);
+  });
+});
+
 // ---------------------------------------------------------------- F-443 Beitritte
 
 describe('F-443 Beitrittsmeldungen nur für Mitglieder derselben Gruppe', () => {

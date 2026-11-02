@@ -44,6 +44,11 @@ vi.mock('../../src/services/workspace', () => ({
 }));
 
 const { App } = await import('../../src/app');
+// Rückfrage „Entwurf verwerfen?“ (F-434) ist die einzige Komponente, die die App aufruft statt nur Properties zu setzen
+await import('../../src/components/sx-confirm');
+HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+  this.setAttribute('open', '');
+};
 
 // ---------------------------------------------------------------- Umgebung
 
@@ -66,6 +71,8 @@ class FakeChannel {
   }
   close() {}
 }
+/** Anmelde-Kanal der Sitzung (daneben gibt es `sx-draft` für den Entwurf, F-439) */
+const authChannel = () => FakeChannel.all.find((c) => c.name === 'sx-auth')!;
 
 interface Server {
   backend: 'json' | 'html';
@@ -74,7 +81,9 @@ interface Server {
   shares: Map<string, { meta: Record<string, unknown>; payload: unknown }>;
   files: Record<string, string>;
   /** Antwort von /api/discover (null → 500) */
-  discover: { voyages: unknown[]; boats: unknown[]; people: unknown[] } | null;
+  discover: { voyages: unknown[]; boats: unknown[]; people: unknown[]; groups?: unknown[]; harbors?: unknown[] } | null;
+  /** Antwort von /api/discover/stats (F-431) */
+  stats?: { season: number; voyages: number; nm: number; boats: number };
   calls: Array<{ url: string; method: string; headers: Record<string, string>; body?: unknown }>;
   /** Unterstützen eingerichtet: Status für /api/me/support; null = nicht eingerichtet */
   support: Record<string, unknown> | null;
@@ -131,6 +140,7 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     return f ? new Response(f, { headers: { 'Content-Type': 'application/gpx+xml' } }) : new Response('nope', { status: 404 });
   }
   if (url.startsWith('/api/') && server.backend === 'html') return new Response('<!doctype html><html></html>', { headers: { 'Content-Type': 'text/html' } });
+  if (url === '/api/discover/stats') return json(server.stats ?? { season: 2026, voyages: 0, nm: 0, boats: 0 });
   if (url.startsWith('/api/discover')) return server.discover ? json(server.discover) : json({ error: 'internal', message: 'Interner Fehler' }, 500);
   if (url === '/api/config') return json({ turnstileSiteKey: '', sharing: true, support: server.support ? { tiers: SUPPORT_TIERS } : null, freeShares: 3 });
   // ---- Verein, Hafen, Reaktionen (Konzept 12)
@@ -355,13 +365,17 @@ describe('F-01/F-02 Dateien laden', () => {
     expect(h.maps[0].fit).toHaveBeenCalledTimes(1);
   });
 
-  it('[F-75] neuer Upload aus der Startseite wechselt in die Törn-Ansicht', async () => {
+  it('[F-75] neuer Upload aus der Startseite wechselt in die Törn-Ansicht (neuer Törn nach Nachfrage, F-434)', async () => {
     await startApp();
     await load(file('a.gpx', leg('A')));
     emit('sx-home');
-    await load(file('b.gpx', leg('B', T0 + 86_400_000)));
+    emit('sx-files', [file('b.gpx', leg('B', T0 + 86_400_000))]);
+    const confirm = el<HTMLElement & { open: boolean; updateComplete: Promise<boolean>; shadowRoot: ShadowRoot }>('sx-confirm');
+    await vi.waitFor(() => expect(confirm.open).toBe(true));
+    await confirm.updateComplete;
+    (confirm.shadowRoot.querySelector('.btn.primary') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(state().tracks.map((t) => t.name)).toEqual(['B']));
     expect(el<HTMLElement>('.app').hasAttribute('data-empty')).toBe(false);
-    expect(state().tracks).toHaveLength(2);
   });
 
   it('[F-01] Drag & Drop auf die Seite lädt die Dateien', async () => {
@@ -585,7 +599,8 @@ describe('F-22 Wetter einmalig beim Einstellen', () => {
     await load(file('a.gpx', leg('A')));
     await settled();
     server.calls = [];
-    await load(file('b.gpx', leg('B', T0 + 86_400_000)));
+    emit('sx-files-add', [file('b.gpx', leg('B', T0 + 86_400_000))]);
+    await vi.waitFor(() => expect(state().tracks).toHaveLength(2));
     await settled();
     expect(meteoCalls()).toBeGreaterThan(0);
   });
@@ -632,7 +647,7 @@ describe('F-30 Gast-Sitzung', () => {
     await startApp();
     await settled();
     expect(state().tracks.map((t) => t.name)).toEqual(['A']);
-    expect(toasts()).toContain('Gast-Sitzung wiederhergestellt: 1 Track');
+    expect(toasts()).toContain('Entwurf wiederhergestellt: 1 Track');
     expect(el<{ mode: { kind: string }; user: unknown; hasTracks: boolean }>('sx-topbar')).toMatchObject({ mode: { kind: 'local' }, user: null, hasTracks: true });
   });
 
@@ -664,7 +679,7 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
     expect(share.open).toBeFalsy();
     // Magic Link wurde in einem anderen Tab geöffnet → BroadcastChannel „login“
     server.user = { id: 'u1', email: 'skipper@example.org' };
-    FakeChannel.all[0].receive('login');
+    authChannel().receive('login');
     await vi.waitFor(() => expect(share.open).toBe(true));
     expect(login.open).toBe(false);
     expect(share.linkState).toBe('form');
@@ -782,7 +797,7 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
     expect(location.hash).toBe('');
     const verify = server.calls.find((c) => c.url === '/api/auth/verify')!;
     expect(JSON.parse(String(verify.body))).toEqual({ token });
-    expect(FakeChannel.all[0].posted).toContain('login');
+    expect(authChannel().posted).toContain('login');
     expect(toasts()).toContain('Angemeldet als skipper@example.org');
   });
 });
@@ -803,7 +818,8 @@ describe('F-33 Freigabe erstellen', () => {
     dlg.open = false;
     emit('sx-share');
     expect(dlg).toMatchObject({ open: true, purpose: 'share' });
-    expect(dlg.result!.url).toBe(`${location.origin}/s/NewShareId23456789`);
+    // gespeichert ist der Arbeitsbereich der eigene Törn (F-437): Teilen gibt dessen Link samt Ansicht weiter
+    expect(dlg.result!.url).toBe(`${location.origin}/s/NewShareId23456789?m=speed&l=s,w,v`);
   });
 
   it('[F-33] Titel, Sichtbarkeit und Ansicht werden hochgeladen; Ergebnis ist der Link /s/<id>', async () => {
@@ -824,11 +840,12 @@ describe('F-33 Freigabe erstellen', () => {
     // Wetter wird beim Einstellen einmal geladen und mit der Freigabe gespeichert (F-22)
     expect(stored.payload).toEqual({ v: 1, tracks: [{ name: 'A', gpx: state().tracks[0].raw }], weather: state().weather });
     expect(state().weather).not.toBeNull();
-    // F-76: Kopfzeile zeigt jetzt „Gespeichert“
+    // F-76/F-437: Kopfzeile zeigt jetzt „Gespeichert“, der Entwurf ist der eigene Törn geworden
     expect(state().saved).toBe(true);
     expect(el<{ saved: boolean }>('sx-topbar').saved).toBe(true);
+    expect(el<{ toern: { status: string } }>('sx-topbar').toern.status).toBe('Gespeichert · Nur ich');
     emit('sx-track-remove', state().tracks[0].id);
-    expect(state().saved).toBe(false);
+    expect(state().tracks).toHaveLength(1);
   });
 
   it('[F-33] ohne „Ansicht mitgeben“ bleibt die Ansicht leer', async () => {
@@ -944,7 +961,7 @@ describe('F-36/F-37 Konto', () => {
     emit('sx-logout');
     await vi.waitFor(() => expect(state().user).toBeNull());
     expect(server.calls.some((c) => c.method === 'POST' && c.url === '/api/auth/logout')).toBe(true);
-    expect(FakeChannel.all[0].posted).toContain('logout');
+    expect(authChannel().posted).toContain('logout');
     expect(toasts()).toContain('Abgemeldet');
   });
 
@@ -1101,12 +1118,12 @@ describe('F-40 Ohne Backend', () => {
     expect(state().mode).toEqual({ kind: 'link', title: 'Geteilter Track' });
   });
 
-  it('[F-260] ohne Backend: große Einstiegskarte, keine Mitmachen-Karte', async () => {
+  it('[F-260] [F-431] ohne Backend: große Einstiegskarte, kein Gäste-Slider', async () => {
     server.backend = 'html';
     await startApp();
     await settled();
     expect(el<{ community: boolean }>('sx-empty-state').community).toBe(false);
-    expect(el<{ hidden: boolean }>('sx-join-card').hidden).toBe(true);
+    expect(el<{ hidden: boolean }>('sx-guest-slider').hidden).toBe(true);
   });
 
   it('[F-40] zu große Tracks: verständlicher Hinweis statt riesiger URL', async () => {
@@ -1285,7 +1302,7 @@ describe('F-138 Einladungen in der App', () => {
     expect(login().open).toBe(true);
     expect(login().reason).toMatch(/Einladung/);
     server.user = { id: 'u1', email: 'skipper@example.org' };
-    FakeChannel.all[0].receive('login');
+    authChannel().receive('login');
     await vi.waitFor(() => expect(invite()).toMatchObject({ open: true, state: 'ready', signedIn: true }));
     expect(login().open).toBe(false);
     emit('sx-invite-accept');
@@ -1444,23 +1461,77 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
   const topbar = () => el<{ section: string; unread: string }>('sx-topbar');
   const seenCalls = () => server.calls.filter((c) => c.url === '/api/stream/seen');
 
-  it('[F-260] Startseite: Mitmachen-Karte sichtbar; angemeldet steht der Stream vor Entdecken', async () => {
+  it('[F-260] Startseite als Gast: Entdecken vor dem Stream', async () => {
     server.groups = {};
     await startApp();
     await vi.waitFor(() => expect(home().hidden).toBe(false));
-    const join = el<{ hidden: boolean; signedIn: boolean }>('sx-join-card');
-    expect(join.hidden).toBe(false);
-    expect(join.signedIn).toBe(false);
     expect(el<{ streamFirst: boolean }>('sx-empty-state').streamFirst).toBe(false);
   });
 
-  it('[F-260] Startseite angemeldet: Stream zuerst, Mitmachen mit nächsten Schritten', async () => {
+  const slider = () => el<HTMLElement & { stats: unknown; groups: unknown[]; harbors: unknown[] }>('sx-guest-slider');
+
+  it('[F-431] Gast sieht den Slider mit Saison-Zahlen und Vereinen, Wegklicken bleibt auf dem Gerät', async () => {
+    localStorage.removeItem('sx-guest-slider-dismissed');
+    server.groups = {};
+    server.stats = { season: 2026, voyages: 42, nm: 980, boats: 7 };
+    server.discover = { voyages: [], boats: [], people: [], groups: [{ slug: 'pyc', name: 'PYC', kind: 'club', members: 3 }], harbors: [{ slug: 'templin', name: 'Templin', boats: 2, groups: 1 }] };
+    await startApp();
+    await vi.waitFor(() => expect(slider().hidden).toBe(false));
+    await vi.waitFor(() => expect(slider().stats).toEqual(server.stats));
+    expect(slider().groups).toEqual(server.discover.groups);
+    expect(slider().harbors).toEqual(server.discover.harbors);
+    // „GPX ausprobieren“ nimmt denselben Weg wie „+ Neu → Törn (GPX)“: Dateidialog sofort, ohne Anmeldung
+    const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined);
+    slider().dispatchEvent(new CustomEvent('sx-compose-open', { detail: { kind: 'gpx' }, bubbles: true, composed: true }));
+    expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
+    expect(el<{ open?: boolean }>('sx-login-dialog').open).toBeFalsy();
+    // „Community ansehen“ scrollt zum Stream
+    const scroll = vi.fn();
+    (home() as unknown as HTMLElement).scrollIntoView = scroll;
+    slider().dispatchEvent(new CustomEvent('sx-guest-stream', { bubbles: true, composed: true }));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    // × – weg und gemerkt; der Stream bleibt
+    slider().dispatchEvent(new CustomEvent('sx-guest-dismiss', { bubbles: true, composed: true }));
+    expect(slider().hidden).toBe(true);
+    expect(home().hidden).toBe(false);
+    expect(localStorage.getItem('sx-guest-slider-dismissed')).toBe('1');
+    // neu laden: bleibt weg, lädt nichts nach
+    for (const [t, fn] of listeners) document.removeEventListener(t, fn);
+    document.body.innerHTML = BODY;
+    server.calls = [];
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    expect(slider().hidden).toBe(true);
+    expect(server.calls.some((c) => c.url === '/api/discover/stats')).toBe(false);
+    localStorage.removeItem('sx-guest-slider-dismissed');
+  });
+
+  it('[F-431] Angemeldete sehen den Slider nie – auch nicht kurz vor dem Abruf des Kontos', async () => {
+    localStorage.removeItem('sx-guest-slider-dismissed');
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { mine: { groups: [], requests: [] } };
+    const seen: boolean[] = [];
+    const observer = new MutationObserver(() => seen.push(slider().hidden));
+    observer.observe(slider(), { attributes: true, attributeFilter: ['hidden'] });
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    await new Promise((r) => setTimeout(r, 0));
+    observer.disconnect();
+    expect(slider().hidden).toBe(true);
+    expect(seen).not.toContain(false);
+    expect(server.calls.some((c) => c.url === '/api/discover/stats')).toBe(false);
+    // abmelden: jetzt Gast – der Slider erscheint
+    emit('sx-logout');
+    await vi.waitFor(() => expect(slider().hidden).toBe(false));
+  });
+
+  it('[F-260] Startseite angemeldet: Stream zuerst', async () => {
     server.user = { id: 'U1', email: 'a@example.org' };
     server.groups = { myStream: { items: [post], cursor: null, hasGroups: true }, mine: { groups: [], requests: [] } };
     await startApp();
     await vi.waitFor(() => expect(home().hidden).toBe(false));
     expect(el<{ streamFirst: boolean }>('sx-empty-state').streamFirst).toBe(true);
-    expect(el<{ signedIn: boolean }>('sx-join-card').signedIn).toBe(true);
   });
 
   it('[F-262] Link-Vorschau der Startseite beschreibt die Community', () => {
@@ -1634,6 +1705,15 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(el<{ page: string }>('sx-legal-page').page).toBe('datenschutz');
   });
 
+  it('[F-450] /anleitung/aufzeichnen zeigt die Anleitung ohne Backend', async () => {
+    server.backend = 'html';
+    await startApp('/anleitung/aufzeichnen');
+    expect(el<{ hidden: boolean }>('sx-guide-page').hidden).toBe(false);
+    expect(el<{ hidden: boolean }>('sx-legal-page').hidden).toBe(true);
+    expect(document.title).toBe('So zeichnest du deinen Törn auf · Sail Explorer');
+    expect(document.querySelector('.app')?.hasAttribute('data-page')).toBe(true);
+  });
+
   it('[F-161] [F-405] „Beitrag schreiben“ auf der Gruppenseite öffnet „+ Neu → Text“ mit der Gruppe; Veröffentlichen geht an /api/posts', async () => {
     server.user = { id: 'U1', email: 'a@example.org' };
     server.groups = { page: page({ group: { ...page().group, role: 'admin' } }) };
@@ -1694,7 +1774,7 @@ describe('Fahrtenbuch (Konzept 19)', () => {
     expect(login.reason).toMatch(/Fahrtenbuch/);
     expect(form.open).toBeFalsy();
     server.user = { id: 'u1', email: 'skipper@example.org' };
-    FakeChannel.all[0].receive('login');
+    authChannel().receive('login');
     await vi.waitFor(() => expect(form.open).toBe(true));
     expect(form.share).toBeNull();
   });

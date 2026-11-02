@@ -2,12 +2,13 @@ import { LitElement, css, html, nothing } from 'lit';
 import { icon, type IconName } from './icons';
 import { base, emit, menuStyles } from './shared';
 import { MenuController } from './menu-controller';
+import { RECORDING_GUIDE_PATH } from '../content/recording-guide';
 
 /** Arten, die es in Phase 2 gibt (Konzept 21.4) – Umfrage, Veranstaltung und Fotos folgen in späteren Phasen. */
-export type ComposeKind = 'gpx' | 'logbook' | 'text';
+export type ComposeKind = 'gpx' | 'logbook' | 'text' | 'draft';
 
 const KINDS: Array<{ kind: ComposeKind; icon: IconName; label: string; hint: string }> = [
-  { kind: 'gpx', icon: 'map', label: 'Törn (GPX)', hint: 'GPX-Datei laden – wird lokal ausgewertet' },
+  { kind: 'gpx', icon: 'map', label: 'Törn (GPX)', hint: 'Neuer Törn aus GPX-Dateien – wird lokal ausgewertet' },
   { kind: 'logbook', icon: 'book', label: 'Fahrtenbuch-Eintrag', hint: 'Törn ohne Track eintragen' },
   { kind: 'text', icon: 'comment', label: 'Text', hint: 'Beitrag in Profil, Gruppe, Hafen oder Boot' },
 ];
@@ -21,12 +22,16 @@ const KINDS: Array<{ kind: ComposeKind; icon: IconName; label: string; hint: str
 export class SxCompose extends LitElement {
   static properties = {
     open: { type: Boolean, reflect: true },
+    draft: { attribute: false },
   };
   declare open: boolean;
+  /** Titel des Entwurfs, der gerade nicht offen ist – dann oben „Entwurf fortsetzen“ (F-436) */
+  declare draft: string | null;
 
   constructor() {
     super();
     this.open = false;
+    this.draft = null;
   }
 
   static styles = [
@@ -43,6 +48,14 @@ export class SxCompose extends LitElement {
       .item small {
         display: block;
         margin: 0;
+      }
+      /* Hinweis unter „Törn (GPX)“ zur Anleitung (F-450) – klein, kein eigener Eintrag */
+      .how {
+        display: block;
+        margin: -2px 0 var(--s-1);
+        padding: var(--s-1) var(--s-2) var(--s-1) calc(var(--s-2) * 2 + 22px);
+        font-size: var(--fs-s);
+        color: var(--accent);
       }
       @media (min-width: 761px) {
         .menu {
@@ -89,9 +102,14 @@ export class SxCompose extends LitElement {
       ${this.open ? html`<div class="backdrop" @click=${() => (this.open = false)}></div>` : nothing}
       <div class="menu" id="nm" role="group" aria-labelledby="nm-h" ?hidden=${!this.open}>
         <p class="title" id="nm-h">Was möchtest du anlegen?</p>
+        ${this.draft
+          ? html`<button class="item" type="button" @click=${() => this.pick('draft')}>
+              <span class="mark">${icon('pencil')}</span><span>Entwurf fortsetzen: „${this.draft}“<small>Nur auf diesem Gerät, noch nicht gespeichert</small></span></button>`
+          : nothing}
         ${KINDS.map(
           (k) => html`<button class="item" type="button" @click=${() => this.pick(k.kind)}>
-            <span class="mark">${icon(k.icon)}</span><span>${k.label}<small>${k.hint}</small></span></button>`,
+            <span class="mark">${icon(k.icon)}</span><span>${k.label}<small>${k.hint}</small></span></button>
+            ${k.kind === 'gpx' ? html`<a class="how" href=${RECORDING_GUIDE_PATH}>Wie zeichne ich auf?</a>` : nothing}`,
         )}
       </div>
     </div>`;

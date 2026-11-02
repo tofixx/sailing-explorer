@@ -31,12 +31,11 @@ afterEach(() => {
 const user = { id: 'u1', email: 'a@example.org' };
 
 describe('Speichern getrennt vom Teilen (F-225)', () => {
-  it('[F-225] Kopfzeile: „Speichern“ nur für ungespeicherte lokale Tracks mit Backend; der Hinweis-Chip speichert statt zu teilen', async () => {
+  it('[F-225] Kopfzeile: „Speichern“ nur für ungespeicherte lokale Tracks mit Backend – ein Weg, der Chip zeigt nur den Zustand', async () => {
     const bar = await mount('sx-topbar', { user, mode: { kind: 'local' }, hasTracks: true, backend: true, home: false, saved: false });
     buttons(bar).find((b) => /Speichern/.test(b.textContent ?? '') && b.classList.contains('save'))!.click();
-    buttons(bar).find((b) => b.classList.contains('status'))!.click();
     buttons(bar).find((b) => b.classList.contains('share'))!.click();
-    expect(events).toEqual(['sx-save', 'sx-save', 'sx-share']);
+    expect(events).toEqual(['sx-save', 'sx-share']);
     const saved = await mount('sx-topbar', { user, mode: { kind: 'local' }, hasTracks: true, backend: true, home: false, saved: true });
     expect(buttons(saved).some((b) => b.classList.contains('save'))).toBe(false);
     const offline = await mount('sx-topbar', { user, mode: { kind: 'local' }, hasTracks: true, backend: false, home: false, saved: false });

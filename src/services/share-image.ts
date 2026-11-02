@@ -330,7 +330,7 @@ function drawInfo(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box, opts
   const rowH = 54;
   const gridTop = y + (content.title || content.date ? 26 : 0);
   // unten Platz für Legende und Marke lassen
-  const footer = content.legend && opts.range ? 80 : 50;
+  const footer = content.legend && opts.range ? 104 : 50;
   const maxRows = Math.max(0, Math.floor((box.y + box.h - footer - gridTop) / rowH));
   rows.slice(0, maxRows * cols).forEach((r, i) => {
     const cx = x + (i % cols) * colW;
@@ -353,30 +353,28 @@ function drawInfo(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box, opts
     }
   });
 
-  // Fuß: Legende und Marke
+  // Fuß: Legende (Verlauf + Beschriftung) über einer eigenen Markenzeile – Logo und Name links, Adresse rechts,
+  // damit sich nichts überlagert, egal wie lang die Beschriftung wird.
   const footY = box.y + box.h - pad;
   if (content.legend && opts.range) {
     const m = METRICS[opts.metric];
-    const lw = format === 'square' ? 260 : innerW;
-    const grad = ctx.createLinearGradient(x, 0, x + lw, 0);
+    const grad = ctx.createLinearGradient(x, 0, x + innerW, 0);
     for (let i = 0; i <= 10; i++) grad.addColorStop(i / 10, rampColor(i / 10, opts.ramp));
-    roundRect(ctx, x, footY - 46, lw, 10, 5);
+    roundRect(ctx, x, footY - 66, innerW, 10, 5);
     ctx.fillStyle = grad;
     ctx.fill();
     ctx.fillStyle = C.muted;
     ctx.font = `500 13px ${FONT}`;
-    ctx.fillText(`Farbe: ${m.label} ${fmtNum(opts.range.lo, m.decimals)}–${fmtNum(opts.range.hi, m.decimals)} ${m.unit}`, x, footY - 20);
+    ctx.fillText(`Farbe: ${m.label} ${fmtNum(opts.range.lo, m.decimals)}–${fmtNum(opts.range.hi, m.decimals)} ${m.unit}`, x, footY - 38);
   }
-  ctx.textAlign = 'right';
+  drawLogo(ctx, x, footY - 18, 22);
   ctx.fillStyle = C.accent;
   ctx.font = `750 18px ${FONT}`;
-  ctx.fillText('Sail Explorer', box.x + box.w - pad, footY);
-  drawLogo(ctx, box.x + box.w - pad - ctx.measureText('Sail Explorer').width - 30, footY - 17, 22);
-  if (!(content.legend && opts.range) || format === 'square') {
-    ctx.fillStyle = C.faint;
-    ctx.font = `500 13px ${FONT}`;
-    ctx.fillText('segeln-potsdam.de', box.x + box.w - pad, footY - 22);
-  }
+  ctx.fillText('Sail Explorer', x + 28, footY);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = C.faint;
+  ctx.font = `500 13px ${FONT}`;
+  ctx.fillText('segeln-potsdam.de', box.x + box.w - pad, footY);
   ctx.textAlign = 'left';
 }
 
