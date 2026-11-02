@@ -2536,3 +2536,326 @@ Admin-Liste, Entscheidung, Entziehen, Aufräumen), Abzeichen in `shared.ts`, Dia
 
 Hinweis für das Fahrtenbuch (L3, Branch `feature/fahrtenbuch`): Die Regel „wer zuerst die Position setzt, wird
 Anleger:in“ prüft vorher `mayAdoptHarbor` (`worker/claim-cleanup.ts`) – je verifizierte Häfen übernimmt niemand so.
+
+## 21. Beiträge als Grundtyp
+
+Stand: 02.11.2026, **Entwurf – noch nicht entschieden, nichts umgesetzt.** Anforderungs-IDs hier sind Platzhalter
+(**F-400 ff.**) und werden erst bei der Umsetzung nach `docs/REQUIREMENTS.md` übernommen.
+
+Anlass (Betreiber): *„Ich denke es macht Sinn, Posts als solche zu definieren und diese können dann ein GPX-Törn sein,
+oder Umfrage, Veranstaltung mit Check-in, Fotos oder nur ein Fahrtenbuch-Eintrag. Alle Typen sollten über den
+Plus-Button erstellbar sein […] Posts sollten angepinnt werden können […] anpinnen nur dort wo es gemacht wird. […]
+Das eigene Fahrtenbuch soll dann auch nach Jahren sortiert editierbar sein und Zusatzpunkte eingetragen werden können
+[…] Ggf. muss man unterschiedliche Berechnungsmodelle im Adminbereich einstellen können.“* Dazu frühere Wünsche:
+Beiträge in Gruppen mit Fotos und angehängtem eigenen Törn; Umfragen und Veranstaltungen mit Zusage
+(zusagen/vielleicht/absagen) und Check-in; **jeder Beitrag hat einen Kontext** (keine Beiträge „an alle“); Törns
+erscheinen in einer Gruppe nur, wenn sie dort ausgewählt sind (11.12).
+
+### 21.1 Ausgangslage: fünf Dinge, die für Nutzer:innen „ein Beitrag“ sind
+
+| Heute | Speicher | Wo erscheint es | Was verwirrt |
+|---|---|---|---|
+| Törn mit GPX | `shares` (`source = 'gpx'`) + R2-Payload | eigene Seite `/s/<id>`; Stream über `activity` (`voyage`) an Segler, Boot, Hafen, gewählte Gruppen (`share_groups`) | Einstieg nur „Track anlegen“; dass ein Törn „in die Gruppe gepostet“ wird, ist ein Haken im Teilen-Dialog |
+| Fahrtenbuch-Eintrag | `shares` (`source = 'manual'`, `log`-JSON) | wie Törn; Nachträge gebündelt (`logbook`) | eigener Einstieg „Ins Fahrtenbuch eintragen“; keine Übersicht „mein Fahrtenbuch“ nach Jahren |
+| Gruppen-Beitrag (News) | `posts` (`group_id`, `body`, `link`) | nur Gruppe (+ Teams eines Vereins) über `activity` (`post`) | nur Eigner/Admins; kein Foto, kein Törn-Anhang; schreiben nur auf der Gruppenseite |
+| Fotos | `photos.share_id NOT NULL` | nur an einem Törn; Stream-Bündel `photos`; Galerien (13.1) | Fotos vom Vereinsfest ohne Törn sind unmöglich |
+| Aktivitäten | `activity` + `activity_target` | Stream (Index, Prüfung beim Lesen, 11.3) | Mitglied/Boot/Meilenstein sind *Ereignisse*, keine Beiträge – stehen aber gleichrangig dazwischen |
+
+Es fehlen: persönliche Beiträge (11.10 nur vorbereitet), Umfragen, Veranstaltungen, Anpinnen, eine Seite, auf der man
+**alle eigenen** Inhalte (auch private) sieht, und ein gemeinsamer Einstieg.
+
+### 21.2 Zielmodell
+
+**Ein Beitrag (`post`) hat immer: Autor:in, Art, Kanal (Kontext), Sichtbarkeit, Zeit.** Die Art bestimmt die Nutzlast:
+
+| Art (`kind`) | Nutzlast | Darstellung | Eigene Seite |
+|---|---|---|---|
+| `voyage` | Törn mit GPX (`shares`) | Stream-Karte wie heute, Klick → Törn-Ansicht (Karte, Fotos, Kommentare, Crew) | ja, `/s/<id>` (unverändert) |
+| `logbook` | Fahrtenbuch-Eintrag (`shares`, `source = 'manual'`) | wie heute, gestrichelt | ja, `/s/<id>` |
+| `gallery` | 1–30 Fotos + Text | Karte mit Fotoraster, Lightbox | **nein** – Ankerlink |
+| `poll` | Frage + 2–10 Antworten | Karte mit Abstimmen/Ergebnis | nein |
+| `event` | Termin, Ort, Zusagen, Check-in | Karte mit Datum, Ort, Zusage-Knöpfen | nein |
+| `text` | Text + optional Link (heutige News) | wie heute | nein |
+
+Ein `text`- oder `gallery`-Beitrag kann **einen eigenen Törn anhängen** (`data.shareId`, nur eigene Törns; ist der
+Törn für den Lesenden nicht sichtbar, fällt der Anhang beim Lesen weg) – das erfüllt „Fotos und angehängter Törn in
+der Gruppe“.
+
+**Kanäle (Kontexte):** `user` (Profil einer Person), `group` (Verein oder Team), `harbor`, `boat`. Es gibt keinen Kanal
+„alle“ (F-400).
+
+| Regel | Inhalt |
+|---|---|
+| Heimatkanal | der Kanal, in dem der Beitrag angelegt wurde (`channel_kind`, `channel_id`). Über „+“ auf einer Gruppenseite = die Gruppe, sonst Vorauswahl „Mein Profil“ |
+| Weitere Kanäle | nur `voyage`/`logbook`: ausgewählte Gruppen (`share_groups`, 11.12) und automatisch der Hafen des öffentlichen Boots (12.4) sowie Boot und Segler:in – wie heute. Andere Arten erscheinen nur im Heimatkanal (Vereinsbeiträge zusätzlich in dessen Teams, wie 11.4) |
+| Eigener Kanal | „Mein Kanal“ (eigenes Profil, angemeldet) zeigt **alle eigenen Beiträge aller Arten und Sichtbarkeiten**, auch private und solche in geschlossenen Gruppen (mit Hinweis „in Mittwochsregatta“). Gelesen direkt aus `posts.author_id`, nicht über das Aktivitäts-Log (F-401) |
+| Sichtbarkeit | `public` · `members` (nur Mitglieder des Gruppen-Kanals, nur bei `channel_kind = 'group'`) · `unlisted` (Schlüssel-Link) · `private` (nur ich). Effektiv = min(Beitrag, Kanal) für alle Arten außer `voyage`/`logbook` – dort bleibt Abschnitt 1 (Törn unabhängig von Profil und Gruppe) (F-402) |
+| Privat und „Nur mit Link“ | erscheinen in keinem Stream und keinem fremden Kanal, nur im eigenen Kanal und (mit Link) als einzelne Karte |
+| Anpinnen | **je Kanal** und nur dort, wo gepinnt wird (ein Pin in der Gruppe pinnt nicht im Hafen). Gepinnt werden kann jeder Beitrag, der in diesem Kanal erscheint (F-403) |
+
+**Wer pinnt:** eigenes Profil – die Person selbst; Gruppe – Eigner und Admins; Hafen – verifizierte Hafen-Vertretung
+(20), sonst die Anleger:in, und die Moderation; Boot – Eigner und Boots-Admins. Höchstens **3 Pins je Kanal**,
+neuester oben; ein Pin zeigt nur, was der Lesende ohnehin sehen darf (sonst übersprungen). Veranstaltungen entpinnen
+sich nach ihrem Ende von selbst (beim Lesen ignoriert, nachts gelöscht).
+
+### 21.3 Datenmodell und Migration
+
+#### 21.3.1 Zwei Optionen
+
+| | **A: `posts` als Dach (empfohlen)** | B: Arten nebeneinander |
+|---|---|---|
+| Idee | Jeder Inhalt hat eine Zeile in `posts`. Törns behalten `shares` als Nutzlast; ihre Post-Zeile hat **dieselbe ID** wie der Törn (`posts.share_id = posts.id`). Umfrage, Veranstaltung, Galerie bekommen Untertabellen | `shares` bleibt allein für Törns, `posts` wird um Arten erweitert; „Beitrag“ ist nur ein Begriff der Oberfläche |
+| Eigener Kanal | eine indizierte Abfrage auf `posts(author_id, created_at)` | zwei Abfragen (`shares`, `posts`) im Worker zusammengeführt, Cursor über zwei Quellen |
+| Pins | `channel_pins.post_id` mit Fremdschlüssel → fällt automatisch mit | generisch `(subject_kind, subject_id)` ohne Fremdschlüssel → eigene Aufräumregeln je Art |
+| Löschen | gemeinsamer Einstieg `removePost`; bei `voyage`/`logbook` ruft er `removeShare` (der löscht die Post-Zeile per `ON DELETE CASCADE`) | zwei Einstiege wie heute |
+| Kosten D1 | +1 Zeile je Törn (≈ 200 B), Rückfüllung einmalig `INSERT … SELECT FROM shares`; Lesen gleich | keine Zusatzzeilen; dafür doppelte Abfragen im eigenen Kanal und bei Pins |
+| Risiko | zwei Zeilen konsistent halten (gleicher Batch beim Anlegen, Fremdschlüssel beim Löschen, nächtlicher Waisen-Check) | „Beitrag“ ohne Gegenstück im Modell; jede neue Art fragt wieder „wo hängt das?“ |
+| Stream | unverändert: `activity` bleibt der Index (`voyage`/`photos`/`logbook` mit `subject_kind = 'share'`, alle anderen `post`); die Prüfung beim Lesen für Törns ändert sich nicht | gleich |
+
+**Empfehlung A**, weil Kanal, Pin, eigener Kanal und Löschen dann für alle Arten **ein** Modell haben und die
+Törn-Logik (Sichtbarkeit, Schlüssel, Payload, Fotos, Kommentare, Crew, Aufbewahrung) unangetastet bleibt. Die
+Sichtbarkeit von Törns steht weiter nur in `shares` (eine Quelle); `posts.visibility` ist für Törn-Zeilen bedeutungslos.
+
+#### 21.3.2 Migration (Vorschlag `0029_posts.sql`, Nummer vor Vergabe in allen Branches prüfen)
+
+```sql
+ALTER TABLE posts ADD COLUMN kind TEXT NOT NULL DEFAULT 'text';         -- text|gallery|poll|event|voyage|logbook
+ALTER TABLE posts ADD COLUMN channel_kind TEXT;                         -- user|group|harbor|boat
+ALTER TABLE posts ADD COLUMN channel_id TEXT;
+ALTER TABLE posts ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'; -- public|members|unlisted|private
+ALTER TABLE posts ADD COLUMN link_key TEXT;                             -- Schlüssel für „Nur mit Link“
+ALTER TABLE posts ADD COLUMN share_id TEXT REFERENCES shares(id) ON DELETE CASCADE;
+ALTER TABLE posts ADD COLUMN data TEXT NOT NULL DEFAULT '{}';           -- Umfrage-Optionen, Törn-Anhang …
+ALTER TABLE posts ADD COLUMN updated_at INTEGER;
+UPDATE posts SET channel_kind = 'group', channel_id = group_id WHERE group_id IS NOT NULL;
+INSERT INTO posts (id, author_id, kind, channel_kind, channel_id, share_id, body, created_at)
+  SELECT id, user_id, CASE source WHEN 'manual' THEN 'logbook' ELSE 'voyage' END, 'user', user_id, id, '', created_at
+  FROM shares;
+CREATE UNIQUE INDEX posts_share ON posts(share_id) WHERE share_id IS NOT NULL;
+CREATE INDEX posts_channel ON posts(channel_kind, channel_id, created_at DESC);
+CREATE INDEX posts_author_created ON posts(author_id, created_at DESC);
+
+CREATE TABLE channel_pins (channel_kind TEXT NOT NULL, channel_id TEXT NOT NULL,
+  post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE, pinned_by TEXT, created_at INTEGER NOT NULL,
+  PRIMARY KEY (channel_kind, channel_id, post_id));
+CREATE TABLE poll_votes (post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, choice INTEGER NOT NULL, created_at INTEGER NOT NULL,
+  PRIMARY KEY (post_id, user_id, choice));
+CREATE TABLE post_events (post_id TEXT PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
+  starts_at INTEGER NOT NULL, ends_at INTEGER NOT NULL, harbor_id TEXT REFERENCES harbors(id) ON DELETE SET NULL,
+  lat REAL, lon REAL, capacity INTEGER, checkin TEXT NOT NULL DEFAULT 'off', reminded_at INTEGER);
+CREATE INDEX post_events_start ON post_events(starts_at);
+CREATE TABLE event_rsvps (post_id TEXT NOT NULL REFERENCES post_events(post_id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, status TEXT NOT NULL,    -- yes|maybe|no
+  checked_in_at INTEGER, on_site INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (post_id, user_id));
+```
+
+`group_id` bleibt (Fremdschlüssel für das Löschen der Gruppe, = `channel_id` bei Gruppen-Kanälen). Werte prüft
+`worker/validate.ts`, kein `CHECK` (Architektur 7). Reine Regeln (Arten, Kanäle, Sichtbarkeit, Pin-Rechte, Umfrage-
+und Veranstaltungs-Regeln) liegen in `src/domain/posts.ts`. Neue Törns schreiben Törn- und Post-Zeile im selben Batch.
+
+**Galerie-Fotos:** `photos.share_id` ist `NOT NULL`. Nötig ist ein einmaliger **Tabellen-Neubau** von `photos`
+(`share_id` nullable, neu `post_id REFERENCES posts ON DELETE CASCADE`; genau eins von beiden, geprüft im Worker).
+R2-Schlüssel `photos/<postId>/<photoId>.webp` – gleiches Muster, Eltern-ID statt Törn-ID. Das ist das größte
+Migrationsrisiko (Kopieren, Indizes, `PRAGMA defer_foreign_keys`), deshalb eine eigene Phase (21.8).
+
+#### 21.3.3 Löschkonzept je Art (CLAUDE.md Prüfpunkt 6)
+
+| Art | einzeln | Eltern (Gruppe, Hafen, Boot) | Konto / inaktiv | Ablauf | Moderation |
+|---|---|---|---|---|---|
+| `voyage`, `logbook` | `removeShare` (unverändert), Post-Zeile per Cascade | Törn bleibt, nur `share_groups`/Pins fallen | wie heute | wie heute (5.5, L2) | wie heute |
+| `text` | `removePost` (heute) + Pins, Reaktionen, Meldungen, Aktivität | Gruppe: Cascade über `group_id`; Hafen/Boot: neue Anweisung in `harborActivityCleanup`/`boatCleanup` (kein Fremdschlüssel auf `channel_id`) | Cascade `author_id` | **neu:** 24 Monate nach Anlegen, nicht solange gepinnt (Vorschlag) | ausblenden/löschen wie heute |
+| `gallery` | wie `text` + **R2-Dateien und Speicherzähler** über die D1-Liste der Foto-IDs (wie `photo-keys.ts`) | **Achtung:** Cascade löscht D1-Zeilen, nicht R2 – Gruppe/Hafen/Boot löschen muss vorher die Foto-Schlüssel ihrer Galerie-Beiträge einsammeln | `purgeUser` löscht Fotos künftig über `photos.user_id` (nicht nur über Törns) | wie Fotos am Törn (Saison + Unterstützerende, 5.5/E4) | Foto einzeln (`removePhotoById`) |
+| `poll` | Cascade `poll_votes` | wie `text` | eigene Stimmen fallen (Ergebnis ändert sich – gewollt) | wie `text` | wie `text` |
+| `event` | Cascade `post_events`, `event_rsvps`, Erinnerungs-Benachrichtigungen | wie `text` | Zusagen fallen | 12 Monate nach Ende (übernommene Fahrtenbuch-Einträge bleiben, sie sind eigene Törns) | wie `text` |
+| Pins | Cascade über `post_id` | Kanal gelöscht → Anweisung je Kanal-Art | – | Veranstaltung beendet → nachts | – |
+
+Ein Test je Zeile (F-404). `post_log` (5 pro Gruppe und Tag) gilt für alle Arten außer Törns.
+
+### 21.4 Plus-Knopf: ein Einstieg für alles
+
+Der heutige FAB (`sx-empty-state`, mobil unten rechts) und „Track anlegen“ in der Kopfzeile werden zu **„+ Neu“**.
+Auf Gruppen-, Hafen- und Bootsseiten ist der Kanal vorausgewählt (F-405).
+
+1. **Art wählen** (Bottom-Sheet mobil, Menü am Knopf ab 760 px): „Törn (GPX)“ · „Fahrtenbuch-Eintrag“ · „Fotos“ ·
+   „Umfrage“ · „Veranstaltung“ · „Text“. Gäste: Anmeldedialog, danach weiter (wie F-31); „Törn (GPX)“ bleibt ohne
+   Anmeldung möglich (lokal analysieren, Prinzip Security 1). Ziehen & Ablegen einer GPX-Datei bleibt der Schnellweg.
+2. **Wo?** „Mein Profil“ + Gruppen, in denen ich schreiben darf (21.7) + Hafen/Boot, wo ich Rechte habe. Bei Törns
+   ist es die bekannte Mehrfachauswahl „In Gruppen zeigen“ (11.12); „Mein Profil“ ist dort immer dabei.
+3. **Sichtbarkeit** (`sx-visibility-picker`, um „Nur Mitglieder“ erweitert, nur bei Gruppen-Kanal).
+4. **Formular je Art.** Törn: Datei wählen → wie heute in die **Törn-Ansicht** (Karte), dort Speichern/Teilen mit Kanal;
+   Fahrtenbuch: `sx-logbook-form` wie heute. Fotos/Umfrage/Veranstaltung/Text: kompaktes Formular im Sheet bzw. Dialog
+   (`dialogStyles`), danach zurück in den Kanal, die neue Karte oben und kurz hervorgehoben.
+
+**Ohne eigene Seite:** Galerie, Umfrage, Veranstaltung und Text sind nur Stream-Karten. Teilen und Benachrichtigungen
+verlinken `/p/<id>` (bzw. `/p/<id>/<schlüssel>`): der Worker leitet auf den Heimatkanal mit Anker `#p-<id>` um, die
+Karte wird nachgeladen, falls sie nicht auf der ersten Seite steht, und hervorgehoben. Ist der Kanal für den Lesenden
+nicht sichtbar (z. B. Beitrag „Nur mit Link“ im eigenen Profil), zeigt `/p/…` die einzelne Karte im Kanal-Rahmen.
+Link-Vorschau: erste Zeile, bei Galerien das erste Foto nur bei effektiv öffentlich (wie 1.4) (F-406).
+
+Komponenten: `sx-compose` (Ablauf, Controller für die Schritte), je Art eine kleine Karte (`sx-poll`, `sx-event`,
+`sx-gallery-post`); `sx-stream` delegiert an sie.
+
+### 21.5 Umfragen und Veranstaltungen
+
+**Umfrage (`poll`)** (F-407)
+
+| Punkt | Vorschlag |
+|---|---|
+| Inhalt | Frage ≤ 300 Zeichen, 2–10 Antworten ≤ 100 Zeichen; nach der ersten Stimme nicht mehr änderbar (nur schließen/löschen) |
+| Auswahl | einfach (Standard) oder mehrfach (höchstens n) |
+| Ende | optional Datum/Uhrzeit (≤ 90 Tage); danach geschlossen, geprüft beim Lesen und Abstimmen – kein Cron |
+| Ergebnis sichtbar | „nach eigener Stimme“ (Standard) · „immer“ · „erst nach Ende“; die Autor:in sieht es immer |
+| Anonymität | Standard **anonym** (nur Zahlen); wählbar „namentlich“ – steht dann im Formular und an der Karte, Namen nur bei öffentlichem Profil (sonst „+ n weitere“, wie Reaktionen). Nachträglich nicht umstellbar |
+| Wer stimmt ab | angemeldet, nicht gesperrt, wer den Beitrag sehen darf (Prüfung wie beim Lesen; „Nur Mitglieder“ ⇒ nur Mitglieder) – sonst 404 |
+| Ändern | eigene Stimme ändern/zurücknehmen bis zum Ende |
+| Grenzen | Umfragen zählen in `post_log` des Kanals; 300 Stimmen je Konto und Tag (wie Reaktionen); ≤ 1000 Stimmen je Umfrage |
+| Zählen | `GROUP BY choice` auf `poll_votes(post_id)`; im Stream ein Batch für alle Umfragen der Seite |
+
+**Veranstaltung (`event`)** (F-408 … F-410)
+
+| Punkt | Vorschlag |
+|---|---|
+| Inhalt | Titel, Beschreibung, Art (Treffen · Ausfahrt · Regatta · Arbeitsdienst · Kurs – für Anzeige und Fahrtenbuch-Übernahme), Beginn, Ende (≤ 14 Tage), Ort: Hafen (`sx-harbor-picker`) **oder** Kartenpunkt (`sx-place-picker`) |
+| Zusage | „Dabei“ · „Vielleicht“ · „Nicht dabei“, änderbar bis Ende; Zähler je Status, Namen wie bei Reaktionen (öffentliche Profile); Autor:in und Gruppen-Admins sehen alle Anzeigenamen (wie Mitgliederliste, 11.11 Frage 2) |
+| Kapazität | optional; voll ⇒ „Dabei“ gesperrt, „Vielleicht“ geht (keine Warteliste in Phase 1); geprüft in derselben SQL-Anweisung (`INSERT … SELECT … WHERE COUNT < capacity`) |
+| Check-in | `off` (Standard) · `window`: 60 min vor Beginn bis Ende, Knopf „Ich bin da“ · `onsite`: zusätzlich Standortabgleich im Browser (≤ 500 m vom Hafen/Punkt); gespeichert wird **nur** `on_site = 1`, nie die Position. Ohne Standortfreigabe geht Check-in trotzdem (`on_site = 0`) |
+| Erinnerung | Benachrichtigung (17) `event_reminder` an „Dabei“/„Vielleicht“ im Nachtlauf (Cron 03:17 UTC) für Veranstaltungen der nächsten 36 h, einmal (`reminded_at`); Kanäle je Art wie 17.6. Zeit/Ort geändert oder abgesagt ⇒ `event_changed` an alle Zusagen |
+| Danach | Teilnehmende mit Check-in (oder „Dabei“) sehen „Ins Fahrtenbuch übernehmen“: `sx-logbook-form` vorbefüllt (Datum, Hafen, Titel, Art), bei Regatten mit Platz/Startern (21.6). Es entsteht ein normaler Fahrtenbuch-Eintrag mit Verweis `log.eventId` |
+| Kalender | `.ics`-Download je Veranstaltung (im Browser erzeugt) |
+| Grenzen | zählen in `post_log` des Kanals; Zusagen 300 je Konto und Tag; Kapazität ≤ 500 |
+
+### 21.6 Fahrtenbuch: Jahre, Zusatzangaben, Wertungen
+
+**Ansicht „Mein Fahrtenbuch“** (`/fahrtenbuch`, aus „Mein Kanal“ und Konto erreichbar) (F-411): Reiter je Saison
+(neueste zuerst), Tabelle Datum · Von → Nach · sm (Quelle) · Rolle · Boot · Revier · Zusatz; Klick öffnet
+`sx-logbook-form` bzw. das Fahrtenbuch-Panel des GPX-Törns zum Bearbeiten. Kopf je Jahr: Summen (sm, davon
+aufgezeichnet, unter Segel/Motor, als Skipper, Nachtstunden, Tage an Bord, verschiedene Häfen, Tidengewässer) und,
+falls gewählt, die Punkte eines Wertungsmodells. Enthält **alle** eigenen Törns, auch private, und bestätigte
+Crew-Törns anderer (Ausnahme M1, nur Eckdaten). Export CSV/PDF „Meilennachweis“ (F-277/F-278).
+
+**Zusatzangaben** (in `shares.log`, für GPX- und manuelle Törns, alle optional) (F-412). *Annahmen, vor der Umsetzung
+mit der aktuellen Prüfungsordnung bzw. einer konkreten Vereinsordnung abgleichen:* Meilennachweise für SKS/SSS zählen
+Seemeilen **in Küstengewässern** mit Funktion an Bord und Unterschrift der Skipper:in – Binnenmeilen (Havel) zählen dort
+nicht; Fahrtenpreise der Vereine werten meist Meilen, Tage, Häfen und Nachtfahrten, teils mit Revier-Faktor; die
+Kreuzer-Abteilung des DSV bewertet Fahrtenberichte eher per Jury als per Formel. Deshalb ein Baukasten statt einer
+festen Norm.
+
+| Feld | Wert | Wofür |
+|---|---|---|
+| Revier | `inland` · `coastal` · `offshore` (> 12 sm vor der Küste) + Haken `tidal` (Tidengewässer) | Meilennachweis (Küste), Revier-Faktor |
+| Stunden unter Segel / Motor | 0,1 h (Motor gibt es schon als `engineH`) | Segel- vs. Motormeilen (anteilig) |
+| Nachtfahrt | Stunden zwischen Sonnenunter- und -aufgang; bei GPX im Browser aus Zeit und Position berechnet, sonst Angabe | Wertung, Praxis für SSS |
+| Tage an Bord / Hafentage | ganze Tage (aus Ab- und Ankunft vorgeschlagen) | Fahrtenpreise zählen Tage |
+| Max. Windstärke | Bft (heute `wind.bft` = typisch; neu `windMax`) | Statistik |
+| Regatta | Name, Platz, Starter | Regatta-Punkte |
+| Zusatzpunkte | Liste `{ Kategorie, Punkte 0–50, Begründung ≤ 200 }`, z. B. Ausbildung, Regattaleitung, Hilfeleistung | Vereinswertungen; immer als „Selbstangabe“ markiert |
+
+**Berechnungsmodelle (Admin-Bereich)** (F-413, F-414): kein Formeltext (kein `eval`), sondern ein **Baukasten** als
+JSON, geprüft und berechnet von einer reinen Funktion `scoreSeason(entries, model)` in `src/domain/scoring.ts`
+(im Browser für das eigene Fahrtenbuch, im Worker für Vereinswertungen):
+
+| Baustein | Beispiel-Gewicht |
+|---|---|
+| Punkte je sm unter Segel / unter Motor | 1,0 / 0,3 |
+| Faktor Quelle aufgezeichnet / Angabe | 1,0 / 1,0 (ein Verein kann Angaben abwerten) |
+| Revier-Faktor binnen / Küste / offshore / Tide | 1,0 / 1,2 / 1,5 / +0,2 |
+| Faktor Rolle Skipper / Co / Crew / Gast | 1,2 / 1,1 / 1,0 / 0,5 |
+| Punkte je Nachtstunde / Tag an Bord / verschiedenem Hafen / erstmals besuchtem Hafen | 2 / 5 / 3 / 10 |
+| Regatta: Teilnahme + (Starter − Platz + 1) × Gewicht | 10 + 1 |
+| Zusatzpunkte zulassen (ja/nein, Deckel je Saison) | nein |
+| Deckel je Eintrag (gegen Ausreißer) | 500 |
+
+Der Plattform-Admin pflegt **Vorlagen** (`scoring_models`, global: z. B. „Nur Meilen“, „Fahrtenpreis klassisch“,
+„Regatta“). Vereins-Eigner/Admins wählen eine Vorlage für ihre **Vereinswertung** und passen Gewichte an
+(`group_scoring (group_id, season, model_json)`); jede Person kann für sich ein Modell im eigenen Fahrtenbuch wählen.
+Löschen: Vorlagen nur durch Admins (Gruppen behalten eine Kopie im eigenen JSON), `group_scoring` per Cascade mit der
+Gruppe, Opt-in mit der Mitgliedschaft.
+
+**Datenschutz:** Gerechnet wird nur über **eigene** Einträge (eigenes Fahrtenbuch) bzw. in einer Gruppe nur über
+Mitglieder, die **ausdrücklich teilnehmen** (`group_members.scoring_opt_in`), und nur über deren in der Gruppe
+gezeigte Einträge (`share_groups`). Sichtbar ist dort nur die Summe je Person (Name nur mit öffentlichem Profil),
+nie Einzelangaben nicht öffentlicher Einträge. Keine plattformweiten Ranglisten (K6 bleibt). Kosten: eine Abfrage
+über `share_groups ⨝ shares` je Gruppe und Saison (≤ 500 × 100 Zeilen), Ergebnis 10 min gecacht.
+
+### 21.7 Sichtbarkeit und Stream je Kanal
+
+| Kanal | Wer schreibt | Erscheint im Kanal | Persönlicher Stream (Mitgliedschaften) | Umgebung | Alles (öffentlich) |
+|---|---|---|---|---|---|
+| Profil (`user`) | nur die Person | eigene Beiträge nach Sichtbarkeit; Besucher sehen öffentliche nur bei öffentlichem Profil | Follower, Teamkollegen (12.4) | **nur Törns** (wie heute) | **nur Törns** – persönliche Text-, Foto-, Umfrage-Beiträge nicht („nicht an alle“) |
+| Verein/Team (`group`) | Einstellung je Gruppe: Admins (Standard Verein) oder alle Mitglieder (Standard Team); Törns zeigen immer alle Mitglieder (11.12) | alle Arten; `members` nur für Mitglieder | Mitglieder (nicht stumm), Follower öffentlicher Gruppen; Vereinsbeiträge auch in Teams | öffentliche Beiträge öffentlicher Gruppen mit Heimathafen im Umkreis | öffentliche Beiträge öffentlicher Gruppen |
+| Hafen (`harbor`) | Hafen-Vertretung (verifiziert) bzw. Anleger:in, Moderation | deren Beiträge + Törns öffentlicher Boote (automatisch) | Heimathafen, Gefolgte | ja | ja |
+| Boot (`boat`) | Eigner, Boots-Admins | deren Beiträge + Törns des Boots | eigene/verwaltete Boote, Follower | nur Törns | nur Törns |
+
+Regeln: Prüfung beim Lesen wie 11.3, ergänzt um Beitrags-Sichtbarkeit, Kanal-Sichtbarkeit und Autor-Profil (11.10).
+`private`/`unlisted` werden **nie** ins Aktivitäts-Log geschrieben (wie Törns); `members` wird geschrieben, aber nur
+mit Ziel `group` und beim Lesen auf Mitgliedschaft geprüft – nie aus dem 60-s-Cache öffentlicher Gruppen-Streams
+(F-415). Wechselt ein Beitrag die Sichtbarkeit, werden seine Ziele wie bei Törns angeglichen. Pins stehen über dem
+Stream des Kanals, nicht im persönlichen Stream.
+
+**Benachrichtigungen** (Erweiterung von 17.1, F-416): `post` (neuer Beitrag in einer meiner Gruppen – Standard
+**aus**, je Art wählbar; Umfragen und Veranstaltungen Standard „Glocke“), `rsvp` (Zusagen an die Autor:in, gebündelt),
+`event_reminder`, `event_changed`, `poll_closed` (an die Autor:in), Reaktionen wie heute. Stumme Gruppen (12.12)
+benachrichtigen nicht – außer Erinnerung/Änderung einer Veranstaltung mit eigener Zusage. Bündeln wie 17.2; Fan-out
+an Mitglieder nur mit Opt-in bzw. eigener Zusage.
+
+### 21.8 Phasenplan
+
+Jede Phase ist für sich auslieferbar; Review-Agent und `npm run check` vor jedem Merge.
+
+| Phase | Inhalt | Aufwand | Risiko |
+|---|---|---|---|
+| **1 – Dach und eigener Kanal** | Migration `0029_posts` (Spalten, Rückfüllung Törns, Indizes), `src/domain/posts.ts`, `removePost` als Einstieg, „Mein Kanal“ (alle eigenen Beiträge inkl. privat), Text-Beiträge im eigenen Profil, Schreibrecht je Gruppe, Sichtbarkeit `members` | M | Rückfüllung muss Törn-ID = Post-ID halten; Anlegen von Törns schreibt künftig zwei Zeilen |
+| **2 – Plus-Knopf** | `sx-compose` mit Art/Kanal/Sichtbarkeit, GPX und Fahrtenbuch über die bestehenden Wege, Text; Kanal Gruppe vorausgewählt; `/p/<id>`-Anker | M | FAB und Ziehen & Ablegen mobil nicht verlieren |
+| **3 – Pins** | `channel_pins`, Rechte je Kanal, 3 je Kanal, Anzeige oben | S | gering |
+| **4 – Umfragen** | `poll_votes`, Karte, Grenzen, `poll_closed` | M | gering |
+| **5 – Veranstaltungen** | `post_events`, `event_rsvps`, Kapazität, Check-in, Erinnerungen im Cron, `.ics`, „Ins Fahrtenbuch übernehmen“ | L | Mail-Budget (100/Tag, geteilt) |
+| **6 – Galerie-Beiträge** | Neubau `photos` (`post_id`), R2-Pfad, Löschpfade inkl. Gruppe/Hafen/Boot/Konto, Törn-Anhang an Text/Galerie | L | **größtes Migrationsrisiko** (Tabellen-Neubau, Speicherzähler, Waisen in R2) |
+| **7 – Fahrtenbuch nach Jahren** | `/fahrtenbuch`, Zusatzangaben, Nachtstunden aus GPX, Jahressummen, CSV/PDF-Meilennachweis | M | Abgleich mit Crew-Ausnahme M1 |
+| **8 – Wertungen** | `scoring.ts`, Vorlagen im Admin-Bereich, Vereinswertung mit Opt-in, Cache | L | Erwartung „offizielle“ Wertung – als Vereinshilfe kennzeichnen |
+
+Migrationsrisiken allgemein: Nummernkollision mit parallelen Branches (vor Vergabe prüfen); Konsistenz Törn/Post
+(nächtlicher Waisen-Check); gecachte alte Clients zeigen neue `post`-Arten als leere Karte (wie beim `logbook`-Bündel
+hingenommen) – abgemildert, indem jede Art einen lesbaren `body` als Rückfall mitbringt.
+
+### 21.9 Platzhalter-Anforderungen
+
+- **F-400** Jeder Beitrag hat genau einen Heimatkanal (`user`/`group`/`harbor`/`boat`); kein Kanal „alle“.
+- **F-401** „Mein Kanal“ zeigt alle eigenen Beiträge aller Arten und Sichtbarkeiten, nur für die Person selbst.
+- **F-402** Sichtbarkeit `public`/`members`/`unlisted`/`private`, effektiv = min(Beitrag, Kanal); Törns unverändert.
+- **F-403** Anpinnen je Kanal mit den Rechten aus 21.2, höchstens 3, wirkt nur im Kanal des Pins.
+- **F-404** Löschkonzept je Art (21.3.3) mit Test je Weg, inkl. R2-Fotos von Galerie-Beiträgen.
+- **F-405** Plus-Knopf mit Art, Kanal, Sichtbarkeit; Kanal auf Gruppen-, Hafen- und Bootsseiten vorausgewählt.
+- **F-406** Galerie, Umfrage, Veranstaltung, Text ohne eigene Seite; `/p/<id>` führt zum Anker im Heimatkanal.
+- **F-407** Umfragen nach 21.5.
+- **F-408** Veranstaltungen mit Zusage und Kapazität. **F-409** Check-in ohne gespeicherte Position.
+  **F-410** Erinnerungen und Änderungsmeldungen.
+- **F-411** Fahrtenbuch nach Jahren, bearbeitbar, mit Jahressummen und Export.
+- **F-412** Zusatzangaben (Revier, Segel-/Motorstunden, Nacht, Tage, Regatta, Zusatzpunkte).
+- **F-413** Wertungsmodelle als geprüfter Baukasten, Vorlagen im Admin-Bereich.
+- **F-414** Vereinswertung nur mit Opt-in, nur Summen, nur in der Gruppe gezeigte Einträge.
+- **F-415** `members`-Beiträge nie aus öffentlichen Caches, nie für Nicht-Mitglieder.
+- **F-416** Benachrichtigungen für Beiträge, Zusagen, Erinnerungen, Umfrage-Ende.
+
+### 21.10 Offene Fragen an den Betreiber
+
+1. **Wer schreibt in Gruppen?** Empfehlung: Einstellung je Gruppe durch den Eigner; Standard Vereine „nur Admins“,
+   Teams „alle Mitglieder“. Törns in der Gruppe zeigen weiterhin alle Mitglieder.
+2. **„Nur Mitglieder“ kostenlos?** Beiträge mit Sichtbarkeit „Nur Mitglieder“ in Gruppen auch für kostenlose Konten
+   (Ausnahme zu E1)? Empfehlung: ja für Text, Umfrage, Veranstaltung, Galerie; Törns bleiben bei E1.
+3. **Galerie-Beiträge nur für Unterstützer** (wie E3 bei Fotos an Törns)? Empfehlung: ja, gleiche Grenzen und derselbe
+   200-MB-Speicher – sonst werden Galerien zum kostenlosen Fotospeicher.
+4. **Persönliche Beiträge in „Alles“/„Umgebung“?** Empfehlung: nein – Text, Fotos, Umfragen aus dem eigenen Profil
+   erreichen nur Follower und Teamkollegen; Törns wie bisher überall.
+5. **Wer schreibt und pinnt im Hafen?** Empfehlung: verifizierte Hafen-Vertretung, ohne Verifizierung die
+   Anleger:in, dazu die Moderation; alle anderen erscheinen dort nur über Törns ihrer Boote.
+6. **Pins:** höchstens 3 je Kanal, Veranstaltungen entpinnen sich nach Ende selbst? Empfehlung: ja.
+7. **Check-in:** reicht ein Zeitfenster mit optionalem „vor Ort“ per Standort (nicht gespeichert)? Empfehlung: ja,
+   kein Pflicht-Standort, keine QR-Codes in der ersten Stufe.
+8. **Umfragen anonym?** Empfehlung: Standard anonym; „namentlich“ wählbar, vorher angekündigt, nicht umstellbar.
+9. **Zusatzpunkte:** zählen Selbstangaben in Vereinswertungen? Empfehlung: im eigenen Fahrtenbuch immer; in der
+   Vereinswertung nur, wenn das Modell es erlaubt **und** ein Gruppen-Admin sie bestätigt.
+10. **Berechnungsmodelle:** Vorlagen global vom Plattform-Admin, Vereine wählen und gewichten selbst, Teilnahme an der
+    Vereinswertung per Opt-in, gezählt werden die in der Gruppe gezeigten Einträge (auch nicht öffentliche, nur als
+    Summe)? Empfehlung: ja, so.
