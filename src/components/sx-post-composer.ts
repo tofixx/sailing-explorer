@@ -132,7 +132,8 @@ export class SxPostComposer extends LitElement {
       <label><span class="label">${this.label}</span>
         <textarea maxlength=${POST_MAX + 200} .value=${this.body} placeholder=${this.placeholder}
           @input=${(e: Event) => (this.body = (e.target as HTMLTextAreaElement).value)}></textarea></label>
-      <div class="counter" aria-live="polite">${len} / ${POST_MAX}</div>
+      <!-- Zähler erst nahe der Grenze ansagen (ab 90 %), sonst bei jedem Tastendruck -->
+      <div class="counter" aria-live=${len >= POST_MAX * 0.9 ? 'polite' : 'off'}>${len} / ${POST_MAX}</div>
       <label><span class="label">Link (optional)</span>
         <input type="text" inputmode="url" maxlength=${POST_LINK_MAX} placeholder="https://…" .value=${this.link}
           @input=${(e: Event) => (this.link = (e.target as HTMLInputElement).value)} /></label>

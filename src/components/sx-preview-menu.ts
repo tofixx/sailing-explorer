@@ -93,7 +93,9 @@ export class SxPreviewMenu extends LitElement {
         ${this.choices().map((p) => {
           const on = cur === previewParam(p);
           return html`<button class="item" type="button" aria-pressed=${on} @click=${() => this.pick(p)}>
-            <span class="mark">${on ? icon('check') : ''}</span><span>${previewLabel(p, this.options)}</span></button>`;
+            <span class="mark">${on ? icon('check') : ''}</span><span>${previewLabel(p, this.options)}${p.as === 'harbor'
+              ? html`<small>zeigt in dieser Stufe dasselbe wie Öffentlich</small>`
+              : ''}</span></button>`;
         })}
         ${this.current
           ? html`<hr /><button class="item" type="button" @click=${() => this.pick(null)}><span class="mark">${icon('x')}</span><span>Vorschau beenden</span></button>`

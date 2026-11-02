@@ -1,7 +1,9 @@
 -- Beiträge als Grundtyp, Phase 1 (Konzept 21.3, Option A, F-400 … F-406): `posts` wird das Dach für alle Inhalte.
 -- Törns (GPX und Fahrtenbuch) behalten `shares` als Nutzlast; ihre Post-Zeile hat dieselbe ID (`share_id = id`) und
 -- fällt per ON DELETE CASCADE mit dem Törn. Werte von kind, channel_kind, visibility, reach und post_by prüft der
--- Worker (src/domain/posts.ts), kein CHECK (Architektur 7). Umfragen, Veranstaltungen und Pins folgen in eigenen
+-- Worker (src/domain/posts.ts), kein CHECK (Architektur 7).
+-- Achtung: posts.share_id verweist mit ON DELETE CASCADE auf shares. Ein künftiger Tabellen-Neubau von `shares`
+-- (DROP + RENAME) braucht `PRAGMA defer_foreign_keys = ON`, sonst löscht er alle Post-Zeilen der Törns mit. Umfragen, Veranstaltungen und Pins folgen in eigenen
 -- Migrationen späterer Phasen.
 ALTER TABLE posts ADD COLUMN kind TEXT NOT NULL DEFAULT 'text';         -- text|gallery|poll|event|voyage|logbook
 ALTER TABLE posts ADD COLUMN channel_kind TEXT;                         -- user|group|harbor|boat („wo steht es“)

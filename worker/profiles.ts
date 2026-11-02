@@ -9,7 +9,7 @@ import { checkVisibilityChoice } from './supporter';
 import { LIMITS, cleanText, normalizeHandle, parseVisibility } from './validate';
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 import { funnyName } from '../src/domain/names';
-import { countsInLogbook } from '../src/domain/logbook';
+import { IN_LOGBOOK_SQL, RECORDED_NM_SQL } from './logbook-sql';
 import { followStats } from './follows';
 import { homeOf, publicHome, type HomeRow } from './home';
 import { BOAT_HARBOR_COLS } from './boats';
@@ -163,16 +163,19 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
     .all();
   const voyages = await publicShares(env, 'user', p.user_id);
   // Kennzahlen nur aus Törns im Fahrtenbuch (F-422) – ausgeschlossene bleiben in der Liste
-  const counted = voyages.filter((v) => countsInLogbook(v.logState));
-  const distNm = counted.reduce((s, v) => s + v.distNm, 0);
-  const recordedNm = counted.reduce((s, v) => s + (v.distSource === 'track' ? v.distNm : 0), 0);
+  const st = await env.DB.prepare(
+    `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec FROM shares s
+     WHERE s.user_id = ? AND s.visibility = 'public' AND s.hidden_at IS NULL AND ${IN_LOGBOOK_SQL}`,
+  )
+    .bind(p.user_id)
+    .first<{ voyages: number; dist: number; rec: number }>();
   const reader = preview ? { preview: { memberOf: preview.as === 'group' ? preview.groupId : null } } : { userId: viewerId };
   return json(
     {
       profile: profileShape(p, isSelf),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       boats: boats.map((b: any) => boatShape(b, isSelf ? 'owner' : null)),
-      stats: { voyages: counted.length, distNm, recordedNm },
+      stats: { voyages: st?.voyages ?? 0, distNm: st?.dist ?? 0, recordedNm: st?.rec ?? 0 },
       voyages,
       // öffentliche Törns anderer, auf denen die Person Crew ist – zählen nicht in die Kennzahlen
       crewVoyages: await crewShares(env, p.user_id),

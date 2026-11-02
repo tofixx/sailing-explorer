@@ -4,6 +4,7 @@
 // Bewusst ohne Abhängigkeit zu shares/groups/boats, damit diese Module es importieren können.
 import type { Env } from './env';
 import { randomId } from './crypto';
+import { IN_LOGBOOK_SQL } from './logbook-sql';
 import { crossedMilestones, dayKey, seasonOf, type ActivityKind } from '../src/domain/groups';
 import { deleteBoatReactions, deleteGroupReactions, nightlyReactionCleanup, userReactionCleanup } from './reaction-cleanup';
 import { deleteBoatNotifications, groupNotificationCleanup, userNotificationCleanup } from './notification-cleanup';
@@ -256,7 +257,7 @@ async function recordMilestones(env: Env, s: ShareForActivity, now: number): Pro
   const from = Date.UTC(year, 0, 1);
   const to = Date.UTC(year + 1, 0, 1);
   const sum = async (where: string, ...args: unknown[]) =>
-    (await env.DB.prepare(`SELECT COALESCE(SUM(s.dist_nm), 0) AS nm FROM shares s WHERE ${where} AND ${PUBLIC_SHARE} AND s.log_state <> 'excluded'`).bind(...args).first<{ nm: number }>())?.nm ?? 0;
+    (await env.DB.prepare(`SELECT COALESCE(SUM(s.dist_nm), 0) AS nm FROM shares s WHERE ${where} AND ${PUBLIC_SHARE} AND ${IN_LOGBOOK_SQL}`).bind(...args).first<{ nm: number }>())?.nm ?? 0;
 
   const subjects: Array<{ kind: 'user' | 'boat' | 'group'; id: string; nm: number }> = [];
   subjects.push({ kind: 'user', id: s.user_id, nm: await sum('s.user_id = ?1', s.user_id, from, to) });

@@ -1,6 +1,6 @@
 import { LitElement, css, html } from 'lit';
 import { LOG_STATE_LABEL, logStateOn, type LogState } from '../domain/logbook';
-import { whereLabel, whoSeesLabel, type MyPost, type MyPostArea, type PostVisibility } from '../domain/posts';
+import { MY_POST_AREAS, whereLabel, whoSeesLabel, type MyPost, type MyPostArea, type PostVisibility } from '../domain/posts';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
 import { POST_VISIBILITY_ICON, base, emit, linkedText, postCardStyles } from './shared';
@@ -109,8 +109,20 @@ export class SxMyPosts extends LitElement {
 
   private tab(area: MyPostArea, label: string, ic: IconName) {
     const on = this.area === area;
-    return html`<button role="tab" aria-selected=${on ? 'true' : 'false'} aria-controls="my-list" @click=${() => !on && emit(this, 'sx-my-posts-area', { area })}>
-      ${icon(ic)} ${label}</button>`;
+    return html`<button role="tab" id="tab-${area}" aria-selected=${on ? 'true' : 'false'} aria-controls="my-list" tabindex=${on ? 0 : -1}
+      @click=${() => !on && emit(this, 'sx-my-posts-area', { area })}>${icon(ic)} ${label}</button>`;
+  }
+
+  /** Tabs-Muster: Pfeiltasten, Pos1 und Ende wechseln den Reiter und setzen den Fokus. */
+  private onTabKey(e: KeyboardEvent) {
+    const i = MY_POST_AREAS.indexOf(this.area);
+    const last = MY_POST_AREAS.length - 1;
+    const next = e.key === 'ArrowRight' ? (i + 1) % (last + 1) : e.key === 'ArrowLeft' ? (i + last) % (last + 1) : e.key === 'Home' ? 0 : e.key === 'End' ? last : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    const area = MY_POST_AREAS[next];
+    this.renderRoot.querySelector<HTMLButtonElement>(`#tab-${area}`)?.focus();
+    if (area !== this.area) emit(this, 'sx-my-posts-area', { area });
   }
 
   /** „Wer sieht es“ und „Wo steht es“ – zwei getrennte Angaben (B12). */
@@ -172,10 +184,10 @@ export class SxMyPosts extends LitElement {
           e.stopPropagation();
           emit(this, 'sx-my-post-create', e.detail);
         }}></sx-post-composer>
-      <div class="tabs" role="tablist" aria-label="Bereich">
+      <div class="tabs" role="tablist" aria-label="Bereich" @keydown=${(e: KeyboardEvent) => this.onTabKey(e)}>
         ${this.tab('all', 'Alles', 'globe')} ${this.tab('private', 'Privat', 'lock')}
       </div>
-      <div id="my-list" role="tabpanel">
+      <div id="my-list" role="tabpanel" aria-labelledby="tab-${this.area}">
         ${this.items.length
           ? html`<ol class="posts">${this.items.map((p) => this.card(p))}</ol>`
           : html`<div class="empty">${this.loading ? 'Lade …' : this.area === 'private' ? 'Nichts Privates – was nur du siehst, steht hier.' : 'Noch nichts. Deine Törns, Fahrtenbuch-Einträge und Beiträge erscheinen hier.'}</div>`}

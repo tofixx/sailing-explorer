@@ -94,6 +94,8 @@
   --control-h-s: 30px;
 
   --topbar-h: 56px;
+  /* Handy (< 760 px): Kopfzeile plus eigene Reiterzeile (44 px + Linie) – Höhe, unter der Klebendes beginnt */
+  --topbar-mobile-h: calc(var(--topbar-h) + 45px);
   --sidebar-w: 388px;
   --focus: 0 0 0 3px rgb(14 107 216 / 0.35);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);

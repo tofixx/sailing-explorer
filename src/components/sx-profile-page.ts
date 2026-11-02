@@ -289,6 +289,16 @@ export class SxProfilePage extends LitElement {
         flex: 1;
         min-width: 120px;
       }
+      /* Handy (F-291): eine lange Seite, die als Ganzes scrollt – kein eigener Scrollbereich, damit der Vorschau-Hinweis
+         unter der stehenden Kopfzeile klebt statt in der Seite */
+      @media (max-width: 760px) {
+        :host {
+          overflow: visible;
+        }
+        .preview {
+          top: var(--topbar-mobile-h);
+        }
+      }
       @media (max-width: 560px) {
         .hero {
           flex-wrap: wrap;

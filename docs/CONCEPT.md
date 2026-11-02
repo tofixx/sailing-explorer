@@ -2943,6 +2943,12 @@ Abweichungen bzw. Festlegungen gegenüber 21.2–21.7:
 - **Keine Ablauffrist** für Text-Beiträge in Phase 1 (Vorschlag 24 Monate, 21.3.3) – sie verschwinden mit Gruppe, Konto,
   Moderation oder einzeln; das Aktivitäts-Log läuft wie bisher nach 12 Monaten ab.
 - Tageszähler des Profil-Verlaufs: `post_log.group_id = 'user:<id>'`, gelöscht mit dem Konto bzw. nach 24 h.
+- **Meilensteine** werden nur beim Veröffentlichen geprüft (wie 11.12) – späteres Umschalten von „Ins Fahrtenbuch“
+  nimmt einen schon erreichten Meilenstein nicht zurück und löst keinen neuen aus.
+- **Fremdschlüssel `posts.share_id → shares`** (ON DELETE CASCADE): ein künftiger Tabellen-Neubau von `shares` braucht
+  `PRAGMA defer_foreign_keys = ON`, sonst fallen alle Post-Zeilen der Törns (Hinweis auch in `0029_posts.sql`).
+- **„Ins Fahrtenbuch“ beim Speichern** gibt es nur per API (`X-Share-Log-State`, `logState`); in der Oberfläche liegt
+  der Schalter in Phase 1 am Eintrag in „Mein Verlauf“. `logState` liefert der Server nur der Eigentümer:in.
 
 ### 21.10 Fragen an den Betreiber – entschieden 02.11.2026
 

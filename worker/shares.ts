@@ -131,8 +131,8 @@ export function shareShape(row: ShareRow, isOwner: boolean, withLog = true) {
     from: harborAt(row.from_harbor_id, row.hf_slug, row.hf_name, row.hf_lat, row.hf_lon),
     to: harborAt(row.to_harbor_id, row.ht_slug, row.ht_name, row.ht_lat, row.ht_lon),
     ...(withLog ? { log: readLog(row.log) } : {}),
-    // „Ins Fahrtenbuch“ (F-422): Unbekanntes zählt wie ein Vorschlag
-    logState: (isLogState(row.log_state) ? row.log_state : 'suggested') as LogState,
+    // „Ins Fahrtenbuch“ (F-422) nur für die Eigentümer:in; Unbekanntes zählt wie ein Vorschlag
+    ...(isOwner ? { logState: (isLogState(row.log_state) ? row.log_state : 'suggested') as LogState } : {}),
   };
 }
 

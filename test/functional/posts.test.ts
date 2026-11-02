@@ -225,6 +225,22 @@ describe('F-420 Text-Beiträge im eigenen Profil', () => {
     expect((await s.send('PUT', `/api/reactions/post/${pub!.id}`, other.cookie, { kind: 'like' })).status).toBe(404);
   });
 
+  it('[F-420] Besucherliste filtert im SQL: viele neuere unsichtbare Beiträge verdrängen keine älteren öffentlichen', async () => {
+    const p = await s.person({ profile: 'public' });
+    const g = await s.group(p, { kind: 'team' });
+    const old = await profilePost(p, { body: 'älter, öffentlich' });
+    const db = await s.db();
+    for (let i = 0; i < 25; i++) {
+      await db.prepare(`INSERT INTO posts (id, author_id, group_id, body, created_at, kind, channel_kind, channel_id, visibility, reach) VALUES (?, ?, ?, 'intern', ?, 'text', 'group', ?, 'members', 'here')`)
+        .bind(`PostMembersFill${String(i).padStart(3, '0')}${p.user.id.slice(0, 4)}`, p.user.id, g.id, Date.now() + 1000 + i, g.id).run();
+    }
+    const stranger = await s.person();
+    const page = await json<{ posts: Array<{ id: string }> }>(await s.send('GET', `/api/profiles/${p.handle}`, stranger.cookie));
+    expect(page.posts.map((x) => x.id)).toEqual([old!.id]);
+    const asMember = await json<{ posts: Array<{ id: string }> }>(await s.send('GET', `/api/profiles/${p.handle}?as=group:${g.id}`, p.cookie));
+    expect(asMember.posts).toHaveLength(20);
+  });
+
   it('[F-420] höchstens 5 Beiträge pro Tag im Profil, leer und kaputter Link → 400, ohne Anmeldung 401', async () => {
     const p = await s.person({ profile: 'public' });
     for (let i = 0; i < 5; i++) await profilePost(p, { body: `Nr. ${i}` });
@@ -292,6 +308,9 @@ describe('F-404 Löschkonzept: ein Einstieg `removePost`, jeder Weg', () => {
     const g = await s.group(groupAdmin, { kind: 'team' });
     await s.join(groupAdmin, g, owner);
     const sh = await s.share(owner, { groups: [g.id] });
+    expect((await s.send('DELETE', `/api/posts/${sh.id}`, groupAdmin.cookie)).status).toBe(404);
+    // geprüft wird die Eigentümer:in des Törns, nicht die Kopie in posts.author_id
+    await (await s.db()).prepare('UPDATE posts SET author_id = ? WHERE id = ?').bind(groupAdmin.user.id, sh.id).run();
     expect((await s.send('DELETE', `/api/posts/${sh.id}`, groupAdmin.cookie)).status).toBe(404);
     expect((await s.send('DELETE', `/api/posts/${sh.id}`, owner.cookie)).status).toBe(204);
     expect(await one('SELECT 1 AS x FROM shares WHERE id = ?', sh.id)).toBeNull();
@@ -379,6 +398,9 @@ describe('F-422 Ins Fahrtenbuch', () => {
     const gpx = await s.share(p, { boatId: b.id, distNm: 10 });
     const log = await manual(p, { distNm: 5 });
     expect(log.logState).toBe('confirmed');
+    // nur die Eigentümer:in erfährt den Stand
+    const stranger = await s.person();
+    expect((await json<{ share: { logState?: string } }>(await s.send('GET', `/api/shares/${log.id}`, stranger.cookie))).share.logState).toBeUndefined();
     expect((await json<{ share: { logState: string } }>(await s.send('GET', `/api/shares/${gpx.id}`, p.cookie))).share.logState).toBe('suggested');
     const off = await (await import('./worker-harness')).createShare(h, p.cookie, { headers: { 'X-Share-Log-State': 'excluded', 'X-Share-Distance': '3' } });
     expect(((await off.json()) as { share: { logState: string } }).share.logState).toBe('excluded');

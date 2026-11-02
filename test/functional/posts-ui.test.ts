@@ -73,8 +73,15 @@ describe('sx-my-posts', () => {
     expect(el.shadowRoot.querySelector('a[href="/s/S1/key"]')).not.toBeNull();
     const tabs = [...el.shadowRoot.querySelectorAll('[role="tab"]')] as HTMLButtonElement[];
     expect(tabs.map((b) => b.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+    expect(tabs.map((b) => b.tabIndex)).toEqual([0, -1]);
     tabs[1].click();
     expect(areas).toEqual([{ area: 'private' }]);
+    // Tabs-Muster: Pfeiltasten und Pos1/Ende
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    expect(areas).toEqual([{ area: 'private' }, { area: 'private' }, { area: 'private' }]);
+    expect(el.shadowRoot.querySelector('[role="tabpanel"]')!.getAttribute('aria-labelledby')).toBe('tab-all');
     expect(button(el.shadowRoot, /Mehr laden/)).toBeTruthy();
   });
 
@@ -101,6 +108,9 @@ describe('sx-my-posts', () => {
     const ta = c.shadowRoot.querySelector('textarea') as HTMLTextAreaElement;
     ta.value = 'Saisonstart';
     ta.dispatchEvent(new Event('input'));
+    await c.updateComplete;
+    // Zähler erst ab 90 % ansagen
+    expect(c.shadowRoot.querySelector('.counter')!.getAttribute('aria-live')).toBe('off');
     const radios = [...c.shadowRoot.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
     expect(radios).toHaveLength(2);
     radios[1].click();
@@ -127,6 +137,7 @@ describe('sx-preview-menu', () => {
     const t = text(el.shadowRoot);
     expect(t).toContain('Jemand aus deinem Hafen Potsdam');
     expect(t).toContain('Mitglied von PYC');
+    expect(t).toContain('zeigt in dieser Stufe dasselbe wie Öffentlich');
     expect(button(el.shadowRoot, /Vorschau beenden/)).toBeUndefined();
     button(el.shadowRoot, /Mitglied von PYC/)!.click();
     expect(picks).toEqual([{ preview: { as: 'group', groupId: 'G1' } }]);
@@ -185,6 +196,10 @@ describe('sx-profile-page (Beiträge, Vorschau)', () => {
     expect(button(el.shadowRoot, /^ *Melden/)).toBeUndefined();
     button(el.shadowRoot, /Vorschau beenden/)!.click();
     expect(picks).toEqual([{ preview: null }]);
+
+    // Handy (F-291): lange Seite ohne eigenen Scrollbereich, Hinweis klebt unter der stehenden Kopfzeile mit Reiterzeile
+    const css = ((customElements.get('sx-profile-page') as unknown as { styles: Array<{ cssText?: string }> }).styles).map((x) => x.cssText ?? '').join(' ');
+    expect(css).toMatch(/@media \(max-width: 760px\) \{\s*:host \{\s*overflow: visible;\s*\}\s*\.preview \{\s*top: var\(--topbar-mobile-h\);/);
 
     const hidden = await mount('sx-profile-page', {
       data: { kind: 'profile', ...profile({ profile: { ...profile().profile, visibility: 'unlisted' }, preview: { as: 'public', visible: false }, previewOptions: { harbor: null, groups: [] } }) },

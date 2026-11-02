@@ -184,15 +184,20 @@ export async function deletePost(request: Request, env: Env, id: string): Promis
   const user = await requireUser(request, env);
   const p = SHARE_ID_RE.test(id)
     ? await env.DB.prepare(
-        `SELECT p.id, p.author_id, p.group_id, p.share_id, g.locked_at, s.locked_at AS s_locked FROM posts p
+        `SELECT p.id, p.author_id, p.group_id, p.share_id, g.locked_at, s.locked_at AS s_locked, s.user_id AS s_owner FROM posts p
          LEFT JOIN groups g ON g.id = p.group_id LEFT JOIN shares s ON s.id = p.share_id WHERE p.id = ?`,
       )
         .bind(id)
-        .first<{ id: string; author_id: string; group_id: string | null; share_id: string | null; locked_at: number | null; s_locked: number | null }>()
+        .first<{ id: string; author_id: string; group_id: string | null; share_id: string | null; locked_at: number | null; s_locked: number | null; s_owner: string | null }>()
     : null;
   if (!p || p.locked_at || p.s_locked) throw NOT_FOUND();
-  const role = p.group_id && !p.share_id ? await roleIn(env, user.id, p.group_id) : null;
-  if (p.author_id !== user.id && !canManageGroup(role)) throw NOT_FOUND();
+  if (p.share_id) {
+    // Törn: wie ownedShare gegen die Eigentümer:in des Törns prüfen, nicht gegen die Kopie in posts.author_id
+    if (p.s_owner !== user.id) throw NOT_FOUND();
+  } else {
+    const role = p.group_id ? await roleIn(env, user.id, p.group_id) : null;
+    if (p.author_id !== user.id && !canManageGroup(role)) throw NOT_FOUND();
+  }
   await removePost(env, p.id);
   return new Response(null, { status: 204 });
 }
@@ -316,35 +321,34 @@ interface VisitorRow {
  * Nur bei öffentlichem Profil aufrufen; nie von gesperrten Konten.
  */
 export async function visitorPosts(env: Env, authorId: string, reader: ProfileReader): Promise<ProfilePost[]> {
+  // Mitgliedschaften des Lesers: echt (?2 = Konto) bzw. simuliert (?3 = gewählte Gruppe der Vorschau)
+  const userId = 'preview' in reader ? '' : (reader.userId ?? '');
+  const previewGroup = 'preview' in reader ? (reader.preview.memberOf ?? '') : '';
+  // Sichtbarkeit schon im SQL (neueste 20 sichtbare, keine älteren fallen weg); canSeePost prüft danach noch einmal
   const { results } = await env.DB.prepare(
     `SELECT p.id, p.body, p.link, p.created_at, p.visibility, p.group_id,
-       g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden, g.locked_at AS g_locked
+       g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden, g.locked_at AS g_locked,
+       COALESCE((SELECT m.role FROM group_members m WHERE m.group_id = g.id AND m.user_id = ?2), CASE WHEN g.id = ?3 THEN 'member' END) AS role
      FROM posts p LEFT JOIN groups g ON g.id = p.group_id
-     WHERE p.author_id = ?1 AND p.share_id IS NULL AND p.hidden_at IS NULL AND p.visibility IN ('public', 'members')
+     WHERE p.author_id = ?1 AND p.share_id IS NULL AND p.hidden_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ?1 AND u.suspended_at IS NOT NULL)
-     ORDER BY p.created_at DESC LIMIT 60`,
+       AND (
+         (p.group_id IS NULL AND p.visibility = 'public')
+         OR (g.id IS NOT NULL AND g.locked_at IS NULL AND p.visibility IN ('public', 'members') AND (
+           (p.visibility = 'public' AND g.visibility = 'public' AND g.hidden_at IS NULL)
+           OR EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.user_id = ?2)
+           OR g.id = ?3))
+       )
+     ORDER BY p.created_at DESC LIMIT 20`,
   )
-    .bind(authorId)
-    .all<VisitorRow>();
-  const groupIds = [...new Set(results.map((r) => r.group_id).filter((g): g is string => !!g))];
-  // Rollen des Lesers in diesen Gruppen: echt aus der DB, in der Vorschau nur die gewählte Gruppe als Mitglied
-  const roles = new Map<string, GroupRole>();
-  if ('preview' in reader) {
-    if (reader.preview.memberOf) roles.set(reader.preview.memberOf, 'member');
-  } else if (reader.userId && groupIds.length) {
-    const { results: mine } = await env.DB.prepare(
-      'SELECT group_id, role FROM group_members WHERE user_id = ?1 AND group_id IN (SELECT value FROM json_each(?2))',
-    )
-      .bind(reader.userId, JSON.stringify(groupIds))
-      .all<{ group_id: string; role: GroupRole }>();
-    for (const m of mine) roles.set(m.group_id, m.role);
-  }
+    .bind(authorId, userId, previewGroup)
+    .all<VisitorRow & { role: GroupRole | null }>();
   const out: ProfilePost[] = [];
   for (const r of results) {
     if (!isPostVisibility(r.visibility)) continue;
-    const role = r.group_id ? (roles.get(r.group_id) ?? null) : null;
     const g = r.group_id && r.g_slug && r.g_name && r.g_kind && r.g_vis ? r : null;
     if (r.group_id && !g) continue;
+    const role = g ? r.role : null;
     const groupVisible = !!g && canViewGroup({ visibility: g.g_vis!, share_key: g.g_key, hidden_at: g.g_hidden, locked_at: g.g_locked }, role, null);
     const ok = canSeePost(
       { visibility: r.visibility, channel: g ? 'group' : 'user', hidden: false, authorSuspended: false, authorPublic: true },
@@ -356,7 +360,6 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
       group: g ? { slug: g.g_slug!, name: g.g_name!, kind: g.g_kind! } : null,
       visibility: effectivePostVisibility(r.visibility, g ? g.g_vis : null),
     });
-    if (out.length >= 20) break;
   }
   return out;
 }
