@@ -557,11 +557,13 @@ describe('F-140 E-Mail-Adressen erreichen nie andere Konten', () => {
     const crewToken = tokenOf((await inviteCrew(owner, share.id)).link!);
     const wrong = await accept(owner, adminToken); // Fehler: eigene Einladung
     expect(wrong.status).toBe(409);
+    // Antwort sofort lesen: Miniflare gibt nicht gelesene Bodies unter Last frei („Body has already been read“)
+    const wrongBody = await wrong.text();
     // Ausnahme seit 28.10.2026 (F-131): wer einen weitergegebenen Link öffnet, sieht die Adresse maskiert – nie mehr.
     const forwarded = await (await peek(stranger, adminToken)).text();
     expect(forwarded).toContain(`"sentTo":"${admin.email[0]}…@e….org"`);
     expect(forwarded).not.toContain(admin.email.split('@')[0]);
-    const bodies = [await wrong.text(), await (await peek(undefined, adminToken)).text()];
+    const bodies = [wrongBody, await (await peek(undefined, adminToken)).text()];
     await accept(admin, adminToken);
     await accept(mate, crewToken);
     const nameless = await person();
