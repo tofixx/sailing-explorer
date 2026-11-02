@@ -1,5 +1,7 @@
 // Funktionale Tests: Sichtbarkeit von Mitgliedschaften und Gruppeninhalten, Folgen und Mitgliedschaft getrennt,
 // automatische Einträge und Benachrichtigungs-Stufen (Konzept 24, F-440 … F-449).
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startWorker, type Harness } from './worker-harness';
 import { social, type GroupOut, type Person, type StreamOut } from './social-helpers';
@@ -288,7 +290,7 @@ describe('F-446 Folgen ist keine Vorstufe der Mitgliedschaft', () => {
     const a = await s.person();
     const b = await s.person();
     for (const p of [a, b]) await s.join(owner, g, p);
-    expect((await s.send('DELETE', `/api/groups/${g.id}/members/me?follow=1`, a.cookie)).status).toBe(204);
+    expect(await ok<{ followed: boolean }>(await s.send('DELETE', `/api/groups/${g.id}/members/me?follow=1`, a.cookie))).toEqual({ followed: true });
     expect(await follows(a, g)).toEqual({ notify_level: null });
     expect((await page(g, a)).social).toMatchObject({ isFollowing: true, notifyLevel: 'direct' });
     expect((await s.send('DELETE', `/api/groups/${g.id}/members/me`, b.cookie)).status).toBe(204);
@@ -297,6 +299,12 @@ describe('F-446 Folgen ist keine Vorstufe der Mitgliedschaft', () => {
     const c = await s.person();
     await s.join(owner, closed, c);
     expect((await s.send('DELETE', `/api/groups/${closed.id}/members/me?follow=1`, c.cookie)).status).toBe(204);
+    // an der Folgen-Grenze: ausgetreten, aber nicht gefolgt – die Antwort sagt es
+    const d = await s.person();
+    await s.join(owner, g, d);
+    await (await s.db()).prepare(`WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 1000) INSERT INTO follows (user_id, target_kind, target_id, created_at) SELECT ?1, 'harbor', 'H' || x, 0 FROM n`).bind(d.user.id).run();
+    expect(await ok<{ followed: boolean }>(await s.send('DELETE', `/api/groups/${g.id}/members/me?follow=1`, d.cookie))).toEqual({ followed: false });
+    expect(await follows(d, g)).toBeUndefined();
     expect(await follows(c, closed)).toBeUndefined();
   });
 });
@@ -405,5 +413,134 @@ describe('F-449 Benachrichtigungs-Stufen je Verlauf', () => {
       .run();
     expect((await page(g, owner)).social.notifyLevel).toBe('muted');
     expect((await ok<{ defaultLevel: string }>(await s.send('GET', '/api/me/channels', owner.cookie))).defaultLevel).toBe('all');
+  });
+});
+
+// ---------------------------------------------------------------- Review-Befunde Konzept 24
+
+describe('Review-Befunde Konzept 24', () => {
+  const postBells = async (p: Person) => (await bell(p)).filter((n) => n.kind === 'post');
+  const migration = () =>
+    readFileSync(resolve('migrations', '0032_members_visible.sql'), 'utf8')
+      .replace(/--[^\n]*/g, '')
+      .split(';')
+      .map((x) => x.trim())
+      .filter((x) => x && !/^ALTER/i.test(x));
+
+  it('[F-446] [F-449] Altbestand Mitglied + Folgen: die Mitgliedschaft zählt (Benachrichtigung, Übersicht einmal); 0032 entfernt das Doppel', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const g = await s.group(owner);
+    const m = await s.person();
+    await s.join(owner, g, m);
+    const db = await s.db();
+    // wie vor 0032: Beitritt hatte das Folgen nicht gelöscht
+    await db.prepare(`INSERT INTO follows (user_id, target_kind, target_id, created_at, notify_level) VALUES (?, 'group', ?, 0, 'direct')`).bind(m.user.id, g.id).run();
+    await setLevel(m, 'group', g.id, 'all');
+    await write(owner, g, { body: 'Training' });
+    expect(await postBells(m)).toHaveLength(1);
+    const ch = await ok<{ channels: Array<{ ref: string; member: boolean }> }>(await s.send('GET', '/api/me/channels', m.cookie));
+    expect(ch.channels.filter((c) => c.ref === g.id)).toEqual([expect.objectContaining({ member: true })]);
+    // dieselben Anweisungen wie in 0032 (ohne ALTER), aus der Datei
+    for (const stmt of migration()) await db.prepare(stmt).all();
+    expect(await db.prepare(`SELECT 1 AS x FROM follows WHERE user_id = ? AND target_kind = 'group' AND target_id = ?`).bind(m.user.id, g.id).first()).toBeNull();
+    expect((await page(g, m)).social.notifyLevel).toBe('all');
+  });
+
+  it('[F-449] Pin: handelnd ist die Autor:in; weder sie noch wer anpinnt wird benachrichtigt', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const g = await s.group(owner, { kind: 'team' }); // Teams: alle Mitglieder schreiben
+    const author = await s.person({ profile: 'public' });
+    const reader = await s.person();
+    for (const p of [author, reader]) await s.join(owner, g, p);
+    for (const p of [owner, author, reader]) await setLevel(p, 'group', g.id, 'important');
+    const post = await ok<{ post: { id: string } }>(await write(author, g, { body: 'Termine' }));
+    expect((await s.send('PUT', `/api/posts/${post.post.id}/pin`, owner.cookie, { channel: { kind: 'group', id: g.id }, pinned: true })).status).toBe(200);
+    const got = await ok<{ items: Array<{ kind: string; text: string }> }>(await s.send('GET', '/api/notifications', reader.cookie));
+    expect(got.items.filter((n) => n.kind === 'post').map((n) => n.text)).toEqual([expect.stringContaining(`Name ${author.handle}`)]);
+    expect(await postBells(owner)).toEqual([]);
+    expect(await postBells(author)).toEqual([]);
+  });
+
+  it('[F-449] Törn als Beitrag: Mitglieder der gewählten Gruppen bei „Alle Beiträge“, Boot-Follower; nie die Eigentümer:in, nie doppelt; Follower bei Liste „nur Mitglieder“ nicht', async () => {
+    const { owner, g, pub, priv } = await setup();
+    const fan = await s.person();
+    expect((await s.send('PUT', `/api/follows/group/${g.id}`, fan.cookie)).status).toBe(200);
+    await setLevel(fan, 'group', g.id, 'all');
+    await setLevel(pub, 'group', g.id, 'all'); // priv bleibt „Wichtiges“
+    const boat = await s.boat(owner, { name: 'Alk' });
+    const boatFan = await s.person();
+    await s.send('PUT', `/api/follows/boat/${boat.id}`, boatFan.cookie);
+    await setLevel(boatFan, 'boat', boat.id, 'all');
+    const sh = await s.share(owner, { title: 'Rund Rügen', groups: [g.id], boatId: boat.id });
+    const voyageBells = async (p: Person) => (await bell(p)).filter((n) => n.kind === 'post' && n.href === `/s/${sh.id}`);
+    expect(await voyageBells(pub)).toHaveLength(1);
+    expect(await voyageBells(boatFan)).toHaveLength(1);
+    for (const p of [owner, priv, fan]) expect(await voyageBells(p)).toEqual([]);
+    // Liste öffentlich + neue Auswahl: jetzt auch der Follower, die anderen nicht doppelt
+    await ok(await s.send('PATCH', `/api/groups/${g.id}`, owner.cookie, { membersVisible: 'public' }));
+    expect((await s.send('PATCH', `/api/shares/${sh.id}`, owner.cookie, { groupIds: [g.id] })).status).toBe(200);
+    expect(await voyageBells(fan)).toHaveLength(1);
+    expect(await voyageBells(pub)).toHaveLength(1);
+    const text = (await ok<{ items: Array<{ href: string; text: string }> }>(await s.send('GET', '/api/notifications', pub.cookie))).items.find((n) => n.href === `/s/${sh.id}`)!.text;
+    expect(text).toContain('hat einen Törn geteilt');
+  });
+
+  it('[F-442] Gruppen-Stream mit Liste „nur Mitglieder“: Törns der Mitglieder nur für Mitglieder – nicht im öffentlichen Cache; Profil zeigt ihn weiter', async () => {
+    const { owner, g, pub, stranger } = await setup();
+    const sh = await s.share(pub, { title: 'Nur intern sichtbar', groups: [g.id] });
+    const ids = async (p?: Person) => (await ok<StreamOut>(await groupStream(g, p))).items.filter((i) => i.voyage).map((i) => i.voyage!.id);
+    expect(await ids()).not.toContain(sh.id);
+    expect(await ids(stranger)).not.toContain(sh.id);
+    expect(await ids(owner)).toContain(sh.id);
+    expect(await ids()).not.toContain(sh.id); // nach dem Mitglied: Cache bleibt ohne
+    expect((await page(g)).group).toBeDefined();
+    expect((await page(g)) as unknown as { photos: unknown[] }).toMatchObject({ photos: [] });
+    const prof = await ok<{ voyages: Array<{ id: string }> }>(await s.send('GET', `/api/profiles/${pub.handle}`, undefined));
+    expect(prof.voyages.map((v) => v.id)).toContain(sh.id);
+    // öffentliche Liste (neue Gruppe, frischer Cache): Gäste sehen den Törn
+    const g2 = await s.group(owner, { membersVisible: 'public' });
+    await s.join(owner, g2, pub);
+    const sh2 = await s.share(pub, { groups: [g2.id] });
+    expect((await ok<StreamOut>(await groupStream(g2))).items.some((i) => i.voyage?.id === sh2.id)).toBe(true);
+  });
+
+  it('[F-449] Follower von Hafen, Boot und Profil nach Stufe; Hafenbewohner ohne Folgen nach Voreinstellung; Bewohner + Folgen: die höhere Stufe', async () => {
+    const skipper = await s.person({ profile: 'public' });
+    const hb = (await ok<{ harbor: { id: string } }>(await s.send('POST', '/api/harbors', skipper.cookie, { name: s.uniq('Hafen'), lat: -40, lon: -160 }))).harbor;
+    const boat = await s.boat(skipper, { harborId: hb.id });
+    const resident = await s.person();
+    await ok(await s.send('PUT', '/api/me/home', resident.cookie, { harborId: hb.id }));
+    const residentMuted = await s.person();
+    await ok(await s.send('PUT', '/api/me/home', residentMuted.cookie, { harborId: hb.id }));
+    await s.send('PUT', `/api/follows/harbor/${hb.id}`, residentMuted.cookie);
+    await setLevel(residentMuted, 'harbor', hb.id, 'muted');
+    const harborFan = await s.person();
+    await s.send('PUT', `/api/follows/harbor/${hb.id}`, harborFan.cookie);
+    const boatFan = await s.person();
+    await s.send('PUT', `/api/follows/boat/${boat.id}`, boatFan.cookie);
+    const userFan = await s.person();
+    await s.send('PUT', `/api/follows/user/${skipper.handle}`, userFan.cookie);
+    for (const [p, k, id] of [[harborFan, 'harbor', hb.id], [boatFan, 'boat', boat.id], [userFan, 'user', skipper.handle!]] as const) await setLevel(p, k, id, 'all');
+    for (const p of [resident, residentMuted]) await s.send('PUT', '/api/me/channels/default', p.cookie, { level: 'all' });
+
+    const send = (body: Record<string, unknown>) => s.send('POST', '/api/posts', skipper.cookie, body);
+    const hp = await ok<{ post: { id: string } }>(await send({ channel: { kind: 'harbor', id: hb.id }, body: 'Kran' }));
+    const bp = await ok<{ post: { id: string } }>(await send({ channel: { kind: 'boat', id: boat.id }, body: 'Segel' }));
+    const up = await ok<{ post: { id: string } }>(await s.send('POST', '/api/me/posts', skipper.cookie, { body: 'Moin' }));
+    const hrefs = async (p: Person) => (await postBells(p)).map((n) => n.href);
+    expect(await hrefs(harborFan)).toEqual([`/p/${hp.post.id}`]);
+    expect(await hrefs(boatFan)).toEqual([`/p/${bp.post.id}`]);
+    expect(await hrefs(userFan)).toEqual([`/p/${up.post.id}`]);
+    expect(await hrefs(resident)).toEqual([`/p/${hp.post.id}`]);
+    // Folgen „Stumm“, Voreinstellung „Alle“: die höhere Stufe gewinnt
+    expect(await hrefs(residentMuted)).toEqual([`/p/${hp.post.id}`]);
+  });
+
+  it('[F-449] Beitrittsanfrage: darf nur der Eigner bestätigen, bekommt er sie auch bei „Stumm“', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const g = await s.group(owner, { approveBy: 'owner' });
+    await setLevel(owner, 'group', g.id, 'muted');
+    await s.send('POST', `/api/groups/${g.id}/requests`, (await s.person()).cookie, { message: '' });
+    expect((await bell(owner)).filter((n) => n.kind === 'request')).toHaveLength(1);
   });
 });

@@ -184,7 +184,13 @@ export class GroupsController {
 
   /** Austreten; `follow`: danach weiter folgen (F-446). */
   leave(id: string, follow = false) {
-    return this.membership(() => groupApi.removeMember(id, 'me', follow), follow ? 'Du bist ausgetreten und folgst der Gruppe weiter.' : 'Du bist ausgetreten.');
+    let followed = false;
+    return this.membership(async () => {
+      followed = !!((await groupApi.removeMember(id, 'me', follow)) as { followed?: boolean } | undefined)?.followed;
+    }, '').then((ok) => {
+      if (ok) this.ui.toast(follow && !followed ? 'Du bist ausgetreten. Folgen ging nicht – du folgst schon der Höchstzahl an Profilen, Booten, Gruppen und Häfen.' : follow ? 'Du bist ausgetreten und folgst der Gruppe weiter.' : 'Du bist ausgetreten.', follow && !followed ? 6000 : undefined);
+      return ok;
+    });
   }
 
   /**

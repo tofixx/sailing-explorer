@@ -17,8 +17,8 @@ import type { Reach } from '../src/domain/posts';
 import { logbookIds, shapeItem, type ActivityRow, type LogShare, type ReadAt, type Viewer } from './stream-shape';
 import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
 import {
-  STREAM_PAGE, STREAM_SCAN, canManageGroup, decodeCursor, encodeCursor, isAutomaticKind, reactionSubjectOf,
-  type StreamCursor, type StreamItem,
+  STREAM_PAGE, STREAM_SCAN, canManageGroup, canSeeMembers, decodeCursor, encodeCursor, isAutomaticKind, reactionSubjectOf,
+  type GroupRole, type StreamCursor, type StreamItem,
 } from '../src/domain/groups';
 import { emptyReactions, summarizeReactions, type ReactionKind } from '../src/domain/reactions';
 import { UNREAD_MAX, UNREAD_SCAN, seenUntil } from '../src/domain/unread';
@@ -307,8 +307,10 @@ async function targetCandidates(env: Env, kind: 'group' | 'harbor' | 'boat', id:
  * Einträge einer Gruppe (Ziel `group`) – auch für RSS (worker/feed.ts). Ausgebreitete Beiträge (Teams → Verein) nur,
  * solange „Sichtbar bis“ den Verein abdeckt (F-409); `parentId`: Verein eines Teams (dessen Beiträge kommen herunter).
  */
-export async function groupItems(env: Env, group: { id: string; parent_id?: string | null }, viewer: Viewer, c: StreamCursor) {
-  const at = { kind: 'group' as const, id: group.id, parentId: group.parent_id ?? null };
+export async function groupItems(env: Env, group: { id: string; parent_id?: string | null; members_visible?: string | null }, viewer: Viewer, c: StreamCursor, role: GroupRole | null = null) {
+  // Törns der Mitglieder nur, wenn der Lesende die Mitglieder sehen darf (F-442, Konzept 24.7) – ohne Betrachter
+  // (öffentlicher Cache, RSS, Community-Filter) bei Liste „nur Mitglieder“ also nie
+  const at = { kind: 'group' as const, id: group.id, parentId: group.parent_id ?? null, memberContent: canSeeMembers(group.members_visible, role) };
   return resolve(env, { ...viewer, at }, await targetCandidates(env, 'group', group.id, c), STREAM_SCAN, undefined, group.id);
 }
 
@@ -360,7 +362,7 @@ export async function groupStream(request: Request, env: Env, id: string): Promi
   // Mitglieder nie aus dem Cache: er ist ohne Betrachter berechnet und enthält keine „Nur Mitglieder“-Beiträge (F-415)
   const shared = group.visibility === 'public' && !group.hidden_at && role === null;
   if (!shared) {
-    const page = await groupItems(env, group, { id: user?.id ?? null }, c);
+    const page = await groupItems(env, group, { id: user?.id ?? null }, c, role);
     return json(page, { headers: { 'Cache-Control': 'private, no-store' } });
   }
   // Ohne Betrachter berechnet: gleich für alle, keine Löschen-Rechte im Cache.

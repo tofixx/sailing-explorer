@@ -54,8 +54,9 @@ const sorted = (...ids: string[]) => [...ids].sort();
 /** Segler:in, Mitglied in Verein und Team; das Boot ist nur dem Verein zugeordnet. */
 async function setup() {
   const sailor = await s.person({ profile: 'public', supporter: true });
-  const club = await s.group(sailor, { name: 'Verein Auswahl' });
-  const team = await s.group(sailor, { name: 'Mittwochsregatta', kind: 'team' });
+  // öffentliche Mitgliederliste: Törns der Mitglieder sind im Gruppen-Stream auch für Gäste sichtbar (F-442)
+  const club = await s.group(sailor, { name: 'Verein Auswahl', membersVisible: 'public' });
+  const team = await s.group(sailor, { name: 'Mittwochsregatta', kind: 'team', membersVisible: 'public' });
   const boat = await s.boat(sailor, { name: 'Auswahlboot' });
   const add = await s.send('POST', `/api/groups/${club.id}/boats`, sailor.cookie, { boatId: boat.id });
   expect(add.status, await add.clone().text()).toBeLessThan(300);
@@ -281,7 +282,7 @@ describe('F-377 Auswahl verschwindet mit Törn, Gruppe, Mitgliedschaft und Konto
 
   it('[F-377] Austreten bzw. Entfernen nimmt die eigenen Törns aus der Gruppe (Zeilen und Stream-Ziele); andere bleiben', async () => {
     const owner = await s.person({ profile: 'public' });
-    const g = await s.group(owner, { name: 'Austritt' });
+    const g = await s.group(owner, { name: 'Austritt', membersVisible: 'public' });
     const a = await s.person();
     const b = await s.person();
     await s.join(owner, g, a);

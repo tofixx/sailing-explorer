@@ -15,7 +15,7 @@ import { transferConsequence } from '../src/domain/claims';
 import { isAdmin } from './validate';
 import { followLevelSql, notifyLevelSql } from './notify-sql';
 import {
-  NOTIFICATION_LIMITS, notifyEventOf, isChoosable, isNotificationKind, notificationText, parsePrefs, isNotificationSubject, type NotificationItem, type NotificationKind,
+  NOTIFICATION_LIMITS, notifyEventOf, isChoosable, type NotifyEvent, isNotificationKind, notificationText, parsePrefs, isNotificationSubject, type NotificationItem, type NotificationKind,
   type NotificationSubject,
 } from '../src/domain/notifications';
 
@@ -112,7 +112,7 @@ export const notifyInvite = (env: Env, inviteId: string, to: { userId: string } 
 /**
  * Beitrittsanfrage: an Eigner und Admins (bei „Nur der Eigner“ nur an ihn) – auch wenn alle Mitglieder bestätigen
  * dürften, damit der Fan-out klein bleibt (höchstens NOTIFICATION_LIMITS.requestFanOut). Direktes Ereignis: in jeder
- * Stufe außer „Stumm“ (F-449).
+ * Stufe außer „Stumm“ (F-449) – darf nur der Eigner bestätigen, bekommt er sie auch stumm (sie verlangt eine Handlung).
  */
 export const notifyRequest = (env: Env, groupId: string, actorId: string) =>
   safely('request', () =>
@@ -120,7 +120,8 @@ export const notifyRequest = (env: Env, groupId: string, actorId: string) =>
       env, 'request', 'group', groupId, actorId,
       `SELECT m.user_id AS uid FROM group_members m JOIN groups g ON g.id = m.group_id
        JOIN users u ON u.id = m.user_id
-       WHERE m.group_id = ?3 AND (m.role = 'owner' OR (m.role = 'admin' AND g.approve_by <> 'owner')) AND ${notifyLevelSql('post', true, 'm.notify_level')}
+       WHERE m.group_id = ?3 AND (m.role = 'owner' OR (m.role = 'admin' AND g.approve_by <> 'owner'))
+         AND (${notifyLevelSql('post', true, 'm.notify_level')} OR (m.role = 'owner' AND g.approve_by = 'owner'))
        ORDER BY m.role = 'owner' DESC LIMIT ?6`,
       NOTIFICATION_LIMITS.requestFanOut,
     ),
@@ -138,57 +139,114 @@ export const notifyClaimResult = (env: Env, claimId: string) =>
 export const notifyClaimTransfer = (env: Env, claimId: string) =>
   safely('claim transfer', () => deliver(env, 'claim_transfer', 'claim', claimId, null, 'SELECT previous_user_id AS uid FROM claims WHERE id = ?3'));
 
-/** Empfänger je Verlauf (`?6` = Verlauf): Kandidaten-IDs (Mitglieder, Boot/Heimathafen dort, Follower) und die gespeicherte Stufe. */
-const POST_AUDIENCE: Record<string, { ids: string; level: string[]; joins: string }> = {
-  // Gruppe: Mitglieder und – nur bei öffentlichen Beiträgen (`?8`) – Follower; die Mitgliedschaft geht vor
-  group: {
-    ids: `SELECT user_id AS id FROM group_members WHERE group_id = ?6 UNION SELECT user_id FROM follows WHERE target_kind = 'group' AND target_id = ?6 AND ?8`,
-    joins: `LEFT JOIN group_members m ON m.group_id = ?6 AND m.user_id = u.id LEFT JOIN follows f ON f.user_id = u.id AND f.target_kind = 'group' AND f.target_id = ?6`,
-    level: ['m.notify_level', followLevelSql('f')],
-  },
-  // Hafen: Konten mit Boot (Eigner, Boots-Admin) oder Heimathafen dort und Follower
-  harbor: {
-    ids: `SELECT id FROM users WHERE home_harbor_id = ?6 UNION SELECT owner_id FROM boats WHERE harbor_id = ?6
-      UNION SELECT a.user_id FROM boat_admins a JOIN boats b ON b.id = a.boat_id WHERE b.harbor_id = ?6 UNION SELECT user_id FROM follows WHERE target_kind = 'harbor' AND target_id = ?6`,
-    joins: `LEFT JOIN follows f ON f.user_id = u.id AND f.target_kind = 'harbor' AND f.target_id = ?6`,
-    level: [followLevelSql('f')],
-  },
-  // Boot: Eigner, Boots-Admins und Follower
-  boat: {
-    ids: `SELECT owner_id AS id FROM boats WHERE id = ?6 UNION SELECT user_id FROM boat_admins WHERE boat_id = ?6 UNION SELECT user_id FROM follows WHERE target_kind = 'boat' AND target_id = ?6`,
-    joins: `LEFT JOIN follows f ON f.user_id = u.id AND f.target_kind = 'boat' AND f.target_id = ?6`,
-    level: [followLevelSql('f')],
-  },
-  // Profil: Follower der Person
-  user: {
-    ids: `SELECT user_id AS id FROM follows WHERE target_kind = 'user' AND target_id = ?6`,
-    joins: `LEFT JOIN follows f ON f.user_id = u.id AND f.target_kind = 'user' AND f.target_id = ?6`,
-    level: [followLevelSql('f')],
-  },
-};
+/**
+ * Empfänger je Verlauf (`?6` = Verlauf): Kandidaten (`id`, `rel` = Mitglied bzw. Boot/Heimathafen dort) und die Regel je
+ * Konto `u`. Gruppe: die Mitgliedschaft geht vor, die Follower-Stufe zählt nur ohne Mitgliedschaft; Follower nur bei
+ * öffentlichen Beiträgen (`?9`) öffentlicher Gruppen. Hafen und Boot: wer dort Boot bzw. Heimathafen hat und folgt,
+ * bekommt die höhere der beiden Stufen (Voreinstellung bzw. Folgen). Profil: Follower.
+ */
+function postAudience(kind: string, event: NotifyEvent): { ids: string; joins: string; ok: string } | null {
+  const follow = (k: string) => `LEFT JOIN follows f ON f.user_id = u.id AND f.target_kind = '${k}' AND f.target_id = ?6`;
+  const followOk = `(f.user_id IS NOT NULL AND ${notifyLevelSql(event, false, followLevelSql('f'))})`;
+  switch (kind) {
+    case 'group':
+      return {
+        ids: `SELECT user_id AS id, 1 AS rel FROM group_members WHERE group_id = ?6
+          UNION SELECT user_id, 0 FROM follows WHERE target_kind = 'group' AND target_id = ?6 AND ?9
+            AND EXISTS (SELECT 1 FROM groups gp WHERE gp.id = ?6 AND gp.visibility = 'public' AND gp.hidden_at IS NULL AND gp.locked_at IS NULL)`,
+        joins: `LEFT JOIN group_members m ON m.group_id = ?6 AND m.user_id = u.id ${follow('group')}`,
+        ok: notifyLevelSql(event, false, 'm.notify_level', `CASE WHEN m.user_id IS NULL THEN ${followLevelSql('f')} END`),
+      };
+    case 'harbor':
+      return {
+        ids: `SELECT id, MAX(rel) AS rel FROM (SELECT id, 1 AS rel FROM users WHERE home_harbor_id = ?6
+          UNION ALL SELECT owner_id, 1 FROM boats WHERE harbor_id = ?6
+          UNION ALL SELECT a.user_id, 1 FROM boat_admins a JOIN boats b ON b.id = a.boat_id WHERE b.harbor_id = ?6
+          UNION ALL SELECT user_id, 0 FROM follows WHERE target_kind = 'harbor' AND target_id = ?6) GROUP BY id`,
+        joins: follow('harbor'),
+        ok: `((c.rel AND ${notifyLevelSql(event, false)}) OR ${followOk})`,
+      };
+    case 'boat':
+      return {
+        ids: `SELECT id, MAX(rel) AS rel FROM (SELECT owner_id AS id, 1 AS rel FROM boats WHERE id = ?6
+          UNION ALL SELECT user_id, 1 FROM boat_admins WHERE boat_id = ?6
+          UNION ALL SELECT user_id, 0 FROM follows WHERE target_kind = 'boat' AND target_id = ?6) GROUP BY id`,
+        joins: follow('boat'),
+        ok: `((c.rel AND ${notifyLevelSql(event, false)}) OR ${followOk})`,
+      };
+    case 'user':
+      return { ids: `SELECT user_id AS id, 0 AS rel FROM follows WHERE target_kind = 'user' AND target_id = ?6`, joins: follow('user'), ok: followOk };
+    default:
+      return null;
+  }
+}
 
 /**
- * Neuer bzw. angepinnter Beitrag (F-416, F-449, Konzept 21.7, 24.6): nur aus dem Heimatverlauf – die Ausbreitung nach
- * oben benachrichtigt nie. Empfänger sind Mitglieder, Konten mit Boot oder Heimathafen dort, Eigner und Admins des Boots
- * und Follower (bei „Nur Mitglieder“ nur Mitglieder) – je nach ihrer Stufe für diesen Verlauf (`shouldNotify`: jeder
- * Beitrag nur bei „Alle Beiträge“, Umfragen, Veranstaltungen und Pins ab „Wichtiges“, nie bei „Stumm“). Nie die
- * Autor:in, nie gesperrte Konten, höchstens NOTIFICATION_LIMITS.postFanOut. „Nur mit Link“ und „Nur ich“
- * benachrichtigen nicht. Ein Pin benachrichtigt nur, wer zu diesem Beitrag noch keine Benachrichtigung hat.
- * Automatische Einträge (Beitritt, Boot, Meilenstein) rufen dies nie auf (F-448).
+ * Neuer bzw. angepinnter Beitrag (F-416, F-449, Konzept 21.7, 24.6): nur aus dem Heimatverlauf bzw. dem Verlauf, in dem
+ * gepinnt wurde – die Ausbreitung nach oben benachrichtigt nie. Empfänger je `postAudience` und ihrer Stufe
+ * (`shouldNotify`: jeder Beitrag nur bei „Alle Beiträge“, Umfragen, Veranstaltungen und Pins ab „Wichtiges“, nie bei
+ * „Stumm“). Nie die Autor:in (handelnde Person) und nie `exclude` (wer anpinnt), nie gesperrte Konten, höchstens
+ * NOTIFICATION_LIMITS.postFanOut. „Nur mit Link“ und „Nur ich“ benachrichtigen nicht. Ein Pin benachrichtigt nur, wer
+ * zu diesem Beitrag noch keine Benachrichtigung hat. Automatische Einträge rufen dies nie auf (F-448).
  */
-export const notifyPost = (env: Env, post: { id: string; authorId: string; kind?: string; pinned?: boolean; channel: { kind: string; id: string }; visibility: string }) =>
+export const notifyPost = (
+  env: Env,
+  post: { id: string; authorId: string; kind?: string; pinned?: boolean; exclude?: string; channel: { kind: string; id: string }; visibility: string },
+) =>
   safely('post', async () => {
     if (post.visibility !== 'public' && post.visibility !== 'members') return;
-    const a = POST_AUDIENCE[post.channel.kind];
-    if (!a || (post.visibility === 'members' && post.channel.kind !== 'group')) return;
-    const event = notifyEventOf(post.kind ?? 'text', !!post.pinned);
+    if (post.visibility === 'members' && post.channel.kind !== 'group') return;
+    const a = postAudience(post.channel.kind, notifyEventOf(post.kind ?? 'text', !!post.pinned));
+    if (!a) return;
     const sql = `SELECT u.id AS uid FROM (${a.ids}) c JOIN users u ON u.id = c.id ${a.joins}
-      WHERE u.suspended_at IS NULL AND ${notifyLevelSql(event, false, ...a.level)}
+      WHERE u.suspended_at IS NULL AND u.id IS NOT ?8 AND ${a.ok}
         ${post.pinned ? `AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.user_id = u.id AND n.kind = 'post' AND n.subject_kind = 'post' AND n.subject_id = ?3)` : ''}
       LIMIT ?7`;
-    // ?8 (öffentlich) kommt nur in der Gruppen-Abfrage vor – D1 lehnt überzählige Parameter ab
+    // ?9 (öffentlich) kommt nur in der Gruppen-Abfrage vor – D1 lehnt überzählige Parameter ab
     const pub = post.channel.kind === 'group' ? [post.visibility === 'public' ? 1 : 0] : [];
-    await deliver(env, 'post', 'post', post.id, post.authorId, sql, post.channel.id, NOTIFICATION_LIMITS.postFanOut, ...pub);
+    await deliver(env, 'post', 'post', post.id, post.authorId, sql, post.channel.id, NOTIFICATION_LIMITS.postFanOut, post.exclude ?? null, ...pub);
+  });
+
+/**
+ * Neuer öffentlicher Törn bzw. Fahrtenbuch-Eintrag (F-449, Konzept 24.6): ein Beitrag wie ein Text-Beitrag, nur bei
+ * „Alle Beiträge“. Empfänger: Mitglieder der Gruppen, in denen er gezeigt wird (`share_groups`), Follower dieser Gruppen,
+ * wenn sie öffentlich sind und ihre Mitgliederliste öffentlich ist (sonst sehen Nicht-Mitglieder den Törn dort nicht,
+ * F-442), Eigner und Admins des Boots (Voreinstellung) und Follower des Boots (öffentlich) – je nach Stufe. Nie die
+ * Eigentümer:in, nie gesperrte Konten; wer zu diesem Törn schon eine Benachrichtigung hat, bekommt keine zweite (beim
+ * ersten Erscheinen und bei neu gewählten Gruppen erneut aufrufbar). Fotos benachrichtigen nicht einzeln; die
+ * Ausbreitung nach oben (Verein eines Teams, Hafen, Community) nie.
+ */
+export const notifyShare = (env: Env, shareId: string) =>
+  safely('share', async () => {
+    const s = await env.DB.prepare('SELECT user_id, boat_id, visibility, hidden_at, locked_at FROM shares WHERE id = ?')
+      .bind(shareId)
+      .first<{ user_id: string; boat_id: string | null; visibility: string; hidden_at: number | null; locked_at: number | null }>();
+    if (!s || s.visibility !== 'public' || s.hidden_at || s.locked_at) return;
+    const ok = (stored?: string) => (stored ? notifyLevelSql('post', false, stored) : notifyLevelSql('post', false));
+    const liveGroup = `g.hidden_at IS NULL AND g.locked_at IS NULL`;
+    const sql = `SELECT u.id AS uid FROM (
+        SELECT m.user_id AS id FROM share_groups sg JOIN group_members m ON m.group_id = sg.group_id WHERE sg.share_id = ?3
+        UNION SELECT f.user_id FROM share_groups sg JOIN follows f ON f.target_kind = 'group' AND f.target_id = sg.group_id WHERE sg.share_id = ?3
+        UNION SELECT owner_id FROM boats WHERE id = ?6
+        UNION SELECT user_id FROM boat_admins WHERE boat_id = ?6
+        UNION SELECT user_id FROM follows WHERE target_kind = 'boat' AND target_id = ?6
+      ) c JOIN users u ON u.id = c.id
+      WHERE u.suspended_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.user_id = u.id AND n.kind = 'post' AND n.subject_kind = 'share' AND n.subject_id = ?3)
+        AND (
+          EXISTS (SELECT 1 FROM share_groups sg JOIN groups g ON g.id = sg.group_id AND ${liveGroup}
+                    JOIN group_members m ON m.group_id = g.id AND m.user_id = u.id
+                  WHERE sg.share_id = ?3 AND ${ok('m.notify_level')})
+          OR EXISTS (SELECT 1 FROM share_groups sg JOIN groups g ON g.id = sg.group_id AND ${liveGroup} AND g.visibility = 'public' AND g.members_visible = 'public'
+                    JOIN follows f ON f.target_kind = 'group' AND f.target_id = g.id AND f.user_id = u.id
+                  WHERE sg.share_id = ?3 AND NOT EXISTS (SELECT 1 FROM group_members x WHERE x.group_id = g.id AND x.user_id = u.id)
+                    AND ${ok(followLevelSql('f'))})
+          OR ((u.id IN (SELECT owner_id FROM boats WHERE id = ?6) OR u.id IN (SELECT user_id FROM boat_admins WHERE boat_id = ?6)) AND ${ok()})
+          OR EXISTS (SELECT 1 FROM follows f JOIN boats b ON b.id = f.target_id AND b.visibility = 'public' AND b.hidden_at IS NULL
+                  WHERE f.target_kind = 'boat' AND f.target_id = ?6 AND f.user_id = u.id AND ${ok(followLevelSql('f'))})
+        )
+      LIMIT ?7`;
+    await deliver(env, 'post', 'share', shareId, s.user_id, sql, s.boat_id ?? '', NOTIFICATION_LIMITS.postFanOut);
   });
 
 /** Hinweis des Betreibers (nicht abschaltbar, zusätzlich zur Mail): Törn wird bald gelöscht – an die Eigentümer:in. */
@@ -373,6 +431,8 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
     case 'share':
       // Gesperrtes sieht nur die Moderation (Konzept 18) – auch nicht die Eigentümer:in über die Glocke
       if (r.s_title === null || r.s_locked) return null;
+      // Neuer Törn in einer Gruppe bzw. am Boot (F-449): solange er öffentlich und nicht ausgeblendet ist
+      if (r.kind === 'post') return r.s_vis === 'public' && !r.s_hidden ? { ...base, title: r.s_title, what: 'voyage', href: sharePath('s', r.subject_id, 'public', null) } : null;
       // Mitkommentierende (17.9.1): nur Kommentare, nur solange der Törn öffentlich ist und Kommentare zeigt – ohne
       // Schlüssel, damit ein erneuerter Link-Schlüssel nie über die Glocke verraten wird.
       if (r.s_owner !== userId) {

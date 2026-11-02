@@ -453,8 +453,7 @@ describe('Mitgliedschaft: Glocke, Austreten, Übergeben, Meine Gruppen (F-346 �
     }
   });
 
-  it('[F-348] [F-449] Konto „Meine Gruppen“: Glocke mit Stufe, Austreten (Eigner: Übergeben …), offene Anfragen zurückziehen', async () => {
-    const levels = listen('sx-notify-level');
+  it('[F-348] [F-449] Konto „Meine Gruppen“: Stufe nur als Symbol mit Link zur Gruppe, Austreten (Eigner: Übergeben …), offene Anfragen zurückziehen', async () => {
     const withdraws = listen('sx-group-withdraw');
     const el = await mount('sx-my-groups', {
       groups: [
@@ -464,13 +463,12 @@ describe('Mitgliedschaft: Glocke, Austreten, Übergeben, Meine Gruppen (F-346 �
       requests: [{ id: 'G3', slug: 'anfrage', name: 'Anfrageclub', kind: 'club', createdAt: T }],
     });
     expect(text(el.shadowRoot)).toContain('stumm');
-    const bell = el.shadowRoot.querySelector('sx-notify-bell') as unknown as LitEl & { level: string };
-    await bell.updateComplete;
-    expect(bell.level).toBe('muted');
-    button(bell.shadowRoot, /Alle Beiträge/)!.click();
-    expect(levels).toEqual([{ kind: 'group', id: 'G1', level: 'all' }]);
+    // bearbeitet wird am Objekt bzw. in der Übersicht (UX N9-Ausnahme): hier nur Symbol und Link
+    expect(el.shadowRoot.querySelector('sx-notify-bell')).toBeNull();
+    const bell = el.shadowRoot.querySelector('a.bell[href="/g/pyc"]')!;
+    expect(bell.getAttribute('aria-label')).toContain('Stumm');
     expect(buttons(el.shadowRoot).filter((b) => /Austreten/.test(b.textContent ?? ''))).toHaveLength(1);
-    expect(el.shadowRoot.querySelector('a[href="/g/eigen"].btn')?.textContent).toContain('Übergeben');
+    expect(el.shadowRoot.querySelector('a.btn:not(.bell)[href="/g/eigen"]')?.textContent).toContain('Übergeben');
     button(el.shadowRoot, /Zurückziehen/)!.click();
     expect(withdraws).toEqual([{ id: 'G3' }]);
   });

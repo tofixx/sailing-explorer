@@ -3,6 +3,7 @@
 // Die Route (Hafenpositionen) liegt wie jeder Track als gzip-Payload in R2 (`{"v":1,"tracks":[],"route":[…]}`).
 import { checkGroupIds, insertShareGroupsStmt, presetShareGroupsStmt } from './share-groups';
 import type { Env } from './env';
+import { notifyShare } from './notifications';
 import { readShareReach, sharePostStmt } from './post-sql';
 import type { User } from './auth';
 import { requireUser } from './auth';
@@ -247,7 +248,11 @@ export async function createManualShare(request: Request, env: Env): Promise<Res
     throw err;
   });
   // Neuigkeiten: Nachträge (Abfahrt > 14 Tage zurück) gebündelt je Konto und Tag, sonst wie ein Törn (K7, F-308).
-  if (row.visibility === 'public') await (isBackfill(row.started_at, now) ? recordLogbook(env, row, now) : recordVoyage(env, row, now));
+  if (row.visibility === 'public') {
+    await (isBackfill(row.started_at, now) ? recordLogbook(env, row, now) : recordVoyage(env, row, now));
+    // Fahrtenbuch-Eintrag ist ein Beitrag wie ein Törn (F-449)
+    await notifyShare(env, row.id);
+  }
   const saved = await getShareRow(env, row.id);
   return json({ share: shareShape(saved ?? row, true) }, { status: 201 });
 }

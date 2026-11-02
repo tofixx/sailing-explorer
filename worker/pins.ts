@@ -15,6 +15,7 @@ import { notifyPost } from './notifications';
 import { SHARE_ID_RE } from './validate';
 import type { ReadAt } from './stream-shape';
 import { canManageChannel, isChannelKind, type ChannelKind } from '../src/domain/posts';
+import { canSeeMembers } from '../src/domain/groups';
 import type { Visibility } from '../src/domain/visibility';
 
 /** Höchstens so viele Pins je Verlauf werden angezeigt (es gibt keine Obergrenze beim Anpinnen – B1). */
@@ -45,7 +46,7 @@ export async function channelAccess(request: Request, env: Env, kind: ChannelKin
       const g = await loadGroup(env, id);
       const role = g ? await roleIn(env, user?.id, g.id) : null;
       if (!g || !canViewGroup(g, role, key, admin)) return null;
-      return { kind, id: g.id, manage: canManageChannel({ kind, groupRole: role }), at: { kind: 'group', id: g.id, parentId: g.parent_id ?? null } };
+      return { kind, id: g.id, manage: canManageChannel({ kind, groupRole: role }), at: { kind: 'group', id: g.id, parentId: g.parent_id ?? null, memberContent: canSeeMembers(g.members_visible, role) } };
     }
     case 'harbor': {
       const h = await loadHarbor(env, id);
@@ -128,7 +129,8 @@ export async function setPin(request: Request, env: Env, postId: string): Promis
       .first<{ kind: string; author_id: string; visibility: string; channel_kind: string; channel_id: string }>();
     const home = !!p && p.channel_kind === access.kind && p.channel_id === access.id;
     if (p && (home || p.visibility === 'public')) {
-      await notifyPost(env, { id: postId, authorId: user.id, kind: p.kind, pinned: true, channel: { kind: access.kind, id: access.id }, visibility: p.visibility });
+      // handelnd ist die Autor:in (der Text lautet „<Autor:in> hat in … geschrieben“); wer anpinnt, bekommt nichts
+      await notifyPost(env, { id: postId, authorId: p.author_id, exclude: user.id, kind: p.kind, pinned: true, channel: { kind: access.kind, id: access.id }, visibility: p.visibility });
     }
   }
   return json({ pinned: body.pinned });

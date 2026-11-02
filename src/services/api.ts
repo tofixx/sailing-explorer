@@ -955,7 +955,7 @@ export const groupApi = {
   remove: (id: string) => call<void>(`/api/groups/${gid(id)}`, { method: 'DELETE' }),
   setRole: (id: string, userId: string, role: 'admin' | 'member') => call<{ role: string }>(`/api/groups/${gid(id)}/members/${gid(userId)}`, jsonInit('PATCH', { role })),
   /** userId 'me' = austreten; `follow`: danach weiter folgen (F-446) */
-  removeMember: (id: string, userId: string, follow = false) => call<void>(`/api/groups/${gid(id)}/members/${gid(userId)}${follow ? '?follow=1' : ''}`, { method: 'DELETE' }),
+  removeMember: (id: string, userId: string, follow = false) => call<{ followed?: boolean } | void>(`/api/groups/${gid(id)}/members/${gid(userId)}${follow ? '?follow=1' : ''}`, { method: 'DELETE' }),
   invite: (id: string, email: string | null) => call<InviteCreated>(`/api/groups/${gid(id)}/invites`, jsonInit('POST', email ? { email } : {})),
   request: (id: string, message: string, key?: string | null) =>
     call<{ requested: boolean; already?: boolean; joined?: boolean }>(`/api/groups/${gid(id)}/requests`, {

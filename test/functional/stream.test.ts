@@ -98,7 +98,7 @@ describe('F-158 Folgen', () => {
 describe('F-159/F-160 Neuigkeiten', () => {
   it('[F-159] öffentlicher Törn eines Vereinsboots: eine Aktivität, Ziele Segler, Boot, Verein (kein Fan-out pro Mitglied)', async () => {
     const owner = await s.person({ profile: 'public' });
-    const g = await s.group(owner);
+    const g = await s.group(owner, { membersVisible: 'public' });
     const members = [await s.person(), await s.person(), await s.person()];
     for (const m of members) await s.join(owner, g, m);
     const sailor = members[0];
@@ -162,7 +162,7 @@ describe('F-159/F-160 Neuigkeiten', () => {
 
   it('[F-160] Namen nur mit öffentlichem Profil, Boot nur öffentlich; keine Konto-IDs und E-Mail-Adressen in der Antwort', async () => {
     const owner = await s.person({ supporter: true, profile: 'private' });
-    const g = await s.group(owner);
+    const g = await s.group(owner, { membersVisible: 'public' });
     const boat = await s.boat(owner, { visibility: 'private' });
     await s.send('POST', `/api/groups/${g.id}/boats`, owner.cookie, { boatId: boat.id });
     const share = await s.share(owner, { boatId: boat.id });

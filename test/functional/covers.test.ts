@@ -273,7 +273,7 @@ describe('Galerien an Person, Boot und Verein (Konzept 13.1)', () => {
     const owner = await s.person({ profile: 'public', supporter: true });
     const crew = await s.person({ profile: 'public' });
     const b = await s.boat(owner);
-    const g = await s.group(owner);
+    const g = await s.group(owner, { membersVisible: 'public' });
     expect((await s.send('POST', `/api/groups/${g.id}/boats`, owner.cookie, { boatId: b.id })).status).toBe(201);
 
     const pub = await s.share(owner, { boatId: b.id, title: 'Ostsee-Törn' });

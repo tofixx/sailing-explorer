@@ -112,7 +112,8 @@ export function logbookIds(data: string): string[] {
  * („Alles“, „Umgebung“). Fehlt es (persönlicher Stream), entscheiden die beim Schreiben angeglichenen Ziele.
  */
 export type ReadAt =
-  | { kind: 'group'; id: string; parentId: string | null }
+  /** `memberContent`: Törns der Mitglieder zeigen (Liste öffentlich oder Lesende:r Mitglied, F-442) – fehlt = nein */
+  | { kind: 'group'; id: string; parentId: string | null; memberContent?: boolean }
   | { kind: 'harbor'; id: string }
   | { kind: 'boat'; id: string }
   | { kind: 'community' }
@@ -136,6 +137,13 @@ const boatCover = (r: ActivityRow) => (publicBoat(r) ? coverRef('b', r.b_id!, r.
 const groupCover = (r: ActivityRow) => (r.g_id && r.g_vis === 'public' && !r.g_hidden && !r.g_owner_suspended ? coverRef('g', r.g_id, r.cg_ver, r.cg_y) : null);
 /** `cover` nur setzen, wenn es eins gibt (kein `cover: null` in der Antwort). */
 const withCover = <T extends StreamItem>(item: T, cover: StreamItem['cover'] | null): T => (cover ? { ...item, cover } : item);
+
+/**
+ * Gruppen-Stream mit Mitgliederliste „nur Mitglieder“ für Nicht-Mitglieder (F-442, Konzept 24.7): Törns, Fotos und
+ * Fahrtenbuch-Bündel der Mitglieder verrieten die Mitgliedschaft – dort nur öffentliche Text-Beiträge. Der Törn bleibt im
+ * Profil und in der Community. Fail closed: fehlt die Angabe, nichts.
+ */
+const hidesMemberContent = (viewer: Viewer): boolean => viewer.at?.kind === 'group' && viewer.at.memberContent !== true;
 
 /** Gruppe für den Betrachter sichtbar? Öffentlich oder Mitglied; ausgeblendet nur für Eigner/Admins. */
 function groupVisible(r: ActivityRow): boolean {
@@ -219,6 +227,7 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [],
     case 'photos': {
       // Nur jetzt öffentliche, nicht ausgeblendete Törns – privat geschaltet, ausgeblendet oder gelöscht: weg.
       if (!r.s_id || r.s_vis !== 'public' || r.s_hidden) return null;
+      if (hidesMemberContent(viewer)) return null;
       if (r.kind === 'photos' && !thumbs.length) return null;
       // „Sichtbar bis“ (F-427): Hafen und Community prüfen die Stufe beim Lesen; Gruppen folgen Auswahl und Zielen
       const lvl = viewer.at && viewer.at.kind !== 'group' ? levelOf(viewer.at) : null;
@@ -262,7 +271,7 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [],
     }
     case 'logbook': {
       // Nachträge (F-308): nur die jetzt öffentlichen Einträge des Bündels; keiner mehr da → weg.
-      if (!actor || !logShares.length) return null;
+      if (!actor || !logShares.length || hidesMemberContent(viewer)) return null;
       const distNm = logShares.reduce((s, x) => s + x.distNm, 0);
       return { ...base, logbook: { count: logShares.length, distNm, voyages: logShares.slice(0, 5).map(({ id, title }) => ({ id, title })) } };
     }

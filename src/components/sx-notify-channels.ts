@@ -73,7 +73,7 @@ export class SxNotifyChannels extends LitElement {
   render() {
     const d = this.data;
     if (!d) return html`<p class="hint">Lade …</p>`;
-    return html`<label><span class="label">Voreinstellung für Mitgliedschaften (neue Gruppen)</span>
+    return html`<label><span class="label">Voreinstellung für Mitgliedschaften sowie Häfen und Boote ohne eigene Wahl</span>
         <select .value=${d.defaultLevel} ?disabled=${this.busy} @change=${(e: Event) => emit(this, 'sx-notify-default', { level: (e.target as HTMLSelectElement).value as NotifyLevel })}>
           ${DEFAULT_LEVEL_CHOICES.map((l) => html`<option value=${l} ?selected=${l === d.defaultLevel}>${NOTIFY_LEVEL_LABEL[l]} – ${NOTIFY_LEVEL_HINT[l]}</option>`)}
         </select></label>

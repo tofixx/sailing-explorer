@@ -519,7 +519,8 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     social,
     // Titelbild und neueste öffentliche Fotos aus den in der Gruppe gezeigten Törns (Konzept 13, 11.12)
     ...pageCover('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request)),
-    photos: await galleryPhotos(env, 'group', group.id),
+    // Fotos stammen aus Törns der Mitglieder: nur, wer die Mitglieder sehen darf (F-442, Konzept 24.7)
+    photos: seeMembers ? await galleryPhotos(env, 'group', group.id) : [],
     // Ort für die Karte im Hintergrund (F-351): Position des Heimathafens, sonst null
     place: group.harbor_id
       ? ((await env.DB.prepare('SELECT lat, lon FROM harbors WHERE id = ? AND hidden_at IS NULL AND lat IS NOT NULL AND lon IS NOT NULL').bind(group.harbor_id).first<{ lat: number; lon: number }>()) ?? null)
@@ -618,7 +619,9 @@ export const transferGroupStmts = (env: Env, groupId: string, from: string | nul
   // ohne bisherigen Eigner (Admin-Bereich: verwaiste Gruppe) bleibt nur das Einsetzen
   ...(from ? [env.DB.prepare(`UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?`).bind(groupId, from)] : []),
   env.DB.prepare(
-    `INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?1, ?2, 'owner', ?3)
+    // aus Folgen wird Mitgliedschaft (F-446): die Stufe geht mit wie bei addMember
+    `INSERT INTO group_members (group_id, user_id, role, created_at, notify_level)
+     VALUES (?1, ?2, 'owner', ?3, (SELECT notify_level FROM follows WHERE user_id = ?2 AND target_kind = 'group' AND target_id = ?1))
      ON CONFLICT(group_id, user_id) DO UPDATE SET role = 'owner'`,
   ).bind(groupId, to, now),
   env.DB.prepare('DELETE FROM group_requests WHERE group_id = ? AND user_id = ?').bind(groupId, to),
@@ -667,8 +670,9 @@ export async function removeMember(request: Request, env: Env, id: string, who: 
   if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigentümer.');
   await env.DB.batch(leaveGroupStmts(env, group.id, target));
   // Austritt mit „Weiter folgen?“ – Ja (`?follow=1`): Folgen mit „Nur Direktes“ (F-446), nur bei öffentlichen Gruppen
+  // Antwort `{ followed }`: false bei der Folgen-Grenze (GROUP_LIMITS.follows) – die Oberfläche meldet das
   if (target === user.id && new URL(request.url).searchParams.get('follow') === '1' && group.visibility === 'public' && !group.hidden_at) {
-    await addFollow(env, user.id, 'group', group.id);
+    return json({ followed: await addFollow(env, user.id, 'group', group.id) });
   }
   return new Response(null, { status: 204 });
 }
