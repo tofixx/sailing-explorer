@@ -91,19 +91,37 @@ const paths = {
 export type IconName = keyof typeof paths;
 
 /**
- * Logo „Segel im Kompass“ (32er-Raster, gefüllt). Kachel in --accent, Zeichen in --on-accent;
- * dieselbe Form steht in public/favicon.svg und wird in services/share-image.ts gezeichnet.
+ * Logo „Kielspur“ (32er-Raster): Groß- und Vorsegel mit Verlauf Havelblau → Türkis, schlichter Jollenrumpf, darunter
+ * die gepunktete Spur des Törns. `tile` = Kachel wie Favicon und App-Icon (public/favicon.svg, public/icons/icon.svg),
+ * sonst freies Zeichen; der Rumpf nimmt --text, damit er hell wie dunkel steht. services/share-image.ts zeichnet
+ * dieselbe Form.
  */
-export function logo(size = 32): SVGTemplateResult {
-  return svg`<svg width=${size} height=${size} viewBox="0 0 32 32" aria-hidden="true">
-    <rect width="32" height="32" rx="8" fill="var(--accent)"/>
-    <g fill="var(--on-accent)" stroke="var(--on-accent)">
-      <circle cx="16" cy="16" r="10.5" fill="none" stroke-width="1.6" opacity=".55"/>
-      <path d="M16 3.5v3" stroke-width="2" stroke-linecap="round"/>
-      <path d="M16 9 22 21H16z" stroke="none"/>
-      <path d="M14.5 11.5 10 21h4.5z" stroke="none" opacity=".75"/>
-    </g>
-  </svg>`;
+export function logo(size = 32, tile = false): SVGTemplateResult {
+  const wake = svg`<path d="M7 30C12 31.6 18 28.8 27 30.4" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="0.1 2.6"/>`;
+  return tile
+    ? svg`<svg width=${size} height=${size} viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="sx-logo-t0" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e6bd8"/><stop offset="1" stop-color="#0b8fa6"/></linearGradient>
+          <linearGradient id="sx-logo-t1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#b9f2ea"/></linearGradient>
+        </defs>
+        <rect width="32" height="32" rx="8" fill="url(#sx-logo-t0)"/>
+        <g transform="translate(2.88 2.88) scale(.82)">
+          <path d="M17 3Q23.5 11 26.5 21H17z" fill="url(#sx-logo-t1)"/>
+          <path d="M15.4 6V21H6.5Q9.6 12.6 15.4 6z" fill="#fff" opacity=".8"/>
+          <path d="M4.5 23H28Q26 27.6 21.8 27.6H9.6Q5.8 27.2 4.5 23z" fill="#fff"/>
+          <g stroke="#9ff0e6">${wake}</g>
+        </g>
+      </svg>`
+    : svg`<svg width=${size} height=${size} viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="sx-logo-m1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e6bd8"/><stop offset="1" stop-color="#22b8b0"/></linearGradient>
+          <linearGradient id="sx-logo-m2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5ba8f2"/><stop offset="1" stop-color="#8fe3d6"/></linearGradient>
+        </defs>
+        <path d="M17 3Q23.5 11 26.5 21H17z" fill="url(#sx-logo-m1)"/>
+        <path d="M15.4 6V21H6.5Q9.6 12.6 15.4 6z" fill="url(#sx-logo-m2)"/>
+        <path d="M4.5 23H28Q26 27.6 21.8 27.6H9.6Q5.8 27.2 4.5 23z" fill="var(--text)"/>
+        <g stroke="#22b8b0">${wake}</g>
+      </svg>`;
 }
 
 export function icon(name: IconName, cls = 'i'): SVGTemplateResult {
