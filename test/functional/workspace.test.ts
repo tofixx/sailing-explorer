@@ -9,9 +9,16 @@ import { T0, genPoints, gpxDoc, makeTrack, meteoResponse, P } from './helpers';
 import '../../src/components/sx-compose';
 import '../../src/components/sx-confirm';
 import '../../src/components/sx-track-list';
+import '../../src/components/sx-account-dialog';
+import { SxTopbar } from '../../src/components/sx-topbar';
+import { datenschutz } from '../../src/content/legal';
+
+HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+  this.setAttribute('open', '');
+};
 
 type WsTrack = { id: string; name: string; gpx: string; hidden: boolean };
-const h = vi.hoisted(() => ({ ws: { data: null as null | { tracks: WsTrack[]; weather?: unknown; savedAt: number } } }));
+const h = vi.hoisted(() => ({ ws: { data: null as null | { tracks: WsTrack[]; weather?: unknown; owner?: string; savedAt: number } } }));
 
 vi.mock('../../src/map/map-view', async () => {
   const { vi: v } = await import('vitest');
@@ -32,20 +39,32 @@ vi.mock('../../src/map/map-view', async () => {
 vi.mock('../../src/services/workspace', () => ({
   workspace: {
     load: async () => h.ws.data,
-    save: async (tracks: WsTrack[], weather: unknown = null) => {
-      h.ws.data = tracks.length ? { tracks: structuredClone(tracks), weather: structuredClone(weather), savedAt: Date.now() } : null;
+    save: async (tracks: WsTrack[], weather: unknown = null, owner = 'guest') => {
+      h.ws.data = tracks.length ? { tracks: structuredClone(tracks), weather: structuredClone(weather), owner, savedAt: Date.now() } : null;
     },
   },
 }));
 
 const { App } = await import('../../src/app');
-const { toernLabel, resumableDraft } = await import('../../src/controllers/workspace');
+const { toernLabel, resumableDraft, draftVisibleTo } = await import('../../src/controllers/workspace');
 
+/** BroadcastChannel ohne andere Tabs; `receive` spielt eine Nachricht aus einem anderen Tab ein. */
 class FakeChannel {
-  addEventListener() {}
+  static all: FakeChannel[] = [];
+  private fns: Array<(e: { data: unknown }) => void> = [];
+  constructor(readonly name: string) {
+    FakeChannel.all.push(this);
+  }
+  addEventListener(_t: string, fn: (e: { data: unknown }) => void) {
+    this.fns.push(fn);
+  }
   postMessage() {}
   close() {}
+  receive(data: unknown) {
+    for (const f of this.fns) f({ data });
+  }
 }
+const otherTab = (data: unknown = 'changed') => FakeChannel.all.filter((c) => c.name === 'sx-draft').at(-1)!.receive(data);
 
 const leg = (name: string, start = T0) => gpxDoc(genPoints({ start, n: 31, dt: 60 }), name);
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
@@ -57,12 +76,17 @@ const SHARES: Record<string, { meta: Record<string, unknown>; tracks: Array<{ na
 };
 
 let user: { id: string; email: string } | null;
+/** hält /api/auth/me an (Rennen beim Start, K3) */
+let holdMe: Promise<void> | null = null;
 async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const url = String(input);
   const method = (init.method || 'GET').toUpperCase();
   if (url.includes('open-meteo.com')) return json(meteoResponse(url, { wind: 10, gust: 14, dir: 250, wave: 0.4, wdir: 240, wper: 4 }));
   if (url === '/api/config') return json({ turnstileSiteKey: '', sharing: true, support: null, freeShares: 3 });
-  if (url === '/api/auth/me') return json({ user });
+  if (url === '/api/auth/me') {
+    await holdMe;
+    return json({ user });
+  }
   if (url === '/api/auth/logout' && method === 'POST') {
     user = null;
     return json({ ok: true });
@@ -89,6 +113,8 @@ const origAdd = document.addEventListener.bind(document);
 beforeEach(() => {
   h.ws.data = null;
   user = null;
+  holdMe = null;
+  FakeChannel.all = [];
   vi.stubGlobal('fetch', vi.fn(router));
   vi.stubGlobal('BroadcastChannel', FakeChannel);
   document.body.innerHTML = BODY;
@@ -121,10 +147,21 @@ const toasts = () => toast.mock.calls.map((c) => String(c[0]));
 const file = (name: string, text: string) => new File([text], name);
 const settled = () => vi.waitFor(() => expect(state().loading).toBeNull(), { timeout: 5000 });
 const names = () => state().tracks.map((t) => t.name);
-const confirmDlg = () => el<{ open: boolean; text: string }>('sx-confirm');
+const confirmDlg = () => el<{ open: boolean; text: string; heading: string }>('sx-confirm');
+/** Rückfrage beantworten wie per Klick */
+async function answer(ok: boolean) {
+  const d = el<HTMLElement & { open: boolean; updateComplete: Promise<boolean>; shadowRoot: ShadowRoot }>('sx-confirm');
+  await vi.waitFor(() => expect(d.open).toBe(true));
+  await d.updateComplete;
+  (d.shadowRoot.querySelector(ok ? '.btn.primary' : '[data-cancel]') as HTMLButtonElement).click();
+}
 const topbar = () => el<{ toern: { title: string; status: string } | null; draft: string | null }>('sx-topbar');
 /** Entwurf aus einem früheren Besuch im Browser */
 const storeDraft = (...n: string[]) => (h.ws.data = { tracks: n.map((name, i) => ({ id: `d${i}`, name, gpx: leg(name, T0 + i * 86_400_000), hidden: false })), savedAt: 1 });
+const ownDraft = (owner: string, name = 'Entwurf von A') => {
+  storeDraft(name);
+  (h.ws.data as { owner?: string }).owner = owner;
+};
 const drop = (f: File) => {
   const ev = new Event('drop', { bubbles: true, cancelable: true });
   Object.defineProperty(ev, 'dataTransfer', { value: { files: [f], types: ['Files'] } });
@@ -179,14 +216,13 @@ describe('Törn-Arbeitsbereich (Konzept 23)', () => {
     emit('sx-files', [file('c.gpx', leg('Neu'))]);
     await vi.waitFor(() => expect(confirmDlg().open).toBe(true));
     expect(confirmDlg().text).toBe('Entwurf „Entwurf A“ verwerfen und neuen Törn beginnen?');
-    emit('sx-confirm-cancel');
+    await answer(false);
     expect(confirmDlg().open).toBe(false);
     expect(names()).toEqual(['Entwurf A', 'Entwurf B']);
     expect(state().loading).toBeNull();
 
     emit('sx-files', [file('c.gpx', leg('Neu'))]);
-    await vi.waitFor(() => expect(confirmDlg().open).toBe(true));
-    emit('sx-confirm-ok');
+    await answer(true);
     await vi.waitFor(() => expect(names()).toEqual(['Neu']));
     await settled();
     expect(h.ws.data?.tracks.map((t) => t.name)).toEqual(['Neu']);
@@ -285,6 +321,127 @@ describe('Törn-Arbeitsbereich (Konzept 23)', () => {
     expect(topbar().toern).toBeNull();
     expect(location.pathname).toBe('/');
   });
+
+  it('[F-437] auch eine Ansicht (Beispiel, ?track=) wird nach „Speichern & Link“ zum eigenen Törn; ein Entwurf bleibt', async () => {
+    user = { id: 'u1', email: 'a@example.org' };
+    ownDraft('u1', 'Mein Entwurf');
+    await startApp();
+    vi.mocked(fetch).mockImplementationOnce(async () => new Response(leg('Stralsund → Prerow')));
+    emit('sx-sample', '20260613_Stralsund_Prerow');
+    await vi.waitFor(() => expect(state().mode.kind).toBe('link'));
+    await settled();
+    emit('sx-share-submit', { title: 'Gespeichert', visibility: 'public', includeView: false, boatId: null });
+    await vi.waitFor(() => expect(state().mode.kind).toBe('share'));
+    expect(location.pathname).toBe('/s/Neu0000000000001');
+    expect(topbar().toern?.status).toBe('Gespeichert · Öffentlich');
+    expect(h.ws.data?.tracks.map((t) => t.name)).toEqual(['Mein Entwurf']);
+  });
+
+  it('[F-438] Konto B sieht den Entwurf von Konto A nicht – auch wenn A sich nicht abgemeldet hat', async () => {
+    ownDraft('uA');
+    user = { id: 'uB', email: 'b@example.org' };
+    await startApp();
+    expect(state().tracks).toEqual([]);
+    expect(state().draft).toBeNull();
+    expect(h.ws.data).toBeNull();
+    // ebenso als Gast nach Ablauf der Sitzung von A
+    ownDraft('uA');
+    user = null;
+    await startApp();
+    expect(state().draft).toBeNull();
+    expect(h.ws.data).toBeNull();
+  });
+
+  it('[F-438] ein Gast-Entwurf geht nach der Anmeldung ans Konto über; endet die Sitzung ohne Abmelden, verschwindet er', async () => {
+    await startApp();
+    emit('sx-files', [file('a.gpx', leg('Gast-Törn'))]);
+    await vi.waitFor(() => expect(names()).toEqual(['Gast-Törn']));
+    await settled();
+    expect((h.ws.data as { owner?: string }).owner).toBe('guest');
+    (app as unknown as { store: { set(p: object): void } }).store.set({ user: { id: 'u1', email: 'a@example.org' } });
+    await vi.waitFor(() => expect((h.ws.data as { owner?: string } | null)?.owner).toBe('u1'));
+    expect(names()).toEqual(['Gast-Törn']);
+    // Sitzung abgelaufen (401 setzt user = null), ohne „Abmelden“
+    (app as unknown as { store: { set(p: object): void } }).store.set({ user: null });
+    await vi.waitFor(() => expect(h.ws.data).toBeNull());
+    expect(state().tracks).toEqual([]);
+    expect(draftVisibleTo('guest', 'u1')).toBe(true);
+    expect(draftVisibleTo(undefined, null)).toBe(true);
+    expect(draftVisibleTo('u1', 'u2')).toBe(false);
+  });
+
+  it('[F-438] „Abmelden“ im Konto nennt den Entwurf, der dabei verworfen wird', async () => {
+    const dlg = document.createElement('sx-account-dialog') as HTMLElement & Record<string, unknown> & { updateComplete: Promise<boolean>; shadowRoot: ShadowRoot };
+    Object.assign(dlg, { open: true, user: { id: 'u1', email: 'a@example.org' }, draft: 'Havel' });
+    document.body.append(dlg);
+    await dlg.updateComplete;
+    expect(dlg.shadowRoot.querySelector('.draft-hint')?.textContent).toBe('Entwurf „Havel“ wird verworfen');
+    dlg.draft = null;
+    await dlg.updateComplete;
+    expect(dlg.shadowRoot.querySelector('.draft-hint')).toBeNull();
+    // die App setzt den Titel des Entwurfs
+    user = { id: 'u1', email: 'a@example.org' };
+    ownDraft('u1', 'Havel');
+    await startApp('/s/Fremd00000000001');
+    await vi.waitFor(() => expect(el<{ draft: string | null }>('sx-account-dialog').draft).toBe('Havel'));
+  });
+
+  it('[F-438] Datenschutz: der Entwurf und seine Löschwege sind beschrieben', () => {
+    const text = JSON.stringify(datenschutz());
+    expect(text).toContain('Entwurf');
+    expect(text).toMatch(/beim Speichern, beim Abmelden .*beim Verwerfen des Entwurfs oder wenn du die Website-Daten im Browser löschst/);
+    expect(text).not.toContain('Alle entfernen');
+    expect(text).not.toContain('Gast-Sitzung');
+  });
+
+  it('[F-439] ein anderer Tab ändert bzw. verwirft den Entwurf: der offene Entwurf zeigt den neuen Stand', async () => {
+    await startApp();
+    emit('sx-files', [file('a.gpx', leg('Alt'))]);
+    await vi.waitFor(() => expect(names()).toEqual(['Alt']));
+    await settled();
+    // anderer Tab hat einen neuen Törn begonnen
+    storeDraft('Aus Tab 2');
+    otherTab();
+    await vi.waitFor(() => expect(names()).toEqual(['Aus Tab 2']));
+    expect(toasts().at(-1)).toMatch(/in einem anderen Tab geändert/);
+    expect(h.ws.data?.tracks.map((t) => t.name)).toEqual(['Aus Tab 2']);
+    // … und verworfen
+    h.ws.data = null;
+    otherTab();
+    await vi.waitFor(() => expect(state().tracks).toEqual([]));
+    expect(toasts().at(-1)).toMatch(/in einem anderen Tab verworfen/);
+    expect(state().draft).toBeNull();
+  });
+
+  it('[F-434] Rennen beim Start: Ablegen, bevor die Anmeldung bekannt ist, fragt trotzdem nach dem Entwurf', async () => {
+    storeDraft('Früher Entwurf');
+    let release!: () => void;
+    holdMe = new Promise((r) => (release = r));
+    history.replaceState(null, '', '/s/Fremd00000000001');
+    app = new App();
+    const started = app.start();
+    drop(file('n.gpx', leg('Neu')));
+    release();
+    await started;
+    await answer(false);
+    expect(h.ws.data?.tracks.map((t) => t.name)).toEqual(['Früher Entwurf']);
+  });
+
+  it('[F-436] „Entwurf verwerfen“ in der Track-Liste fragt nach und leert Entwurf und Arbeitsbereich', async () => {
+    storeDraft('Weg damit');
+    await startApp();
+    emit('sx-draft-discard');
+    await vi.waitFor(() => expect(confirmDlg().heading).toBe('Entwurf verwerfen?'));
+    expect(confirmDlg().text).toContain('„Weg damit“ (1 Track)');
+    await answer(false);
+    expect(names()).toEqual(['Weg damit']);
+    emit('sx-draft-discard');
+    await answer(true);
+    await vi.waitFor(() => expect(state().tracks).toEqual([]));
+    expect(h.ws.data).toBeNull();
+    expect(state().home).toBe(true);
+    expect(topbar().draft).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------- Komponenten
@@ -316,19 +473,35 @@ describe('Komponenten des Arbeitsbereichs', () => {
     expect(resumableDraft({ mode: { kind: 'local' }, tracks: [makeTrack([P(1, 1, 0)])], draft: { title: 'X', count: 1 } })).toBeNull();
   });
 
-  it('[F-434] Nachfrage-Dialog: „Verwerfen“ und „Abbrechen“ (auch Escape) melden ihre Antwort', async () => {
-    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
-      this.setAttribute('open', '');
-    };
-    const oks = caught('sx-confirm-ok');
-    const cancels = caught('sx-confirm-cancel');
-    const d = await mount('sx-confirm', { open: true, heading: 'Neuen Törn beginnen?', text: 'Entwurf „A“ verwerfen und neuen Törn beginnen?', confirmLabel: 'Verwerfen' });
+  it('[F-434] Rückfrage `ask()`: „Verwerfen“ ergibt true, „Abbrechen“, Escape und eine neue Frage ergeben false', async () => {
+    const d = (await mount('sx-confirm', {})) as LitEl & { ask(r: object): Promise<boolean>; dismiss(): void };
+    const req = { heading: 'Neuen Törn beginnen?', text: 'Entwurf „A“ verwerfen?', confirmLabel: 'Verwerfen' };
     const btn = (re: RegExp) => [...d.shadowRoot.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''))!;
+    let p = d.ask(req);
+    await d.updateComplete;
+    expect(d.shadowRoot.textContent).toContain('Entwurf „A“ verwerfen?');
     btn(/Verwerfen/).click();
+    expect(await p).toBe(true);
+    expect(d.open).toBe(false);
+    p = d.ask(req);
+    await d.updateComplete;
     btn(/^Abbrechen$/).click();
+    expect(await p).toBe(false);
+    p = d.ask(req);
+    await d.updateComplete;
     d.shadowRoot.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }));
-    expect(oks).toHaveLength(1);
-    expect(cancels).toHaveLength(2);
+    expect(await p).toBe(false);
+    p = d.ask(req);
+    const second = d.ask(req);
+    expect(await p).toBe(false);
+    d.dismiss();
+    expect(await second).toBe(false);
+  });
+
+  it('[F-433] × am Chip: Tippfläche mindestens 44 px', () => {
+    const css = SxTopbar.styles.map((x) => String(x)).join('');
+    expect(css).toMatch(/\.chip \.x::after \{[^}]*inset: -10px/);
+    expect(css).toMatch(/\.chip \.x \{\s*width: 44px;\s*height: 44px;/);
   });
 
   it('[F-432] Track-Liste: je GPX eine Zeile mit Farbmarke, Datum, Distanz und Dauer; Tippen hebt hervor, „GPX hinzufügen“ nur im Entwurf', async () => {
@@ -343,8 +516,20 @@ describe('Komponenten des Arbeitsbereichs', () => {
     expect(sub[1].textContent).toMatch(/sm · .* h/);
     (rows[1].querySelector('.meta') as HTMLElement).click();
     expect(focus.at(-1)).toBe('b');
+    // per Tastatur erreichbar: Rolle Button, Enter bzw. Leertaste hebt hervor
+    const meta = rows[0].querySelector('.meta') as HTMLElement;
+    expect(meta.getAttribute('role')).toBe('button');
+    expect(meta.getAttribute('tabindex')).toBe('0');
+    meta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(focus.at(-1)).toBe('a');
+    meta.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(focus).toHaveLength(3);
+    const discards = caught('sx-draft-discard');
+    (list.shadowRoot.querySelector('button.discard') as HTMLButtonElement).click();
+    expect(discards).toHaveLength(1);
     expect(list.shadowRoot.querySelector('button.add')?.textContent).toContain('GPX hinzufügen');
     const view = await mount('sx-track-list', { tracks: [a, b], readonly: true });
     expect(view.shadowRoot.querySelector('button.add')).toBeNull();
+    expect(view.shadowRoot.querySelector('button.discard')).toBeNull();
   });
 });

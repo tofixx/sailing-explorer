@@ -191,7 +191,9 @@ export class App {
     this.map = new MapView($('#map'), { onHover: (p) => this.hover(p, 'map') });
     // Törn-Arbeitsbereich (Konzept 23): genau ein Törn – Entwurf, eigener gespeicherter oder fremde Ansicht
     this.ws = new WorkspaceController(this.store, {
-      confirm: this.ui.confirm,
+      ask: (req) => this.ui.confirm.ask(req),
+      dismiss: () => this.ui.confirm.dismiss(),
+      ready: () => this.session.backendReady,
       toast: (msg, ms) => this.toast(msg, ms),
       fit: (tracks) => this.map.fit(tracks),
       leavePage: () => this.leavePage(),
@@ -326,7 +328,7 @@ export class App {
     this.homeRoute = route.kind === 'home' || route.kind === 'login' || route.kind === 'invite';
     if (this.homeRoute) void this.loadDiscoverStrip();
     // Entwurf im Browser kennen („+ Neu → Entwurf fortsetzen“, Nachfrage) – auf `/` öffnet restore() ihn ohnehin
-    else void this.ws.loadDraft();
+    else void this.ws.init();
     if (this.homeRoute) void this.groups.loadHome();
     try {
       switch (route.kind) {
@@ -459,6 +461,8 @@ export class App {
     const toern = section === 'track' || section === 'community' ? toernLabel(s) : null;
     Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home, saved: s.saved, section, toern, draft: resumableDraft(s) });
     if (changed('home') || changed('tracks')) this.markSeen();
+    // „Abmelden“ im Konto nennt den Entwurf, der dabei verworfen wird (F-438)
+    if (changed('draft')) this.ui.account.draft = s.draft?.title ?? null;
     // Neuigkeiten auf der Startseite und Rollen auf der Gruppenseite hängen an der Anmeldung (Konzept 11.5).
     if (changed('user') || changed('backend')) {
       this.ui.page.signedIn = !!s.user;
@@ -471,6 +475,8 @@ export class App {
         void this.social.userChanged();
       }
       void this.unread.refresh(true);
+      // Entwurf gehört dem Konto: Gast-Entwurf übernehmen, fremden verwerfen (F-438)
+      if (prev) void this.ws.userChanged();
       // Glocke: Zähler nach Anmeldung bzw. Abmeldung (Konzept 17)
       void this.notifications.refresh(true);
     }
@@ -622,8 +628,7 @@ export class App {
     on<FileList>('sx-files-add', (files) => void this.ws.add(files));
     on<string>('sx-sample', (file) => void this.ws.sample(file));
     on('sx-toern-close', () => this.ws.close());
-    on('sx-confirm-ok', () => this.ws.answer(true));
-    on('sx-confirm-cancel', () => this.ws.answer(false));
+    on('sx-draft-discard', () => void this.ws.discard());
     on<MetricKey>('sx-metric', (metric) => this.store.set({ metric }));
     on<Layers>('sx-layers', (layers) => this.store.set({ layers }));
     on<TrackPoint | null>('sx-kpi-hover', (p) => this.hover(p, 'kpi'));

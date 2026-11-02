@@ -1,11 +1,18 @@
 import { LitElement, html, type PropertyValues } from 'lit';
 import { icon } from './icons';
-import { base, dialogStyles, emit } from './shared';
+import { base, dialogStyles } from './shared';
+
+/** Was gefragt wird: Titel, Frage und Beschriftung des Bestätigen-Knopfs. */
+export interface ConfirmRequest {
+  heading: string;
+  text: string;
+  confirmLabel: string;
+}
 
 /**
- * Kurze Rückfrage mit zwei Knöpfen (z. B. „Entwurf verwerfen?“, F-434): geteilte Dialog-Stile (`dialogStyles`, mobil
- * randlos), Escape und × heißen „Abbrechen“. Rein präsentational – meldet `sx-confirm-ok` bzw. `sx-confirm-cancel`;
- * wer gefragt hat, entscheidet der Controller.
+ * Kurze Rückfrage mit zwei Knöpfen für alle Abläufe (z. B. „Entwurf verwerfen?“, F-434): geteilte Dialog-Stile
+ * (`dialogStyles`, mobil randlos), Fokus startet auf „Abbrechen“, Escape und × heißen „Abbrechen“. Ein Controller fragt
+ * mit `ask({ … })` und bekommt `true` bzw. `false`; eine neue Frage beantwortet eine noch offene mit „Abbrechen“.
  */
 export class SxConfirm extends LitElement {
   static properties = {
@@ -18,6 +25,7 @@ export class SxConfirm extends LitElement {
   declare heading: string;
   declare text: string;
   declare confirmLabel: string;
+  private resolve: ((ok: boolean) => void) | null = null;
 
   constructor() {
     super();
@@ -29,6 +37,25 @@ export class SxConfirm extends LitElement {
 
   static styles = [base, dialogStyles];
 
+  /** Frage stellen; erfüllt mit true („Bestätigen“) bzw. false („Abbrechen“, Escape, ×, `dismiss()`). */
+  ask(req: ConfirmRequest): Promise<boolean> {
+    this.answer(false);
+    Object.assign(this, req, { open: true });
+    return new Promise((r) => (this.resolve = r));
+  }
+
+  /** offene Frage als „Abbrechen“ schließen (z. B. beim Abmelden) */
+  dismiss(): void {
+    this.answer(false);
+  }
+
+  private answer(ok: boolean) {
+    const r = this.resolve;
+    this.resolve = null;
+    this.open = false;
+    r?.(ok);
+  }
+
   updated(changed: PropertyValues<this>) {
     if (!changed.has('open')) return;
     const d = this.renderRoot.querySelector('dialog');
@@ -39,22 +66,20 @@ export class SxConfirm extends LitElement {
     } else if (!this.open && d?.open) d.close();
   }
 
-  private cancel = () => emit(this, 'sx-confirm-cancel');
-
   render() {
     return html`<dialog aria-labelledby="cf-h" aria-describedby="cf-t" @cancel=${(e: Event) => {
         e.preventDefault();
-        this.cancel();
+        this.answer(false);
       }}>
       <header>
         <h2 id="cf-h">${this.heading}</h2>
-        <button class="btn ghost icon" type="button" aria-label="Abbrechen" @click=${this.cancel}>${icon('x')}</button>
+        <button class="btn ghost icon" type="button" aria-label="Abbrechen" @click=${() => this.answer(false)}>${icon('x')}</button>
       </header>
       <div class="body">
         <p id="cf-t">${this.text}</p>
         <div class="actions">
-          <button class="btn" type="button" data-cancel @click=${this.cancel}>Abbrechen</button>
-          <button class="btn primary" type="button" @click=${() => emit(this, 'sx-confirm-ok')}>${this.confirmLabel}</button>
+          <button class="btn" type="button" data-cancel @click=${() => this.answer(false)}>Abbrechen</button>
+          <button class="btn primary" type="button" @click=${() => this.answer(true)}>${this.confirmLabel}</button>
         </div>
       </div>
     </dialog>`;
