@@ -355,13 +355,15 @@ describe('F-01/F-02 Dateien laden', () => {
     expect(h.maps[0].fit).toHaveBeenCalledTimes(1);
   });
 
-  it('[F-75] neuer Upload aus der Startseite wechselt in die Törn-Ansicht', async () => {
+  it('[F-75] neuer Upload aus der Startseite wechselt in die Törn-Ansicht (neuer Törn nach Nachfrage, F-434)', async () => {
     await startApp();
     await load(file('a.gpx', leg('A')));
     emit('sx-home');
-    await load(file('b.gpx', leg('B', T0 + 86_400_000)));
+    emit('sx-files', [file('b.gpx', leg('B', T0 + 86_400_000))]);
+    await vi.waitFor(() => expect(el<{ open: boolean }>('sx-confirm').open).toBe(true));
+    emit('sx-confirm-ok');
+    await vi.waitFor(() => expect(state().tracks.map((t) => t.name)).toEqual(['B']));
     expect(el<HTMLElement>('.app').hasAttribute('data-empty')).toBe(false);
-    expect(state().tracks).toHaveLength(2);
   });
 
   it('[F-01] Drag & Drop auf die Seite lädt die Dateien', async () => {
@@ -585,7 +587,8 @@ describe('F-22 Wetter einmalig beim Einstellen', () => {
     await load(file('a.gpx', leg('A')));
     await settled();
     server.calls = [];
-    await load(file('b.gpx', leg('B', T0 + 86_400_000)));
+    emit('sx-files-add', [file('b.gpx', leg('B', T0 + 86_400_000))]);
+    await vi.waitFor(() => expect(state().tracks).toHaveLength(2));
     await settled();
     expect(meteoCalls()).toBeGreaterThan(0);
   });
@@ -632,7 +635,7 @@ describe('F-30 Gast-Sitzung', () => {
     await startApp();
     await settled();
     expect(state().tracks.map((t) => t.name)).toEqual(['A']);
-    expect(toasts()).toContain('Gast-Sitzung wiederhergestellt: 1 Track');
+    expect(toasts()).toContain('Entwurf wiederhergestellt: 1 Track');
     expect(el<{ mode: { kind: string }; user: unknown; hasTracks: boolean }>('sx-topbar')).toMatchObject({ mode: { kind: 'local' }, user: null, hasTracks: true });
   });
 
@@ -803,7 +806,8 @@ describe('F-33 Freigabe erstellen', () => {
     dlg.open = false;
     emit('sx-share');
     expect(dlg).toMatchObject({ open: true, purpose: 'share' });
-    expect(dlg.result!.url).toBe(`${location.origin}/s/NewShareId23456789`);
+    // gespeichert ist der Arbeitsbereich der eigene Törn (F-437): Teilen gibt dessen Link samt Ansicht weiter
+    expect(dlg.result!.url).toBe(`${location.origin}/s/NewShareId23456789?m=speed&l=s,w,v`);
   });
 
   it('[F-33] Titel, Sichtbarkeit und Ansicht werden hochgeladen; Ergebnis ist der Link /s/<id>', async () => {
@@ -824,11 +828,12 @@ describe('F-33 Freigabe erstellen', () => {
     // Wetter wird beim Einstellen einmal geladen und mit der Freigabe gespeichert (F-22)
     expect(stored.payload).toEqual({ v: 1, tracks: [{ name: 'A', gpx: state().tracks[0].raw }], weather: state().weather });
     expect(state().weather).not.toBeNull();
-    // F-76: Kopfzeile zeigt jetzt „Gespeichert“
+    // F-76/F-437: Kopfzeile zeigt jetzt „Gespeichert“, der Entwurf ist der eigene Törn geworden
     expect(state().saved).toBe(true);
     expect(el<{ saved: boolean }>('sx-topbar').saved).toBe(true);
+    expect(el<{ toern: { status: string } }>('sx-topbar').toern.status).toBe('Gespeichert · Nur ich');
     emit('sx-track-remove', state().tracks[0].id);
-    expect(state().saved).toBe(false);
+    expect(state().tracks).toHaveLength(1);
   });
 
   it('[F-33] ohne „Ansicht mitgeben“ bleibt die Ansicht leer', async () => {

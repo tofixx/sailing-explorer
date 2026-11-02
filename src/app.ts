@@ -1,25 +1,19 @@
-import { computeTrackStats } from './domain/stats';
-import { routeTrack } from './domain/logbook';
-import { GpxError, parseGpx } from './domain/gpx';
 import { METRICS, METRIC_KEYS, metricRange, type MetricDef } from './domain/metrics';
 import type { VoyageRole } from './domain/crew-roles';
 import { averageConditions, kpis } from './domain/summary';
 import { nearestByTime, timeline, type TimedPoint } from './domain/timeline';
-import { attachConditions, parseWeatherData, type WeatherData } from './domain/weather';
 import { median } from './domain/geo';
-import type { MetricKey, Track, TrackPoint } from './domain/types';
+import type { MetricKey, TrackPoint } from './domain/types';
 import { MapView } from './map/map-view';
 import { MAP_STYLES, type MapStyleId } from './domain/map-style';
 import { ApiError, api, coverApi, type CoverKind, type PageMedia, type ShareMeta } from './services/api';
 import { PhotoError, processCover } from './services/photo-process';
 import type { SxCover } from './components/sx-page-media';
-import { inflateFromBase64Url } from './services/compress';
-import { fetchTrackFile } from './services/samples';
 import { Store, initialState, visibleTracks, type HoverSource, type Layers, type State } from './services/store';
-import { parseRoute, parseView, routePath, serializeView } from './services/url-state';
-import { loadWeather, storedWeatherStatus } from './services/weather-api';
-import { workspace } from './services/workspace';
+import { parseRoute, routePath, serializeView } from './services/url-state';
 import { SessionController, errorText } from './controllers/session';
+import { WorkspaceController, resumableDraft, toernLabel } from './controllers/workspace';
+import type { SxConfirm } from './components/sx-confirm';
 import type { ImageContent, ImageFormat } from './services/share-image';
 import { fmtNum, fmtShort } from './util/html';
 import type { AccountTab, SxAccountDialog } from './components/sx-account-dialog';
@@ -94,18 +88,10 @@ import type { MyPostArea, PostKind, PostVisibility, ProfilePreview, Reach } from
 import type { LogState } from './domain/logbook';
 import type { ClaimKind } from './domain/claims';
 
-/** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
-const TRACK_COLORS = ['--c-track-1', '--c-track-2', '--c-track-3', '--c-track-4', '--c-track-5', '--c-track-6'];
-
 const SAMPLES = [
   { file: '20260613_Stralsund_Prerow', label: 'Stralsund → Prerow' },
   { file: '20260614_Prerow_Rostock', label: 'Prerow → Rostock' },
 ];
-
-interface RawItem {
-  name: string;
-  text: string;
-}
 
 const $ = <T extends Element>(sel: string) => document.querySelector(sel) as T;
 
@@ -142,7 +128,7 @@ export class App {
     chartsPanel: $<HTMLElement>('#charts-panel'),
     weatherWrap: $<HTMLElement>('#weather-wrap'),
     trackList: $<SxTrackList>('sx-track-list'),
-    tracksAside: $<HTMLButtonElement>('#tracks-aside'),
+    confirm: $<SxConfirm>('sx-confirm'),
     toast: $<SxToast>('sx-toast'),
     login: $<SxLoginDialog>('sx-login-dialog'),
     share: $<SxShareDialog>('sx-share-dialog'),
@@ -171,6 +157,7 @@ export class App {
     compose: $<SxComposeDialog>('sx-compose-dialog'),
   };
   private session: SessionController;
+  private ws: WorkspaceController;
   private community: CommunityController;
   private photos: PhotosController;
   private logbook: LogbookController;
@@ -202,6 +189,15 @@ export class App {
 
   constructor() {
     this.map = new MapView($('#map'), { onHover: (p) => this.hover(p, 'map') });
+    // Törn-Arbeitsbereich (Konzept 22): genau ein Törn – Entwurf, eigener gespeicherter oder fremde Ansicht
+    this.ws = new WorkspaceController(this.store, {
+      confirm: this.ui.confirm,
+      toast: (msg, ms) => this.toast(msg, ms),
+      fit: (tracks) => this.map.fit(tracks),
+      leavePage: () => this.leavePage(),
+      onPage: () => this.ui.app.hasAttribute('data-page'),
+      showHome: () => this.showHome(),
+    });
     this.session = new SessionController(this.store, {
       login: this.ui.login,
       share: this.ui.share,
@@ -210,6 +206,8 @@ export class App {
       crew: this.ui.crew,
       crewPanel: this.ui.crewPanel,
       toast: (msg, ms) => this.toast(msg, ms),
+      signedOut: () => this.ws.signedOut(),
+      saved: (share) => this.ws.saved(share),
     });
     this.community = new CommunityController(this.store, {
       comments: this.ui.comments,
@@ -291,6 +289,7 @@ export class App {
       requireLogin: (reason, then) => this.session.requireLogin(reason, then),
       startLogbook: () => this.logbook.start(),
       posted: (post) => this.showPosted(post),
+      resumeDraft: () => void this.ws.resume(),
     });
     this.postLink = new PostLinkController({
       page: this.ui.page,
@@ -326,11 +325,13 @@ export class App {
     // Community-Leiste nur auf der Startseite; lädt nebenbei und blockiert nichts.
     this.homeRoute = route.kind === 'home' || route.kind === 'login' || route.kind === 'invite';
     if (this.homeRoute) void this.loadDiscoverStrip();
+    // Entwurf im Browser kennen („+ Neu → Entwurf fortsetzen“, Nachfrage) – auf `/` öffnet restore() ihn ohnehin
+    else void this.ws.loadDraft();
     if (this.homeRoute) void this.groups.loadHome();
     try {
       switch (route.kind) {
         case 'share':
-          return await this.openShare(route.id, route.key);
+          return await this.ws.openShare(route.id, route.key);
         case 'post':
           return await this.postLink.open(route.id, route.key);
         case 'profile':
@@ -346,21 +347,21 @@ export class App {
           return await this.openAdmin();
         case 'login':
           history.replaceState(null, '', '/');
-          await this.restoreWorkspace();
+          await this.ws.restore();
           if (route.token) await this.session.beginLogin(route.token);
           return;
         case 'invite':
           // Token aus der Adresse entfernen (Verlauf, Teilen der Adresse), dann Einladung zeigen.
           history.replaceState(null, '', '/');
-          await this.restoreWorkspace();
+          await this.ws.restore();
           if (route.token) await this.session.openInvite(route.token);
           return;
         case 'files':
-          return await this.openFiles(route.names);
+          return await this.ws.openFiles(route.names);
         case 'inline':
-          return await this.openInline(route.data);
+          return await this.ws.openInline(route.data);
         default:
-          await this.restoreWorkspace();
+          await this.ws.restore();
           // Mit Tracks im Browser startet sonst die Törn-Ansicht – der Reiter wollte aber die Community.
           if (this.wantCommunity) this.store.set({ home: true });
           return;
@@ -453,7 +454,10 @@ export class App {
     this.ui.app.toggleAttribute('data-empty', home);
     this.ui.empty.hidden = !home;
     this.ui.empty.trackCount = s.tracks.length;
-    Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home, saved: s.saved, section: this.section(home) });
+    const section = this.section(home);
+    // Törn-Chip (F-433) nur über Karte bzw. Startseite – auf Seiten schwebte er über dem Inhalt
+    const toern = section === 'track' || section === 'community' ? toernLabel(s) : null;
+    Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home, saved: s.saved, section, toern, draft: resumableDraft(s) });
     if (changed('home') || changed('tracks')) this.markSeen();
     // Neuigkeiten auf der Startseite und Rollen auf der Gruppenseite hängen an der Anmeldung (Konzept 11.5).
     if (changed('user') || changed('backend')) {
@@ -490,8 +494,9 @@ export class App {
       // Fahrtenbuch ohne GPX: Distanz mit Herkunft, keine Speed-Werte (F-302)
       this.ui.kpis.items = kpis(vis, s.mode.kind === 'share' ? s.mode.share.distSource : undefined);
       this.ui.trackList.tracks = s.tracks;
+      // Entfernen und „GPX hinzufügen“ nur im Entwurf (F-435) – gespeicherte Törns kann der Server nicht ergänzen
       this.ui.trackList.readonly = s.mode.kind !== 'local';
-      this.ui.tracksAside.textContent = s.mode.kind === 'local' ? 'Alle entfernen' : 'Schließen';
+      this.ui.trackList.addable = s.mode.kind === 'local' && has;
       this.renderCharts(s);
     }
     if (dataChanged || changed('hover') || changed('status')) this.renderHover(s);
@@ -615,8 +620,12 @@ export class App {
 
     // Tracks & Karte
     on<{ id: MapStyleId; scope: MapStyleScope }>('sx-map-style-apply', (d) => void this.mapStyle.choose(d.id, d.scope));
-    on<FileList>('sx-files', (files) => this.addFiles(files));
-    on<string>('sx-sample', (file) => this.loadSample(file));
+    on<FileList>('sx-files', (files) => void this.ws.files(files));
+    on<FileList>('sx-files-add', (files) => void this.ws.add(files));
+    on<string>('sx-sample', (file) => void this.ws.sample(file));
+    on('sx-toern-close', () => this.ws.close());
+    on('sx-confirm-ok', () => this.ws.answer(true));
+    on('sx-confirm-cancel', () => this.ws.answer(false));
     on<MetricKey>('sx-metric', (metric) => this.store.set({ metric }));
     on<Layers>('sx-layers', (layers) => this.store.set({ layers }));
     on<TrackPoint | null>('sx-kpi-hover', (p) => this.hover(p, 'kpi'));
@@ -631,22 +640,13 @@ export class App {
     });
     on<string>('sx-track-toggle', (id) => {
       this.ui.trackList.focused = null;
-      this.updateTracks(this.store.get().tracks.map((t) => (t.id === id ? { ...t, hidden: !t.hidden } : t)));
+      this.ws.toggle(id);
     });
-    on<string>('sx-track-remove', (id) => this.updateTracks(this.store.get().tracks.filter((t) => t.id !== id)));
-    this.ui.tracksAside.addEventListener('click', () => this.clearAll());
+    on<string>('sx-track-remove', (id) => this.ws.remove(id));
     this.wireDragDrop();
 
     // Startseite ↔ Törn-Ansicht
-    on('sx-home', () => {
-      this.homeRoute = true;
-      // Neues seit dem Laden: Stream neu holen; gelesen erst mit dessen Stand, damit es zum Angezeigten passt (F-222)
-      if (this.unread.pending) this.pendingSeen = null;
-      void this.groups.loadHome(this.unread.pending);
-      this.store.set({ home: true, hover: null });
-      // z. B. aus einer geteilten Ansicht: Community-Leiste nachladen
-      if (!this.ui.discoverStrip.data) void this.loadDiscoverStrip();
-    });
+    on('sx-home', () => this.showHome());
     on('sx-track-view', () => {
       this.store.set({ home: false });
       this.map.fit(visibleTracks(this.store.get()));
@@ -859,8 +859,19 @@ export class App {
     document.addEventListener('drop', (e) => {
       e.preventDefault();
       reset();
-      if (e.dataTransfer?.files.length) this.addFiles(e.dataTransfer.files);
+      if (e.dataTransfer?.files.length) void this.ws.drop(e.dataTransfer.files);
     });
+  }
+
+  /** Startseite (Logo, Reiter „Community“, „Törn schließen“): Stream laden, Törn bleibt bzw. ist geschlossen. */
+  private showHome() {
+    this.homeRoute = true;
+    // Neues seit dem Laden: Stream neu holen; gelesen erst mit dessen Stand, damit es zum Angezeigten passt (F-222)
+    if (this.unread.pending) this.pendingSeen = null;
+    void this.groups.loadHome(this.unread.pending);
+    this.store.set({ home: true, hover: null });
+    // z. B. aus einer geteilten Ansicht: Community-Leiste nachladen
+    if (!this.ui.discoverStrip.data) void this.loadDiscoverStrip();
   }
 
   private hover(p: TrackPoint | null, source: HoverSource) {
@@ -871,144 +882,7 @@ export class App {
 
   // ---------------------------------------------------------------- Tracks
 
-  private async restoreWorkspace() {
-    const ws = await workspace.load();
-    if (!ws?.tracks.length) return;
-    const tracks = this.build(ws.tracks.map((t) => ({ name: t.name, text: t.gpx })));
-    ws.tracks.forEach((w, i) => tracks[i] && (tracks[i].hidden = w.hidden));
-    if (!tracks.length) return;
-    await this.setTracks(tracks, { mode: { kind: 'local' }, fit: true, weather: parseWeatherData(ws.weather) });
-    this.toast(`Gast-Sitzung wiederhergestellt: ${tracks.length} Track${tracks.length > 1 ? 's' : ''}`);
-  }
-
-  private build(items: RawItem[], offset = 0): Track[] {
-    const out: Track[] = [];
-    for (const it of items) {
-      try {
-        const g = parseGpx(it.text, it.name);
-        out.push({
-          id: localId(),
-          name: g.name,
-          raw: it.text,
-          points: g.points,
-          stats: computeTrackStats(g.points),
-          color: TRACK_COLORS[(offset + out.length) % TRACK_COLORS.length],
-          hidden: false,
-        });
-      } catch (e) {
-        this.toast(`${it.name}: ${e instanceof GpxError ? e.message : 'konnte nicht gelesen werden'}`);
-      }
-    }
-    return out;
-  }
-
-  private async addFiles(list: FileList | File[]) {
-    const files = [...list].filter((f) => /\.gpx$/i.test(f.name) || /xml/.test(f.type));
-    if (!files.length) return this.toast('Keine GPX-Dateien gefunden');
-    this.setLoading('Lese Dateien …');
-    let items: RawItem[];
-    try {
-      items = await Promise.all(files.map(async (f) => ({ name: f.name.replace(/\.gpx$/i, ''), text: await f.text() })));
-    } catch (e) {
-      this.setLoading(null);
-      return this.toast(`Datei konnte nicht gelesen werden: ${errorText(e)}`);
-    }
-    await this.addItems(items);
-  }
-
-  /** Neue Tracks kommen immer in den eigenen Arbeitsbereich (auch aus einer geteilten Ansicht heraus). */
-  private async addItems(items: RawItem[]) {
-    const s = this.store.get();
-    const fresh = this.build(items, s.tracks.length);
-    if (!fresh.length) return this.setLoading(null);
-    if (s.mode.kind !== 'local' || this.ui.app.hasAttribute('data-page')) history.pushState(null, '', '/');
-    this.leavePage();
-    await this.setTracks([...s.tracks, ...fresh], { mode: { kind: 'local' }, fit: true });
-    this.toast(`${fresh.length} Track${fresh.length > 1 ? 's' : ''} geladen`);
-  }
-
-  private async loadSample(file: string) {
-    this.setLoading('Lade Beispiel …');
-    try {
-      await this.addItems([await fetchTrackFile(file)]);
-    } catch (e) {
-      this.setLoading(null);
-      this.toast(`Beispiel konnte nicht geladen werden: ${errorText(e)}`);
-    }
-  }
-
-  /**
-   * Setzt Tracks, speichert den Arbeitsbereich und lädt Wetter – aber nur, wenn keine gespeicherten Daten
-   * mitkommen (Freigabe, Gast-Sitzung). Abgerufen wird also einmal beim Einstellen, nicht bei jedem Aufruf.
-   */
-  private async setTracks(tracks: Track[], opts: { mode: State['mode']; fit: boolean; weather?: WeatherData | null }) {
-    this.store.set({ tracks, mode: opts.mode, home: false, saved: opts.mode.kind === 'share' && !!opts.mode.share.isOwner, hover: null, weather: null, status: { level: 'loading', text: 'Lade Wind- und Wellendaten …' }, loading: null });
-    if (opts.fit) this.map.fit(tracks);
-    this.persist();
-    if (!tracks.length) return this.store.set({ status: initialState.status });
-    if (opts.weather) {
-      attachConditions(tracks, opts.weather);
-      return this.store.set({ weather: opts.weather, status: storedWeatherStatus(tracks, opts.weather), tracks: [...tracks] });
-    }
-    this.setLoading('Lade Wetterdaten …');
-    const { data, status } = await loadWeather(tracks);
-    // Inzwischen geänderte Trackliste? Dann gilt das Ergebnis nicht mehr – die Ladeanzeige aber auch nicht.
-    if (this.store.get().tracks !== tracks) {
-      if (this.store.get().loading === 'Lade Wetterdaten …') this.setLoading(null);
-      return;
-    }
-    attachConditions(tracks, data);
-    this.store.set({ weather: data, status, loading: null, tracks: [...tracks] });
-    this.persist(); // jetzt mit Wetter
-  }
-
-  private updateTracks(tracks: Track[]) {
-    if (!tracks.length) return this.clearAll();
-    const removed = tracks.length < this.store.get().tracks.length;
-    // Entfernen ändert die Trackliste – die Freigabe passt dann nicht mehr dazu.
-    this.store.set({ tracks, hover: null, saved: this.store.get().saved && !removed });
-    if (removed) this.map.fit(visibleTracks(this.store.get()));
-    this.persist();
-  }
-
-  private clearAll() {
-    const wasLocal = this.store.get().mode.kind === 'local';
-    this.store.set({ tracks: [], weather: null, hover: null, saved: false, status: initialState.status, mode: { kind: 'local' }, loading: null });
-    if (wasLocal) return this.persist();
-    history.pushState(null, '', '/');
-    this.restoreWorkspace();
-  }
-
-  private persist() {
-    const s = this.store.get();
-    if (s.mode.kind !== 'local') return;
-    workspace.save(
-      s.tracks.map((t) => ({ id: t.id, name: t.name, gpx: t.raw, hidden: t.hidden })),
-      s.weather,
-    );
-  }
-
   // ---------------------------------------------------------------- Links & Seiten
-
-  private async openShare(id: string, key?: string) {
-    this.setLoading('Lade geteilten Törn …');
-    try {
-      const [{ share }, payload] = await Promise.all([api.shareMeta(id, key), api.shareData(id, key)]);
-      // Fahrtenbuch-Eintrag ohne GPX: schematische Linie aus der Route (Konzept 19)
-      const tracks = payload.route && !payload.tracks.length
-        ? [routeTrack(payload.route, { id: localId(), name: share.title, color: TRACK_COLORS[0], distNm: share.distNm, startedAt: share.startedAt, endedAt: share.endedAt ?? null, timed: !!share.log?.timed })]
-        : this.build(payload.tracks.map((t) => ({ name: t.name, text: t.gpx })));
-      const view ={ ...parseView(share.view), ...parseView(location.search.slice(1)) };
-      this.store.set({ metric: view.metric ?? this.store.get().metric, layers: view.layers ?? this.store.get().layers });
-      document.title = `${share.title} · Sail Explorer`;
-      await this.setTracks(tracks, { mode: key ? { kind: 'share', share, key } : { kind: 'share', share }, fit: true, weather: payload.weather });
-    } catch (e) {
-      this.setLoading(null);
-      this.toast(e instanceof ApiError && e.status === 404 ? 'Diese Freigabe gibt es nicht (mehr) – oder sie ist privat.' : errorText(e), 6000);
-      history.replaceState(null, '', '/');
-      await this.restoreWorkspace();
-    }
-  }
 
   /** Bereich für die Kopfzeile (F-220). */
   private section(home: boolean): TopbarSection {
@@ -1252,31 +1126,6 @@ export class App {
     document.title = 'Sail Explorer';
   }
 
-  private async openFiles(names: string[]) {
-    this.setLoading('Lade Track-Dateien …');
-    const items: RawItem[] = [];
-    for (const n of names) {
-      try {
-        items.push(await fetchTrackFile(n));
-      } catch (e) {
-        this.toast(`„${n}“ konnte nicht geladen werden: ${errorText(e)}`, 6000);
-      }
-    }
-    const tracks = this.build(items);
-    if (!tracks.length) return this.setLoading(null);
-    await this.setTracks(tracks, { mode: { kind: 'link', title: tracks.map((t) => t.name).join(', ') }, fit: true });
-  }
-
-  /** Alte Links (#g=…) mit eingebetteten GPX-Daten. */
-  private async openInline(data: string) {
-    this.setLoading('Lade geteilten Track …');
-    const raws = JSON.parse(await inflateFromBase64Url(data)) as unknown;
-    if (!Array.isArray(raws) || raws.length > 20 || !raws.every((r) => typeof r === 'string')) throw new Error('Link ist beschädigt');
-    const tracks = this.build(raws.map((text, i) => ({ name: `Geteilter Track ${i + 1}`, text })));
-    if (!tracks.length) return this.setLoading(null);
-    await this.setTracks(tracks, { mode: { kind: 'link', title: 'Geteilter Track' }, fit: true });
-  }
-
   // ---------------------------------------------------------------- Helfer
 
   private setLoading(text: string | null) {
@@ -1286,9 +1135,4 @@ export class App {
   private toast(msg: string, ms?: number) {
     this.ui.toast.show(msg, ms);
   }
-}
-
-/** crypto.randomUUID gibt es nur in sicheren Kontexten – im LAN-Test (http://192.168…) nicht. */
-function localId(): string {
-  return [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
 }

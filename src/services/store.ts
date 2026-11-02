@@ -14,7 +14,7 @@ export interface Layers {
 export type HoverSource = 'map' | 'chart' | 'kpi' | 'photo';
 
 /**
- * local: eigener Arbeitsbereich (wird im Browser gespeichert)
+ * local: Entwurf (wird im Browser gespeichert, Konzept 22)
  * share: geöffnete Freigabe vom Server (key: Schlüssel aus dem Link, falls „Nur mit Link“)
  * link:  Daten aus einem Link (?track=…, #g=…), nicht gespeichert
  */
@@ -38,6 +38,8 @@ export interface State {
   home: boolean;
   /** Die geladenen Tracks sind als Freigabe im Konto gespeichert */
   saved: boolean;
+  /** Entwurf auf dem einen Platz im Browser (Konzept 22) – auch, wenn gerade ein anderer Törn offen ist */
+  draft: { title: string; count: number } | null;
 }
 
 export const initialState: State = {
@@ -54,6 +56,7 @@ export const initialState: State = {
   backend: false,
   home: false,
   saved: false,
+  draft: null,
 };
 
 type Listener = (state: State, prev: State) => void;

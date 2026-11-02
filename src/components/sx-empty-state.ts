@@ -378,7 +378,7 @@ export class SxEmptyState extends LitElement {
       <p>Lade eine oder mehrere GPX-Dateien. Der Track erscheint auf der OpenSeaMap – mit Speed, Wind und Wellen für genau diese Zeit.</p>
       ${this.trackCount
         ? html`<button class="btn primary" @click=${() => emit(this, 'sx-track-view')}>${icon('map')} Zurück zu deinem Törn</button>
-            <div class="hint">${this.trackCount === 1 ? '1 Track geladen' : `${this.trackCount} Tracks geladen`} · <button class="link" @click=${() => pickGpx(this)}>weitere GPX hinzufügen</button></div>`
+            <div class="hint">${this.trackCount === 1 ? '1 Track geladen' : `${this.trackCount} Tracks geladen`}</div>`
         : html`<button class="btn primary" @click=${() => pickGpx(this)}>${icon('upload')} GPX-Dateien wählen</button>
             <div class="hint drag-hint">oder einfach auf die Karte ziehen</div>`}
       ${this.samplesRow()} ${this.privacy()}

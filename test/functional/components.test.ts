@@ -130,37 +130,30 @@ describe('sx-metric-picker', () => {
 });
 
 describe('sx-topbar', () => {
-  it('[F-76] Gast mit Tracks: „Nicht gespeichert“ neben dem Logo lädt zum Anmelden ein (Teilen, Community)', async () => {
-    const logins = listen('sx-login');
-    const el = await mount('sx-topbar', { user: null, mode: { kind: 'local' }, hasTracks: true, backend: true });
-    const chip = el.shadowRoot.querySelector('.chip.warn') as HTMLButtonElement;
-    expect(chip.textContent).toMatch(/Nicht gespeichert/);
-    expect(chip.title).toMatch(/Community/);
-    chip.click();
-    expect(logins).toHaveLength(1);
+  const draft = { title: 'Havel', status: 'Entwurf · nur dieses Gerät', short: 'Entwurf', tone: 'draft', icon: 'pencil' };
+
+  it('[F-76] Entwurf: Chip „Titel · Entwurf · nur dieses Gerät“ ohne eigene Aktion; Gäste erfahren, dass Speichern eine Anmeldung braucht', async () => {
+    const el = await mount('sx-topbar', { user: null, mode: { kind: 'local' }, hasTracks: true, backend: true, toern: draft });
+    const chip = el.shadowRoot.querySelector('.chip.toern') as HTMLElement;
+    expect(chip.classList.contains('warn')).toBe(true);
+    expect(chip.querySelector('.t')!.textContent).toBe('Havel');
+    expect(chip.querySelector('.st .full')!.textContent).toBe('· Entwurf · nur dieses Gerät');
+    expect(chip.title).toMatch(/Melde dich an.*Community/);
+    expect(chip.querySelectorAll('button')).toHaveLength(1); // nur ×
   });
 
-  it('[F-76] angemeldet, noch nicht geteilt: Hinweis führt zum Speichern (F-225)', async () => {
-    const shares = listen('sx-save');
-    const el = await mount('sx-topbar', { user: { id: 'u', email: 'a@b.de' }, mode: { kind: 'local' }, hasTracks: true, backend: true });
-    (el.shadowRoot.querySelector('.chip.warn') as HTMLButtonElement).click();
-    expect(shares).toHaveLength(1);
-  });
-
-  it('[F-76] gespeichert: „Gespeichert“ statt Warnung, öffnet das Konto', async () => {
-    const accounts = listen('sx-account');
-    const el = await mount('sx-topbar', { user: { id: 'u', email: 'a@b.de' }, mode: { kind: 'local' }, hasTracks: true, backend: true, saved: true });
+  it('[F-76] gespeichert: „Gespeichert · <Sichtbarkeit>“ statt Warnung, kein „Speichern“', async () => {
+    const el = await mount('sx-topbar', { user: { id: 'u', email: 'a@b.de' }, mode: { kind: 'share', share: { id: 'x', title: 'Havel', visibility: 'public', isOwner: true } }, hasTracks: true, backend: true, saved: true,
+      toern: { title: 'Havel', status: 'Gespeichert · Öffentlich', short: 'Öffentlich', tone: 'saved', icon: 'globe' } });
     expect(el.shadowRoot.querySelector('.chip.warn')).toBeNull();
-    const ok = el.shadowRoot.querySelector('.chip.ok') as HTMLButtonElement;
-    expect(ok.textContent).toMatch(/Gespeichert/);
-    ok.click();
-    expect(accounts).toHaveLength(1);
+    expect((el.shadowRoot.querySelector('.chip.ok') as HTMLElement).textContent).toMatch(/Gespeichert · Öffentlich/);
+    expect(button(el, /^Speichern$/)).toBeUndefined();
   });
 
   it('[F-30] ohne Backend: Hinweis „nur dieses Gerät“, keine Aufforderung zum Anmelden', async () => {
-    const el = await mount('sx-topbar', { user: null, mode: { kind: 'local' }, hasTracks: true, backend: false });
-    expect(text(el)).toMatch(/Gast-Sitzung · nur dieses Gerät/);
-    expect(el.shadowRoot.querySelector('.chip.warn')).toBeNull();
+    const el = await mount('sx-topbar', { user: null, mode: { kind: 'local' }, hasTracks: true, backend: false, toern: draft });
+    expect(text(el)).toMatch(/Entwurf · nur dieses Gerät/);
+    expect((el.shadowRoot.querySelector('.chip.toern') as HTMLElement).title).not.toMatch(/Melde dich an/);
   });
 
   it('[F-40] ohne Backend gibt es keinen Anmelden-Knopf, Teilen bleibt möglich', async () => {
@@ -227,9 +220,11 @@ describe('sx-topbar', () => {
     expect(button(el, /Mein Törn/)).toBeDefined();
   });
 
-  it('[F-34] geteilte Ansicht zeigt den Titel der Freigabe', async () => {
-    const el = await mount('sx-topbar', { user: null, mode: { kind: 'share', share: { id: 'x', title: 'Ostsee 2026', visibility: 'unlisted' } }, hasTracks: true, backend: true });
+  it('[F-34] geteilte Ansicht zeigt den Titel der Freigabe als „Ansicht“', async () => {
+    const el = await mount('sx-topbar', { user: null, mode: { kind: 'share', share: { id: 'x', title: 'Ostsee 2026', visibility: 'unlisted' } }, hasTracks: true, backend: true,
+      toern: { title: 'Ostsee 2026', status: 'Ansicht', short: 'Ansicht', tone: 'view', icon: 'eye' } });
     expect(text(el)).toContain('Ostsee 2026');
+    expect(text(el)).toContain('Ansicht');
   });
 });
 
