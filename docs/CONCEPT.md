@@ -3062,7 +3062,7 @@ Leitlinie „Weniger ist mehr, ein Weg nach Rom“: Gäste bekommen einen Einsti
 „Mitmachen“ (F-261) und für Gäste die Karte „Eigenen Törn anlegen“; jede Folie führt über **einen** vorhandenen Weg
 (+ Neu → GPX, Stream, Anmeldedialog, /entdecken) – es entsteht kein neuer Einstieg (UX-NAVIGATION N1).
 Die vier Folien stellen die Alleinstellungsmerkmale aus 22.1 vor: (1) ausprobieren ohne App und Konto, (2) Revier mit
-Vereinen, Häfen und echten Saison-Zahlen, (3) Fahrtenbuch, (4) wer was sieht – nur, was es schon gibt (keine
+Vereinen, Häfen und echten Saison-Zahlen, (3) Fahrtenbuch, (4) wer was sieht – nur, was es schon und kostenlos gibt (keine
 Vereinswertung, kein Jahresbericht).
 
 ### 22.1 Positionierung und Alleinstellungsmerkmale

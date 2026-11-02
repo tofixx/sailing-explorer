@@ -104,7 +104,8 @@ describe('sx-guest-slider (F-431)', () => {
     const none = await mount('sx-guest-slider', {});
     expect(slides(none)[1].querySelector('img')).toBeNull();
     expect(slides(none)[1].textContent).not.toContain('Zum Beispiel');
-    expect([...slides(none)[3].querySelectorAll('.levels li')].map((li) => li.textContent!.trim())).toEqual(['Öffentlich', 'Nur Mitglieder', 'Nur mit Link', 'Nur ich']);
+    expect([...slides(none)[3].querySelectorAll('.levels li')].map((li) => li.textContent!.trim())).toEqual(['Öffentlich', 'Nur Mitglieder']);
+    expect(slides(none)[3].textContent).not.toMatch(/Link|Nur ich/);
   });
 
   it('[F-431] Seitenleiste der Startseite: mit sichtbarem Slider keine kompakte Karte, ausgeblendet kommt sie zurück', async () => {

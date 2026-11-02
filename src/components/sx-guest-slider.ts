@@ -7,12 +7,10 @@ import { icon } from './icons';
 import { POST_VISIBILITY_ICON, base, coverBanner, coverBannerStyles, emit } from './shared';
 import type { PostVisibility } from '../domain/posts';
 
-/** Stufen auf Folie 4 – Wörter wie im Schreib-Dialog (UX-NAVIGATION N7). */
+/** Stufen auf Folie 4 – nur, was kostenlos geht (Beiträge: E1, B4); Wörter wie im Schreib-Dialog (UX-NAVIGATION N7). */
 const LEVELS: Array<[PostVisibility, string]> = [
   ['public', 'Öffentlich'],
   ['members', 'Nur Mitglieder'],
-  ['unlisted', 'Nur mit Link'],
-  ['private', 'Nur ich'],
 ];
 
 /**
@@ -205,7 +203,7 @@ export class SxGuestSlider extends LitElement {
         margin: 0;
         padding: var(--s-2);
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: var(--s-1);
         width: 100%;
         text-align: center;
@@ -379,7 +377,7 @@ export class SxGuestSlider extends LitElement {
       {
         title: 'Du bestimmst, wer was sieht',
         art: this.artLevels(),
-        text: 'Privat, bis du teilst – dann öffentlich, nur für deinen Verein oder per Link. Was nur für Mitglieder ist, sehen nur Mitglieder.',
+        text: 'Privat, bis du teilst – öffentlich oder nur für deinen Verein. Mitgliedschaften sehen nur Mitglieder.',
         action: html`<button class="btn primary" @click=${() => emit(this, 'sx-guest-stream')}>${icon('community')} Community ansehen</button>`,
       },
     ];
