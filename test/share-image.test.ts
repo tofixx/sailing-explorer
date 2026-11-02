@@ -99,3 +99,38 @@ describe('Rendern', () => {
     expect([...px].slice(0, 3)).toEqual([255, 255, 255]);
   });
 });
+
+describe('F-47 Markenzeile', () => {
+  it.each(['landscape', 'square'] as ImageFormat[])('[F-47] %s: Logo, Name und Adresse stehen unter der Legende und überlappen nicht', async (f) => {
+    const canvas = createCanvas(10, 10);
+    const texts: Array<{ text: string; y: number }> = [];
+    const getContext = canvas.getContext.bind(canvas);
+    (canvas as unknown as { getContext: unknown }).getContext = (t: '2d') => {
+      const ctx = getContext(t);
+      return new Proxy(ctx, {
+        get(target, k) {
+          const v = Reflect.get(target, k);
+          if (k === 'fillText') return (text: string, x: number, y: number) => (texts.push({ text, y }), v.call(target, text, x, y));
+          return typeof v === 'function' ? v.bind(target) : v;
+        },
+        set: (target, k, val) => Reflect.set(target, k, val),
+      });
+    };
+    await drawShareImage(canvas as unknown as HTMLCanvasElement, [track], {
+      title: 'Stralsund → Prerow',
+      metric: 'speed',
+      range: metricRange([track], 'speed'),
+      format: f,
+      content: { map: false },
+    });
+    const brand = texts.find((t) => t.text === 'Sail Explorer');
+    const url = texts.find((t) => t.text === 'segeln-potsdam.de');
+    const legend = texts.find((t) => t.text.startsWith('Farbe:'));
+    expect(brand).toBeDefined();
+    expect(url).toBeDefined();
+    expect(legend).toBeDefined();
+    // eigene Zeile: Marke und Adresse auf einer Grundlinie, Legende mindestens eine Zeile darüber
+    expect(url!.y).toBe(brand!.y);
+    expect(brand!.y - legend!.y).toBeGreaterThanOrEqual(30);
+  });
+});
