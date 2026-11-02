@@ -9,6 +9,7 @@ import {
   maxZoom,
   panBy,
   pinch,
+  revealOffset,
   tickLabel,
   tickStep,
   ticks,
@@ -84,6 +85,35 @@ describe('F-430 Ausschnitt der Großansicht', () => {
     expect(days.map((t) => new Date(t).getHours())).toEqual([0, 0, 0]);
     expect(tickLabel(days[0], 24 * H, null)).toBe('14.06.');
     expect(ticks(0, 10, 0)).toEqual([]);
+  });
+
+  it('[F-430] Zeitpunkt von außen: nur verschieben, wenn er außerhalb liegt, Zoom bleibt', () => {
+    const v = { zoom: 10, offset: 800 };
+    expect(revealOffset(v, 900, 400, 10)).toBeNull(); // im Ausschnitt
+    expect(revealOffset(v, 2000, 400, 10)).toBe(1800); // mittig
+    expect(revealOffset(v, 10, 400, 10)).toBe(0); // am Anfang gekappt
+    expect(revealOffset(v, 3990, 400, 10)).toBe(3600); // am Ende gekappt
+  });
+
+  it('[F-430] Achsenstriche bleiben über die Zeitumstellung auf runden Ortszeiten', () => {
+    const tz = process.env.TZ;
+    process.env.TZ = 'Europe/Berlin';
+    try {
+      // Winterzeit: 25.10.2026, 03:00 MESZ → 02:00 MEZ
+      const fall = ticks(Date.UTC(2026, 9, 24, 10), Date.UTC(2026, 9, 25, 23), 6 * H);
+      expect(fall.map((t) => new Date(t).getHours())).toEqual([12, 18, 0, 6, 12, 18, 0]);
+      const half = ticks(Date.UTC(2026, 9, 24, 23), Date.UTC(2026, 9, 25, 2), 30 * MIN);
+      expect(half).toHaveLength(7); // 4 echte Stunden … mit doppelter 02:00-Stunde
+      for (let i = 1; i < half.length; i++) expect(half[i] - half[i - 1]).toBe(30 * MIN);
+      for (const t of half) expect(new Date(t).getMinutes() % 30).toBe(0);
+      // Sommerzeit: 29.03.2026, 02:00 MEZ → 03:00 MESZ
+      const spring = ticks(Date.UTC(2026, 2, 28, 20), Date.UTC(2026, 2, 29, 12), 3 * H);
+      for (const t of spring) expect(new Date(t).getHours() % 3).toBe(0);
+      expect(new Set(spring).size).toBe(spring.length);
+    } finally {
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    }
   });
 
   it('[F-430] Layout kennt die Position einer Zeit, Pausen haben keine', () => {

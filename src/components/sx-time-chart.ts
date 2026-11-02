@@ -1,6 +1,6 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
 import { layoutSegments, nearestByTime, segmentByGaps, type Layout, type Segment, type TimedPoint } from '../domain/timeline';
-import { clampView, initialView, isZoomed, maxZoom, panBy, pinch, tickLabel, tickStep, ticks, zoomAt, type ChartView } from '../domain/chart-view';
+import { clampView, initialView, isZoomed, maxZoom, panBy, pinch, revealOffset, tickLabel, tickStep, ticks, zoomAt, type ChartView } from '../domain/chart-view';
 import { cssVar, fmtDateTime, fmtNum, fmtShort } from '../util/html';
 import { base, dialogStyles, emit } from './shared';
 import { icon } from './icons';
@@ -96,6 +96,10 @@ export class SxTimeChart extends LitElement {
 
   /** Breite der Canvas = sichtbare Breite (nie die ganze Zeitreihe) */
   private width = 320;
+  /** Höhe der Großansicht wie gemessen – CSS begrenzt sie auf min(340px, 55dvh) (Handy quer) */
+  private largeH = H_LARGE;
+  /** Textalternative, nur bei Datenänderung neu berechnet (nicht bei jeder Hover-Bewegung) */
+  private summaryText = '';
   /** Ausschnitt der Großansicht; null bis zur ersten Messung */
   private view: ChartView | null = null;
   private segs: Segment[] = [];
@@ -114,7 +118,7 @@ export class SxTimeChart extends LitElement {
   private onScheme = () => this.drawBase();
 
   private get h(): number {
-    return this.large ? H_LARGE : H;
+    return this.large ? this.largeH : H;
   }
 
   /** Breite der Datenfläche zwischen den Y-Achsen */
@@ -185,6 +189,7 @@ export class SxTimeChart extends LitElement {
       /* Großansicht: Gesten im Diagramm gehören ihm (Ziehen, Pinch, Doppeltipp) – außerhalb scrollt die Seite normal */
       :host([large]) .wrap {
         height: ${H_LARGE}px;
+        height: min(${H_LARGE}px, 55dvh);
         touch-action: none;
         user-select: none;
         -webkit-user-select: none;
@@ -290,11 +295,15 @@ export class SxTimeChart extends LitElement {
 
   firstUpdated() {
     const box = this.renderRoot.querySelector(this.large ? '.scroll' : '.wrap') as HTMLElement;
-    if (this.large) this.resize(Math.round(box.clientWidth) || this.width);
+    if (this.large) this.resize(Math.round(box.clientWidth) || this.width, Math.round(box.clientHeight) || this.largeH);
     this.ro = new ResizeObserver(([entry]) => {
       const w = Math.round(entry.contentRect.width);
+      const h = Math.round(entry.contentRect.height);
+      if (this.large) {
+        if (w && (w !== this.width || (h && h !== this.largeH))) this.resize(w, h || this.largeH);
+        return;
+      }
       if (!w || w === this.width) return;
-      if (this.large) this.resize(w);
       else {
         this.width = w;
         this.drawBase();
@@ -304,10 +313,11 @@ export class SxTimeChart extends LitElement {
     this.ro.observe(box);
   }
 
-  /** Großansicht: neue sichtbare Breite – der Zoom bleibt, der Versatz wird mitskaliert. */
-  private resize(w: number) {
+  /** Großansicht: neue sichtbare Größe – der Zoom bleibt, der Versatz wird mitskaliert. */
+  private resize(w: number, h: number) {
     const before = this.dataW;
     this.width = w;
+    this.largeH = Math.max(120, h);
     const stage = this.renderRoot.querySelector('.stage') as HTMLElement | null;
     if (stage) stage.style.width = `${w}px`;
     if (!this.view) this.resetView(true);
@@ -318,6 +328,7 @@ export class SxTimeChart extends LitElement {
     if (changed.has('points')) this.segs = this.points.length ? segmentByGaps(this.points) : [];
     if (changed.has('points') || changed.has('series') || changed.has('left') || changed.has('right')) this.computeScales();
     if (changed.has('zoomed') && !this.zoomed) this.bigZoomed = false;
+    if (['points', 'series', 'marks', 'refLine', 'label'].some((k) => changed.has(k as keyof SxTimeChart))) this.summaryText = this.summary();
   }
 
   updated(changed: PropertyValues<this>) {
@@ -330,6 +341,20 @@ export class SxTimeChart extends LitElement {
     }
     if (changed.has('points') || changed.has('series') || changed.has('refLine') || changed.has('left') || changed.has('right') || changed.has('marks')) this.drawBase();
     this.drawOverlay();
+    if (this.large && changed.has('hoverTime') && !this.ptrs.size) this.revealHover();
+  }
+
+  /**
+   * Zeitpunkt von außen (Karte, Liste) außerhalb des Ausschnitts: sanft dorthin scrollen, Zoom bleibt. Eigene Tipps
+   * und Hover liegen immer im Ausschnitt und lösen nichts aus.
+   */
+  private revealHover() {
+    const i = this.hoverIndex();
+    const box = this.scrollBox;
+    if (i < 0 || !this.view || !box) return;
+    const x = layoutSegments(this.points, this.segs, 0, this.dataW * this.view.zoom).x(i);
+    const offset = revealOffset(this.view, x, this.dataW, this.maxZ);
+    if (offset != null) box.scrollTo({ left: offset, behavior: 'smooth' });
   }
 
   // ── Ausschnitt (nur Großansicht) ─────────────────────────────────────────
@@ -498,8 +523,13 @@ export class SxTimeChart extends LitElement {
     if (this.ptrs.size === 1 && this.view) this.gesture = { x0: [...this.ptrs.values()][0], off0: this.view.offset, moved: true };
     if (this.ptrs.size === 0) this.gesture = null;
     if (!tap) return;
-    // Tipp: Fadenkreuz setzen; zweiter Tipp kurz danach an derselben Stelle zoomt hinein
+    // Tipp: Fadenkreuz setzen; zweiter Tipp kurz danach an derselben Stelle zoomt hinein – außer auf einem Foto-Tick,
+    // dort öffnet der Klick nur das Foto
     this.onPointer(e);
+    if (this.markHit(e)) {
+      this.lastTap = { t: 0, x: 0 };
+      return;
+    }
     const now = e.timeStamp || performance.now();
     if (now - this.lastTap.t < DOUBLE_TAP_MS && Math.abs(e.clientX - this.lastTap.x) < 30) {
       this.zoomBy(ZOOM_STEP, this.anchorOf(e.clientX));
@@ -854,11 +884,15 @@ export class SxTimeChart extends LitElement {
       this.suppressClick = false;
       return;
     }
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    // nur nahe am unteren Rand, wo die Ticks liegen
-    if (e.clientY - rect.top < this.h - PAD.b - 24) return;
-    const m = this.markAt(e.clientX - rect.left);
+    const m = this.markHit(e);
     if (m) emit(this, 'sx-photo-open', { id: m.id });
+  }
+
+  /** Foto-Tick unter dem Zeiger – nur nahe am unteren Rand, wo die Ticks liegen. */
+  private markHit(e: MouseEvent): ChartMark | null {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (e.clientY - rect.top < this.h - PAD.b - 24) return null;
+    return this.markAt(e.clientX - rect.left);
   }
 
   private bigChart(): SxTimeChart | null {
@@ -868,7 +902,7 @@ export class SxTimeChart extends LitElement {
   render() {
     const i = this.hoverIndex();
     const p = i >= 0 ? this.points[i] : null;
-    const canvases = html`<div class="stage" role="img" aria-label=${this.summary()}>
+    const canvases = html`<div class="stage" role="img" aria-label=${this.summaryText}>
       <canvas class="base"></canvas>
       <canvas
         class="overlay"

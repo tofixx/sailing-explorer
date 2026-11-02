@@ -124,4 +124,65 @@ describe('F-430 Großansicht der Diagramme', () => {
     expect(s.hasAttribute('tabindex')).toBe(false);
     expect(s.hasAttribute('data-scroll-x')).toBe(false);
   });
+
+  it('[F-430] die Textalternative läuft nicht bei jeder Hover-Bewegung über alle Punkte', async () => {
+    let calls = 0;
+    const counting = [{ ...series[0], value: (p: { sog: number }) => (calls++, p.sog) }];
+    const el = await mount({ points: points(500), series: counting });
+    expect(el.shadowRoot.querySelector('.stage')!.getAttribute('aria-label')).toMatch(/Fahrt max\. 6,0 kn/);
+    calls = 0;
+    for (let h = 0; h < 5; h++) {
+      el.hoverTime = T0 + h * 3_600_000;
+      await el.updateComplete;
+    }
+    expect(calls).toBeLessThan(50); // je Hover nur der Punkt unter dem Fadenkreuz, nicht 501 Punkte
+  });
+
+  it('[F-430] Doppeltipp auf einem Foto-Tick öffnet nur das Foto, daneben zoomt er', async () => {
+    const big = (await mount({ points: points(6), large: true, marks: [{ id: 'f1', time: T0 + 3 * 3_600_000 }] })) as Big;
+    const ov = big.shadowRoot.querySelector('canvas.overlay') as HTMLCanvasElement;
+    const x = (big as unknown as { layout: { x: (i: number) => number } }).layout.x(3);
+    const opened: string[] = [];
+    big.addEventListener('sx-photo-open', (e) => opened.push((e as CustomEvent<{ id: string }>).detail.id));
+    const tap = (cx: number, cy: number) => {
+      for (const type of ['pointerdown', 'pointerup']) ov.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: 'touch', clientX: cx, clientY: cy, bubbles: true }));
+      ov.dispatchEvent(new MouseEvent('click', { clientX: cx, clientY: cy, bubbles: true }));
+    };
+    tap(x, 335);
+    tap(x, 335);
+    expect(big.view.zoom).toBe(1);
+    expect(opened).toEqual(['f1', 'f1']);
+    tap(x, 100);
+    tap(x, 100);
+    expect(big.view.zoom).toBe(2);
+  });
+
+  it('[F-430] Zeitpunkt von außen außerhalb des Ausschnitts: sanft dorthin scrollen, Zoom bleibt', async () => {
+    const big = (await mount({ points: points(6), large: true })) as Big;
+    for (let i = 0; i < 6; i++) wheel(big, { ctrlKey: true, clientX: 34 });
+    const zoom = big.view.zoom;
+    expect(big.view.offset).toBe(0);
+    const calls: ScrollToOptions[] = [];
+    scroll(big).scrollTo = ((o: ScrollToOptions) => calls.push(o)) as typeof HTMLElement.prototype.scrollTo;
+    big.hoverTime = T0 + 10 * 60_000; // im Ausschnitt
+    await big.updateComplete;
+    expect(calls).toEqual([]);
+    big.hoverTime = T0 + 5 * 3_600_000; // weit rechts
+    await big.updateComplete;
+    expect(calls).toHaveLength(1);
+    expect(calls[0].behavior).toBe('smooth');
+    expect(calls[0].left).toBeGreaterThan(0);
+    expect(big.view.zoom).toBe(zoom);
+  });
+
+  it('[F-430] Handy quer: Höhe höchstens 55 % des Bildschirms, gezeichnet wird mit der gemessenen Höhe', async () => {
+    const { SxTimeChart } = await import('../../src/components/sx-time-chart');
+    const css = ([SxTimeChart.styles].flat(Infinity) as { cssText: string }[]).map((s) => s.cssText).join(' ').replace(/\s+/g, ' ');
+    expect(css).toMatch(/:host\(\[large\]\) \.wrap \{[^}]*height: min\(340px, 55dvh\)/);
+    const big = (await mount({ points: points(6), large: true })) as Big & { resize: (w: number, h: number) => void };
+    big.resize(700, 200);
+    await new Promise((r) => requestAnimationFrame(r));
+    const cv = big.shadowRoot.querySelector('canvas.base') as HTMLCanvasElement;
+    expect(cv.height).toBe(200 * (window.devicePixelRatio || 1));
+  });
 });
