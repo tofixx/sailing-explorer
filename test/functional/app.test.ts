@@ -74,7 +74,9 @@ interface Server {
   shares: Map<string, { meta: Record<string, unknown>; payload: unknown }>;
   files: Record<string, string>;
   /** Antwort von /api/discover (null → 500) */
-  discover: { voyages: unknown[]; boats: unknown[]; people: unknown[] } | null;
+  discover: { voyages: unknown[]; boats: unknown[]; people: unknown[]; groups?: unknown[]; harbors?: unknown[] } | null;
+  /** Antwort von /api/discover/stats (F-431) */
+  stats?: { season: number; voyages: number; nm: number; boats: number };
   calls: Array<{ url: string; method: string; headers: Record<string, string>; body?: unknown }>;
   /** Unterstützen eingerichtet: Status für /api/me/support; null = nicht eingerichtet */
   support: Record<string, unknown> | null;
@@ -131,6 +133,7 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     return f ? new Response(f, { headers: { 'Content-Type': 'application/gpx+xml' } }) : new Response('nope', { status: 404 });
   }
   if (url.startsWith('/api/') && server.backend === 'html') return new Response('<!doctype html><html></html>', { headers: { 'Content-Type': 'text/html' } });
+  if (url === '/api/discover/stats') return json(server.stats ?? { season: 2026, voyages: 0, nm: 0, boats: 0 });
   if (url.startsWith('/api/discover')) return server.discover ? json(server.discover) : json({ error: 'internal', message: 'Interner Fehler' }, 500);
   if (url === '/api/config') return json({ turnstileSiteKey: '', sharing: true, support: server.support ? { tiers: SUPPORT_TIERS } : null, freeShares: 3 });
   // ---- Verein, Hafen, Reaktionen (Konzept 12)
@@ -1101,12 +1104,12 @@ describe('F-40 Ohne Backend', () => {
     expect(state().mode).toEqual({ kind: 'link', title: 'Geteilter Track' });
   });
 
-  it('[F-260] ohne Backend: große Einstiegskarte, keine Mitmachen-Karte', async () => {
+  it('[F-260] [F-431] ohne Backend: große Einstiegskarte, kein Gäste-Slider', async () => {
     server.backend = 'html';
     await startApp();
     await settled();
     expect(el<{ community: boolean }>('sx-empty-state').community).toBe(false);
-    expect(el<{ hidden: boolean }>('sx-join-card').hidden).toBe(true);
+    expect(el<{ hidden: boolean }>('sx-guest-slider').hidden).toBe(true);
   });
 
   it('[F-40] zu große Tracks: verständlicher Hinweis statt riesiger URL', async () => {
@@ -1444,23 +1447,77 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
   const topbar = () => el<{ section: string; unread: string }>('sx-topbar');
   const seenCalls = () => server.calls.filter((c) => c.url === '/api/stream/seen');
 
-  it('[F-260] Startseite: Mitmachen-Karte sichtbar; angemeldet steht der Stream vor Entdecken', async () => {
+  it('[F-260] Startseite als Gast: Entdecken vor dem Stream', async () => {
     server.groups = {};
     await startApp();
     await vi.waitFor(() => expect(home().hidden).toBe(false));
-    const join = el<{ hidden: boolean; signedIn: boolean }>('sx-join-card');
-    expect(join.hidden).toBe(false);
-    expect(join.signedIn).toBe(false);
     expect(el<{ streamFirst: boolean }>('sx-empty-state').streamFirst).toBe(false);
   });
 
-  it('[F-260] Startseite angemeldet: Stream zuerst, Mitmachen mit nächsten Schritten', async () => {
+  const slider = () => el<HTMLElement & { stats: unknown; groups: unknown[]; harbors: unknown[] }>('sx-guest-slider');
+
+  it('[F-431] Gast sieht den Slider mit Saison-Zahlen und Vereinen, Wegklicken bleibt auf dem Gerät', async () => {
+    localStorage.removeItem('sx-guest-slider-dismissed');
+    server.groups = {};
+    server.stats = { season: 2026, voyages: 42, nm: 980, boats: 7 };
+    server.discover = { voyages: [], boats: [], people: [], groups: [{ slug: 'pyc', name: 'PYC', kind: 'club', members: 3 }], harbors: [{ slug: 'templin', name: 'Templin', boats: 2, groups: 1 }] };
+    await startApp();
+    await vi.waitFor(() => expect(slider().hidden).toBe(false));
+    await vi.waitFor(() => expect(slider().stats).toEqual(server.stats));
+    expect(slider().groups).toEqual(server.discover.groups);
+    expect(slider().harbors).toEqual(server.discover.harbors);
+    // „GPX ausprobieren“ nimmt denselben Weg wie „+ Neu → Törn (GPX)“: Dateidialog sofort, ohne Anmeldung
+    const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined);
+    slider().dispatchEvent(new CustomEvent('sx-compose-open', { detail: { kind: 'gpx' }, bubbles: true, composed: true }));
+    expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
+    expect(el<{ open?: boolean }>('sx-login-dialog').open).toBeFalsy();
+    // „Community ansehen“ scrollt zum Stream
+    const scroll = vi.fn();
+    (home() as unknown as HTMLElement).scrollIntoView = scroll;
+    slider().dispatchEvent(new CustomEvent('sx-guest-stream', { bubbles: true, composed: true }));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    // × – weg und gemerkt; der Stream bleibt
+    slider().dispatchEvent(new CustomEvent('sx-guest-dismiss', { bubbles: true, composed: true }));
+    expect(slider().hidden).toBe(true);
+    expect(home().hidden).toBe(false);
+    expect(localStorage.getItem('sx-guest-slider-dismissed')).toBe('1');
+    // neu laden: bleibt weg, lädt nichts nach
+    for (const [t, fn] of listeners) document.removeEventListener(t, fn);
+    document.body.innerHTML = BODY;
+    server.calls = [];
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    expect(slider().hidden).toBe(true);
+    expect(server.calls.some((c) => c.url === '/api/discover/stats')).toBe(false);
+    localStorage.removeItem('sx-guest-slider-dismissed');
+  });
+
+  it('[F-431] Angemeldete sehen den Slider nie – auch nicht kurz vor dem Abruf des Kontos', async () => {
+    localStorage.removeItem('sx-guest-slider-dismissed');
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { mine: { groups: [], requests: [] } };
+    const seen: boolean[] = [];
+    const observer = new MutationObserver(() => seen.push(slider().hidden));
+    observer.observe(slider(), { attributes: true, attributeFilter: ['hidden'] });
+    await startApp();
+    await vi.waitFor(() => expect(home().hidden).toBe(false));
+    await new Promise((r) => setTimeout(r, 0));
+    observer.disconnect();
+    expect(slider().hidden).toBe(true);
+    expect(seen).not.toContain(false);
+    expect(server.calls.some((c) => c.url === '/api/discover/stats')).toBe(false);
+    // abmelden: jetzt Gast – der Slider erscheint
+    emit('sx-logout');
+    await vi.waitFor(() => expect(slider().hidden).toBe(false));
+  });
+
+  it('[F-260] Startseite angemeldet: Stream zuerst', async () => {
     server.user = { id: 'U1', email: 'a@example.org' };
     server.groups = { myStream: { items: [post], cursor: null, hasGroups: true }, mine: { groups: [], requests: [] } };
     await startApp();
     await vi.waitFor(() => expect(home().hidden).toBe(false));
     expect(el<{ streamFirst: boolean }>('sx-empty-state').streamFirst).toBe(true);
-    expect(el<{ signedIn: boolean }>('sx-join-card').signedIn).toBe(true);
   });
 
   it('[F-262] Link-Vorschau der Startseite beschreibt die Community', () => {

@@ -3055,3 +3055,40 @@ Festlegungen:
 Noch zu bestätigen bei der Umsetzung: Auslegung „Gewichtung nach Mitgliederzahl“ (21.6), genaue Kontingente (10/200
 Fotos je Monat, 25 MB kostenlos), Schwellen der Tageszusammenfassung (150 Mitglieder, 15 Einträge/Tag) und des
 Hinweises (100 Personen).
+
+## 22. Gäste-Slider auf der Startseite (F-431, 02.11.2026)
+
+Leitlinie „Weniger ist mehr, ein Weg nach Rom“: Gäste bekommen einen Einstieg statt zweier Karten. Der Slider ersetzt
+„Mitmachen“ (F-261) und für Gäste die Karte „Eigenen Törn anlegen“; jede Folie führt über **einen** vorhandenen Weg
+(+ Neu → GPX, Stream, Anmeldedialog, /entdecken) – es entsteht kein neuer Einstieg (UX-NAVIGATION N1).
+Die vier Folien stellen die Alleinstellungsmerkmale aus 22.1 vor: (1) ausprobieren ohne App und Konto, (2) Revier mit
+Vereinen, Häfen und echten Saison-Zahlen, (3) Fahrtenbuch, (4) wer was sieht – nur, was es schon und kostenlos gibt (keine
+Vereinswertung, kein Jahresbericht).
+
+### 22.1 Positionierung und Alleinstellungsmerkmale
+
+Ton nach außen: deutsch, du-Form, sachlich-freundlich, ohne Superlative und ohne Vergleich mit anderen Produkten.
+
+| Merkmal | Was es heißt | Wo es steht |
+|---|---|---|
+| Ohne App und Konto ausprobieren | GPX in den Browser ziehen, Auswertung sofort; Dateien bleiben lokal, bis man teilt (Security 1) | Startseite, „+ Neu → Törn (GPX)“, Slider Folie 1 |
+| Lokale Strukturen mit Sichtbarkeit nach oben | Verein, Team, Hafen und Boot als eigene Seiten; Beiträge breiten sich vom Verlauf nach oben aus, begrenzt über „Sichtbar bis“ (Konzept 11–14, 21) | Gruppen-, Hafen-, Bootsseiten, Stream, Slider Folie 2 |
+| Fahrtenbuch nach deutschem Muster | Törns mit oder ohne GPX, Seemeilen je Saison und Jahr, Meilensteine (Konzept 19) | Profil „Mein Fahrtenbuch“, Slider Folie 3 |
+| Datenschutz als Prinzip | Stufen Öffentlich, Nur Mitglieder, Nur mit Link, Nur ich; Mitgliederinhalte nur für Mitglieder; Daten mit Ablaufdatum | Teilen-Dialog, Schreib-Dialog, Slider Folie 4 |
+| Auswertung mit Wind und Wellen samt Teilen-Bild | Speed, Wind, Böen und Wellen zur Zeit des Törns, Bild zum Teilen | Törn-Ansicht, Teilen-Dialog |
+| Deutsch und Binnenreviere zuerst | Oberfläche deutsch; Potsdam, Havel und Seen als Startrevier | Texte, Startseite |
+
+### 22.2 Architektur-Skizze
+
+Nach CLAUDE.md „Vor dem ersten Code“:
+
+| Punkt | Festlegung |
+|---|---|
+| Datenmodell | nichts gespeichert, keine Migration; „Ausblenden“ nur im Gerät (`localStorage` `sx-guest-slider-dismissed`) |
+| Querschnitte | Sichtbarkeit: `GET /api/discover/stats` nutzt `LISTED` aus `worker/discover.ts` (öffentlich, nicht ausgeblendet, Konto nicht gesperrt, `reachAtLeastSql(…, 'all')`) und `IN_LOGBOOK_SQL`; Saison = Kalenderjahr wie Gruppen- und Hafen-Kennzahlen (`seasonStart`, `src/domain/season-stats.ts`). Cache: für alle gleich, `public, max-age=600` plus Worker-Cache (Prinzip Erweitern 3). Vereine und Häfen aus dem vorhandenen `/api/discover` (mit Ort aus `near-prefs`, sonst alle). Keine Zähler, Benachrichtigungen, Einbettungen (`/embed` zeigt keine Startseite), Admin. |
+| Lösch- und Sichtbarkeitspfade | nichts zu löschen; ausgeblendete, gemeldete, eingeschränkte oder gesperrte Inhalte fallen über `LISTED` sofort aus den Zahlen, spätestens nach 10 min Cache. Wer sieht es: nur Gäste mit Backend auf `/`; Angemeldete nie (Controller wartet auf `backendReady`). |
+| Komponentenschnitt | `sx-guest-slider` (Properties `stats`, `groups`, `harbors`; Events `sx-compose-open` {gpx}, `sx-login`, `sx-guest-stream`, `sx-guest-dismiss`; Stile aus `base`/`coverBannerStyles`), `GuestSliderController` (Sichtbarkeit, Laden, Ausblenden, Scrollen), in `app.ts` nur erzeugt; Slot „join“ von `sx-empty-state`, das die kompakte Karte zeigt, sobald der Slot leer bzw. versteckt ist. 375 px: Seitenleiste steht über dem Stream, eine Folie je Breite (Scroll-Snap waagerecht), Bild höchstens 16 svh, gesamt ≤ ~60 % der Höhe, keine senkrechte Scroll-Ebene, Punkte ≥ 40 px auf Touch, Pfeile nur mit Maus. |
+| Parallele Arbeit | `feature/beitraege-phase2` (PostLinkController, `app.ts`) – hier nur Verdrahtung in `app.ts`; sonst kein Branch an `sx-empty-state`, `worker/discover.ts`, `index.html`. |
+
+Entfernt: `sx-join-card` (Vorteilsliste und „Anmelden & mitmachen“) samt Verdrahtung; die Liste der Unterstützer-Vorteile
+steht weiter im Unterstützen-Bereich des Kontos.

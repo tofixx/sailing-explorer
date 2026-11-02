@@ -6,7 +6,6 @@ import '../../src/components/sx-metric-picker';
 import '../../src/components/sx-topbar';
 import '../../src/components/sx-account-dialog';
 import '../../src/components/sx-discover';
-import '../../src/components/sx-join-card';
 import '../../src/components/sx-empty-state';
 import type { Track } from '../../src/domain/types';
 import { T0, genPoints, makeTrack, P } from './helpers';
@@ -296,31 +295,7 @@ describe('sx-account-dialog', () => {
 });
 
 
-describe('Startseite = Community (F-260, F-261)', () => {
-  it('[F-261] Gäste: „Mitmachen“ erklärt, wozu die Anmeldung gut ist, und meldet an', async () => {
-    const logins = listen('sx-login');
-    const el = await mount('sx-join-card', { signedIn: false });
-    const t = text(el);
-    for (const w of ['Törns speichern und teilen', 'Verein oder Team', 'Heimathafen', 'Folgen', 'Freunde einladen', 'Passkey']) expect(t).toContain(w);
-    // kostenlos ist Teilen öffentlich – keine privaten Törns versprechen
-    expect(t).not.toMatch(/nur für dich|nur mit Link/);
-    button(el, /Anmelden & mitmachen/)!.click();
-    expect(logins).toHaveLength(1);
-  });
-
-  it('[F-261] Unterstützer-Vorteile nur, wenn Unterstützen eingerichtet ist', async () => {
-    const off = await mount('sx-join-card', { signedIn: false, supportOffered: false });
-    expect(text(off)).not.toContain('Unterstützer');
-    const on = await mount('sx-join-card', { signedIn: false, supportOffered: true });
-    expect(text(on)).toMatch(/Als Unterstützer:in mehr.*Fotos/);
-  });
-
-  it('[F-261] [F-428] Angemeldete: keine Werbung und kein zweiter Weg zum Eigenen – das ist das Konto-Menü oben', async () => {
-    const el = await mount('sx-join-card', { signedIn: true });
-    expect(button(el, /Anmelden/)).toBeUndefined();
-    expect(el.shadowRoot.textContent!.trim()).toBe('');
-  });
-
+describe('Startseite = Community (F-260)', () => {
   it('[F-260] Hauptspalte: Entdecken und Stream – Gäste Entdecken zuerst, angemeldet der Stream; Seitenleiste: Hochladen und Mitmachen', async () => {
     const el = await mount('sx-empty-state', { community: true, samples: [] });
     const main = el.shadowRoot.querySelector('.feed')!;
