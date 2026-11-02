@@ -302,7 +302,7 @@ export class SxStream extends LitElement {
           </div>
           <div class="ctx">${facts.join(' · ')}${v.boat ? html` · ${icon('sail')} <a href="/b/${v.boat.id}">${v.boat.name}</a>` : ''}${v.logbook ? html` ${logbookTag()}` : ''}</div>
           ${i.kind === 'photos'
-            ? html`<div class="thumbs">${i.photos!.thumbs.map((id) => html`<a href="/s/${v.id}?foto=${id}"><img src=${photoImageUrl(id, 't')} alt="" loading="lazy" decoding="async" /></a>`)}</div>`
+            ? html`<div class="thumbs" data-scroll-x>${i.photos!.thumbs.map((id) => html`<a href="/s/${v.id}?foto=${id}"><img src=${photoImageUrl(id, 't')} alt="" loading="lazy" decoding="async" /></a>`)}</div>`
             : v.hasImage
               ? html`<a href="/s/${v.id}"><img class="cover" src=${shareImageUrl(v.id)} alt="" loading="lazy" decoding="async" /></a>`
               : ''}`;

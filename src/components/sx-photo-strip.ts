@@ -177,7 +177,7 @@ export class SxPhotoStrip extends LitElement {
     return html`
       ${this.ownerHead()}
       ${this.photos.length
-        ? html`<ul aria-label="Fotos">
+        ? html`<ul data-scroll-x aria-label="Fotos">
             ${this.photos.map(
               (p) => html`<li>
                 <button

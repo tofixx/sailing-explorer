@@ -1094,7 +1094,7 @@ export class SxAccountDialog extends LitElement {
             </div>`
           : ''}
         ${this.inbox()}
-        <div class="tabs" role="tablist">
+        <div class="tabs" data-scroll-x role="tablist">
           ${this.tabs().map(
             ([key, label]) => html`<button
               role="tab"

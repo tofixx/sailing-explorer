@@ -579,7 +579,7 @@ export class SxDiscover extends LitElement {
         <a href="/entdecken">Alle entdecken</a>
       </header>
       ${list.length
-        ? html`<div class="row">${list.map((v) => this.voyage(v))}</div>`
+        ? html`<div class="row" data-scroll-x>${list.map((v) => this.voyage(v))}</div>`
         : html`<div class="empty invite">
             <strong>Noch keine öffentlichen Törns</strong>
             <span>Teile deinen ersten Törn öffentlich – er erscheint dann hier für alle.</span>
@@ -607,7 +607,7 @@ export class SxDiscover extends LitElement {
     const n = this.near;
     if (!n) return '';
     const locate = html`<button class="chip" type="button" @click=${() => emit(this, 'sx-discover-locate')}>${icon('anchor')} Meinen Standort verwenden</button>`;
-    return html`<div class="tabs" role="group" aria-label="Umgebung">
+    return html`<div class="tabs" data-scroll-x role="group" aria-label="Umgebung">
       <button class="chip" type="button" aria-pressed=${n.on ? 'true' : 'false'} @click=${() => !n.on && emit(this, 'sx-discover-near', { on: true })}>In der Nähe</button>
       <button class="chip" type="button" aria-pressed=${n.on ? 'false' : 'true'} @click=${() => n.on && emit(this, 'sx-discover-near', { on: false })}>Überall</button>
       ${n.on
@@ -632,7 +632,7 @@ export class SxDiscover extends LitElement {
         enterkeyhint="search"
         @input=${this.onSearch}
       />
-      <div class="tabs" role="group" aria-label="Abschnitt">
+      <div class="tabs" data-scroll-x role="group" aria-label="Abschnitt">
         ${DISCOVER_SECTIONS.map(
           ([key, label]) => html`<button class="chip" aria-pressed=${this.show === key ? 'true' : 'false'} @click=${() => (this.show = key)}>${label}</button>`,
         )}

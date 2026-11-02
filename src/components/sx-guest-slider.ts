@@ -469,7 +469,7 @@ export class SxGuestSlider extends LitElement {
     const n = slides.length;
     return html`<section aria-roledescription="carousel" aria-label="Willkommen bei Sail Explorer" @keydown=${this.onKey}>
       <button class="btn small ghost icon close" aria-label="Einführung ausblenden" title="Ausblenden" @click=${() => emit(this, 'sx-guest-dismiss')}>${icon('x')}</button>
-      <div class="track" @scroll=${this.onScroll} @scrollend=${this.onScrollEnd}>
+      <div class="track" data-scroll-x @scroll=${this.onScroll} @scrollend=${this.onScrollEnd}>
         ${slides.map(
           (s, i) => html`<div class="slide" role="group" aria-roledescription="Folie" aria-label="${i + 1} von ${n}: ${s.title}">
             <div class="art">${s.art}</div>

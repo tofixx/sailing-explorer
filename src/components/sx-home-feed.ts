@@ -483,7 +483,7 @@ export class SxHomeFeed extends LitElement {
     // Ein Klick grenzt ein, ein zweiter hebt es wieder auf
     const chip = (kind: 'harbor' | 'club', slug: string, glyph: Parameters<typeof icon>[0], name: string) =>
       html`<button class="chip" aria-pressed=${is(kind, slug) ? 'true' : 'false'} @click=${() => pick(is(kind, slug) ? null : { kind, slug })}>${icon(glyph)} ${name}</button>`;
-    return html`<div class="filters" role="toolbar" aria-label="Neuigkeiten eingrenzen">
+    return html`<div class="filters" data-scroll-x role="toolbar" aria-label="Neuigkeiten eingrenzen">
       <button class="chip" aria-pressed=${active ? 'false' : 'true'} @click=${() => pick(null)}>Alle</button>
       ${f.harbors.map((h) => chip('harbor', h.slug, 'anchor', h.name))}
       ${f.clubs.map((c) => chip('club', c.slug, 'pennant', c.name))}
@@ -500,7 +500,7 @@ export class SxHomeFeed extends LitElement {
   private modeTabs() {
     const modes: StreamMode[] = this.signedIn ? ['near', 'all', 'mine'] : ['near', 'all'];
     return html`<div class="modebar">
-      <div class="modes" role="toolbar" aria-label="Was zeigen?">
+      <div class="modes" data-scroll-x role="toolbar" aria-label="Was zeigen?">
         ${modes.map((m) => html`<button type="button" aria-pressed=${this.mode === m ? 'true' : 'false'} @click=${() => this.mode !== m && emit(this, 'sx-stream-mode', { mode: m })}>${m === 'near' ? icon('anchor') : ''}${MODE_LABEL[m]}</button>`)}
       </div>
       <button type="button" class="chip" aria-pressed=${this.joins ? 'true' : 'false'} title=${this.joins ? 'Automatische Einträge (Beitritte, neue Boote, Meilensteine) ausblenden – gilt für alle Neuigkeiten auf diesem Gerät' : 'Automatische Einträge zeigen'}
@@ -532,7 +532,7 @@ export class SxHomeFeed extends LitElement {
           : ''} – bis dahin siehst du alles.</p>${chooser}`;
     }
     return html`<div class="nearbar">
-      <div class="filters" role="toolbar" aria-label="Umkreis">
+      <div class="filters" data-scroll-x role="toolbar" aria-label="Umkreis">
         ${NEAR_RADII.map((r) => html`<button class="chip" type="button" aria-pressed=${this.radius === r ? 'true' : 'false'} @click=${() => this.radius !== r && emit(this, 'sx-near-radius', { radius: r })}>${r} km</button>`)}
       </div>
       <span>um ${n.center ?? (n.source === 'geo' ? 'deinen Standort' : 'deinen Heimathafen')} · ${plural(n.places, 'Ort', 'Orte')}</span>
