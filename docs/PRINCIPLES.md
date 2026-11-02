@@ -22,7 +22,11 @@ gilt die Reihenfolge innerhalb eines Abschnitts.
    semantische Elemente, `prefers-reduced-motion` wird respektiert,
    Icons statt Emojis, Texte mit ausreichend Kontrast.
 7. **Mobil ist kein Sonderfall.** Ab < 760 px wird die Seitenleiste zum
-   Bottom-Sheet, Touch-Ziele sind ≥ 40 px.
+   Bottom-Sheet, Touch-Ziele sind ≥ 40 px. Jeder Dialog und jedes Menü nutzt
+   `dialogStyles` bzw. das Sheet-Muster aus `shared.ts` (mobil randlos bzw. von
+   unten, Fokus bleibt im Dialog, Escape schließt) – keine eigenen Dialog-Stile.
+   Neue Oberflächen werden bei 375 px Breite geprüft, und es ist festgelegt,
+   was in Einbettungen (`/embed`) fehlt.
 
 ## Architektur
 
@@ -51,6 +55,55 @@ gilt die Reihenfolge innerhalb eines Abschnitts.
    `worker/validate.ts`, nicht ein SQL-`CHECK` (SQLite ändert Constraints nur
    per Neubau). Eigentum ist explizit (`owner_id`/`user_id`), weitere
    Berechtigte stehen in eigenen Tabellen (z. B. `boat_admins`).
+
+## Erweitern
+
+Regeln für neue Features, abgeleitet aus `docs/ARCHITECTURE-RETRO.md`. Sie
+gelten ab der Architektur-Skizze (`CLAUDE.md`), nicht erst im Review.
+
+1. **Neue Inhalte sind eine Art von `posts`, kein eigenes Objekt.** Autor,
+   Heimatverlauf, Sichtbarkeit, „Sichtbar bis“, Stream, Pins und Löschen kommen
+   vom Dach (Konzept 21); die Art bringt nur ihre Nutzlast (Untertabelle mit
+   `post_id … ON DELETE CASCADE`) und einen lesbaren `body` als Rückfall mit.
+   Vorbild: Fahrtenbuch als `shares.source` statt eigener Tabelle (Konzept 19, K1).
+2. **Eine Regel, ein Modul – auch in SQL.** Sichtbarkeit, Sperre, Reichweite und
+   Zählregeln stehen einmal als reine Funktion in `src/domain` und einmal als
+   SQL-Baustein in einem `worker/*-sql.ts` (Vorbild `IN_LOGBOOK_SQL`). Neue
+   Listen, Streams und Kennzahlen nutzen die Bausteine. Literale wie
+   `visibility = 'public'` oder `hidden_at IS NULL` werden nicht neu kopiert.
+   Ein Test hält Domain-Regel und SQL-Baustein gleich.
+3. **Öffentliche Caches nur für Antworten, die für alle gleich sind.** Was vom
+   Betrachter abhängt („Nur Mitglieder“, Schlüssel, Vorschau, eigene Rechte),
+   wird `private, no-store` ausgeliefert. Die Verzögerung des Caches nach dem
+   Herabstufen (60 s) steht im Konzept.
+4. **Publikum aus einer Funktion.** Die Ziele eines Inhalts im Aktivitäts-Log
+   berechnet je Inhalt genau eine Funktion aus dem aktuellen Zustand. Jede
+   Änderung (Sichtbarkeit, Gruppen, Reichweite, Boot, Hafen, Austritt) baut sie
+   damit vollständig neu auf und behält die Zeit der Aktivität. Es gibt keine
+   Differenz-SQL je Änderungsart.
+5. **Löschen ist registriert, nicht erinnert.** Bezüge ohne Fremdschlüssel
+   (`subject_kind`, `target_kind`, `channel_kind`, R2-Schlüssel, Zähler) haben je
+   Art eine Aufräumfunktion, die alle Löschwege (einzeln, Eltern-Objekt, Konto,
+   inaktiv, Ablauf, Moderation, Zusammenführen) aufrufen. R2-Schlüssel und
+   Zähleranteile werden vor einem Cascade eingesammelt. Für jeden Weg gibt es
+   einen Test.
+6. **Migrationen: Nummer zuerst reservieren, nur additiv.** Vor dem ersten Code
+   die nächste freie Nummer über alle Branches prüfen (`git ls-tree <branch>
+   migrations/`) und sofort eine Datei `00NN_name.sql` committen. Eine
+   deployte Migration wird nie umbenannt. Tabellen-Neubauten sind eine eigene
+   Phase mit `PRAGMA defer_foreign_keys` und einem Migrations-Test.
+7. **Grenzen und Zustandswechsel sind atomar.** Kontingente, Kapazitäten,
+   Fehlversuche und Annahmen werden in einer SQL-Anweisung geprüft und
+   geschrieben (`INSERT … SELECT … WHERE`, bedingtes `UPDATE`, `meta.changes`
+   auswerten), nie erst gelesen und dann geschrieben.
+8. **Frontend-Schnitt: Seite → Controller → Komponenten.** Ein Ablauf (Laden,
+   Speichern, Schritte, `busy` gegen Doppelklick) gehört in einen Controller
+   unter `src/controllers`. Seiten und Karten bekommen Properties und melden
+   Events. `app.ts` registriert nur Route und Event. Dialoge und Abläufe werden
+   über ein Event geöffnet (z. B. `sx-compose-open`), nicht über Verweise
+   zwischen Komponenten. Ein Formular gibt es einmal, nicht je Einstieg.
+9. **Neue Features bringen eigene Testdateien mit** (`test/functional/<bereich>.test.ts`)
+   statt Sammeldateien wie `app.test.ts` zu verlängern.
 
 ## Security
 
