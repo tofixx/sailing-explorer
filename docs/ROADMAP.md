@@ -102,17 +102,19 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 | Punkt | Stand |
 |---|---|
 | **Nummern vor dem Start reservieren** | Regel in `CLAUDE.md` („Vor dem ersten Code“). Die Reservierungen stehen unten |
-| **`npm run check` mit `node_modules`-Junction** | Behoben: `vite.config.ts` gibt zusätzlich den echten Pfad von `node_modules` frei (`server.fs.allow`). Ein eigenes `npm ci` ist nur bei abweichendem `package-lock.json` nötig |
-| **Workers-Laufzeit startet unter Last nicht** (`ERR_RUNTIME_FAILURE`) | `worker-harness.ts` wiederholt genau diesen Startfehler bis zu zweimal, Testfehler bleiben unberührt. Beobachten: Tritt er trotzdem auf, `poolOptions.forks.maxForks` begrenzen (kostet Laufzeit, der volle Lauf dauert heute rund 220 s) |
-| **Mobil-Prüfung 375 px** | Verbindlich in Prüfpunkt 8 und Auslieferung Schritt 3, Skript `scripts/mobile-overflow.js`. Gewollte seitliche Scroll-Bereiche tragen `data-scroll-x`: Diagramm-Großansicht (`sx-time-chart`), Gäste-Slider, Entdecken-Leiste und Reiter, Filter und Modi der Startseite, Fotostreifen, Vorschaubilder im Stream, Konto-Reiter |
+| **Entwicklungszeit** (Analyse in [Retro (e)](ARCHITECTURE-RETRO.md#e-entwicklungszeit-stand-02112026)) | Umgesetzt in `CLAUDE.md`: Selbstprüfung „Vor Abgabe“, Review ab dem ersten vollständigen Commit, ein Feature je Deploy, nachgereichte Wünsche in die Roadmap, Test-Strategie (lokal gezielt, ein Vollauf, danach ist die Pipeline das Gate) |
+| **Docs konfliktarm** | Neue Konzept-Abschnitte stehen in `docs/concept/NN-name.md`, in `CONCEPT.md` nur ein Verweis. F-IDs kommen als Block aus der Reservierung. Offen: `app.test.ts` und `shared.ts` aufteilen (siehe „Später“) |
+| **Worktrees** | `scripts/new-worktree.ps1` (Upstream kappen, Junction oder `npm ci`, freier Port) und `scripts/remove-worktree.ps1` (Junction lösen, dann `git worktree remove`). `vite.config.ts` gibt den echten Pfad von `node_modules` frei (`server.fs.allow`) |
+| **Workers-Laufzeit startet unter Last nicht** (`ERR_RUNTIME_FAILURE`) | `worker-harness.ts` wiederholt genau diesen Startfehler bis zu zweimal, Testfehler bleiben unberührt. Beobachten: Tritt er trotzdem auf, `poolOptions.forks.maxForks` begrenzen. Das kostet Laufzeit, der volle Lauf dauert lokal heute 220–360 s || **Mobil-Prüfung 375 px** | Verbindlich in Prüfpunkt 8 und Auslieferung Schritt 3, Skript `scripts/mobile-overflow.js`. Gewollte seitliche Scroll-Bereiche tragen `data-scroll-x`: Diagramm-Großansicht (`sx-time-chart`), Gäste-Slider, Entdecken-Leiste und Reiter, Filter und Modi der Startseite, Fotostreifen, Vorschaubilder im Stream, Konto-Reiter |
 | Migrationen nur additiv in Feature-Branches | Neubauten (`photos`, Phase 7) als eigener Schritt (R 4) |
 | Atomare Grenzen als Muster | `INSERT … SELECT … WHERE COUNT < n`, `meta.changes` prüfen (R 10), Pflicht ab Phase 5 |
 
 ### Reservierungen
 
 Vergeben bis einschließlich **F-450**, **Konzept 25**, **Migration 0032** (Stand 9316c24). Die nächsten freien Nummern
-sind F-451, Konzept 26 und Migration 0033. Neue Aufträge bekommen ihren Bereich hier, bevor sie starten.
+sind F-451, Konzept 26 (`docs/concept/26-….md`) und Migration 0033. Neue Aufträge bekommen ihren Bereich hier, bevor
+sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
-| Branch / Auftrag | F-IDs | Konzept | Migration | Stand |
-|---|---|---|---|---|
-| `docs/roadmap` (diese Roadmap, Prozess-Fixes) | – | – | – | lokal committet |
+| Branch / Auftrag | F-IDs | Konzept | Migration | Berührt | Stand |
+|---|---|---|---|---|---|
+| `docs/roadmap` (diese Roadmap, Prozess-Fixes) | – | – | – | `CLAUDE.md`, `vite.config.ts`, `worker-harness.ts`, `data-scroll-x` in 8 Komponenten | lokal committet |

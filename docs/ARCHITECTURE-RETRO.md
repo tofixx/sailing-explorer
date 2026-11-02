@@ -92,3 +92,44 @@ Nur beschrieben, nicht umgesetzt. Die Spalte „Phase 2“ markiert, was sofort 
 Nebenbefund zu Phase 2 (gelesen, nicht angefasst): `sx-post-composer` und `sx-compose` bestehen nebeneinander. Die
 reach-Bedingung steht als `shareReachIn` in `worker/activity.ts` und als `REACHES_HARBOR` in `worker/harbors.ts`;
 `0030_post_reach.sql` ist noch nicht committet. Die Hinweise sind an die Phase-2-Sitzung weitergegeben.
+
+## (e) Entwicklungszeit (Stand 02.11.2026)
+
+Frage des Betreibers: Wo geht Entwicklungszeit verloren, und wie lässt sie sich verkürzen? Grundlage sind `git log` über
+alle Branches, die Woodpecker-API (86 Pipelines vom 24.10. bis 02.11.), Messungen in diesem Worktree und die
+Beobachtungen des Koordinators vom 02.11. (fünf parallele Agenten).
+
+**Messwerte**
+
+| Größe | Wert |
+|---|---|
+| Commits / Merges (alle Branches) | 173 / 46. Spitzentag 27.10.: 61 Commits, 40 Pipelines |
+| Review-Fix-Commits | 34, verteilt auf 33 Features: Praktisch **jedes Feature hatte mindestens eine Review-Runde** mit Fixes, Commit und Merge |
+| Inhalt der Review-Fixes | 32 von 34 ändern Tests, 30 ändern Docs, 5 ändern `legal.ts`. Wiederkehrend: Löschweg ohne Test (Zusammenführen, Übergabe, Altbestand), Datenschutztext ≠ Löschweg, Betrachterabhängiges im öffentlichen Cache, Doppel-Einstiege (N1), Tippziele < 44 px, veraltete Querverweise |
+| Sammeldateien (Commits, die sie ändern) | `REQUIREMENTS.md` 84, `CONCEPT.md` 69, `app.ts` 56, `api.ts` 44, `app.test.ts` 31. Dazu 4 Migrations-Umbenennungen und 2 F-ID-Umnummerierungen |
+| Pipeline (NUC) | Median 66 s, p90 111 s, max. 274 s. Davon `check` (Typecheck, Tests, Build) ≈ 70 s, Wartezeit in der Warteschlange ≈ 6 s. 19 von 86 nicht erfolgreich (11 Fehler, 5 abgebrochen durch neueren Push, 3 Fehler der Umgebung) |
+| Lokal (Windows) | volle Tests 222 s ohne Last, 356 s bei parallelen Agenten (einmal mit Zeitüberschreitung). Typecheck 81 s unter Last. `npm run check` damit **5–8 min**, also etwa 5-mal so lange wie in der Pipeline. `vitest related` für eine Komponente: 17 s |
+| Umgebung | `npm ci` je Worktree dauert einige Minuten. Mit Junction scheiterte `npm run check` an „Denied ID … leaflet.css?inline“ (inzwischen behoben). `ERR_RUNTIME_FAILURE` von workerd unter Last führte zu wiederholten Volläufen |
+
+**Wo die Zeit hingeht**, geordnet nach Wirkung:
+
+1. **Review-Schleifen.** Fertig, Review, Fixes, `check`, Merge. Die meisten Befunde hätte der Bauende mit einer festen
+   Liste selbst gefunden.
+2. **Lokale Volläufe.** Mehrere `npm run check` je Agent, jeweils 5–8 min. Wiederholt wurden sie oft nur wegen Flakes
+   unter Last, obwohl die Pipeline denselben Check bei jedem Push in rund 70 s macht.
+3. **Konflikte in Sammeldateien und Nummern-Kollisionen.** Alle Agenten hängen Abschnitte ans Ende von `CONCEPT.md` und
+   `REQUIREMENTS.md` an und vergeben Nummern ohne Absprache.
+4. **Große Sammel-Releases.** Fünf Features in einem Deploy machen Review und Integration teurer, und nachgereichte
+   Wünsche müssen in laufende Agenten eingefädelt werden.
+5. **Abstimmung über den Betreiber.** Wer welche Querschnitte berührt, ist nirgends für alle sichtbar.
+
+**Maßnahmen und geschätzte Ersparnis** (umgesetzt in `CLAUDE.md`, `scripts/` und `docs/ROADMAP.md` → Prozess):
+
+| Maßnahme | Ersparnis (grob) |
+|---|---|
+| Selbstprüfung „Vor Abgabe“ mit den sechs wiederkehrenden Befundklassen; der Review prüft nur noch nach | ~15–25 min je Feature (etwa jede zweite Review-Runde entfällt; eine Runde kostet 30–45 min) |
+| Test-Strategie: lokal Typecheck und betroffene Dateien, ein Vollauf vor Abgabe, danach ist die Pipeline das Gate; Flake einzeln bestätigen; gezielter Start-Retry in `worker-harness.ts` | ~10–15 min je Agent (2–3 Volläufe à 5–8 min weniger) |
+| Docs konfliktarm (`docs/concept/NN-name.md`, F-ID-Block) und Reservierungen mit Spalte „Berührt“ | ~10–20 min je Integration, keine Umnummerierungen mehr. Weniger Abstimmung über den Betreiber |
+| `scripts/new-worktree.ps1` / `remove-worktree.ps1` mit Junction und Vite-Freigabe | ~3–5 min je Agent, dazu kein Risiko mehr, ein fremdes `node_modules` zu leeren |
+| Ein Feature je Deploy; nachgereichte Wünsche in die Roadmap | Kürzere Reviews, Konflikte bleiben klein. Die Wartezeit bis live sinkt um Stunden statt Minuten |
+| Review ab dem ersten vollständigen Commit | ~10–15 min Wartezeit je Feature, weil Review und Doku parallel laufen |

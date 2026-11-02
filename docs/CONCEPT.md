@@ -11,6 +11,9 @@ Fotos und Kommentare, dazu **änderbare Teilen-Links**, **Fotos auf der Karte**,
 Cloudflare-Free-Tier. Neue Anforderungen haben IDs ab **F-80** (Abschnitt 8);
 sie werden erst bei der Umsetzung nach `REQUIREMENTS.md` übernommen.
 
+**Neue Abschnitte ab 26** stehen je Feature als eigene Datei in `docs/concept/NN-name.md`; am Ende dieser Datei steht
+dafür nur eine Verweiszeile (CLAUDE.md, „Docs konfliktarm“). Die Nummer kommt aus den Reservierungen in `docs/ROADMAP.md`.
+
 ## Entscheidungen des Betreibers (Oktober 2026)
 
 Diese Entscheidungen gehen allen Vorschlägen unten vor; betroffene Stellen sind angepasst.
