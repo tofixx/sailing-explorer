@@ -280,7 +280,7 @@ describe('sx-group-page', () => {
   });
 
   it('[F-163] Eigner: Beitrag schreiben, Anfragen, Einladen (Link einmal), Rollen, Boot zuordnen', async () => {
-    const posts = listen('sx-post-create');
+    const posts = listen('sx-compose-open');
     const reqs = listen('sx-group-request');
     const invites = listen('sx-group-invite');
     const roles = listen('sx-group-role');
@@ -291,16 +291,10 @@ describe('sx-group-page', () => {
       myBoats: [{ id: 'B1', name: 'Möwe' }, { id: 'B2', name: 'Albatros' }],
     });
     const root = el.shadowRoot;
-    // Beitrag schreiben über sx-post-composer (Konzept 21): „Wer sieht es“ mit „Nur Mitglieder“ (F-402)
-    const composer = root.querySelector('sx-post-composer') as HTMLElement & { updateComplete: Promise<unknown> };
-    await composer.updateComplete;
-    const croot = composer.shadowRoot!;
-    const ta = croot.querySelector('textarea') as HTMLTextAreaElement;
-    ta.value = 'Absegeln am Samstag';
-    ta.dispatchEvent(new Event('input'));
-    await composer.updateComplete;
-    (croot.querySelector('form') as HTMLFormElement).requestSubmit();
-    expect(posts).toEqual([{ groupId: 'G1', body: 'Absegeln am Samstag', link: '', visibility: 'public', shareId: null }]);
+    // Beitrag schreiben (F-405): kein eigenes Formular, sondern „+ Neu → Text“ mit dieser Gruppe vorausgewählt
+    expect(root.querySelector('sx-post-composer')).toBeNull();
+    button(root, /Beitrag schreiben/)!.click();
+    expect(posts).toEqual([{ kind: 'text' }]);
     expect(text(root)).toContain('Beitrittsanfragen (1)');
     button(root, /Annehmen/)!.click();
     expect(reqs).toEqual([{ id: 'G1', userId: 'U9', approve: true }]);

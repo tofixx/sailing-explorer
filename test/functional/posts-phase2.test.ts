@@ -377,3 +377,33 @@ describe('F-404 Löschkonzept der neuen Verläufe', () => {
     expect(await targets(post!.id)).toEqual([`group:${team.id}`]);
   });
 });
+
+describe('F-427 /entdecken beachtet „Sichtbar bis“', () => {
+  it('[F-427] nur Törns mit „überall“ erscheinen auf /entdecken', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const make = async (reach: string, title: string) => {
+      const r = await createShare(h, owner.cookie, { visibility: 'public', title, headers: { 'X-Share-Reach': reach } });
+      expect(r.status, await r.clone().text()).toBe(201);
+      return ((await r.json()) as { share: { id: string } }).share;
+    };
+    const wide = await make('all', s.uniq('Weit'));
+    const near = await make('harbor', s.uniq('Nah'));
+    const d = await ok<{ voyages: Array<{ id: string }> }>(await s.send('GET', '/api/discover?limit=24', undefined));
+    const ids = d.voyages.map((v) => v.id);
+    expect(ids).toContain(wide.id);
+    expect(ids).not.toContain(near.id);
+  });
+
+  it('[F-405] Hafenseite: „Beitrag schreiben“ nur, wer dort schreiben darf (canPost)', async () => {
+    const skipper = await s.person({ profile: 'public' });
+    const other = await s.person({ profile: 'public' });
+    const h1 = await harbor(other);
+    await s.boat(skipper, { harborId: h1.id });
+    const third = await s.person({ profile: 'public' });
+    const page = async (p?: Person) => (await ok<{ canPost: boolean }>(await s.send('GET', `/api/harbors/slug/${h1.slug}`, p?.cookie))).canPost;
+    expect(await page(skipper)).toBe(true);
+    expect(await page(other)).toBe(true);
+    expect(await page(third)).toBe(false);
+    expect(await page()).toBe(false);
+  });
+});

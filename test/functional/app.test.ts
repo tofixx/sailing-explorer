@@ -149,7 +149,11 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
   if (gr) {
     if (url.startsWith('/api/groups/slug/')) return gr.page ? json(gr.page) : json({ error: 'not_found', message: 'Diese Gruppe gibt es nicht oder sie ist geschlossen.' }, 404);
     if (/^\/api\/groups\/[A-Za-z0-9]+\/stream/.test(url)) return json(gr.stream ?? { items: [], cursor: null });
-    if (/^\/api\/groups\/[A-Za-z0-9]+\/posts$/.test(url) && method === 'POST') return json({ post: { id: 'P1' } }, 201);
+    if (url.startsWith('/api/me/compose')) {
+      const target = { ref: { kind: 'group', slug: 'sc-kiel', name: 'SC Kiel', groupKind: 'club' }, id: 'G1', choices: ['public', 'members'], reaches: [] };
+      return json({ targets: [{ ref: { kind: 'user' }, id: '', choices: ['public'], reaches: [] }, target], preselect: 'group:sc-kiel', shares: [], supporter: false });
+    }
+    if (url === '/api/posts' && method === 'POST') return json({ post: { id: 'P1', path: '/p/P1', home: '/g/sc-kiel' } }, 201);
     if (url === '/api/groups' && method === 'GET') return server.user ? json(gr.mine ?? { groups: [], requests: [] }) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
     if (url.startsWith('/api/stream/near')) return gr.nearStream ? json(gr.nearStream) : json({ error: 'no_position', message: 'keine Position' }, 422);
     if (url.startsWith('/api/stream/public')) return json(gr.publicStream ?? { items: [], cursor: null, filters: { harbors: [], clubs: [] } });
@@ -1620,16 +1624,31 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(el<{ page: string }>('sx-legal-page').page).toBe('datenschutz');
   });
 
-  it('[F-161] Beitrag veröffentlichen lädt die Gruppe neu', async () => {
+  it('[F-161] [F-405] „Beitrag schreiben“ auf der Gruppenseite öffnet „+ Neu → Text“ mit der Gruppe; Veröffentlichen geht an /api/posts', async () => {
     server.user = { id: 'U1', email: 'a@example.org' };
     server.groups = { page: page({ group: { ...page().group, role: 'admin' } }) };
     await startApp('/g/sc-kiel');
-    const before = server.calls.filter((c) => c.url === '/api/groups/slug/sc-kiel').length;
-    emit('sx-post-create', { groupId: 'G1', body: 'Absegeln', link: '' });
-    await vi.waitFor(() => expect(server.calls.filter((c) => c.url === '/api/groups/slug/sc-kiel').length).toBeGreaterThan(before));
-    const sent = server.calls.find((c) => c.url === '/api/groups/G1/posts');
-    expect(JSON.parse(String(sent?.body))).toEqual({ body: 'Absegeln', link: '' });
-    expect(toasts()).toContain('Veröffentlicht');
+    await vi.waitFor(() => expect(el<{ data: unknown }>('sx-group-page').data).toBeTruthy());
+    emit('sx-compose-open', { kind: 'text' });
+    const dialog = el<{ open: boolean; selected: string; targets: unknown[]; clear: () => void }>('sx-compose-dialog');
+    // Komponenten sind hier nicht registriert – das Leeren des Formulars nur nachbilden
+    dialog.clear = vi.fn();
+    await vi.waitFor(() => expect(dialog.targets).toHaveLength(2));
+    expect(dialog.open).toBe(true);
+    expect(dialog.selected).toBe('group:sc-kiel');
+    expect(server.calls.find((c) => c.url.startsWith('/api/me/compose'))!.url).toContain('ctx=group%3AG1');
+    const assign = vi.spyOn(location, 'assign').mockImplementation(() => undefined);
+    try {
+      emit('sx-compose-submit', { channel: { kind: 'group', id: 'G1' }, body: 'Absegeln', link: '', visibility: 'public', reach: 'all', shareId: null });
+      await vi.waitFor(() => expect(toasts()).toContain('Veröffentlicht'));
+      const sent = server.calls.find((c) => c.url === '/api/posts');
+      expect(JSON.parse(String(sent?.body))).toEqual({ channel: { kind: 'group', id: 'G1' }, body: 'Absegeln', link: '', visibility: 'public', reach: 'all', shareId: null });
+      expect(dialog.open).toBe(false);
+      // dieselbe Seite: Adresse mit Anker, dann neu laden – sonst in den Heimatverlauf
+      expect(location.hash === '#p-P1' || assign.mock.calls.some((c) => c[0] === '/g/sc-kiel#p-P1')).toBe(true);
+    } finally {
+      assign.mockRestore();
+    }
   });
 });
 

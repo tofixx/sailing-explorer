@@ -956,7 +956,6 @@ export const groupApi = {
   decide: (id: string, userId: string, approve: boolean) => call<{ approved: boolean }>(`/api/groups/${gid(id)}/requests/${gid(userId)}`, jsonInit('POST', { approve })),
   addBoat: (id: string, boatId: string) => call<{ added: boolean }>(`/api/groups/${gid(id)}/boats`, jsonInit('POST', { boatId })),
   removeBoat: (id: string, boatId: string) => call<void>(`/api/groups/${gid(id)}/boats/${gid(boatId)}`, { method: 'DELETE' }),
-  post: (id: string, input: PostInput) => call<{ post: { id: string } }>(`/api/groups/${gid(id)}/posts`, jsonInit('POST', input)),
   deletePost: (id: string) => call<void>(`/api/posts/${gid(id)}`, { method: 'DELETE' }),
   stream: (id: string, cursor?: string | null, key?: string | null) =>
     call<StreamPage>(`/api/groups/${gid(id)}/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, keyInit(key)),
@@ -1032,6 +1031,8 @@ export interface HarborPageData {
   social: FollowStats;
   clubChoices: Array<{ id: string; slug: string; name: string }>;
   canClearClub: boolean;
+  /** darf hier schreiben (B6, F-425) – fehlt bei älteren Servern */
+  canPost?: boolean;
 }
 
 export interface HarborPatch {

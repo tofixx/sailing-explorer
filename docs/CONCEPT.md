@@ -2987,15 +2987,14 @@ Abweichungen bzw. Festlegungen gegenüber 21.2–21.7:
   einen Cache.
 - **Törns:** „nur hier“ = Profil und gewählte Gruppen (ohne Boot), „bis Verein“ zusätzlich Vereine gewählter Teams,
   „bis Hafen“ zusätzlich Boot, Hafen des Boots und Hafenseite. Ziele von Törn und Fotos entstehen beim Anlegen und bei
-  jeder Änderung (Auswahl, Boot, Sichtbarkeit, „Sichtbar bis“) aus derselben Funktion. **Offen:** Fahrtenbuch-Bündel
-  (F-308) und Austritt aus einer Gruppe nutzen noch eigene Ziel-Anweisungen (Boot im Bündel erst ab „bis Hafen“);
-  `/entdecken` listet öffentliche Törns weiter unabhängig von „Sichtbar bis“.
+  jeder Änderung (Auswahl, Boot, Sichtbarkeit, „Sichtbar bis“) aus derselben Funktion. `/entdecken` gehört zur
+  Community und zeigt nur Törns mit „überall“.
 - **Hafen schreiben (B6):** Boot zählt als Eigner oder Boots-Admin; Anleger:in bzw. Vertretung und Moderation dürfen
   auch. Löschen eines Hafen- oder Boots-Beitrags: Autor:in (Pins und Moderation über das Menü folgen in Phase 3).
 - **Ein Einstieg je Aufgabe (Leitlinie des Betreibers):** „+ Neu“ ersetzt „Track anlegen“, den runden Knopf und „Ins
   Fahrtenbuch eintragen“; „Mein Verlauf“ hat kein eigenes Schreibfeld mehr, die eigene Seite keine zweite Törn-Liste; das
-  Konto-Menü ersetzt die Karte „Dein Bereich“. Die Gruppenseite behält ihr Schreibfeld (dasselbe Formular wie der Dialog,
-  mit „Sichtbar bis“ und Anhang). Die große Einstiegskarte ohne Backend bleibt. „Ansehen als …“ hat ein Auge statt des
+  Konto-Menü ersetzt die Karte „Dein Bereich“. Gruppen-, Hafen- und Bootsseiten haben kein eigenes Schreibfeld mehr,
+  sondern „Beitrag schreiben“ (öffnet „+ Neu → Text“ mit diesem Verlauf). Die große Einstiegskarte ohne Backend bleibt. „Ansehen als …“ hat ein Auge statt des
   Zahnrads; ein gemeinsames Seiten-Menü (Bearbeiten, Titelbild, Ansehen als, Melden) folgt.
 - **Benachrichtigungen:** Neue Beiträge benachrichtigen weiterhin nicht (F-416 folgt); Reaktionen verlinken `/p/<id>`.
 - Fotos an Beiträgen kommen mit Phase 7; Ablauffrist für Text-Beiträge weiter offen (21.11).

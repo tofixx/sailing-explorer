@@ -568,3 +568,10 @@ export const postCardStyles = css`
     border-radius: var(--radius);
   }
 `;
+
+/**
+ * „Beitrag schreiben“ auf Gruppen-, Hafen- und Bootsseiten (F-405): öffnet „+ Neu → Text“ mit dem Verlauf der Seite
+ * (derselbe Weg wie die Kopfzeile, kein eigenes Formular). Nur zeigen, wer dort schreiben darf.
+ */
+export const writePostButton = (host: HTMLElement) =>
+  html`<button class="btn small primary" type="button" @click=${() => emit(host, 'sx-compose-open', { kind: 'text' })}>${icon('pencil')} Beitrag schreiben</button>`;

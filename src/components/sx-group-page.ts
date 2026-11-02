@@ -6,11 +6,11 @@ import {
 } from '../domain/groups';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import './sx-filter-select';
-import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy, postVisibilityChoices, type AttachableShare, type ComposeTarget, type PostBy } from '../domain/posts';
+import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy, type PostBy } from '../domain/posts';
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { base, emit, onMapStyles } from './shared';
+import { base, emit, onMapStyles, writePostButton } from './shared';
 import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import type { SxHarborPicker } from './sx-harbor-picker';
@@ -20,8 +20,6 @@ import './sx-harbor-picker';
 import './sx-page-media';
 import './sx-claim';
 import './sx-verified-badge';
-import './sx-post-composer';
-import type { SxPostComposer } from './sx-post-composer';
 
 /**
  * Gruppenseite `/g/<slug>` und Anlegen `/g/neu` (Konzept 11.1, 11.5, F-163). Rein präsentational: Daten kommen als
@@ -33,8 +31,6 @@ export class SxGroupPage extends LitElement {
     data: { attribute: false },
     stream: { attribute: false },
     streamLoading: { type: Boolean },
-    /** „Sichtbar bis“ und eigene Törns fürs Schreiben (F-409, F-426) – nur mit Schreibrecht */
-    compose: { attribute: false },
     /** Beitrag aus `/p/<id>` hervorheben (F-406) */
     highlight: { type: String },
     loading: { type: Boolean },
@@ -53,7 +49,6 @@ export class SxGroupPage extends LitElement {
   declare data: GroupPageData | null;
   declare stream: StreamPage | null;
   declare streamLoading: boolean;
-  declare compose: { target: ComposeTarget; shares: AttachableShare[] } | null;
   declare highlight: string | null;
   declare loading: boolean;
   declare error: string;
@@ -76,7 +71,6 @@ export class SxGroupPage extends LitElement {
     this.data = null;
     this.stream = null;
     this.streamLoading = false;
-    this.compose = null;
     this.highlight = null;
     this.loading = false;
     this.error = '';
@@ -568,29 +562,6 @@ export class SxGroupPage extends LitElement {
     </header>`;
   }
 
-  /** Beitrag schreiben (F-421): wer laut Einstellung der Gruppe darf; „Nur Mitglieder“ kostenlos (F-402). */
-  private composer(g: GroupInfo) {
-    const club = g.kind === 'club';
-    return html`<sx-post-composer label=${`Neuigkeit${club ? ' (öffentliche erscheinen auch in den Teams)' : ''}`}
-      placeholder="Absegeln am Samstag, Treffpunkt 10 Uhr am Steg …" hint="Höchstens 5 Beiträge pro Tag. Reiner Text, Links werden klickbar."
-      .choices=${this.compose?.target.choices ?? postVisibilityChoices('group').filter((v) => v !== 'unlisted')} ?busy=${this.busy}
-      .reaches=${this.compose?.target.reaches ?? []} .shares=${this.compose?.shares ?? []}
-      .choiceHints=${{
-        public: g.visibility === 'public' ? 'Alle, die die Gruppe sehen.' : 'Alle, die die Gruppe sehen dürfen.',
-        members: `Nur Mitglieder von ${g.name} – nicht in Teams, RSS oder der Community.`,
-        unlisted: 'Nur wer den Link hat – erscheint nicht im Verlauf.',
-      }}
-      @sx-post-submit=${(e: CustomEvent<{ body: string; link: string; visibility: string }>) => {
-        e.stopPropagation();
-        emit(this, 'sx-post-create', { groupId: g.id, ...e.detail });
-      }}></sx-post-composer>`;
-  }
-
-  /** Nach erfolgreichem Posten leert der Controller das Formular. */
-  clearComposer() {
-    this.renderRoot.querySelector<SxPostComposer>('sx-post-composer')?.clear();
-  }
-
   private invites(g: GroupInfo, list: PendingInvite[]) {
     let email = '';
     const approval = !canApprove(g.role, g.approveBy ?? 'admins') && !(g.joinMode === 'open' && g.visibility === 'public');
@@ -714,9 +685,11 @@ export class SxGroupPage extends LitElement {
       <section aria-labelledby="news-t">
         <div class="row" style="justify-content:space-between">
           <h2 class="eyebrow" id="news-t">Neuigkeiten</h2>
-          ${g.visibility === 'public' ? html`<a class="btn small ghost" href="/g/${g.slug}/feed.xml" type="application/atom+xml">${icon('link')} RSS</a>` : ''}
+          <span class="row">
+            ${g.visibility === 'public' ? html`<a class="btn small ghost" href="/g/${g.slug}/feed.xml" type="application/atom+xml">${icon('link')} RSS</a>` : ''}
+            ${canWriteInGroup(g.role, effectivePostBy(g.kind, g.postBy)) ? writePostButton(this) : ''}
+          </span>
         </div>
-        ${canWriteInGroup(g.role, effectivePostBy(g.kind, g.postBy)) ? this.composer(g) : ''}
         <sx-stream scope="group" in-group .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
           empty-text="Noch keine Neuigkeiten in dieser Gruppe."></sx-stream>
       </section>

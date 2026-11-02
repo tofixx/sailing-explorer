@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { IN_LOGBOOK_SQL, RECORDED_NM_SQL } from './logbook-sql';
+import { reachAtLeastSql } from './reach-sql';
 import { json } from './http';
 import { nearRank, publicGroups } from './groups';
 import { coverRef } from '../src/domain/cover';
@@ -22,9 +23,11 @@ export const DISCOVER_LIMIT = { default: 12, max: 24 };
 
 /**
  * Öffentlicher Törn – wie auf Profil- und Bootsseiten, nicht ausgeblendet (Meldung); zusätzlich verschwinden
- * Inhalte gesperrter Konten aus den Listen (Konzept 4.4).
+ * Inhalte gesperrter Konten aus den Listen (Konzept 4.4). /entdecken gehört zur Community: nur Törns mit „Sichtbar bis:
+ * überall“ (F-427), auch in den Zahlen der Boots- und Segler-Karten.
  */
-const LISTED = `s.visibility = 'public' AND s.hidden_at IS NULL AND NOT EXISTS (SELECT 1 FROM users su WHERE su.id = s.user_id AND su.suspended_at IS NOT NULL)`;
+const LISTED = `s.visibility = 'public' AND s.hidden_at IS NULL AND NOT EXISTS (SELECT 1 FROM users su WHERE su.id = s.user_id AND su.suspended_at IS NOT NULL)
+  AND ${reachAtLeastSql('s.id', 'all')}`;
 const ACTIVE = (col: string) => `NOT EXISTS (SELECT 1 FROM users su WHERE su.id = ${col} AND su.suspended_at IS NOT NULL)`;
 
 /**

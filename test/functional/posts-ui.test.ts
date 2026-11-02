@@ -272,9 +272,11 @@ const groupData = (role: string, kind: 'club' | 'team', postBy?: string): GroupP
 
 describe('sx-group-page (Schreibrecht)', () => {
   it('[F-421] Mitglied schreibt im Team, im Verein nur bei „alle Mitglieder“; Eigner stellt es im Bearbeiten-Formular ein', async () => {
-    expect(inner(await mount('sx-group-page', { data: groupData('member', 'team', 'members'), signedIn: true }), 'sx-post-composer')).not.toBeNull();
-    expect(inner(await mount('sx-group-page', { data: groupData('member', 'club', 'admins'), signedIn: true }), 'sx-post-composer')).toBeNull();
-    expect(inner(await mount('sx-group-page', { data: groupData('member', 'club', 'members'), signedIn: true }), 'sx-post-composer')).not.toBeNull();
+    // „Beitrag schreiben“ (öffnet „+ Neu → Text“, F-405) nur mit Schreibrecht
+    const write = async (role: Parameters<typeof groupData>[0], kind: Parameters<typeof groupData>[1], postBy: Parameters<typeof groupData>[2]) => button((await mount('sx-group-page', { data: groupData(role, kind, postBy), signedIn: true })).shadowRoot, /Beitrag schreiben/);
+    expect(await write('member', 'team', 'members')).toBeDefined();
+    expect(await write('member', 'club', 'admins')).toBeUndefined();
+    expect(await write('member', 'club', 'members')).toBeDefined();
 
     const saves = listen('sx-group-save');
     const owner = await mount('sx-group-page', { data: groupData('owner', 'club', 'admins'), signedIn: true });

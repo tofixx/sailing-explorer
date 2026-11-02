@@ -10,6 +10,7 @@ import { SHARE_SELECT, shareShape, type ShareRow } from './shares';
 import { followStats } from './follows';
 import { harborActivityCleanup } from './activity';
 import { reachAtLeastSql } from './reach-sql';
+import { writableChannel } from './post-chain';
 import { LIMITS, SHARE_ID_RE, cleanText } from './validate';
 import { HARBOR_LIMITS, harborKey, harborSlugBase, isHarborSlug, mayPlaceHarbor, parseHarborPosition, type HarborRef } from '../src/domain/harbors';
 import { canManageGroup } from '../src/domain/groups';
@@ -251,6 +252,8 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     // Verein zuordnen: nur Vereine, die das Konto verwaltet, und nur wenn frei oder schon einer davon
     clubChoices: !clubLocked && (!h.club_id || ownClub || isAdmin(env, user?.id) || isRep) ? manageable.map((c) => ({ id: c.id, slug: c.slug, name: c.name })) : [],
     canClearClub: !clubLocked && !!h.club_id && (ownClub || isAdmin(env, user?.id) || isRep),
+    // „Beitrag schreiben“ (F-405, F-425): Boot hier, Anleger:in bzw. Vertretung, Moderation (B6)
+    canPost: !!user && !!(await writableChannel(env, user.id, 'harbor', h.id)),
   });
 }
 

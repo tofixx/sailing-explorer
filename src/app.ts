@@ -89,7 +89,6 @@ import { PostLinkController, anchorPost, type PostList } from './controllers/pos
 import type { SxComposeDialog } from './components/sx-compose-dialog';
 import type { ComposeKind } from './components/sx-compose';
 import type { ChannelPostInput, CreatedPost } from './services/api';
-import type { PostInput } from './services/api';
 import type { MyPostArea, PostKind, PostVisibility, ProfilePreview, Reach } from './domain/posts';
 import type { LogState } from './domain/logbook';
 import type { ClaimKind } from './domain/claims';
@@ -773,7 +772,6 @@ export class App {
     on<{ id: string }>('sx-group-invite-revoke', (d) => g.revokeInvite(d.id));
     on<{ id: string; boatId: string }>('sx-group-boat-add', (d) => g.addBoat(d));
     on<{ id: string; boatId: string }>('sx-group-boat-remove', (d) => g.removeBoat(d));
-    on<{ groupId: string } & PostInput>('sx-post-create', (d) => g.createPost(d));
     on<{ id: string }>('sx-post-delete', (d) => g.deletePost(d.id));
     // ---- Beiträge als Grundtyp (Konzept 21): „Mein Verlauf“, Profil-Beiträge, Fahrtenbuch, „Ansehen als …“ ----
     const po = this.posts;

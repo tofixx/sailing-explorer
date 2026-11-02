@@ -7,7 +7,7 @@ import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
-import { base, emit, logbookTag, onMapStyles } from './shared';
+import { base, emit, logbookTag, onMapStyles, writePostButton } from './shared';
 import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
@@ -95,6 +95,18 @@ export class SxProfilePage extends LitElement {
   static styles = [
     base,
     css`
+      /* Kopf „Neuigkeiten“ mit „Beitrag schreiben“ (F-405) */
+      .news-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--s-2);
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--s-2);
+      }
+      .news-head .eyebrow {
+        margin: 0;
+      }
       :host {
         display: block;
         overflow-y: auto;
@@ -476,7 +488,8 @@ export class SxProfilePage extends LitElement {
       </header>
       ${b.role && b.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.stats(d.stats)}
-      <section aria-labelledby="boat-news"><h2 class="eyebrow" id="boat-news">Neuigkeiten</h2>
+      <section aria-labelledby="boat-news">
+        <div class="news-head"><h2 class="eyebrow" id="boat-news">Neuigkeiten</h2>${b.role ? writePostButton(this) : ''}</div>
         <sx-stream scope="boat" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
           empty-text="Noch keine Neuigkeiten zu diesem Boot. Beiträge von Eigner und Boots-Admins erscheinen hier."></sx-stream>
       </section>
@@ -628,7 +641,7 @@ export class SxProfilePage extends LitElement {
         <div class="stat"><div class="eyebrow">Saison</div><div class="v">${fmtNum(d.stats.seasonNm, 0)}<small>sm</small></div></div>
       </div>
       <section>
-        <h2 class="eyebrow">Neuigkeiten</h2>
+        <div class="news-head"><h2 class="eyebrow">Neuigkeiten</h2>${d.canPost ? writePostButton(this) : ''}</div>
         <sx-stream scope="harbor" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
           empty-text="Noch nichts los in diesem Hafen. Neue Boote und öffentliche Törns erscheinen hier."></sx-stream>
       </section>
