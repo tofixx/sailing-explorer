@@ -42,6 +42,16 @@ describe('F-430 Großansicht der Diagramme', () => {
     expect(el.zoomed).toBe(false);
   });
 
+  it('[F-430] Titelzeile der Großansicht zeigt den gewählten Zeitpunkt mit Datum und Uhrzeit', async () => {
+    const el = await mount({ points: points(10), zoomed: true });
+    const when = () => el.shadowRoot.querySelector('dialog header .when');
+    expect(when()).toBeNull();
+    el.hoverTime = T0 + 3 * 3_600_000;
+    await el.updateComplete;
+    expect(when()?.textContent).toMatch(/01\.07\.26/);
+    expect(when()?.textContent).toMatch(/\d{2}:\d{2}/);
+  });
+
   it('[F-430] lange Zeiträume werden in der Großansicht breiter (28 px je Stunde) und damit seitlich scrollbar', async () => {
     const big = await mount({ points: points(72), large: true });
     const drawWidth = (big as unknown as { drawWidth: (w: number) => number }).drawWidth.bind(big);

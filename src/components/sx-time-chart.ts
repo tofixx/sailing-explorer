@@ -1,6 +1,6 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
 import { layoutSegments, nearestByTime, segmentByGaps, type Layout, type TimedPoint } from '../domain/timeline';
-import { cssVar, fmtNum, fmtShort } from '../util/html';
+import { cssVar, fmtDateTime, fmtNum, fmtShort } from '../util/html';
 import { base, dialogStyles, emit } from './shared';
 import { icon } from './icons';
 
@@ -145,6 +145,14 @@ export class SxTimeChart extends LitElement {
       }
       dialog .body {
         padding-top: 0;
+      }
+      dialog header .when {
+        margin-left: var(--s-2);
+        font-size: var(--fs-m);
+        font-weight: 500;
+        color: var(--text-3);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
       }
       canvas {
         position: absolute;
@@ -536,7 +544,7 @@ export class SxTimeChart extends LitElement {
       ${this.large
         ? ''
         : html`<dialog aria-label=${this.label || 'Diagramm'} @close=${() => (this.zoomed = false)}>
-            <header><h2>${this.label || 'Verlauf'}</h2><button class="btn ghost icon" aria-label="Schließen" @click=${() => (this.zoomed = false)}>${icon('x')}</button></header>
+            <header><h2>${this.label || 'Verlauf'}${p ? html`<span class="when">${fmtDateTime(p.time)}</span>` : ''}</h2><button class="btn ghost icon" aria-label="Schließen" @click=${() => (this.zoomed = false)}>${icon('x')}</button></header>
             <div class="body">${this.zoomed
               ? html`<sx-time-chart large .points=${this.points} .series=${this.series} .left=${this.left} .right=${this.right} .refLine=${this.refLine}
                   .hoverTime=${this.hoverTime} .marks=${this.marks} .activeMark=${this.activeMark} label=${this.label}></sx-time-chart>`
