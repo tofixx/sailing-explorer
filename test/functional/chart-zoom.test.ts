@@ -46,6 +46,9 @@ describe('F-430 Großansicht der Diagramme', () => {
     const big = await mount({ points: points(72), large: true });
     const drawWidth = (big as unknown as { drawWidth: (w: number) => number }).drawWidth.bind(big);
     expect(drawWidth(800)).toBe(72 * 28);
+    // sehr lange Zeiträume: gedeckelt, damit das Canvas noch gezeichnet wird
+    const long = await mount({ points: points(24 * 60), large: true });
+    expect((long as unknown as { drawWidth: (w: number) => number }).drawWidth(800)).toBeLessThanOrEqual(16_384);
     expect(drawWidth(3000)).toBe(3000);
     const small = await mount({ points: points(72) });
     expect((small as unknown as { drawWidth: (w: number) => number }).drawWidth(800)).toBe(800);

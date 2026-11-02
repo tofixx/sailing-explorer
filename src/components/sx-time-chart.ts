@@ -82,11 +82,16 @@ export class SxTimeChart extends LitElement {
     return this.large ? H_LARGE : H;
   }
 
-  /** Breite der Zeichnung: im großen Modus mindestens PX_PER_HOUR_LARGE je Stunde des Zeitraums */
+  /**
+   * Breite der Zeichnung: im großen Modus mindestens PX_PER_HOUR_LARGE je Stunde mit Daten (Pausen staucht
+   * layoutSegments ohnehin), höchstens so breit, wie Browser ein Canvas zeichnen (16 384 px Kante, ~16 MP auf iOS).
+   */
   private drawWidth(container: number): number {
     if (!this.large || this.points.length < 2) return container;
-    const hours = (this.points[this.points.length - 1].time - this.points[0].time) / 3_600_000;
-    return Math.max(container, Math.round(hours * PX_PER_HOUR_LARGE));
+    const hours = segmentByGaps(this.points).reduce((sum, seg) => sum + seg.dur, 0) / 3_600_000;
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const max = Math.floor(Math.min(16_384, 16e6 / (this.h * dpr)) / dpr);
+    return Math.max(container, Math.min(max, Math.round(hours * PX_PER_HOUR_LARGE)));
   }
   private layout: Layout | null = null;
   private scales: Record<'left' | 'right', number> = { left: 1, right: 1 };
@@ -132,8 +137,11 @@ export class SxTimeChart extends LitElement {
       .zoom {
         margin-left: auto;
       }
-      dialog[open] {
-        width: min(1200px, calc(100vw - 32px));
+      /* breiter Dialog nur am Desktop – mobil gilt die randlose Vollbild-Regel aus dialogStyles (F-291) */
+      @media (min-width: 761px) {
+        dialog[open] {
+          width: min(1200px, calc(100vw - 32px));
+        }
       }
       dialog .body {
         padding-top: 0;
@@ -204,6 +212,14 @@ export class SxTimeChart extends LitElement {
   }
 
   updated(changed: PropertyValues<this>) {
+    if (this.large && changed.has('points')) {
+      const box = this.renderRoot.querySelector('.scroll') as HTMLElement | null;
+      const w = box ? this.drawWidth(Math.round(box.clientWidth)) : this.width;
+      if (w && w !== this.width) {
+        this.width = w;
+        (this.renderRoot.querySelector('.wrap') as HTMLElement).style.width = `${w}px`;
+      }
+    }
     if (changed.has('zoomed')) {
       const dlg = this.renderRoot.querySelector('dialog');
       if (this.zoomed && dlg && !dlg.open) dlg.showModal();
