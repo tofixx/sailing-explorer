@@ -3,7 +3,7 @@ import type { MyGroup } from '../services/api';
 import './sx-my-groups';
 import type { MyRequest } from './sx-my-groups';
 import { passkeysSupported } from '../services/passkey';
-import { LitElement, html, css, type PropertyValues } from 'lit';
+import { LitElement, html, css, nothing, type PropertyValues } from 'lit';
 import { live } from 'lit/directives/live.js';
 import type { AccountSettings, AdminReport, Boat, BoatAdmins, BoatInput, HomeInfo, Linkable, MyInvite, Profile, ShareMeta, SupportStatus, User, PasskeyInfo } from '../services/api';
 import type { SxHarborPicker } from './sx-harbor-picker';
@@ -37,6 +37,7 @@ const TABS: Array<[AccountTab, string]> = [
 export class SxAccountDialog extends LitElement {
   static properties = {
     myGroups: { attribute: false },
+    draft: { attribute: false },
     open: { type: Boolean },
     tab: { type: String },
     user: { attribute: false },
@@ -113,9 +114,12 @@ export class SxAccountDialog extends LitElement {
   declare pushAvailable: boolean;
   /** offene Meldungen (nur Admins); null = lädt */
   declare reports: AdminReport[] | null;
+  /** Titel des Entwurfs im Browser – „Abmelden“ verwirft ihn (F-438) */
+  declare draft: string | null;
 
   constructor() {
     super();
+    this.draft = null;
     this.open = false;
     this.tab = 'shares';
     this.user = null;
@@ -452,6 +456,17 @@ export class SxAccountDialog extends LitElement {
         margin-top: var(--s-4);
         padding-top: var(--s-4);
         border-top: 1px solid var(--border-soft);
+      }
+      .foot .logout {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-2);
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .draft-hint {
+        font-size: var(--fs-s);
+        color: var(--warn);
       }
       .foot {
         display: flex;
@@ -1110,7 +1125,8 @@ export class SxAccountDialog extends LitElement {
                 <span><button class="btn small danger" @click=${() => emit(this, 'sx-account-delete')}>Ja, alles löschen</button>
                 <button class="btn small" @click=${() => (this.confirm = null)}>Abbrechen</button></span>`
             : html`<button class="btn small ghost danger" @click=${() => (this.confirm = 'account')}>${icon('trash')} Konto löschen</button>
-                <button class="btn small" @click=${() => emit(this, 'sx-logout')}>${icon('logout')} Abmelden</button>`}
+                <span class="logout">${this.draft ? html`<span class="draft-hint" id="logout-hint">Entwurf „${this.draft}“ wird verworfen</span>` : ''}
+                <button class="btn small" aria-describedby=${this.draft ? 'logout-hint' : nothing} @click=${() => emit(this, 'sx-logout')}>${icon('logout')} Abmelden</button></span>`}
         </div>
         <p class="legal"><a href="/impressum">Impressum</a> · <a href="/datenschutz">Datenschutz</a></p>
       </div>

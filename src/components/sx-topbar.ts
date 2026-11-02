@@ -262,7 +262,9 @@ export class SxTopbar extends LitElement {
       .chip .st .short {
         display: none;
       }
+      /* × (F-433): sichtbar 24 px, Tippfläche 44 px (Prinzip N11) */
       .chip .x {
+        position: relative;
         display: inline-grid;
         place-items: center;
         flex: none;
@@ -275,6 +277,11 @@ export class SxTopbar extends LitElement {
         background: transparent;
         color: inherit;
         cursor: pointer;
+      }
+      .chip .x::after {
+        content: '';
+        position: absolute;
+        inset: -10px;
       }
       .chip .x:hover {
         background: color-mix(in srgb, currentColor 14%, transparent);
@@ -322,19 +329,22 @@ export class SxTopbar extends LitElement {
         }
       }
       /* Handy: der Chip liegt über der Karte – auf der Startseite (Stream) zeigt der Reiter „Törn“ den Weg zurück;
-         × als Touch-Ziel mit 40 px */
+         × als Touch-Ziel mit 44 px */
       @media (max-width: 760px) {
         :host([home]) .chip.status {
           display: none;
         }
         .chip.toern {
-          min-height: 40px;
+          min-height: 44px;
           padding-block: 0;
         }
         .chip .x {
-          width: 40px;
-          height: 40px;
+          width: 44px;
+          height: 44px;
           margin-block: 0;
+        }
+        .chip .x::after {
+          inset: 0;
         }
       }
       @media (max-width: 480px) {

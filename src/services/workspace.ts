@@ -1,5 +1,6 @@
-// Lokaler Arbeitsbereich ("Gast-Sitzung"): geladene Tracks bleiben im Browser
-// (IndexedDB) und sind beim nächsten Besuch wieder da. Nichts davon verlässt das Gerät.
+// Entwurf (Konzept 23): die Tracks eines neuen Törns bleiben im Browser (IndexedDB, ein Platz) und sind beim
+// nächsten Besuch wieder da. Nichts davon verlässt das Gerät. `owner` hält fest, wem er gehört – ein Konto-Entwurf
+// erscheint nie bei einem anderen Konto oder nach dem Ende der Sitzung (Konzept 23.1).
 
 const DB_NAME = 'sail-explorer';
 const STORE = 'workspace';
@@ -16,6 +17,8 @@ export interface Workspace {
   tracks: WorkspaceTrack[];
   /** beim Laden der Tracks einmal abgerufen – beim nächsten Besuch kein neuer Abruf */
   weather?: unknown;
+  /** Konto-ID bzw. 'guest' (ältere Einträge ohne Angabe gelten als Gast-Entwurf) */
+  owner?: string;
   savedAt: number;
 }
 
@@ -49,10 +52,10 @@ export const workspace = {
       return null; // privater Modus o. ä. – App funktioniert ohne Persistenz
     }
   },
-  async save(tracks: WorkspaceTrack[], weather: unknown = null): Promise<void> {
+  async save(tracks: WorkspaceTrack[], weather: unknown = null, owner = 'guest'): Promise<void> {
     try {
       if (!tracks.length) await tx('readwrite', (s) => s.delete(KEY));
-      else await tx('readwrite', (s) => s.put({ tracks, weather, savedAt: Date.now() } satisfies Workspace, KEY));
+      else await tx('readwrite', (s) => s.put({ tracks, weather, owner, savedAt: Date.now() } satisfies Workspace, KEY));
     } catch {
       // Speicher voll / gesperrt: still ignorieren, die Sitzung bleibt im Speicher
     }

@@ -44,6 +44,11 @@ vi.mock('../../src/services/workspace', () => ({
 }));
 
 const { App } = await import('../../src/app');
+// Rückfrage „Entwurf verwerfen?“ (F-434) ist die einzige Komponente, die die App aufruft statt nur Properties zu setzen
+await import('../../src/components/sx-confirm');
+HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+  this.setAttribute('open', '');
+};
 
 // ---------------------------------------------------------------- Umgebung
 
@@ -66,6 +71,8 @@ class FakeChannel {
   }
   close() {}
 }
+/** Anmelde-Kanal der Sitzung (daneben gibt es `sx-draft` für den Entwurf, F-439) */
+const authChannel = () => FakeChannel.all.find((c) => c.name === 'sx-auth')!;
 
 interface Server {
   backend: 'json' | 'html';
@@ -363,8 +370,10 @@ describe('F-01/F-02 Dateien laden', () => {
     await load(file('a.gpx', leg('A')));
     emit('sx-home');
     emit('sx-files', [file('b.gpx', leg('B', T0 + 86_400_000))]);
-    await vi.waitFor(() => expect(el<{ open: boolean }>('sx-confirm').open).toBe(true));
-    emit('sx-confirm-ok');
+    const confirm = el<HTMLElement & { open: boolean; updateComplete: Promise<boolean>; shadowRoot: ShadowRoot }>('sx-confirm');
+    await vi.waitFor(() => expect(confirm.open).toBe(true));
+    await confirm.updateComplete;
+    (confirm.shadowRoot.querySelector('.btn.primary') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(state().tracks.map((t) => t.name)).toEqual(['B']));
     expect(el<HTMLElement>('.app').hasAttribute('data-empty')).toBe(false);
   });
@@ -670,7 +679,7 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
     expect(share.open).toBeFalsy();
     // Magic Link wurde in einem anderen Tab geöffnet → BroadcastChannel „login“
     server.user = { id: 'u1', email: 'skipper@example.org' };
-    FakeChannel.all[0].receive('login');
+    authChannel().receive('login');
     await vi.waitFor(() => expect(share.open).toBe(true));
     expect(login.open).toBe(false);
     expect(share.linkState).toBe('form');
@@ -788,7 +797,7 @@ describe('F-31/F-32 Anmeldung vor dem Teilen', () => {
     expect(location.hash).toBe('');
     const verify = server.calls.find((c) => c.url === '/api/auth/verify')!;
     expect(JSON.parse(String(verify.body))).toEqual({ token });
-    expect(FakeChannel.all[0].posted).toContain('login');
+    expect(authChannel().posted).toContain('login');
     expect(toasts()).toContain('Angemeldet als skipper@example.org');
   });
 });
@@ -952,7 +961,7 @@ describe('F-36/F-37 Konto', () => {
     emit('sx-logout');
     await vi.waitFor(() => expect(state().user).toBeNull());
     expect(server.calls.some((c) => c.method === 'POST' && c.url === '/api/auth/logout')).toBe(true);
-    expect(FakeChannel.all[0].posted).toContain('logout');
+    expect(authChannel().posted).toContain('logout');
     expect(toasts()).toContain('Abgemeldet');
   });
 
@@ -1293,7 +1302,7 @@ describe('F-138 Einladungen in der App', () => {
     expect(login().open).toBe(true);
     expect(login().reason).toMatch(/Einladung/);
     server.user = { id: 'u1', email: 'skipper@example.org' };
-    FakeChannel.all[0].receive('login');
+    authChannel().receive('login');
     await vi.waitFor(() => expect(invite()).toMatchObject({ open: true, state: 'ready', signedIn: true }));
     expect(login().open).toBe(false);
     emit('sx-invite-accept');
@@ -1765,7 +1774,7 @@ describe('Fahrtenbuch (Konzept 19)', () => {
     expect(login.reason).toMatch(/Fahrtenbuch/);
     expect(form.open).toBeFalsy();
     server.user = { id: 'u1', email: 'skipper@example.org' };
-    FakeChannel.all[0].receive('login');
+    authChannel().receive('login');
     await vi.waitFor(() => expect(form.open).toBe(true));
     expect(form.share).toBeNull();
   });

@@ -1,7 +1,8 @@
 // Törn-Arbeitsbereich (Konzept 23): Karte und Seitenleiste zeigen immer genau einen Törn – einen lokalen Entwurf, den
 // eigenen gespeicherten Törn oder eine fremde bzw. geteilte Ansicht. Neue GPX beginnen einen neuen Törn (nach
 // Nachfrage, wenn ein Entwurf vorliegt); mehrere GPX gibt es nur über „GPX hinzufügen“ am offenen Entwurf. Der Entwurf
-// liegt auf einem einzigen Platz im Browser (IndexedDB) und wird beim Abmelden und nach dem Speichern geleert.
+// liegt auf einem einzigen Platz im Browser (IndexedDB), gehört einem Konto bzw. dem Gast und wird beim Abmelden, beim
+// Kontowechsel und nach dem Speichern geleert. Andere Tabs erfahren Änderungen über einen BroadcastChannel.
 import { computeTrackStats } from '../domain/stats';
 import { routeTrack } from '../domain/logbook';
 import { GpxError, parseGpx } from '../domain/gpx';
@@ -15,20 +16,28 @@ import { initialState, visibleTracks, type State, type Store } from '../services
 import { parseView } from '../services/url-state';
 import { loadWeather, storedWeatherStatus } from '../services/weather-api';
 import { workspace } from '../services/workspace';
-import type { SxConfirm } from '../components/sx-confirm';
+import type { ConfirmRequest } from '../components/sx-confirm';
 import type { ToernLabel } from '../components/sx-topbar';
 import { errorText } from './session';
 
 /** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
 const TRACK_COLORS = ['--c-track-1', '--c-track-2', '--c-track-3', '--c-track-4', '--c-track-5', '--c-track-6'];
 
+/** Eigentümer eines Gast-Entwurfs (ohne Anmeldung) */
+const GUEST = 'guest';
+
 interface RawItem {
   name: string;
   text: string;
 }
 
+type Draft = { tracks: Track[]; weather: WeatherData | null };
+
 export interface WorkspaceUi {
-  confirm: SxConfirm;
+  /** Rückfrage (sx-confirm): true = bestätigt */
+  ask: (req: ConfirmRequest) => Promise<boolean>;
+  /** offene Rückfrage schließen (als „Abbrechen“) */
+  dismiss: () => void;
   toast: (msg: string, ms?: number) => void;
   /** Kartenausschnitt auf diese Tracks setzen */
   fit: (tracks: Track[]) => void;
@@ -38,6 +47,8 @@ export interface WorkspaceUi {
   onPage: () => boolean;
   /** Startseite zeigen (nach „Törn schließen“) */
   showHome: () => void;
+  /** erfüllt, sobald die Anmeldung bekannt ist (Eigentümer des Entwurfs prüfen) */
+  ready: () => Promise<void>;
 }
 
 /** Kopfzeile (F-433): welcher Törn offen ist und in welchem Zustand. */
@@ -61,76 +72,150 @@ export function resumableDraft(s: Pick<State, 'mode' | 'tracks' | 'draft'>): str
   return s.draft.title;
 }
 
+/** Darf dieses Konto (bzw. der Gast, `null`) den Entwurf von `owner` sehen? Gast-Entwürfe gehen ans Konto über. */
+export function draftVisibleTo(owner: string | undefined, userId: string | null): boolean {
+  return !owner || owner === GUEST || owner === userId;
+}
+
+const plural = (n: number) => `${n} Track${n > 1 ? 's' : ''}`;
+
 export class WorkspaceController {
-  /** gewählte Dateien, bis die Nachfrage „Entwurf verwerfen?“ beantwortet ist */
-  private pending: RawItem[] | null = null;
-  /** Entwurfsplatz seit dem Start geändert – ein spät fertiges `loadDraft` überschreibt dann nichts */
-  private draftTouched = false;
+  /** Entwurf beim Start gelesen (K3: Ablegen und Startseite warten darauf) */
+  private loaded: Promise<Draft | null> | null = null;
+  /** Eigentümer des Entwurfs im Browser (Konto-ID bzw. 'guest'), null = keiner */
+  private owner: string | null = null;
+  /** Nachrichten an andere Tabs desselben Browsers: Entwurf geändert (F-439) */
+  private channel = 'BroadcastChannel' in window ? new BroadcastChannel('sx-draft') : null;
 
   constructor(
     private store: Store,
     private ui: WorkspaceUi,
-  ) {}
+  ) {
+    this.channel?.addEventListener('message', () => void this.otherTab());
+  }
 
   // ---------------------------------------------------------------- Entwurf
 
-  /** Entwurfsplatz lesen (für „Entwurf fortsetzen“ und die Nachfrage) – auf jeder Route. */
-  async loadDraft(): Promise<{ tracks: Track[]; weather: WeatherData | null } | null> {
+  /** Entwurf lesen, sobald die Anmeldung bekannt ist – einmal beim Start, auf jeder Route (K3). */
+  init(): Promise<Draft | null> {
+    this.loaded ??= this.ui.ready().then(() => this.read());
+    return this.loaded;
+  }
+
+  /**
+   * Entwurfsplatz lesen und `draft` setzen. Ein Entwurf eines anderen Kontos – bzw. eines Kontos, dessen Sitzung ohne
+   * Abmelden endete – wird verworfen (F-438); ein Gast-Entwurf gehört ab jetzt dem angemeldeten Konto.
+   */
+  private async read(): Promise<Draft | null> {
     const ws = await workspace.load();
+    const me = this.store.get().user?.id ?? null;
+    if (ws?.tracks.length && !draftVisibleTo(ws.owner, me)) {
+      await workspace.save([]);
+      this.setDraft([], null);
+      return null;
+    }
     const tracks = ws?.tracks.length ? this.build(ws.tracks.map((t) => ({ name: t.name, text: t.gpx }))) : [];
     ws?.tracks.forEach((w, i) => tracks[i] && (tracks[i].hidden = w.hidden));
-    if (!this.draftTouched) this.setDraft(tracks);
+    const owner = tracks.length ? (me ?? GUEST) : null;
+    if (tracks.length && ws!.owner !== owner) await workspace.save(ws!.tracks, ws!.weather, owner!);
+    this.setDraft(tracks, owner);
     return tracks.length ? { tracks, weather: parseWeatherData(ws?.weather) } : null;
   }
 
   /** Startseite `/`: den Entwurf vom letzten Besuch wieder öffnen (F-30). */
   async restore(): Promise<void> {
-    const d = await this.loadDraft();
-    if (!d) return;
+    const d = await this.init();
+    if (!d || this.store.get().tracks.length) return;
     await this.setTracks(d.tracks, { mode: { kind: 'local' }, fit: true, weather: d.weather });
-    this.ui.toast(`Entwurf wiederhergestellt: ${d.tracks.length} Track${d.tracks.length > 1 ? 's' : ''}`);
+    this.ui.toast(`Entwurf wiederhergestellt: ${plural(d.tracks.length)}`);
   }
 
   /** „+ Neu → Entwurf fortsetzen“ (F-436): ersetzt den offenen Törn. */
   async resume(): Promise<void> {
-    const d = await this.loadDraft();
+    await this.init();
+    const d = await this.read();
     if (!d) return this.ui.toast('Der Entwurf ist nicht mehr da.');
     this.toWorkspace();
     await this.setTracks(d.tracks, { mode: { kind: 'local' }, fit: true, weather: d.weather });
   }
 
-  private setDraft(tracks: Array<{ name: string }>) {
+  /** „Entwurf verwerfen“ in der Track-Liste (F-436): nach Rückfrage Entwurf löschen, Startseite zeigen. */
+  async discard(): Promise<void> {
+    const d = this.store.get().draft;
+    if (!d) return;
+    const ok = await this.ui.ask({ heading: 'Entwurf verwerfen?', text: `Entwurf „${d.title}“ (${plural(d.count)}) verwerfen? Das lässt sich nicht rückgängig machen.`, confirmLabel: 'Verwerfen' });
+    if (!ok) return;
+    const open = this.draftOpen();
+    this.clearDraft();
+    if (open) this.close();
+  }
+
+  /**
+   * Anmeldung geändert, ohne dass hier abgemeldet wurde (Ablauf, 401, anderes Konto, Anmeldung): ein Gast-Entwurf geht
+   * an das Konto über, ein Entwurf eines anderen Kontos verschwindet (F-438).
+   */
+  async userChanged(): Promise<void> {
+    if (!this.loaded) return; // vor dem ersten Lesen – init() prüft selbst
+    await this.loaded;
+    const me = this.store.get().user?.id ?? null;
+    if (!this.owner || this.owner === me) return;
+    if (this.owner === GUEST) {
+      if (!me) return;
+      if (this.draftOpen()) return this.persist();
+      await this.read();
+      return;
+    }
+    {
+      if (this.draftOpen()) this.reset();
+      this.clearDraft();
+    }
+  }
+
+  /** Ein anderer Tab hat den Entwurf geändert (F-439): neu lesen; ist er hier offen, den neuen Stand zeigen. */
+  private async otherTab(): Promise<void> {
+    const open = this.draftOpen();
+    const d = await this.read();
+    if (!open || !this.draftOpen()) return;
+    if (!d) {
+      this.reset();
+      return this.ui.toast('Der Entwurf wurde in einem anderen Tab verworfen.', 6000);
+    }
+    await this.setTracks(d.tracks, { mode: { kind: 'local' }, fit: false, weather: d.weather }, false);
+    this.ui.toast('Der Entwurf wurde in einem anderen Tab geändert – hier ist der neue Stand.', 6000);
+  }
+
+  private setDraft(tracks: Array<{ name: string }>, owner: string | null) {
+    this.owner = tracks.length ? owner : null;
     this.store.set({ draft: tracks.length ? { title: tracks[0].name || 'Neuer Törn', count: tracks.length } : null });
+  }
+
+  /** Entwurfsplatz leeren und andere Tabs informieren. */
+  private clearDraft() {
+    this.setDraft([], null);
+    void workspace.save([]).then(() => this.channel?.postMessage('changed'));
   }
 
   // ---------------------------------------------------------------- Dateien
 
   /** „+ Neu → Törn (GPX)“ und die Startkarte: immer ein neuer Törn (F-434). */
   async files(list: FileList | File[]): Promise<void> {
-    const items = await this.read(list);
-    if (items) this.start(items);
+    const items = await this.readFiles(list);
+    if (items) await this.start(items);
   }
 
   /** „GPX hinzufügen“ (F-435): an den offenen Entwurf hängen; ist keiner offen, ein neuer Törn. */
   async add(list: FileList | File[]): Promise<void> {
-    const items = await this.read(list);
+    const items = await this.readFiles(list);
     if (!items) return;
     if (this.draftOpen()) return this.append(items);
-    this.start(items);
+    await this.start(items);
   }
 
   /** Ziehen & Ablegen (F-435): auf dem sichtbaren Entwurf hinzufügen, sonst (Startseite, Seite, Ansicht) neuer Törn. */
-  drop(list: FileList | File[]): Promise<void> {
+  async drop(list: FileList | File[]): Promise<void> {
+    await this.init();
     const visible = this.draftOpen() && !this.store.get().home && !this.ui.onPage();
     return visible ? this.add(list) : this.files(list);
-  }
-
-  /** Antwort auf „Entwurf verwerfen und neuen Törn beginnen?“ */
-  answer(ok: boolean): void {
-    const items = this.pending;
-    this.pending = null;
-    this.ui.confirm.open = false;
-    if (ok && items) void this.begin(items);
   }
 
   private draftOpen(): boolean {
@@ -138,7 +223,7 @@ export class WorkspaceController {
     return s.mode.kind === 'local' && s.tracks.length > 0;
   }
 
-  private async read(list: FileList | File[]): Promise<RawItem[] | null> {
+  private async readFiles(list: FileList | File[]): Promise<RawItem[] | null> {
     const files = [...list].filter((f) => /\.gpx$/i.test(f.name) || /xml/.test(f.type));
     if (!files.length) {
       this.ui.toast('Keine GPX-Dateien gefunden');
@@ -155,17 +240,15 @@ export class WorkspaceController {
   }
 
   /** Neuer Törn: liegt ein Entwurf mit Tracks vor, erst nachfragen (F-434). */
-  private start(items: RawItem[]) {
+  private async start(items: RawItem[]) {
+    await this.init();
     const draft = this.store.get().draft;
-    if (!draft) return void this.begin(items);
-    this.setLoading(null);
-    this.pending = items;
-    Object.assign(this.ui.confirm, {
-      open: true,
-      heading: 'Neuen Törn beginnen?',
-      text: `Entwurf „${draft.title}“ verwerfen und neuen Törn beginnen?`,
-      confirmLabel: 'Verwerfen',
-    });
+    if (draft) {
+      this.setLoading(null);
+      const ok = await this.ui.ask({ heading: 'Neuen Törn beginnen?', text: `Entwurf „${draft.title}“ verwerfen und neuen Törn beginnen?`, confirmLabel: 'Verwerfen' });
+      if (!ok) return;
+    }
+    await this.begin(items);
   }
 
   private async begin(items: RawItem[]) {
@@ -173,7 +256,7 @@ export class WorkspaceController {
     if (!fresh.length) return this.setLoading(null);
     this.toWorkspace();
     await this.setTracks(fresh, { mode: { kind: 'local' }, fit: true });
-    this.ui.toast(`${fresh.length} Track${fresh.length > 1 ? 's' : ''} geladen`);
+    this.ui.toast(`${plural(fresh.length)} geladen`);
   }
 
   private async append(items: RawItem[]) {
@@ -182,7 +265,7 @@ export class WorkspaceController {
     if (!fresh.length) return this.setLoading(null);
     this.toWorkspace();
     await this.setTracks([...s.tracks, ...fresh], { mode: { kind: 'local' }, fit: true });
-    this.ui.toast(`${fresh.length} Track${fresh.length > 1 ? 's' : ''} hinzugefügt`);
+    this.ui.toast(`${plural(fresh.length)} hinzugefügt`);
   }
 
   /** Arbeitsbereich zeigen: Adresse `/` (aus einer Ansicht oder Seite heraus), Seite schließen. */
@@ -229,24 +312,24 @@ export class WorkspaceController {
    */
   signedOut(): void {
     const s = this.store.get();
-    this.pending = null;
-    this.ui.confirm.open = false;
-    this.draftTouched = true;
+    this.ui.dismiss();
     this.reset();
-    this.store.set({ draft: null });
-    void workspace.save([]);
+    this.clearDraft();
     if (s.mode.kind !== 'local' && !this.ui.onPage()) {
       history.replaceState(null, '', '/');
       document.title = 'Sail Explorer';
     }
   }
 
-  /** Entwurf gespeichert (F-437): der Arbeitsbereich ist jetzt der eigene Törn, der Entwurfsplatz wird frei. */
+  /**
+   * Gespeichert (F-437): Entwurf bzw. Ansicht (Beispiel, `?track=`, `#g=`) ist jetzt der eigene Törn. Nur ein
+   * gespeicherter Entwurf leert den Entwurfsplatz – eine Ansicht lässt einen anderen Entwurf stehen.
+   */
   saved(share: ShareMeta): void {
-    if (this.store.get().mode.kind !== 'local') return;
-    this.draftTouched = true;
-    this.store.set({ mode: { kind: 'share', share }, saved: true, draft: null });
-    void workspace.save([]);
+    const mode = this.store.get().mode;
+    if (mode.kind === 'share') return;
+    this.store.set({ mode: { kind: 'share', share }, saved: true });
+    if (mode.kind === 'local') this.clearDraft();
     history.replaceState(null, '', share.link || `/s/${share.id}`);
     document.title = `${share.title} · Sail Explorer`;
   }
@@ -337,10 +420,10 @@ export class WorkspaceController {
    * Setzt Tracks, speichert einen Entwurf und lädt Wetter – aber nur, wenn keine gespeicherten Daten mitkommen
    * (Freigabe, Entwurf). Abgerufen wird also einmal beim Einstellen, nicht bei jedem Aufruf.
    */
-  private async setTracks(tracks: Track[], opts: { mode: State['mode']; fit: boolean; weather?: WeatherData | null }) {
+  private async setTracks(tracks: Track[], opts: { mode: State['mode']; fit: boolean; weather?: WeatherData | null }, persist = true) {
     this.store.set({ tracks, mode: opts.mode, home: false, saved: opts.mode.kind === 'share' && !!opts.mode.share.isOwner, hover: null, weather: null, status: { level: 'loading', text: 'Lade Wind- und Wellendaten …' }, loading: null });
     if (opts.fit) this.ui.fit(tracks);
-    this.persist();
+    if (persist) this.persist();
     if (!tracks.length) return this.store.set({ status: initialState.status });
     if (opts.weather) {
       attachConditions(tracks, opts.weather);
@@ -358,16 +441,15 @@ export class WorkspaceController {
     this.persist(); // jetzt mit Wetter
   }
 
-  /** Nur ein Entwurf wird gespeichert – ein Platz im Browser (Konzept 23). */
+  /** Nur ein Entwurf wird gespeichert – ein Platz im Browser (Konzept 23), mit Eigentümer; andere Tabs erfahren es. */
   private persist() {
     const s = this.store.get();
     if (s.mode.kind !== 'local') return;
-    this.draftTouched = true;
-    this.setDraft(s.tracks);
-    void workspace.save(
-      s.tracks.map((t) => ({ id: t.id, name: t.name, gpx: t.raw, hidden: t.hidden })),
-      s.weather,
-    );
+    const owner = s.user?.id ?? GUEST;
+    this.setDraft(s.tracks, owner);
+    void workspace
+      .save(s.tracks.map((t) => ({ id: t.id, name: t.name, gpx: t.raw, hidden: t.hidden })), s.weather, owner)
+      .then(() => this.channel?.postMessage('changed'));
   }
 
   private setLoading(text: string | null) {

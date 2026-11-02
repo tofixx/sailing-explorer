@@ -3097,7 +3097,7 @@ steht weiter im Unterstützen-Bereich des Kontos.
 
 Anlass: Rückmeldung des Betreibers (02.11.2026) – nach dem Abmelden erschien ein gespeicherter Törn als „Entwurf“,
 neue GPX hingen sich an jeden offenen Törn (auch an fremde), und man sah nicht, in welchem Törn man ist. Leitlinie:
-„Weniger ist mehr, ein Weg nach Rom.“ Anforderungen F-432 … F-438, geändert F-06, F-15, F-30, F-75, F-76, F-225, F-405.
+„Weniger ist mehr, ein Weg nach Rom.“ Anforderungen F-432 … F-439, geändert F-06, F-15, F-30, F-75, F-76, F-225, F-405.
 
 ### 23.1 Modell
 
@@ -3105,8 +3105,8 @@ Der Arbeitsbereich (Karte, Seitenleiste) zeigt immer **genau einen Törn**:
 
 | Art | `State.mode` | Status in der Kopfzeile | GPX hinzufügen / entfernen | Gespeichert in |
 |---|---|---|---|---|
-| Entwurf | `local` | „Entwurf · nur dieses Gerät“, Titel = erster Track (sonst „Neuer Törn“) | ja (Track-Liste) | IndexedDB, **ein** Platz `current` |
-| eigener gespeicherter Törn | `share`, `isOwner` | „Gespeichert · Öffentlich / Nur mit Link / Nur ich“ | nein (Server kann Tracks nicht ersetzen, 22.3) | D1/R2 (Konzept 21) |
+| Entwurf | `local` | „Entwurf · nur dieses Gerät“, Titel = erster Track (sonst „Neuer Törn“) | ja (Track-Liste) | IndexedDB, **ein** Platz `current`, mit Eigentümer (`owner`: Konto-ID bzw. `guest`) |
+| eigener gespeicherter Törn | `share`, `isOwner` | „Gespeichert · Öffentlich / Nur mit Link / Nur ich“ | nein (Server kann Tracks nicht ersetzen, 23.3) | D1/R2 (Konzept 21) |
 | fremde bzw. geteilte Ansicht, Beispiel, `?track=`, `#g=` | `share` bzw. `link` | „Ansicht“ | nein | – |
 
 - **Neuer Törn:** „+ Neu → Törn (GPX)“, die Startkarte ohne Community und Ziehen & Ablegen außerhalb des offenen
@@ -3118,10 +3118,20 @@ Der Arbeitsbereich (Karte, Seitenleiste) zeigt immer **genau einen Törn**:
   Entwurfsplatz, „+ Neu“ bietet dann „Entwurf fortsetzen: ‚…‘“. Das ist kein zweiter Einstieg (N1), weil er nur
   erscheint, wenn der Entwurf nicht offen ist.
 - **Schließen (×):** leert den Arbeitsbereich und zeigt die Startseite. Ein Entwurf bleibt im Entwurfsplatz.
-- **Speichern:** Nach „Speichern“ bzw. „Speichern & Link erstellen“ wird aus dem Entwurf der eigene gespeicherte Törn
-  (`mode: share`, Adresse `/s/<id>`). Der Entwurfsplatz wird geleert, damit nichts doppelt als Entwurf weiterlebt.
+- **Verwerfen:** genau an einer Stelle, „Entwurf verwerfen“ unter der Track-Liste des offenen Entwurfs (mit Rückfrage).
+- **Speichern:** Nach „Speichern“ bzw. „Speichern & Link erstellen“ wird aus dem Entwurf – ebenso aus einer Ansicht
+  (Beispiel, `?track=`, `#g=`) – der eigene gespeicherte Törn (`mode: share`, Adresse `/s/<id>`). Ein gespeicherter
+  Entwurf leert den Entwurfsplatz; eine gespeicherte Ansicht lässt einen anderen Entwurf stehen.
 - **Abmelden (auch Konto löschen, Abmelden in einem anderen Tab):** Arbeitsbereich und Entwurfsplatz werden geleert
-  (geteilter Rechner). Ein Gast-Entwurf von vor der Anmeldung gehört danach zum Konto und wird mit entfernt.
+  (geteilter Rechner). Das Konto nennt bei „Abmelden“ den Entwurf, der dabei verworfen wird.
+- **Eigentümer:** Der Entwurf merkt sich sein Konto bzw. `guest`. Beim Lesen (nach `/api/auth/me`) und bei jedem
+  Wechsel der Anmeldung gilt: ein Gast-Entwurf geht an das angemeldete Konto über; ein Entwurf eines anderen Kontos –
+  auch wenn die Sitzung ohne Abmelden endete (401, Ablauf, entfernt, auf einem anderen Gerät gelöscht) – wird verworfen.
+- **Mehrere Tabs:** Nach jedem Schreiben meldet der Tab über den BroadcastChannel `sx-draft` „geändert“. Andere Tabs
+  lesen den Entwurf neu; ist er dort offen, zeigen sie den neuen Stand bzw. leeren ihn, mit Hinweis. Es gibt also keinen
+  stillen Rückschrieb eines veralteten Stands (der letzte Schreiber gewinnt, alle sehen ihn).
+- **Start:** Der Entwurf wird einmal gelesen, sobald die Anmeldung bekannt ist (`init()`); neuer Törn, Ablegen und die
+  Startseite warten darauf, damit die Nachfrage auch direkt nach dem Laden greift.
 - **Beispiele** sind eine „Ansicht“ und überschreiben keinen Entwurf.
 
 ### 23.2 Skizze (CLAUDE.md)
@@ -3130,9 +3140,9 @@ Der Arbeitsbereich (Karte, Seitenleiste) zeigt immer **genau einen Törn**:
 |---|---|
 | Datenmodell | nichts Neues: kein Server, keine Migration. `State` bekommt `draft` (Titel und Zahl der Tracks im Entwurfsplatz). |
 | Querschnitte | keine Sichtbarkeit, kein Stream, kein Zähler. Abmelden ruft über einen Haken im `SessionController` den Arbeitsbereich. |
-| Löschpfade | Entwurfsplatz: neuer Törn (nach Nachfrage), letzter Track entfernt, Speichern, Abmelden bzw. Konto löschen. Sonst liegt nichts lokal. |
-| Komponenten | `WorkspaceController` (`src/controllers/workspace.ts`) übernimmt den Ablauf „Tracks“ aus `app.ts` (Laden, Wetter, Entwurf, Freigabe, Link). `sx-topbar` zeigt den Törn-Chip (Titel, Status, ×) als Property `toern`. `sx-compose` bekommt `draft` („Entwurf fortsetzen“). `sx-track-list` bekommt `addable` („GPX hinzufügen“) und Tippen zum Hervorheben. Neu ist `sx-confirm` (geteilter Ja/Nein-Dialog mit `dialogStyles`, mobil randlos). Events: `sx-toern-close`, `sx-files-add`, `sx-compose-open { kind: 'draft' }`, `sx-confirm-ok`, `sx-confirm-cancel`. |
-| 375 px | Der Chip sitzt wie bisher mittig unter der Kopfzeile über der Karte, mit Titel (gekürzt), kurzem Status und × (44 px). Auf der Startseite ist er ausgeblendet, dort zeigt der Reiter „Törn“ den Weg zurück. |
+| Löschpfade | Entwurfsplatz: neuer Törn (nach Nachfrage), „Entwurf verwerfen“ (nach Nachfrage), letzter Track entfernt, Speichern, Abmelden bzw. Konto löschen, Sitzungsende bzw. anderes Konto (Eigentümer passt nicht), Website-Daten löschen. Sonst liegt nichts lokal. Datenschutz (`src/content/legal.ts`, Abschnitt 6) nennt diese Wege. |
+| Komponenten | `WorkspaceController` (`src/controllers/workspace.ts`) übernimmt den Ablauf „Tracks“ aus `app.ts` (Laden, Wetter, Entwurf, Freigabe, Link). `sx-topbar` zeigt den Törn-Chip (Titel, Status, ×) als Property `toern`. `sx-compose` bekommt `draft` („Entwurf fortsetzen“). `sx-track-list` bekommt `addable` („GPX hinzufügen“) und Tippen zum Hervorheben. Neu ist `sx-confirm` (geteilte Rückfrage mit `dialogStyles`, mobil randlos, `ask({ … }): Promise<boolean>` für jeden Controller). `sx-account-dialog` bekommt `draft` (Hinweis bei „Abmelden“). Events: `sx-toern-close`, `sx-files-add`, `sx-draft-discard`, `sx-compose-open { kind: 'draft' }`. |
+| 375 px | Der Chip sitzt wie bisher mittig unter der Kopfzeile über der Karte, mit Titel (gekürzt), kurzem Status und × (Tippfläche 44 px, auch am Desktop über einen unsichtbaren Rand). Auf der Startseite ist er ausgeblendet, dort zeigt der Reiter „Törn“ den Weg zurück. |
 | Parallele Arbeit | `feature/beitraege-phase2` (PostLinkController: `openPost`/`revealAnchor` bleiben unberührt), `feature/gaeste-slider` (Startseite: hier nur der Link „weitere GPX hinzufügen“ in `sx-empty-state` gestrichen). |
 
 ### 23.3 Offen
