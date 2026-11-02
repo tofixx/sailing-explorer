@@ -3221,7 +3221,7 @@ Kopf je Seite (N5), Bausteine `sx-follow` + `sx-notify-bell`: Nicht-Mitglied [Fo
 [✓ Folgst du ▾ Stufen, Entfolgen] [Beitreten] · Angefragt [Anfrage gestellt] [Zurückziehen] · Mitglied [Glocke ▾];
 Austreten im Zahnrad (nicht doppelt).
 
-### 24.4 Datenmodell (Migration `0032_members_visible.sql`, eine für alles)
+### 24.4 Datenmodell (Migration `0032_members_visible.sql`; `0033_follows_cleanup.sql` nur Bereinigung, 24.7 Nr. 12)
 
 | Spalte | Werte | Standard | Bestand |
 |---|---|---|---|
@@ -3304,6 +3304,18 @@ Heimathafen) nutzen die Voreinstellung des Kontos.
 8. Die Glockenstufe wird an genau zwei Stellen bearbeitet: am Objekt (Seitenkopf) und in Konto → Benachrichtigungen;
    Konto → Gruppen zeigt sie nur als Symbol mit Link. Vermerkt als Ausnahme von N9, „Folgst du ▾“ + „Beitreten“ als
    Ausnahme von N5 (UX-NAVIGATION).
+
+9. Am Hafen bzw. Boot gewinnt ein ausdrücklich gesetztes „Stumm“ am Folgen immer; sonst gilt die höhere Stufe aus
+   Voreinstellung (Boot bzw. Heimathafen dort) und Folgen.
+10. Keine Flut: Nachträge (Abfahrt länger als 14 Tage zurück) benachrichtigen nie; je Empfänger:in höchstens 5
+    Törn-Benachrichtigungen derselben Eigentümer:in am Tag (`NOTIFICATION_LIMITS.sharesPerDay`). Am Boot nur, wenn
+    „Sichtbar bis“ den Hafen abdeckt (dieselbe Regel wie die Stream-Ziele); steigt die Stufe oder wechselt das Boot,
+    wird erneut geprüft (je Konto einmal je Törn).
+11. Persönlicher Stream über Folgen einer Gruppe mit Liste „nur Mitglieder“: nur öffentliche Text-Beiträge, keine Törns,
+    Fotos oder Fahrtenbuch-Bündel (`MEMBER_CONTENT_KINDS`, Schlüssel mit „nur Text“ in `PERSONAL_SQL`/`UNREAD_SQL`) –
+    auch nicht im Badge.
+12. Migration `0033_follows_cleanup.sql` wiederholt die Bereinigung „Mitglied und Folgen“ aus 0032 für Datenbanken, auf
+    denen die erste Fassung von 0032 schon lief (Vorschau); idempotent.
 
 Noch offen: Umfragen und Veranstaltungen gibt es noch nicht; die Regel stuft sie als „wichtig“ ein, sobald sie kommen.
 

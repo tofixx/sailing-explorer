@@ -453,7 +453,7 @@ describe('Mitgliedschaft: Glocke, Austreten, Übergeben, Meine Gruppen (F-346 �
     }
   });
 
-  it('[F-348] [F-449] Konto „Meine Gruppen“: Stufe nur als Symbol mit Link zur Gruppe, Austreten (Eigner: Übergeben …), offene Anfragen zurückziehen', async () => {
+  it('[F-348] [F-449] Konto „Meine Gruppen“: Stufe nur als Symbol (Name verlinkt die Gruppe), Austreten (Eigner: Übergeben …), offene Anfragen zurückziehen', async () => {
     const withdraws = listen('sx-group-withdraw');
     const el = await mount('sx-my-groups', {
       groups: [
@@ -465,7 +465,8 @@ describe('Mitgliedschaft: Glocke, Austreten, Übergeben, Meine Gruppen (F-346 �
     expect(text(el.shadowRoot)).toContain('stumm');
     // bearbeitet wird am Objekt bzw. in der Übersicht (UX N9-Ausnahme): hier nur Symbol und Link
     expect(el.shadowRoot.querySelector('sx-notify-bell')).toBeNull();
-    const bell = el.shadowRoot.querySelector('a.bell[href="/g/pyc"]')!;
+    expect(el.shadowRoot.querySelector('a.bell')).toBeNull();
+    const bell = el.shadowRoot.querySelector('span.bell[role="img"]')!;
     expect(bell.getAttribute('aria-label')).toContain('Stumm');
     expect(buttons(el.shadowRoot).filter((b) => /Austreten/.test(b.textContent ?? ''))).toHaveLength(1);
     expect(el.shadowRoot.querySelector('a.btn:not(.bell)[href="/g/eigen"]')?.textContent).toContain('Übergeben');

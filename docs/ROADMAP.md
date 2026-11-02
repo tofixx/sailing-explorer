@@ -112,10 +112,11 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 
 ### Reservierungen
 
-Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0032** (Stand 9316c24). Die nächsten freien Nummern
-sind F-451, Konzept 27 (`docs/concept/27-….md`; Konzept 26 = Diagramm-Zoom, F-430) und Migration 0033. Neue Aufträge bekommen ihren Bereich hier, bevor
+Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
+sind F-451, Konzept 27 (`docs/concept/27-….md`; Konzept 26 = Diagramm-Zoom, F-430) und Migration 0034. Neue Aufträge bekommen ihren Bereich hier, bevor
 sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
 | Branch / Auftrag | F-IDs | Konzept | Migration | Berührt | Stand |
 |---|---|---|---|---|---|
 | `docs/roadmap` (diese Roadmap, Prozess-Fixes) | – | – | – | `CLAUDE.md`, `vite.config.ts`, `worker-harness.ts`, `data-scroll-x` in 8 Komponenten | lokal committet |
+| `feature/mitglieder-sichtbarkeit` (Mitgliedschaften, Folgen, Glocke) | F-440 … F-449 | 24 | 0032, **0033** (`follows_cleanup`, Altbestand der Vorschau) | Streams, Benachrichtigungen, Gruppen, Profil, Konto | Review-Runde 3 |

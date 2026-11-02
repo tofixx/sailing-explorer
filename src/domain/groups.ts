@@ -195,6 +195,12 @@ export const STREAM_KIND_CLASS: Record<ActivityKind, 'post' | 'auto'> = {
 };
 /** Automatischer Eintrag? Unbekannte Arten zählen als automatisch (fail closed: nie benachrichtigen). */
 export const isAutomaticKind = (kind: string): boolean => !isActivityKind(kind) || STREAM_KIND_CLASS[kind] === 'auto';
+/**
+ * Inhalte der Mitglieder (Törns, Fotos, Fahrtenbuch-Bündel): in Gruppen mit Mitgliederliste „nur Mitglieder“ nur für
+ * Mitglieder – im Gruppen-Stream und über Folgen im persönlichen Stream (F-442, Konzept 24.7).
+ */
+export const MEMBER_CONTENT_KINDS: readonly ActivityKind[] = ['voyage', 'photos', 'logbook'];
+
 /** Arten, die der Schalter „Automatische Einträge“ ausblendet (für SQL und Filter). */
 export const AUTOMATIC_KINDS = ACTIVITY_KINDS.filter((k) => STREAM_KIND_CLASS[k] === 'auto');
 

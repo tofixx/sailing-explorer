@@ -15,7 +15,7 @@ export interface MyRequest {
 }
 
 /**
- * „Meine Gruppen“ im Konto (F-348): Vereine und Teams mit Rolle, Stufe als Symbol mit Link zur Gruppe (F-449) und
+ * „Meine Gruppen“ im Konto (F-348): Vereine und Teams mit Rolle, Stufe als Symbol (F-449) und
  * Austreten bzw. Hinweis zum Übergeben für Eigentümer (F-347); offene Beitrittsanfragen mit „Zurückziehen“. Rein
  * präsentational; meldet \`sx-group-leave\` { id }, \`sx-group-withdraw\` { id }.
  */
@@ -60,6 +60,16 @@ export class SxMyGroups extends LitElement {
         min-width: 10rem;
         overflow-wrap: anywhere;
       }
+      /* Stufe der Glocke nur als Anzeige (F-449) */
+      .bell {
+        display: inline-flex;
+        align-items: center;
+        color: var(--text-2);
+      }
+      .bell svg {
+        width: 18px;
+        height: 18px;
+      }
       .sub {
         display: block;
         font-size: var(--fs-s);
@@ -68,10 +78,10 @@ export class SxMyGroups extends LitElement {
     `,
   ];
 
-  /** Stufe nur als Symbol mit Link zur Gruppe (F-449, UX N9-Ausnahme): bearbeitet wird am Objekt bzw. in der Übersicht. */
+  /** Stufe nur als Anzeige (F-449, UX N9-Ausnahme): bearbeitet wird am Objekt (der Name verlinkt die Gruppe) bzw. in der Übersicht. */
   private bell(g: MyGroup, level: NotifyLevel) {
     const label = `Benachrichtigungen für ${g.name}: ${NOTIFY_LEVEL_LABEL[level]} – ändern auf der Gruppenseite`;
-    return html`<a class="btn ghost icon small bell" href="/g/${g.slug}" aria-label=${label} title=${label}>${icon(NOTIFY_LEVEL_ICON[level])}</a>`;
+    return html`<span class="bell" role="img" aria-label=${label} title=${label}>${icon(NOTIFY_LEVEL_ICON[level])}</span>`;
   }
 
   private group(g: MyGroup) {

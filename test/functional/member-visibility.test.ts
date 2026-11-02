@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startWorker, type Harness } from './worker-harness';
+import { createShare, startWorker, type Harness } from './worker-harness';
 import { social, type GroupOut, type Person, type StreamOut } from './social-helpers';
 import { canSeeMembers, canSeeMembership, type GroupRole } from '../../src/domain/groups';
 import { isMemberSql, membersVisibleSql } from '../../worker/member-sql';
@@ -504,7 +504,7 @@ describe('Review-Befunde Konzept 24', () => {
     expect((await ok<StreamOut>(await groupStream(g2))).items.some((i) => i.voyage?.id === sh2.id)).toBe(true);
   });
 
-  it('[F-449] Follower von Hafen, Boot und Profil nach Stufe; Hafenbewohner ohne Folgen nach Voreinstellung; Bewohner + Folgen: die höhere Stufe', async () => {
+  it('[F-449] Follower von Hafen, Boot und Profil nach Stufe; Hafenbewohner ohne Folgen nach Voreinstellung; Bewohner + Folgen: die höhere Stufe, ausdrückliches „Stumm“ gewinnt', async () => {
     const skipper = await s.person({ profile: 'public' });
     const hb = (await ok<{ harbor: { id: string } }>(await s.send('POST', '/api/harbors', skipper.cookie, { name: s.uniq('Hafen'), lat: -40, lon: -160 }))).harbor;
     const boat = await s.boat(skipper, { harborId: hb.id });
@@ -532,8 +532,8 @@ describe('Review-Befunde Konzept 24', () => {
     expect(await hrefs(boatFan)).toEqual([`/p/${bp.post.id}`]);
     expect(await hrefs(userFan)).toEqual([`/p/${up.post.id}`]);
     expect(await hrefs(resident)).toEqual([`/p/${hp.post.id}`]);
-    // Folgen „Stumm“, Voreinstellung „Alle“: die höhere Stufe gewinnt
-    expect(await hrefs(residentMuted)).toEqual([`/p/${hp.post.id}`]);
+    // ausdrücklich „Stumm“ am Folgen gewinnt immer – auch gegen die Voreinstellung „Alle“ (24.7 Nr. 9)
+    expect(await hrefs(residentMuted)).toEqual([]);
   });
 
   it('[F-449] Beitrittsanfrage: darf nur der Eigner bestätigen, bekommt er sie auch bei „Stumm“', async () => {
@@ -542,5 +542,110 @@ describe('Review-Befunde Konzept 24', () => {
     await setLevel(owner, 'group', g.id, 'muted');
     await s.send('POST', `/api/groups/${g.id}/requests`, (await s.person()).cookie, { message: '' });
     expect((await bell(owner)).filter((n) => n.kind === 'request')).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------- Review-Runde 3
+
+describe('Review-Runde 3: Törn-Benachrichtigungen, Folgen-Stream, Stumm', () => {
+  const shareBells = async (p: Person, id: string) => (await bell(p)).filter((n) => n.kind === 'post' && n.href === `/s/${id}`);
+  const DAY = 86_400_000;
+
+  /** Gruppe (Liste öffentlich) mit Mitglied „Alle Beiträge“ und Boot mit Follower „Alle Beiträge“. */
+  async function scene() {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const g = await s.group(owner, { membersVisible: 'public' });
+    const member = await s.person();
+    await s.join(owner, g, member);
+    await setLevel(member, 'group', g.id, 'all');
+    const boat = await s.boat(owner, { name: 'Trottellumme' });
+    const boatFan = await s.person();
+    await s.send('PUT', `/api/follows/boat/${boat.id}`, boatFan.cookie);
+    await setLevel(boatFan, 'boat', boat.id, 'all');
+    return { owner, g, member, boat, boatFan };
+  }
+
+  it('[F-449] „Sichtbar bis“ am Boot: bei „nur hier“ keine Benachrichtigung an Boot-Follower; steigt die Stufe, kommt sie (einmal)', async () => {
+    const { owner, boat, boatFan } = await scene();
+    const res = await createShare(h, owner.cookie, { visibility: 'public', title: 'Nur hier', headers: { 'X-Share-Boat': boat.id, 'X-Share-Reach': 'here' } });
+    expect(res.status, await res.clone().text()).toBe(201);
+    const sh = ((await res.json()) as { share: { id: string } }).share;
+    expect(await shareBells(boatFan, sh.id)).toEqual([]);
+    expect((await s.send('PATCH', `/api/shares/${sh.id}`, owner.cookie, { reach: 'harbor' })).status).toBe(200);
+    expect(await shareBells(boatFan, sh.id)).toHaveLength(1);
+    expect((await s.send('PATCH', `/api/shares/${sh.id}`, owner.cookie, { reach: 'all' })).status).toBe(200);
+    expect(await shareBells(boatFan, sh.id)).toHaveLength(1);
+  });
+
+  it('[F-449] keine Flut: Nachträge benachrichtigen nicht, höchstens 5 Törns derselben Eigentümer:in je Tag', async () => {
+    const { owner, g, member } = await scene();
+    const old = await s.share(owner, { groups: [g.id], startedAt: Date.now() - 30 * DAY });
+    expect(await shareBells(member, old.id)).toEqual([]);
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) ids.push((await s.share(owner, { groups: [g.id], title: `Tag ${i}` })).id);
+    const got = (await bell(member)).filter((n) => n.kind === 'post' && ids.some((id) => n.href === `/s/${id}`));
+    expect(got).toHaveLength(5);
+  });
+
+  it('[F-449] Negativfälle: „Nur mit Link“/privat, Gruppe ausgeblendet bzw. gesperrt, gesperrte Empfängerin, herabgestuft, gesperrte Eigentümer:in', async () => {
+    const { owner, g, member } = await scene();
+    const db = await s.db();
+    for (const visibility of ['unlisted', 'private']) {
+      const sh = await s.share(owner, { groups: [g.id], visibility });
+      expect(await shareBells(member, sh.id), visibility).toEqual([]);
+    }
+    for (const col of ['hidden_at', 'locked_at']) {
+      // erst privat in der Gruppe, dann Gruppe ausgeblendet bzw. gesperrt, dann öffentlich
+      const sh = await s.share(owner, { groups: [g.id], visibility: 'private' });
+      await db.prepare(`UPDATE groups SET ${col} = ? WHERE id = ?`).bind(Date.now(), g.id).run();
+      expect((await s.send('PATCH', `/api/shares/${sh.id}`, owner.cookie, { visibility: 'public' })).status).toBe(200);
+      expect(await shareBells(member, sh.id), col).toEqual([]);
+      await db.prepare(`UPDATE groups SET ${col} = NULL WHERE id = ?`).bind(g.id).run();
+    }
+    await db.prepare('UPDATE users SET locked_at = ? WHERE id = ?').bind(Date.now(), member.user.id).run();
+    const whileLocked = await s.share(owner, { groups: [g.id] });
+    await db.prepare('UPDATE users SET locked_at = NULL WHERE id = ?').bind(member.user.id).run();
+    expect(await shareBells(member, whileLocked.id)).toEqual([]);
+    // herabgestuft bzw. Eigentümer:in gesperrt: der Eintrag verschwindet beim Lesen
+    const down = await s.share(owner, { groups: [g.id] });
+    expect(await shareBells(member, down.id)).toHaveLength(1);
+    expect((await s.send('PATCH', `/api/shares/${down.id}`, owner.cookie, { visibility: 'private' })).status).toBe(200);
+    expect(await shareBells(member, down.id)).toEqual([]);
+    const susp = await s.share(owner, { groups: [g.id] });
+    expect(await shareBells(member, susp.id)).toHaveLength(1);
+    await db.prepare('UPDATE users SET suspended_at = ? WHERE id = ?').bind(Date.now(), owner.user.id).run();
+    expect(await shareBells(member, susp.id)).toEqual([]);
+  });
+
+  it('[F-442] persönlicher Stream über Folgen: Gruppe mit Liste „nur Mitglieder“ liefert nur öffentliche Text-Beiträge, keine Törns – auch nicht im Badge', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const g = await s.group(owner);
+    const fan = await s.person();
+    expect((await s.send('PUT', `/api/follows/group/${g.id}`, fan.cookie)).status).toBe(200);
+    await s.send('GET', '/api/stream/unread', fan.cookie);
+    await (await s.db()).prepare('UPDATE users SET stream_seen_at = ? WHERE id = ?').bind(Date.now(), fan.user.id).run();
+    const sh = await s.share(owner, { groups: [g.id], title: 'Interner Törn' });
+    const post = await ok<{ post: { id: string } }>(await write(owner, g, { body: 'Für alle', visibility: 'public' }));
+    const st = await ok<StreamOut>(await s.send('GET', '/api/stream', fan.cookie));
+    expect(st.items.some((i) => i.voyage?.id === sh.id)).toBe(false);
+    expect(st.items.some((i) => i.post?.id === post.post.id)).toBe(true);
+    expect((await ok<{ count: number }>(await s.send('GET', '/api/stream/unread', fan.cookie))).count).toBe(1);
+    // Mitglieder sehen den Törn weiter; öffentliche Liste: auch Folgende
+    expect((await ok<StreamOut>(await s.send('GET', '/api/stream', owner.cookie))).items.some((i) => i.voyage?.id === sh.id)).toBe(true);
+    await ok(await s.send('PATCH', `/api/groups/${g.id}`, owner.cookie, { membersVisible: 'public' }));
+    expect((await ok<StreamOut>(await s.send('GET', '/api/stream', fan.cookie))).items.some((i) => i.voyage?.id === sh.id)).toBe(true);
+  });
+
+  it('[F-449] Migration 0033: entfernt Altbestand Mitglied + Folgen, idempotent', async () => {
+    const owner = await s.person();
+    const g = await s.group(owner);
+    const m = await s.person();
+    await s.join(owner, g, m);
+    const db = await s.db();
+    await db.prepare(`INSERT INTO follows (user_id, target_kind, target_id, created_at) VALUES (?, 'group', ?, 0)`).bind(m.user.id, g.id).run();
+    const sql = readFileSync(resolve('migrations', '0033_follows_cleanup.sql'), 'utf8').replace(/--[^\n]*/g, '').trim();
+    for (let i = 0; i < 2; i++) await db.prepare(sql).all();
+    expect(await db.prepare(`SELECT 1 AS x FROM follows WHERE user_id = ? AND target_kind = 'group' AND target_id = ?`).bind(m.user.id, g.id).first()).toBeNull();
+    expect(await db.prepare('SELECT 1 AS x FROM group_members WHERE user_id = ? AND group_id = ?').bind(m.user.id, g.id).first()).not.toBeNull();
   });
 });

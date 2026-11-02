@@ -445,7 +445,8 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
     await (row.source === 'manual' && isBackfill(row.started_at, row.created_at) ? recordLogbook(env, row, row.updated_at) : recordVoyage(env, row, row.updated_at));
   }
   // erstes Erscheinen in einer Gruppe bzw. erstmals öffentlich: benachrichtigen (je Konto höchstens einmal je Törn, F-449)
-  if (row.visibility === 'public' && (previous !== 'public' || groupIds)) await notifyShare(env, row.id);
+  // auch, wenn „Sichtbar bis“ oder das Boot wechselt (je Konto höchstens einmal je Törn)
+  if (row.visibility === 'public' && (previous !== 'public' || groupIds || reach || boatChanged)) await notifyShare(env, row.id);
   // mit Kontext wie GET: die Törn-Ansicht übernimmt die Antwort (Gruppen folgen der neuen Sichtbarkeit)
   return json({ share: await shareDetail(env, saved ?? row, true, user.id) });
 }

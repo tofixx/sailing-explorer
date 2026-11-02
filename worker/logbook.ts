@@ -250,7 +250,7 @@ export async function createManualShare(request: Request, env: Env): Promise<Res
   // Neuigkeiten: Nachträge (Abfahrt > 14 Tage zurück) gebündelt je Konto und Tag, sonst wie ein Törn (K7, F-308).
   if (row.visibility === 'public') {
     await (isBackfill(row.started_at, now) ? recordLogbook(env, row, now) : recordVoyage(env, row, now));
-    // Fahrtenbuch-Eintrag ist ein Beitrag wie ein Törn (F-449)
+    // Fahrtenbuch-Eintrag ist ein Beitrag wie ein Törn (F-449); Nachträge prüft notifyShare selbst
     await notifyShare(env, row.id);
   }
   const saved = await getShareRow(env, row.id);

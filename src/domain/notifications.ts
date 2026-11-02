@@ -146,6 +146,8 @@ export const NOTIFICATION_LIMITS = {
   requestFanOut: 20,
   /** höchstens so viele Empfänger je neuem Beitrag (F-416) */
   postFanOut: 200,
+  /** höchstens so viele Törn-Benachrichtigungen derselben Eigentümer:in je Empfänger:in und Tag (F-449) */
+  sharesPerDay: 5,
   /** höchstens so viele Empfänger je Kommentar: Eigentümer:in und die zuletzt Mitkommentierenden (Konzept 17.9.1) */
   commentFanOut: 50,
   /** gelesene Einträge werden nach so vielen Tagen gelöscht */

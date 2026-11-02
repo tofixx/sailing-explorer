@@ -218,7 +218,7 @@ const cursorOf = (request: Request): StreamCursor => {
 // ---------------------------------------------------------------- Persönlicher Stream (Konzept 12.4)
 
 /** Ziele des persönlichen Streams als [Art, ID]-Paare (eindeutig, höchstens STREAM_TARGETS_MAX) und die Heimat. */
-export async function personalTargets(env: Env, userId: string): Promise<{ keys: Array<[string, string]>; home: HomeRow | null; groups: number }> {
+export async function personalTargets(env: Env, userId: string): Promise<{ keys: Array<[string, string] | [string, string, number]>; home: HomeRow | null; groups: number }> {
   const [groups, boats, follows, clubTeams, teamMates, home] = await env.DB.batch([
     env.DB.prepare(TARGET_SQL.groups).bind(userId),
     env.DB.prepare(TARGET_SQL.boats).bind(userId),
@@ -228,13 +228,15 @@ export async function personalTargets(env: Env, userId: string): Promise<{ keys:
     homeStmt(env, userId),
   ]);
   const homeRow = (home.results[0] as HomeRow | undefined) ?? null;
-  const keys = new Map<string, [string, string]>();
-  const add = (k: string, id: string | null | undefined) => {
-    if (id && keys.size < STREAM_TARGETS_MAX) keys.set(`${k}\u0000${id}`, [k, id]);
+  // drittes Element 1: nur Text-Beiträge (Folgen einer Gruppe mit Liste „nur Mitglieder“, F-442); der erste Schlüssel gewinnt
+  const keys = new Map<string, [string, string] | [string, string, number]>();
+  const add = (k: string, id: string | null | undefined, textOnly = false) => {
+    const key = `${k}\u0000${id}`;
+    if (id && !keys.has(key) && keys.size < STREAM_TARGETS_MAX) keys.set(key, textOnly ? [k, id, 1] : [k, id]);
   };
   add('user', userId);
   if (homeRow?.harbor_id) add('harbor', homeRow.harbor_id);
-  for (const res of [groups, clubTeams, boats, follows, teamMates]) for (const r of res.results as Array<{ k: string; id: string }>) add(r.k, r.id);
+  for (const res of [groups, clubTeams, boats, follows, teamMates]) for (const r of res.results as Array<{ k: string; id: string; t?: number }>) add(r.k, r.id, !!r.t);
   return { keys: [...keys.values()], home: homeRow, groups: groups.results.length };
 }
 
