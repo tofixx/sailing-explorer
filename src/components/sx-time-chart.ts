@@ -1,7 +1,8 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
 import { layoutSegments, nearestByTime, segmentByGaps, type Layout, type TimedPoint } from '../domain/timeline';
 import { cssVar, fmtNum, fmtShort } from '../util/html';
-import { base, emit } from './shared';
+import { base, dialogStyles, emit } from './shared';
+import { icon } from './icons';
 
 export interface ChartSeries {
   key: string;
@@ -37,6 +38,9 @@ export interface RefLine {
 }
 
 const H = 156;
+/** Großansicht (F-430): höher, und je Stunde mindestens so viele Pixel – längere Zeiträume werden seitlich scrollbar */
+const H_LARGE = 340;
+const PX_PER_HOUR_LARGE = 28;
 const PAD = { t: 18, b: 20 };
 
 /**
@@ -54,6 +58,8 @@ export class SxTimeChart extends LitElement {
     marks: { attribute: false },
     activeMark: { attribute: false },
     label: { type: String },
+    large: { type: Boolean, reflect: true },
+    zoomed: { state: true },
   };
   declare points: TimedPoint[];
   declare series: ChartSeries[];
@@ -65,8 +71,28 @@ export class SxTimeChart extends LitElement {
   declare marks: ChartMark[];
   declare activeMark: string | null;
   declare label: string;
+  /** Großansicht im Dialog: höher, Zeitachse breiter und seitlich scrollbar (F-430) */
+  declare large: boolean;
+  /** Großansicht offen */
+  declare zoomed: boolean;
 
   private width = 320;
+
+  private get h(): number {
+    return this.large ? H_LARGE : H;
+  }
+
+  /**
+   * Breite der Zeichnung: im großen Modus mindestens PX_PER_HOUR_LARGE je Stunde mit Daten (Pausen staucht
+   * layoutSegments ohnehin), höchstens so breit, wie Browser ein Canvas zeichnen (16 384 px Kante, ~16 MP auf iOS).
+   */
+  private drawWidth(container: number): number {
+    if (!this.large || this.points.length < 2) return container;
+    const hours = segmentByGaps(this.points).reduce((sum, seg) => sum + seg.dur, 0) / 3_600_000;
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const max = Math.floor(Math.min(16_384, 16e6 / (this.h * dpr)) / dpr);
+    return Math.max(container, Math.min(max, Math.round(hours * PX_PER_HOUR_LARGE)));
+  }
   private layout: Layout | null = null;
   private scales: Record<'left' | 'right', number> = { left: 1, right: 1 };
   private ro?: ResizeObserver;
@@ -84,10 +110,13 @@ export class SxTimeChart extends LitElement {
     this.marks = [];
     this.activeMark = null;
     this.label = '';
+    this.large = false;
+    this.zoomed = false;
   }
 
   static styles = [
     base,
+    dialogStyles,
     css`
       :host {
         display: block;
@@ -96,6 +125,26 @@ export class SxTimeChart extends LitElement {
         position: relative;
         height: ${H}px;
         touch-action: pan-y;
+      }
+      :host([large]) .scroll {
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+      }
+      :host([large]) .wrap {
+        height: ${H_LARGE}px;
+        touch-action: pan-x pan-y;
+      }
+      .zoom {
+        margin-left: auto;
+      }
+      /* breiter Dialog nur am Desktop – mobil gilt die randlose Vollbild-Regel aus dialogStyles (F-291) */
+      @media (min-width: 761px) {
+        dialog[open] {
+          width: min(1200px, calc(100vw - 32px));
+        }
+      }
+      dialog .body {
+        padding-top: 0;
       }
       canvas {
         position: absolute;
@@ -149,19 +198,33 @@ export class SxTimeChart extends LitElement {
   }
 
   firstUpdated() {
-    const wrap = this.renderRoot.querySelector('.wrap') as HTMLElement;
+    const box = this.renderRoot.querySelector(this.large ? '.scroll' : '.wrap') as HTMLElement;
     this.ro = new ResizeObserver(([entry]) => {
-      const w = Math.round(entry.contentRect.width);
+      const w = this.drawWidth(Math.round(entry.contentRect.width));
       if (w && w !== this.width) {
         this.width = w;
+        if (this.large) (this.renderRoot.querySelector('.wrap') as HTMLElement).style.width = `${w}px`;
         this.drawBase();
         this.drawOverlay();
       }
     });
-    this.ro.observe(wrap);
+    this.ro.observe(box);
   }
 
   updated(changed: PropertyValues<this>) {
+    if (this.large && changed.has('points')) {
+      const box = this.renderRoot.querySelector('.scroll') as HTMLElement | null;
+      const w = box ? this.drawWidth(Math.round(box.clientWidth)) : this.width;
+      if (w && w !== this.width) {
+        this.width = w;
+        (this.renderRoot.querySelector('.wrap') as HTMLElement).style.width = `${w}px`;
+      }
+    }
+    if (changed.has('zoomed')) {
+      const dlg = this.renderRoot.querySelector('dialog');
+      if (this.zoomed && dlg && !dlg.open) dlg.showModal();
+      else if (!this.zoomed && dlg?.open) dlg.close();
+    }
     if (changed.has('points') || changed.has('series') || changed.has('refLine') || changed.has('left') || changed.has('right') || changed.has('marks')) this.drawBase();
     this.drawOverlay();
   }
@@ -171,10 +234,10 @@ export class SxTimeChart extends LitElement {
     if (!cv) return null;
     const dpr = window.devicePixelRatio || 1;
     cv.width = this.width * dpr;
-    cv.height = H * dpr;
+    cv.height = this.h * dpr;
     const ctx = cv.getContext('2d')!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, this.width, H);
+    ctx.clearRect(0, 0, this.width, this.h);
     return ctx;
   }
 
@@ -183,7 +246,7 @@ export class SxTimeChart extends LitElement {
   }
 
   private y(v: number, axis: 'left' | 'right') {
-    return H - PAD.b - (H - PAD.t - PAD.b) * (v / this.scales[axis]);
+    return this.h - PAD.b - (this.h - PAD.t - PAD.b) * (v / this.scales[axis]);
   }
 
   private drawBase() {
@@ -213,7 +276,7 @@ export class SxTimeChart extends LitElement {
     // Gitter mit Beschriftung: 0, 50 %, 100 %
     ctx.font = `${c('--fs-xs')} ${c('--font')}`;
     for (const f of [1, 0.5, 0]) {
-      const y = H - PAD.b - (H - PAD.t - PAD.b) * f;
+      const y = this.h - PAD.b - (this.h - PAD.t - PAD.b) * f;
       ctx.beginPath();
       ctx.setLineDash(f === 0.5 ? [4, 3] : []);
       ctx.strokeStyle = f === 0 ? c('--chart-axis') : c('--chart-grid');
@@ -248,7 +311,7 @@ export class SxTimeChart extends LitElement {
       const xm = (segs[i].x0 + segs[i].w + segs[i + 1].x0) / 2;
       ctx.beginPath();
       ctx.moveTo(xm, PAD.t);
-      ctx.lineTo(xm, H - PAD.b);
+      ctx.lineTo(xm, this.h - PAD.b);
       ctx.stroke();
     }
     ctx.setLineDash([]);
@@ -260,13 +323,13 @@ export class SxTimeChart extends LitElement {
     ctx.textAlign = 'left';
     for (const s of segs) {
       if (s.x0 - lastX < 80) continue;
-      ctx.fillText(fmtT(s.t0), s.x0, H - 5);
+      ctx.fillText(fmtT(s.t0), s.x0, this.h - 5);
       lastX = s.x0;
     }
     const last = segs[segs.length - 1];
     if (last.x0 + last.w - lastX > 150) {
       ctx.textAlign = 'right';
-      ctx.fillText(fmtT(last.t1), last.x0 + last.w, H - 5);
+      ctx.fillText(fmtT(last.t1), last.x0 + last.w, this.h - 5);
     }
 
     // Reihen
@@ -283,14 +346,14 @@ export class SxTimeChart extends LitElement {
             if (v == null) continue;
             const px = x(i);
             if (!started) {
-              ctx.moveTo(px, H - PAD.b);
+              ctx.moveTo(px, this.h - PAD.b);
               started = true;
             }
             ctx.lineTo(px, this.y(v, s.axis));
             lx = px;
           }
           if (started) {
-            ctx.lineTo(lx, H - PAD.b);
+            ctx.lineTo(lx, this.h - PAD.b);
             ctx.closePath();
             ctx.globalAlpha = 0.14;
             ctx.fillStyle = color;
@@ -328,8 +391,8 @@ export class SxTimeChart extends LitElement {
       const mx = this.markX(m.time);
       if (mx === null) continue;
       ctx.beginPath();
-      ctx.moveTo(mx, H - PAD.b - 7);
-      ctx.lineTo(mx, H - PAD.b);
+      ctx.moveTo(mx, this.h - PAD.b - 7);
+      ctx.lineTo(mx, this.h - PAD.b);
       ctx.stroke();
     }
 
@@ -391,8 +454,8 @@ export class SxTimeChart extends LitElement {
       ctx.strokeStyle = cssVar(this, '--c-photo');
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(ax, H - PAD.b - 12);
-      ctx.lineTo(ax, H - PAD.b + 2);
+      ctx.moveTo(ax, this.h - PAD.b - 12);
+      ctx.lineTo(ax, this.h - PAD.b + 2);
       ctx.stroke();
     }
     const i = this.hoverIndex();
@@ -402,7 +465,7 @@ export class SxTimeChart extends LitElement {
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(px + 0.5, PAD.t - 4);
-    ctx.lineTo(px + 0.5, H - PAD.b);
+    ctx.lineTo(px + 0.5, this.h - PAD.b);
     ctx.stroke();
     for (const s of this.series) {
       const v = s.value(this.points[i]);
@@ -441,7 +504,7 @@ export class SxTimeChart extends LitElement {
   private onClick(e: MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     // nur nahe am unteren Rand, wo die Ticks liegen
-    if (e.clientY - rect.top < H - PAD.b - 24) return;
+    if (e.clientY - rect.top < this.h - PAD.b - 24) return;
     const m = this.markAt(e.clientX - rect.left);
     if (m) emit(this, 'sx-photo-open', { id: m.id });
   }
@@ -450,7 +513,7 @@ export class SxTimeChart extends LitElement {
     const i = this.hoverIndex();
     const p = i >= 0 ? this.points[i] : null;
     return html`
-      <div class="wrap" role="img" aria-label=${this.summary()}>
+      <div class="scroll"><div class="wrap" role="img" aria-label=${this.summary()}>
         <canvas class="base"></canvas>
         <canvas
           class="overlay"
@@ -459,14 +522,26 @@ export class SxTimeChart extends LitElement {
           @click=${this.onClick}
           @pointerleave=${(e: PointerEvent) => e.pointerType === 'mouse' && emit(this, 'sx-hover-time', null)}
         ></canvas>
-      </div>
+      </div></div>
       <div class="legend">
         ${this.series.map((s) => {
           const v = p ? s.value(p) : null;
           return html`<span><i style="background:var(${s.colorVar})"></i>${s.label}${v != null ? html` <b>${fmtNum(v, s.decimals)} ${s.unit}</b>` : ''}</span>`;
         })}
         ${p ? html`<span class="time">${fmtShort(p.time)}</span>` : ''}
+        ${this.large
+          ? ''
+          : html`<button class="btn ghost small zoom" type="button" title="Großansicht" aria-label="${this.label || 'Diagramm'} vergrößern" @click=${() => (this.zoomed = true)}>${icon('expand')}</button>`}
       </div>
+      ${this.large
+        ? ''
+        : html`<dialog aria-label=${this.label || 'Diagramm'} @close=${() => (this.zoomed = false)}>
+            <header><h2>${this.label || 'Verlauf'}</h2><button class="btn ghost icon" aria-label="Schließen" @click=${() => (this.zoomed = false)}>${icon('x')}</button></header>
+            <div class="body">${this.zoomed
+              ? html`<sx-time-chart large .points=${this.points} .series=${this.series} .left=${this.left} .right=${this.right} .refLine=${this.refLine}
+                  .hoverTime=${this.hoverTime} .marks=${this.marks} .activeMark=${this.activeMark} label=${this.label}></sx-time-chart>`
+              : ''}</div>
+          </dialog>`}
     `;
   }
 }
