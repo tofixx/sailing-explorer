@@ -23,6 +23,3 @@ export const notifyLevelSql = (event: NotifyEvent, isDirect: boolean, ...stored:
   const levels = levelsNotifying(event, isDirect);
   return levels.length ? `${effectiveLevelSql(...stored)} IN (${list(levels)})` : '0';
 };
-
-/** Verlauf nicht stumm (persönlicher Stream, Wochenmail, F-346): gespeicherte Stufe ist nicht `muted`. */
-export const notMutedSql = (stored: string): string => `${stored} IS NOT 'muted'`;

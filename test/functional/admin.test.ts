@@ -611,3 +611,33 @@ describe('Admin-Bereich: Entscheidungen 18.13 (Erinnerung, Einblick, Begründung
     expect(await json<{ action: string; notified: boolean }>(await lock('harbors', hb.id))).toMatchObject({ action: 'lock', notified: false });
   });
 });
+
+describe('Admin: Stufen bei Übergabe und Zusammenführen (Konzept 24)', () => {
+  it('[F-446] Übergabe an eine Follower:in: Mitgliedschaft mit übernommener Stufe, das Folgen fällt weg', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const g = await s.group(owner);
+    const fan = await s.person({ profile: 'public' });
+    expect((await s.send('PUT', `/api/follows/group/${g.id}`, fan.cookie)).status).toBe(200);
+    expect((await s.send('PUT', `/api/notify/group/${g.id}`, fan.cookie, { level: 'all' })).status).toBe(200);
+    expect((await A('POST', `/api/admin/groups/${g.id}/owner`, { userId: fan.user.id })).status).toBe(200);
+    expect(await one<{ role: string; notify_level: string }>('SELECT role, notify_level FROM group_members WHERE group_id = ? AND user_id = ?', g.id, fan.user.id)).toEqual({ role: 'owner', notify_level: 'all' });
+    expect(await one(`SELECT 1 AS x FROM follows WHERE user_id = ? AND target_kind = 'group' AND target_id = ?`, fan.user.id, g.id)).toBeNull();
+  });
+
+  it('[F-446] [F-449] Konten zusammenführen: Stufen wandern mit; Folgen einer Gruppe, in der das Ziel Mitglied ist, fällt weg', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const g = await s.group(owner);
+    const boatOwner = await s.person({ profile: 'public' });
+    const boat = await s.boat(boatOwner);
+    const into = await s.person({ profile: 'public' });
+    const from = await s.person();
+    await s.join(owner, g, into);
+    // Quelle folgt der Gruppe (in der das Ziel Mitglied ist) und dem Boot mit eigener Stufe
+    expect((await s.send('PUT', `/api/follows/group/${g.id}`, from.cookie)).status).toBe(200);
+    expect((await s.send('PUT', `/api/follows/boat/${boat.id}`, from.cookie)).status).toBe(200);
+    expect((await s.send('PUT', `/api/notify/boat/${boat.id}`, from.cookie, { level: 'all' })).status).toBe(200);
+    expect((await A('POST', `/api/admin/users/${from.user.id}/merge`, { into: into.user.id, confirm: from.user.id })).status).toBe(200);
+    expect(await one(`SELECT 1 AS x FROM follows WHERE user_id = ? AND target_kind = 'group' AND target_id = ?`, into.user.id, g.id)).toBeNull();
+    expect(await one<{ notify_level: string }>(`SELECT notify_level FROM follows WHERE user_id = ? AND target_kind = 'boat' AND target_id = ?`, into.user.id, boat.id)).toEqual({ notify_level: 'all' });
+  });
+});

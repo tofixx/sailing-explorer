@@ -238,7 +238,7 @@ export function notificationText(n: Pick<NotificationItem, 'kind' | 'count' | 'a
     case 'request':
       return n.count > 1 ? `${n.count} neue Beitrittsanfragen für ${quoted(n.title)}` : `${who} möchte ${quoted(n.title)} beitreten`;
     case 'post':
-      return `${who} hat in ${quoted(n.title)} geschrieben`;
+      return n.what === 'voyage' ? `${who} hat einen Törn geteilt: ${quoted(n.title)}` : `${who} hat in ${quoted(n.title)} geschrieben`;
     case 'expiry':
       return `${quoted(n.title)} wird ${n.what} gelöscht – unterstützen, um ihn zu behalten`;
     case 'passkey':

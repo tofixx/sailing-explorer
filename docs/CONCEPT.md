@@ -3165,7 +3165,8 @@ Mitgliedschaft und Benachrichtigen sind nicht sauber getrennt. Die Entscheidunge
 | Mitgliederliste | `worker/groups.ts` `getGroup` | Namen mit öffentlichem Profil, „+ n weitere“ | alle, die die Gruppe sehen | F-441: je Einstellung, Standard nur Mitglieder |
 | Boote der Gruppe | `worker/groups.ts` `getGroup` | öffentliche Boote (Boot → Eigner) | alle | F-442: wie Mitgliederliste |
 | Teams eines Vereins, Verein eines Teams | `worker/groups.ts` `getGroup` | öffentliche Teams bzw. Verein | alle | unverändert: Gruppen mit eigener Sichtbarkeit, keine Personen |
-| Kennzahlen, Titelbild, Galerie | `getGroup`, `groupStats`, `galleryPhotos` | Zahlen, öffentliche Fotos öffentlicher Törns | alle | unverändert (Betreiber: Zahlen bleiben) |
+| Kennzahlen, Titelbild | `getGroup`, `groupStats` | Zahlen | alle | unverändert (Betreiber: Zahlen bleiben) |
+| Törns der Mitglieder im Gruppen-Stream, Galerie der Gruppe | `stream-shape.ts` (`voyage`, `photos`, `logbook`), `galleryPhotos` | öffentliche Törns, die in der Gruppe gezeigt werden | alle (auch im öffentlichen Cache, RSS) | F-442: bei Liste „nur Mitglieder“ nur für Mitglieder (24.7 Nr. 7); im Profil und in der Community bleibt der Törn öffentlich |
 | Beitritte im Stream | `worker/stream-shape.ts` `case 'member'`, `worker/activity.ts` `recordMember` | „X ist beigetreten“, Spaßname je Konto gleich | Gäste (öffentlicher Gruppen-Stream, „Alles“, „Umgebung“, `?club=`, 60 s gecacht), Follower | F-443: nur Mitglieder derselben Gruppe |
 | Boot in Gruppe im Stream | `stream-shape.ts` `case 'boat'` | „Neues Boot in …“ | wie Beitritte | F-442 |
 | RSS | `worker/feed.ts`, `feed-xml.ts` | Beitritte mit Name/Spaßname, 600 s gecacht | alle | F-443: keine Beitritte |
@@ -3194,6 +3195,7 @@ Mitgliedschaft und Benachrichtigen sind nicht sauber getrennt. Die Entscheidunge
 | Beitrag öffentlich | ja (bei sichtbarer Gruppe), Ausbreitung je „Sichtbar bis“ | ja | ja | ja | ja |
 | Beitrag „Nur Mitglieder“ | nie | nie | ja | ja | Moderation über Meldungen |
 | Boote der Gruppe (Liste, „Verein des Boots“, Stream) | wie Mitgliederliste | wie Mitgliederliste | ja | ja (+ eigene Boote immer) | wie angemeldet |
+| Törns, Fotos, Fahrtenbuch-Bündel der Mitglieder im Gruppen-Stream und in der Galerie; „In Gruppe gezeigt“ am Törn | wie Mitgliederliste | wie Mitgliederliste | ja | ja | wie angemeldet |
 | Teams eines Vereins | öffentliche | öffentliche + eigene | öffentliche + eigene | wie Mitglied | wie angemeldet |
 
 Plattform-Admins bekommen auf normalen Seiten keine zusätzlichen Namen (least privilege); was die Moderation braucht,
@@ -3242,8 +3244,15 @@ Push) bleibt; sein „Aus“ entfällt – ob überhaupt benachrichtigt wird, en
   Community-Stream, RSS) wird ohne Betrachter berechnet und enthält daher nie Beitritte. Boots-Einträge hängen dort nur
   an der (für alle gleichen) Einstellung der Gruppe; nach dem Umschalten wirkt der Cache nach höchstens 60 s (RSS 600 s).
 - **Benachrichtigungen:** `notifyPost` (Text-Beitrag ab „Alle Beiträge“; Pin, Umfrage, Veranstaltung ab „Wichtiges“; an
-  Mitglieder und – nur bei öffentlichen Beiträgen – Follower), `notifyRequest` (direkt, nicht bei „Stumm“). Automatische
-  Einträge rufen nie eine Benachrichtigung auf; die Wochenmail zählt keine Beitritte mehr.
+  Mitglieder und – nur bei öffentlichen Beiträgen öffentlicher Gruppen – Follower; die Follower-Stufe zählt nur ohne
+  Mitgliedschaft; Hafen und Boot: wer dort Boot bzw. Heimathafen hat und folgt, bekommt die höhere Stufe; beim Pin ist
+  die Autor:in die handelnde Person, weder sie noch wer anpinnt wird benachrichtigt), `notifyShare` (Törn bzw.
+  Fahrtenbuch-Eintrag als Beitrag: Mitglieder der gewählten Gruppen, deren Follower nur bei öffentlicher Gruppe und
+  Liste, Eigner/Admins und Follower des Boots; beim ersten Erscheinen bzw. neu gewählten Gruppen, je Konto einmal je
+  Törn; Fotos nie einzeln; Ausbreitung nie), `notifyRequest` (direkt, nicht bei „Stumm“ – außer der Eigner, wenn nur er
+  bestätigen darf). Automatische Einträge rufen nie eine Benachrichtigung auf; die Wochenmail zählt keine Beitritte.
+- **Altbestand:** Vor 0032 löschte ein Beitritt das Folgen nicht; 0032 entfernt solche Doppel, und Empfänger-Abfragen
+  sowie die Übersicht werten die Follower-Stufe ohnehin nur ohne Mitgliedschaft.
 - **Löschpfade:** alle neuen Werte hängen an bestehenden Zeilen und fallen mit ihnen: Austritt/Entfernen
   (`group_members`), Entfolgen (`follows`), Gruppe gelöscht (`removeGroup`), Konto gelöscht (Cascade/`purgeUserGroups`),
   Konten zusammengeführt (Stufen wandern mit, Folgen einer Gruppe, in der man Mitglied ist, fällt weg), Häfen
@@ -3255,7 +3264,8 @@ Push) bleibt; sein „Aus“ entfällt – ob überhaupt benachrichtigt wird, en
 
 | Art (`activity.kind`) | Klasse | Darstellung | Benachrichtigt |
 |---|---|---|---|
-| `voyage`, `photos`, `logbook`, `post` | Beitrag | Karte | je Stufe (F-416, F-449) |
+| `voyage`, `logbook`, `post` | Beitrag | Karte | je Stufe (F-416, F-449; Törns über `notifyShare`) |
+| `photos` | Beitrag | Karte | nie einzeln – nur als Teil des Törns |
 | `member`, `boat`, `harbor`, `milestone` | automatisch | graue Systemzeile, ausblendbar | nie (F-448) |
 
 Austritt, Team angelegt und Rollenwechsel erzeugen keine Stream-Einträge (Austritt löscht den Beitritt); kämen sie
@@ -3265,8 +3275,9 @@ dazu, wären sie „automatisch“ (Typprüfung über `STREAM_KIND_CLASS`). Der 
 `shouldNotify(level, event, isDirect)`: Stumm nie; automatisch nie; Direktes ab „Nur Direktes“; Wichtiges ab
 „Wichtiges“; jeder Beitrag nur bei „Alle Beiträge“. Die Glocke (`sx-notify-bell` mit `MenuController`/`menuStyles`,
 mobil als Sheet; Symbole Glocke, Glocke mit Punkt, kleine Glocke, durchgestrichen) steht für Mitglieder im Kopf der
-Gruppenseite, für Folgende im Knopf „Folgst du ▾“, in „Meine Gruppen“ und in der Übersicht unter Konto →
-Einstellungen (Mitgliedschaften und Folgen getrennt, mit Voreinstellung). Häfen und Boote ohne Folgen (eigenes Boot,
+Gruppenseite, für Folgende im Knopf „Folgst du ▾“ und in der Übersicht unter Konto → Einstellungen →
+Benachrichtigungen (Mitgliedschaften und Folgen getrennt, mit Voreinstellung) – bearbeitet wird nur dort. Konto →
+Gruppen zeigt die Stufe als Symbol mit Link zur Gruppe (UX N9, bewusste Ausnahme). Häfen und Boote ohne Folgen (eigenes Boot,
 Heimathafen) nutzen die Voreinstellung des Kontos.
 
 ### 24.7 Entscheidungen des Betreibers (02.11.2026)
@@ -3280,6 +3291,16 @@ Heimathafen) nutzen die Voreinstellung des Kontos.
    Eigentümer:in. Öffentliche Gruppen-Beiträge auf dem Profil bleiben (bewusster Inhalt).
 5. Die Verzögerung durch öffentliche Caches nach dem Umschalten der Listen-Einstellung – Streams höchstens 60 s, RSS
    höchstens 600 s – ist akzeptiert.
+
+6. Törns sind Beiträge und benachrichtigen je Stufe (`notifyShare`): beim ersten Erscheinen in einer gewählten Gruppe
+   bzw. am Boot, bei „Alle Beiträge“; Fotos nur als Teil des Törns, die Ausbreitung nach oben nie, gebündelt je Törn.
+7. In Gruppen mit Mitgliederliste „nur Mitglieder“ erscheinen Törns, Fotos und Fahrtenbuch-Bündel der Mitglieder im
+   Gruppen-Stream und in der Galerie nur für Mitglieder (`ReadAt.memberContent`); Gäste und andere sehen dort nur
+   öffentliche Text-Beiträge. Der öffentliche Cache (ohne Betrachter) enthält sie damit nie; der Törn bleibt im Profil
+   und in der Community öffentlich.
+8. Die Glockenstufe wird an genau zwei Stellen bearbeitet: am Objekt (Seitenkopf) und in Konto → Benachrichtigungen;
+   Konto → Gruppen zeigt sie nur als Symbol mit Link. Vermerkt als Ausnahme von N9, „Folgst du ▾“ + „Beitreten“ als
+   Ausnahme von N5 (UX-NAVIGATION).
 
 Noch offen: Umfragen und Veranstaltungen gibt es noch nicht; die Regel stuft sie als „wichtig“ ein, sobald sie kommen.
 

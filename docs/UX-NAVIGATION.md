@@ -256,6 +256,10 @@ Reihenfolge: (1) die Beziehungs-Aktion – *Folgen* bzw. *Beitreten/Mitglied* (n
 nichts, (2) *Teilen* (immer gleich beschriftet „Teilen“, gleicher Stil). Alles andere liegt im **Zahnrad-Menü** als
 dritter, letzter Knopf.
 
+*Bewusste Ausnahme (Konzept 24.3, F-446):* Folgende sehen zwei Beziehungs-Knöpfe – „✓ Folgst du ▾“ (mit Glockenstufe und
+Entfolgen) und „Beitreten“ –, weil Folgen keine Vorstufe der Mitgliedschaft ist und beide Wege offen bleiben müssen.
+Mitglieder sehen statt „Folgen“ die Glocke; „Austreten“ bleibt im Zahnrad.
+
 **N6 – Zahnrad heißt Seiten-Menü.** Das Zahnrad rechts im Kopf enthält, je nach Rolle: *Bearbeiten · Titelbild ·
 Sichtbarkeit · Ansehen als … · Stummschalten · Austreten · Verifizieren lassen · Melden · Löschen*. Kein anderes
 Element trägt das Zahnrad. „Bearbeiten“ öffnet immer dasselbe Muster (Formular unter dem Kopf auf der Seite selbst,
@@ -272,6 +276,9 @@ Knopfleisten für Bereiche gibt es nicht mehr.
 **N9 – Verwalten am Objekt, nicht im Konto.** Was zu einem Objekt gehört (Törn, Boot, Gruppe, Beitrag), wird auf
 dessen Seite über das Zahnrad verwaltet. Der Konto-Dialog enthält nur Kontodinge (Profil-Stammdaten, Anmeldung,
 Benachrichtigungen, Unterstützung, Konto löschen) und keine zweite Liste von Objekten.
+*Bewusste Ausnahme (Konzept 24.6, F-449):* Die Glockenstufe wird an genau zwei Stellen bearbeitet – am Objekt (Glocke im
+Seitenkopf) und in Konto → Benachrichtigungen als Überblick über alle Verläufe. Konto → Gruppen zeigt die Stufe nur
+als Symbol mit Link zur Gruppe, nicht bearbeitbar.
 
 **N10 – Jede Adresse führt zu einem konkreten Ziel.** Links aus Glocke, Mail und Teilen zeigen auf das Objekt mit
 Anker (`/p/<id>`, `#kommentar-<id>`, `?foto=`, `?bereich=`); ist das Ziel nicht sichtbar, erscheint der Eintrag nicht –

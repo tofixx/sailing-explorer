@@ -77,6 +77,10 @@ export async function listChannels(request: Request, env: Env): Promise<Response
        LEFT JOIN boats b ON f.target_kind = 'boat' AND b.id = f.target_id
        LEFT JOIN harbors h ON f.target_kind = 'harbor' AND h.id = f.target_id
        WHERE f.user_id = ?1
+         -- Folgen einer Gruppe, in der man Mitglied ist, zählt nicht (F-446; Altbestand vor 0032)
+         AND NOT (f.target_kind = 'group' AND EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = f.target_id AND m.user_id = ?1))
+         -- Profil ohne Profilnamen: keine gültige Kennung für die Glocke
+         AND NOT (f.target_kind = 'user' AND p.handle IS NULL)
        ORDER BY f.target_kind, name LIMIT 1000`,
     ).bind(user.id),
     env.DB.prepare('SELECT notify_prefs FROM users WHERE id = ?').bind(user.id),

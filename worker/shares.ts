@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { notifyShare } from './notifications';
 import { readShareReach, sharePostStmt } from './post-sql';
 import { currentUser, requireUser } from './auth';
 import { canManageBoat } from './boats';
@@ -327,7 +328,11 @@ export async function createShare(request: Request, env: Env): Promise<Response>
   });
   const saved = await getShareRow(env, row.id);
   // Neuigkeiten (Konzept 11.3): nur öffentliche Törns kommen ins Log.
-  if (row.visibility === 'public') await recordVoyage(env, row, now);
+  if (row.visibility === 'public') {
+    await recordVoyage(env, row, now);
+    // ein Törn ist ein Beitrag: Gruppen und Boot nach Stufe (F-449)
+    await notifyShare(env, row.id);
+  }
   return json({ share: { ...shareShape(saved ?? row, true), groupIds: await selectedGroupIds(env, row.id) } }, { status: 201 });
 }
 
@@ -439,6 +444,8 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
   if (previous !== 'public' && row.visibility === 'public') {
     await (row.source === 'manual' && isBackfill(row.started_at, row.created_at) ? recordLogbook(env, row, row.updated_at) : recordVoyage(env, row, row.updated_at));
   }
+  // erstes Erscheinen in einer Gruppe bzw. erstmals öffentlich: benachrichtigen (je Konto höchstens einmal je Törn, F-449)
+  if (row.visibility === 'public' && (previous !== 'public' || groupIds)) await notifyShare(env, row.id);
   // mit Kontext wie GET: die Törn-Ansicht übernimmt die Antwort (Gruppen folgen der neuen Sichtbarkeit)
   return json({ share: await shareDetail(env, saved ?? row, true, user.id) });
 }

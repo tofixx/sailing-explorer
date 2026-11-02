@@ -10,10 +10,15 @@ ALTER TABLE groups ADD COLUMN members_visible TEXT NOT NULL DEFAULT 'members';
 ALTER TABLE group_members ADD COLUMN notify_level TEXT;
 ALTER TABLE follows ADD COLUMN notify_level TEXT;
 
--- Bestand: stumm geschaltete Mitgliedschaften werden „Stumm“ (muted_at wird danach nicht mehr gelesen) …
+-- Bestand: Folgen und Mitgliedschaft schließen sich jetzt aus (F-446). Vorher hat ein Beitritt das Folgen nicht
+-- gelöscht – solche Doppel fallen weg (eine eigene Stufe am Folgen gab es vor 0032 nicht).
+DELETE FROM follows WHERE target_kind = 'group'
+  AND EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = follows.target_id AND m.user_id = follows.user_id);
+
+-- Stumm geschaltete Mitgliedschaften werden „Stumm“ (muted_at wird danach nicht mehr gelesen) …
 UPDATE group_members SET notify_level = 'muted' WHERE muted_at IS NOT NULL;
 
 -- … und wer „Neue Beiträge“ bisher eingeschaltet hatte (Glocke, Mail oder Push), bekommt als Voreinstellung „Alle
 -- Beiträge“ – so ändert sich für niemanden still, was er bekommt. Der Kanal (Glocke/Mail/Push) bleibt.
 UPDATE users SET notify_prefs = json_set(notify_prefs, '$.level', 'all')
-  WHERE notify_prefs IS NOT NULL AND json_valid(notify_prefs) AND json_extract(notify_prefs, '$.post') IN ('none', 'mail', 'push');
+  WHERE (CASE WHEN json_valid(notify_prefs) THEN json_extract(notify_prefs, '$.post') END) IN ('none', 'mail', 'push');
