@@ -315,13 +315,10 @@ describe('Startseite = Community (F-260, F-261)', () => {
     expect(text(on)).toMatch(/Als Unterstützer:in mehr.*Fotos/);
   });
 
-  it('[F-261] Angemeldete: „Dein Bereich“ statt Werbung, ohne Dopplung zur Willkommens-Karte', async () => {
-    const accounts = listen('sx-account');
+  it('[F-261] [F-428] Angemeldete: keine Werbung und kein zweiter Weg zum Eigenen – das ist das Konto-Menü oben', async () => {
     const el = await mount('sx-join-card', { signedIn: true });
     expect(button(el, /Anmelden/)).toBeUndefined();
-    expect([...el.shadowRoot.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/entdecken#vereine']);
-    for (const b of [/Törns und Freigaben/, /Boote/, /Profil/]) button(el, b)!.click();
-    expect(accounts).toEqual(['shares', 'boats', 'profile']);
+    expect(el.shadowRoot.textContent!.trim()).toBe('');
   });
 
   it('[F-260] Hauptspalte: Entdecken und Stream – Gäste Entdecken zuerst, angemeldet der Stream; Seitenleiste: Hochladen und Mitmachen', async () => {

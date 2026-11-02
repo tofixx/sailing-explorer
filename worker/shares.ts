@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { sharePostStmt } from './post-sql';
+import { readShareReach, sharePostStmt } from './post-sql';
 import { currentUser, requireUser } from './auth';
 import { canManageBoat } from './boats';
 import { randomId } from './crypto';
@@ -10,7 +10,7 @@ import { deleteKeys, photoKeysForShares, previewKey, shareKey } from './photo-ke
 import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
 import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, replacePayloadStmt, subtractShareStmt } from './storage';
 import { deleteShareNotifications } from './notification-cleanup';
-import { deleteShareActivity, deleteShareGroups, recordLogbook, recordVoyage } from './activity';
+import { deleteShareActivity, deleteShareGroups, recordLogbook, recordVoyage, syncShareActivity } from './activity';
 import { checkGroupIds, insertShareGroupsStmt, presetShareGroupsStmt, replaceShareGroups, selectedGroupIds, selectedGroupsOf } from './share-groups';
 import { deleteShareReactions } from './reaction-cleanup';
 import { quotaVerdict } from '../src/domain/limits';
@@ -21,6 +21,7 @@ import { voyageRole, type VoyageRole } from '../src/domain/crew-roles';
 import { clearConfirmations } from './crew-cleanup';
 export { EXPIRES_SQL };
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
+import { isReach, type Reach } from '../src/domain/posts';
 import { initialLogState, isBackfill, isDistSource, isLogState, plausibleGpx, readLog, type DistSource, type LogState, type ShareSource } from '../src/domain/logbook';
 import { applyLogPatch, type LogPatchBody } from './logbook';
 
@@ -67,6 +68,8 @@ export interface ShareRow {
   log?: string;
   /** „Ins Fahrtenbuch“ (0029, F-422): confirmed | suggested | excluded */
   log_state?: string;
+  /** „Sichtbar bis“ aus der Post-Zeile (F-427) */
+  reach?: string | null;
   /** aus dem JOIN mit boats */
   boat_name?: string | null;
   boat_visibility?: string | null;
@@ -88,7 +91,7 @@ const harborAt = (id: string | null | undefined, slug: string | null | undefined
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
-const SHARE_COLS = `s.*, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at,
+const SHARE_COLS = `s.*, (SELECT reach FROM posts WHERE id = s.id) AS reach, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at,
   hf.slug AS hf_slug, hf.name AS hf_name, hf.lat AS hf_lat, hf.lon AS hf_lon, ht.slug AS ht_slug, ht.name AS ht_name, ht.lat AS ht_lat, ht.lon AS ht_lon`;
 const SHARE_FROM = `shares s LEFT JOIN boats b ON b.id = s.boat_id
   LEFT JOIN harbors hf ON hf.id = s.from_harbor_id AND hf.hidden_at IS NULL
@@ -133,6 +136,8 @@ export function shareShape(row: ShareRow, isOwner: boolean, withLog = true) {
     ...(withLog ? { log: readLog(row.log) } : {}),
     // „Ins Fahrtenbuch“ (F-422) nur für die Eigentümer:in; Unbekanntes zählt wie ein Vorschlag
     ...(isOwner ? { logState: (isLogState(row.log_state) ? row.log_state : 'suggested') as LogState } : {}),
+    // „Sichtbar bis“ (F-427) nur für die Eigentümer:in
+    ...(isOwner ? { reach: (isReach(row.reach) ? row.reach : 'all') as Reach } : {}),
   };
 }
 
@@ -258,6 +263,8 @@ export async function createShare(request: Request, env: Env): Promise<Response>
   // „In Gruppen zeigen“ (F-373): JSON-Liste der Gruppen-IDs (`[]` = keine); fehlt der Header, gelten die Gruppen des Boots.
   const rawGroups = h.get('X-Share-Groups');
   const groupIds = rawGroups === null ? null : await checkGroupIds(env, user.id, parseJsonHeader(rawGroups));
+  // „Sichtbar bis“ (F-427): fehlt der Header, wie bisher „überall“
+  const reach = readShareReach(h.get('X-Share-Reach') ?? undefined);
 
   const bytes = await readBodyCapped(request, Math.min(LIMITS.uploadBytes, remaining)).catch((e: unknown) => {
     if (e instanceof HttpError && e.status === 413) throw new HttpError(413, 'too_large', 'Upload zu groß (max. 12 MB komprimiert) oder Kontingent erschöpft.');
@@ -311,7 +318,7 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     ),
     addStorageStmt(env, row.size_bytes),
     // Post-Zeile mit derselben ID (Konzept 21.3, F-400) – im selben Batch, damit Törn und Beitrag zusammen entstehen
-    sharePostStmt(env, row.id, user.id, 'gpx', now),
+    sharePostStmt(env, row.id, user.id, 'gpx', now, reach),
     ...(groupIds ? [insertShareGroupsStmt(env, row.id, groupIds, now)] : boatId ? [presetShareGroupsStmt(env, row.id, user.id, boatId, now)] : []),
   ]).catch(async (err: unknown) => {
     // nur aufräumen, wenn die Zeile wirklich fehlt (ein Timeout kann trotz Schreiben einen Fehler melden)
@@ -369,7 +376,7 @@ export async function getShareData(request: Request, env: Env, id: string): Prom
 /** PATCH /api/shares/:id – Titel, Sichtbarkeit, Link erneuern (rotateKey), Boot, gespeicherte Ansicht, Gruppen. */
 export async function updateShare(request: Request, env: Env, id: string): Promise<Response> {
   const { row, user } = await ownedShare(request, env, id);
-  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown; commentsMode?: unknown; groupIds?: unknown; logState?: unknown } & LogPatchBody>(request);
+  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown; commentsMode?: unknown; groupIds?: unknown; logState?: unknown; reach?: unknown } & LogPatchBody>(request);
   const previous = row.visibility;
   const previousBoat = row.boat_id;
   if (body.title !== undefined) {
@@ -399,6 +406,7 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
   }
   // „In Gruppen zeigen“ (F-375) – geprüft vor dem Schreiben; ein anderes Boot ändert die Auswahl nicht.
   const groupIds = body.groupIds === undefined ? null : await checkGroupIds(env, user.id, body.groupIds);
+  const reach = body.reach === undefined ? null : readShareReach(body.reach);
   // Fahrtenbuch-Angaben und Häfen; bei Einträgen ohne GPX auch Datum und Strecke (F-301)
   const { payload } = await applyLogPatch(env, user, row, body);
   const boatChanged = body.boatId !== undefined && row.boat_id !== previousBoat;
@@ -421,7 +429,11 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
       row.summary, row.log ?? '{}', row.from_harbor_id ?? null, row.to_harbor_id ?? null, row.started_at, row.ended_at ?? null, row.dist_nm, row.dist_source ?? 'track', row.size_bytes, row.log_state ?? 'suggested', row.id,
     ),
   ]);
+  // „Sichtbar bis“ (F-427) an der Post-Zeile; danach Ziele angleichen (auch mit neuer Gruppen-Auswahl)
+  if (reach) await env.DB.prepare('UPDATE posts SET reach = ?, updated_at = ? WHERE id = ?').bind(reach, row.updated_at, row.id).run();
   if (groupIds) await env.DB.batch(replaceShareGroups(env, row.id, user.id, groupIds, row.updated_at));
+  // Boot, Sichtbarkeit oder „Sichtbar bis“ geändert: Ziele aus derselben Funktion wie beim Anlegen neu (F-427)
+  else if (reach || boatChanged || row.visibility !== previous) await env.DB.batch(syncShareActivity(env, row.id));
   const saved = await getShareRow(env, row.id);
   // Erst öffentlich geschaltet: jetzt (einmal je Törn) in die Neuigkeiten – Fahrtenbuch-Nachträge gebündelt (F-308).
   if (previous !== 'public' && row.visibility === 'public') {

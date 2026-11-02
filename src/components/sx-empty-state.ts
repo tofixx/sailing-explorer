@@ -10,9 +10,10 @@ export interface Sample {
 /**
  * Startseite über der Karte (Konzept 12.6, F-182, F-260). Mit Community (`community`) ist sie die Community-Seite:
  * Hauptspalte mit Entdecken-Vorschau (Slot „discover“) und Stream (Slot „feed“) – Gäste sehen zuerst Entdecken,
- * Angemeldete (`stream-first`) zuerst ihren Stream. Seitenleiste: „Eigenen Törn anlegen“ (kompakte Karte, mobil ein
- * runder Knopf unten rechts) und „Mitmachen“ (Slot „join“). Ohne Community (kein Backend): die große Einstiegskarte
- * wie bisher. Ziehen & Ablegen geht immer – beim Ziehen erscheint eine Ablagefläche. Unten Impressum und Datenschutz.
+ * Angemeldete (`stream-first`) zuerst ihren Stream. Seitenleiste: „Eigenen Törn anlegen“ (kompakte Karte mit Hinweis
+ * auf „+ Neu“ – der eine Einstieg zum Anlegen, F-405) und „Mitmachen“ (Slot „join“). Ohne Community (kein Backend):
+ * die große Einstiegskarte wie bisher. Ziehen & Ablegen geht immer als stiller Schnellweg – beim Ziehen erscheint eine
+ * Ablagefläche. Unten Impressum und Datenschutz.
  */
 export class SxEmptyState extends LitElement {
   static properties = {
@@ -59,8 +60,7 @@ export class SxEmptyState extends LitElement {
         min-width: 0;
       }
       .card,
-      footer,
-      .fab {
+      footer {
         pointer-events: auto;
       }
 
@@ -294,40 +294,13 @@ export class SxEmptyState extends LitElement {
         }
       }
 
-      /* ---------- mobil: runder Knopf „Track anlegen“ ---------- */
-      .fab {
-        display: none;
-      }
+      /* ---------- mobil: Anlegen über „+ Neu“ in der Kopfzeile, die kompakte Karte entfällt ---------- */
       @media (max-width: 760px) {
         :host {
-          padding: var(--s-2) var(--s-2) calc(var(--s-6) + 56px);
+          padding: var(--s-2) var(--s-2) var(--s-6);
         }
         :host([community]) .side .card.compact {
           display: none;
-        }
-        :host([community]) .fab {
-          position: fixed;
-          right: var(--s-4);
-          bottom: calc(var(--s-4) + env(safe-area-inset-bottom, 0px));
-          z-index: 900;
-          display: grid;
-          place-items: center;
-          width: 56px;
-          height: 56px;
-          border-radius: 50%;
-          border: 0;
-          background: var(--accent);
-          color: var(--on-accent);
-          box-shadow: var(--shadow-2);
-          cursor: pointer;
-        }
-        .fab svg {
-          width: 26px;
-          height: 26px;
-        }
-        .fab:focus-visible {
-          outline: none;
-          box-shadow: var(--focus), var(--shadow-2);
         }
       }
 
@@ -397,11 +370,6 @@ export class SxEmptyState extends LitElement {
     return html`<div class="privacy">${icon('lock')} Dateien werden lokal im Browser ausgewertet.</div>`;
   }
 
-  /** Fahrtenbuch (Konzept 19, F-300): Törn ohne GPX eintragen – Gäste melden sich dafür erst an (L5). */
-  private logbookLink() {
-    return html`<div class="hint">Kein Track? <button class="link" @click=${() => emit(this, 'sx-logbook-start')}>${icon('book')} Ins Fahrtenbuch eintragen</button></div>`;
-  }
-
   /** Große Einstiegskarte (ohne Community). */
   private bigCard() {
     return html`<section class="card" aria-labelledby="t">
@@ -413,24 +381,21 @@ export class SxEmptyState extends LitElement {
             <div class="hint">${this.trackCount === 1 ? '1 Track geladen' : `${this.trackCount} Tracks geladen`} · <button class="link" @click=${() => pickGpx(this)}>weitere GPX hinzufügen</button></div>`
         : html`<button class="btn primary" @click=${() => pickGpx(this)}>${icon('upload')} GPX-Dateien wählen</button>
             <div class="hint drag-hint">oder einfach auf die Karte ziehen</div>`}
-      ${this.logbookLink()} ${this.samplesRow()} ${this.privacy()}
+      ${this.samplesRow()} ${this.privacy()}
     </section>`;
   }
 
-  /** Kompakte Karte „Track anlegen“ in der Seitenspalte (mit Community). */
+  /** Kompakte Karte in der Seitenspalte (mit Community): erklärt „+ Neu“, führt zurück zum geladenen Törn. */
   private compactCard() {
     return html`<section class="card compact" aria-labelledby="t">
       <div class="top">
         <div class="badge">${icon('map')}</div>
         <h2 id="t">${this.trackCount ? 'Dein Törn ist geladen' : 'Eigenen Törn anlegen'}</h2>
       </div>
-      <p>GPX-Datei laden: Track auf der Seekarte mit Speed, Wind und Wellen – teilen, wenn du magst.</p>
-      <div class="actions">
-        ${this.trackCount ? html`<button class="btn primary" @click=${() => emit(this, 'sx-track-view')}>${icon('map')} Zurück zu deinem Törn</button>` : ''}
-        <button class="btn" @click=${() => pickGpx(this)}>${icon('upload')} ${this.trackCount ? 'Weitere GPX' : 'GPX-Datei wählen'}</button>
-      </div>
-      <div class="hint drag-hint">oder einfach auf die Seite ziehen</div>
-      ${this.logbookLink()} ${this.samplesRow()} ${this.privacy()}
+      <p>Über <b>+ Neu</b> oben: GPX-Track auf der Seekarte mit Speed, Wind und Wellen, Fahrtenbuch-Eintrag oder Beitrag.</p>
+      ${this.trackCount ? html`<div class="actions"><button class="btn primary" @click=${() => emit(this, 'sx-track-view')}>${icon('map')} Zurück zu deinem Törn</button></div>` : ''}
+      <div class="hint drag-hint">GPX-Dateien kannst du auch einfach auf die Seite ziehen.</div>
+      ${this.samplesRow()} ${this.privacy()}
     </section>`;
   }
 
@@ -453,8 +418,6 @@ export class SxEmptyState extends LitElement {
         <div class="side">${this.compactCard()}<slot name="join"></slot></div>
       </div>
       ${this.footer()}
-      <button class="fab" type="button" aria-label=${this.trackCount ? 'Weitere GPX-Dateien laden' : 'Track anlegen – GPX-Datei laden'} title="Track anlegen"
-        @click=${() => pickGpx(this)}>${icon('plus')}</button>
       ${drop}`;
   }
 }

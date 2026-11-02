@@ -5,8 +5,8 @@ import {
   setMemberRole, transferGroup, muteGroup, updateGroup, withdrawRequest,
 } from './groups';
 import { inviteGroup } from './invites';
-import { createPost, createProfilePost, deletePost, listMyPosts } from './posts';
-import { groupStream, markStreamSeen, personalStream, streamUnread } from './stream';
+import { createChannelPost, createPost, createProfilePost, deletePost, getCompose, getPost, listMyPosts, updatePost } from './posts';
+import { boatStream, groupStream, markStreamSeen, personalStream, streamUnread } from './stream';
 import { follow, getSuggestions, unfollow } from './follows';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { createHarbor, getHarbor, searchHarbors, updateHarbor } from './harbors';
@@ -39,6 +39,12 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['POST', new RegExp(`^/api/groups/${ID}/posts$`), (r, env, [id]) => createPost(r, env, id)],
   ['GET', new RegExp(`^/api/groups/${ID}/stream$`), (r, env, [id]) => groupStream(r, env, id)],
   ['DELETE', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => deletePost(r, env, id)],
+  // Phase 2 (Konzept 21.12): Plus-Knopf, „Sichtbar bis“, `/p/<id>`, Hafen- und Boots-Verlauf
+  ['GET', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => getPost(r, env, id)],
+  ['PATCH', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => updatePost(r, env, id)],
+  ['POST', /^\/api\/posts$/, (r, env) => createChannelPost(r, env)],
+  ['GET', /^\/api\/me\/compose$/, (r, env) => getCompose(r, env)],
+  ['GET', new RegExp(`^/api/boats/${ID}/stream$`), (r, env, [id]) => boatStream(r, env, id)],
   // Beiträge als Grundtyp (Konzept 21): „Mein Verlauf“ und Text-Beiträge im eigenen Profil
   ['GET', /^\/api\/me\/posts$/, (r, env) => listMyPosts(r, env)],
   ['POST', /^\/api\/me\/posts$/, (r, env) => createProfilePost(r, env)],

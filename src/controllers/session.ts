@@ -27,7 +27,8 @@ import { DEFAULT_CONTENT, imageFileName, renderShareImage, type ImageContent, ty
 import { visibleTracks, type Store } from '../services/store';
 import { turnstileMount } from '../services/turnstile';
 import { absoluteLink, routePath, serializeView } from '../services/url-state';
-import { DEFAULT_VISIBILITY, type Visibility } from '../domain/visibility';
+import { DEFAULT_VISIBILITY, isAppPath, type Visibility } from '../domain/visibility';
+import type { Reach } from '../domain/posts';
 import type { AccountTab, SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxCrew } from '../components/sx-crew';
 import type { SxInviteDialog } from '../components/sx-invite-dialog';
@@ -56,6 +57,8 @@ export interface ShareRequest {
   includeView: boolean;
   /** „In Gruppen zeigen“ (F-373); null = Gruppen des Boots */
   groupIds: string[] | null;
+  /** „Sichtbar bis“ (F-427) */
+  reach?: Reach;
 }
 
 /** localStorage: „never“ = nach der Anmeldung per Mail keinen Passkey mehr anbieten (auf diesem Gerät) */
@@ -850,6 +853,7 @@ export class SessionController {
         visibility: d.visibility,
         boatId: d.boatId,
         groupIds: d.groupIds,
+        reach: d.reach,
         distNm,
         startedAt,
         endedAt,
@@ -895,13 +899,19 @@ export class SessionController {
 
   /** Pfad einer eigenen Seite (/b/…, /u/…, /s/…) als absoluten Link kopieren. */
   copyPath(path: string): Promise<void> {
-    if (!/^\/[sbug]\/[A-Za-z0-9/-]+$/.test(path)) return Promise.resolve();
+    if (!isAppPath(path)) {
+      console.warn('copyPath: kein Pfad der App', path);
+      return Promise.resolve();
+    }
     return this.copy(location.origin + path);
   }
 
 /** Profil-/Bootsseite teilen: Teilen-Menü des Geräts, sonst Link kopieren. */
   async sharePage(path: string, title: string): Promise<void> {
-    if (!/^\/[sbug]\/[A-Za-z0-9/-]+$/.test(path)) return;
+    if (!isAppPath(path)) {
+      console.warn('sharePage: kein Pfad der App', path);
+      return;
+    }
     const url = location.origin + path;
     if (navigator.share) {
       try {
@@ -976,6 +986,9 @@ export class SessionController {
     return this.act(async () => {
       const { profile } = await api.saveProfile(p);
       Object.assign(this.ui.account, { profile, profileExists: true });
+      // Konto-Menü (F-428): „Meine Seite“ führt ab jetzt zum (neuen) Profilnamen
+      const user = this.store.get().user;
+      if (user) this.store.set({ user: { ...user, handle: profile.handle, displayName: profile.displayName } });
     }, p.rotateKey ? ROTATED : 'Profil gespeichert');
   }
 

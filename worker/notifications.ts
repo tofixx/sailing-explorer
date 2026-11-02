@@ -316,10 +316,10 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
       return { ...base, title: r.s_title, what: 'deinen Törn', href: sharePath('s', r.subject_id, r.s_vis ?? 'private', r.s_key) };
     case 'post':
       if (r.p_author !== userId || r.p_hidden) return null;
-      // Beitrag im eigenen Profil (F-420): zum eigenen Profil
-      if (!r.p_group) return { ...base, title: '', what: 'deinen Beitrag', href: r.p_handle ? `/u/${r.p_handle}` : '/' };
+      // Beiträge haben keine eigene Seite: `/p/<id>` führt zum Anker im Heimatverlauf (F-406)
+      if (!r.p_group) return { ...base, title: '', what: 'deinen Beitrag', href: `/p/${r.subject_id}` };
       if (!r.g_slug || r.g_hidden || r.g_locked || !r.g_role) return null;
-      return { ...base, title: r.g_name ?? '', what: 'deinen Beitrag in', href: groupHref() };
+      return { ...base, title: r.g_name ?? '', what: 'deinen Beitrag in', href: `/p/${r.subject_id}` };
     case 'activity':
       if (r.a_actor !== userId) return null;
       return { ...base, title: '', what: 'deine Neuigkeit', href: '/' };

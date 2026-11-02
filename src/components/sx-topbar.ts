@@ -2,7 +2,9 @@ import { LitElement, css, html, nothing } from 'lit';
 import type { User } from '../services/api';
 import type { Mode } from '../services/store';
 import { icon, logo } from './icons';
-import { base, emit, pickGpx } from './shared';
+import { base, emit } from './shared';
+import './sx-compose';
+import './sx-account-menu';
 
 /** Angezeigter Bereich: Törn-Ansicht, Community (Startseite), Entdecken oder eine andere Seite (Profil, Gruppe …). */
 export type TopbarSection = 'track' | 'community' | 'discover' | 'page';
@@ -186,13 +188,6 @@ export class SxTopbar extends LitElement {
         .brand .name {
           display: none;
         }
-        .btn.upload .label-text {
-          display: none;
-        }
-        .btn.upload {
-          padding: 0;
-          width: var(--control-h);
-        }
         }
       }
       /* Glocke (Konzept 17): Zähler oben rechts am Knopf */
@@ -309,12 +304,6 @@ export class SxTopbar extends LitElement {
           width: var(--control-h);
         }
       }
-      /* Startseite mobil: Hochladen ist der runde Knopf unten rechts bzw. die Einstiegskarte (Konzept 12.6) */
-      @media (max-width: 760px) {
-        :host([home]) .btn.upload {
-          display: none;
-        }
-      }
       @media (max-width: 420px) {
         .brand .name {
           display: none;
@@ -407,9 +396,7 @@ export class SxTopbar extends LitElement {
       ${this.chip()}
       <span class="spacer"></span>
       <div class="actions">
-        <button class="btn collapse upload" @click=${() => pickGpx(this)} title="Track anlegen – GPX-Dateien laden" aria-label="Track anlegen">
-          ${icon('upload')}<span class="label-text">Track anlegen</span>
-        </button>
+        <sx-compose></sx-compose>
         ${this.hasTracks && this.home && !this.backend
           ? html`<button class="btn collapse" @click=${() => emit(this, 'sx-track-view')} title="Zurück zur Törn-Ansicht">
               ${icon('map')}<span class="label-text">Mein Törn</span>
@@ -440,9 +427,7 @@ export class SxTopbar extends LitElement {
                 >
                   ${icon('bell')}${this.bell ? html`<span class="badge" aria-hidden="true">${this.bell}</span>` : nothing}
                 </button>
-                <button class="btn ghost icon" @click=${() => emit(this, 'sx-account')} title="Konto & Freigaben (${this.user.email})" aria-label="Konto & Freigaben">
-                <span class="avatar">${this.user.email[0]}</span>
-              </button>`
+                <sx-account-menu .user=${this.user}></sx-account-menu>`
             : html`<button class="btn login keep" @click=${() => emit(this, 'sx-login')} title="Per E-Mail-Link anmelden – Tracks speichern und teilen">
                 ${icon('user')}<span class="label-text">Anmelden</span>
               </button>`

@@ -2539,9 +2539,10 @@ Anleger:in“ prüft vorher `mayAdoptHarbor` (`worker/claim-cleanup.ts`) – je 
 
 ## 21. Beiträge als Grundtyp
 
-Stand: 02.11.2026, **Entscheidungen des Betreibers eingearbeitet (21.0), Phase 1 umgesetzt (21.11).** Anforderungs-IDs
-hier sind Platzhalter (**F-400 ff.**) und werden erst bei der Umsetzung nach `docs/REQUIREMENTS.md` übernommen – vergeben
-sind F-400, F-401, F-402, F-404, F-415 (Bedeutung wie unten) und neu F-420 … F-423 (21.11).
+Stand: 02.11.2026, **Entscheidungen des Betreibers eingearbeitet (21.0), Phase 1 (21.11) und Phase 2 (21.12) umgesetzt.**
+Anforderungs-IDs hier sind Platzhalter (**F-400 ff.**) und werden erst bei der Umsetzung nach `docs/REQUIREMENTS.md`
+übernommen – vergeben sind F-400, F-401, F-402, F-404, F-405, F-406, F-409, F-415 (Bedeutung wie unten), F-420 … F-424
+(21.11) und F-425 … F-428 (21.12).
 
 Anlass (Betreiber): *„Ich denke es macht Sinn, Posts als solche zu definieren und diese können dann ein GPX-Törn sein,
 oder Umfrage, Veranstaltung mit Check-in, Fotos oder nur ein Fahrtenbuch-Eintrag. Alle Typen sollten über den
@@ -2950,6 +2951,54 @@ Abweichungen bzw. Festlegungen gegenüber 21.2–21.7:
   `PRAGMA defer_foreign_keys = ON`, sonst fallen alle Post-Zeilen der Törns (Hinweis auch in `0029_posts.sql`).
 - **„Ins Fahrtenbuch“ beim Speichern** gibt es nur per API (`X-Share-Log-State`, `logState`); in der Oberfläche liegt
   der Schalter in Phase 1 am Eintrag in „Mein Verlauf“. `logState` liefert der Server nur der Eigentümer:in.
+
+### 21.12 Umsetzung Phase 2 (02.11.2026)
+
+Migration `0030_post_reach.sql`, Regeln `src/domain/posts.ts` (Kette, Stufen, Schreibrechte Hafen/Boot), SQL-Fragment
+`worker/reach-sql.ts` (eine Stelle für „Sichtbar bis“ in Abfragen), Verläufe `worker/post-chain.ts`, Worker
+`worker/posts.ts` (`POST /api/posts`, `PATCH`/`GET /api/posts/:id`, `GET /api/me/compose`), `worker/stream.ts`
+(Boots-Stream, Einzelkarte), Oberfläche `sx-compose`, `sx-compose-dialog`, `sx-reach-picker`, `sx-account-menu`, Abläufe
+`controllers/compose.ts` und `controllers/post-link.ts`.
+
+| Anforderung | Inhalt |
+|---|---|
+| F-405 | „+ Neu“ als einziger Einstieg zum Anlegen (Törn GPX, Fahrtenbuch, Text), „Wo steht es?“ mit Vorauswahl der offenen Seite |
+| F-406 | `/p/<id>` mit Anker im Heimatverlauf, Einzelkarte, Link-Vorschau, „Nur mit Link“ für Text-Beiträge, Permalink an der Zeitangabe |
+| F-409 | Ausbreitung nach oben bis „Sichtbar bis“, Ziele beim Schreiben, Prüfung beim Lesen, Ändern ohne Sprung nach oben |
+| F-425 | Hafen- und Boots-Verlauf: Schreibrechte (B6), Streams, Löschkonzept |
+| F-426 | Text-Beitrag mit eigenem Törn als Anhang |
+| F-427 | „Sichtbar bis“ für Törns, Ziele aus einer Funktion für Anlegen und Ändern |
+| F-428 | Konto-Menü (Meine Seite, Mein Fahrtenbuch, Konto & Einstellungen), Reiter „Fahrtenbuch“ in „Mein Verlauf“ – Wunsch des Betreibers |
+
+Abweichungen bzw. Festlegungen gegenüber 21.2–21.7:
+
+- **Weiterleitung von `/p/<id>` im Browser statt per HTTP-Redirect:** Der Worker liefert die App mit Link-Vorschau (erste
+  Zeile); die App ersetzt die Adresse durch den Heimatverlauf mit `#p-<id>`. Ein 302 hätte Messenger-Vorschauen auf die
+  Gruppen- bzw. Hafenseite umgelenkt. Für die Einzelkarte nutzt die App die Profilseiten-Hülle (`kind: 'post'`).
+- **Standard „Sichtbar bis“:** Die Oberfläche schlägt „überall“ vor. Ohne Angabe (ältere Oberflächen, API) gilt für
+  Gruppen, Häfen und Boote „überall“ (bisheriges Verhalten der Gruppen-Beiträge), im Profil „nur hier“ (Phase 1).
+- **Bestand (Migration 0030):** öffentliche Gruppen-Beiträge stehen auf „überall“ – sie erschienen schon in „Alles“ und
+  „Umgebung“ (21.11) und bleiben dort; Ziele kommen keine dazu, nichts erscheint neu in Verein oder Hafen.
+- **Profil-Kette:** Profil → Heimathafen der Person → Community; „bis Hafen“ wird angeboten, wenn die Person einen
+  Heimathafen hat (21.7 nennt ihn als Weg in die Umgebung). Teams ohne Verein breiten sich über ihren eigenen Heimathafen aus.
+- **Lesen:** Gruppen-, Hafen- und Community-Streams prüfen Stufe und Öffentlichkeit beim Lesen; der persönliche Stream
+  folgt den beim Schreiben angeglichenen Zielen. Öffentliche Streams sind 60 s gecacht (wie 11.12): ein herabgesetzter
+  Beitrag kann dort so lange noch erscheinen. „Nur Mitglieder“, „Nur mit Link“, „Nur ich“ und Vorschauen kommen nie in
+  einen Cache.
+- **Törns:** „nur hier“ = Profil und gewählte Gruppen (ohne Boot), „bis Verein“ zusätzlich Vereine gewählter Teams,
+  „bis Hafen“ zusätzlich Boot, Hafen des Boots und Hafenseite. Ziele von Törn und Fotos entstehen beim Anlegen und bei
+  jeder Änderung (Auswahl, Boot, Sichtbarkeit, „Sichtbar bis“) aus derselben Funktion. **Offen:** Fahrtenbuch-Bündel
+  (F-308) und Austritt aus einer Gruppe nutzen noch eigene Ziel-Anweisungen (Boot im Bündel erst ab „bis Hafen“);
+  `/entdecken` listet öffentliche Törns weiter unabhängig von „Sichtbar bis“.
+- **Hafen schreiben (B6):** Boot zählt als Eigner oder Boots-Admin; Anleger:in bzw. Vertretung und Moderation dürfen
+  auch. Löschen eines Hafen- oder Boots-Beitrags: Autor:in (Pins und Moderation über das Menü folgen in Phase 3).
+- **Ein Einstieg je Aufgabe (Leitlinie des Betreibers):** „+ Neu“ ersetzt „Track anlegen“, den runden Knopf und „Ins
+  Fahrtenbuch eintragen“; „Mein Verlauf“ hat kein eigenes Schreibfeld mehr, die eigene Seite keine zweite Törn-Liste; das
+  Konto-Menü ersetzt die Karte „Dein Bereich“. Die Gruppenseite behält ihr Schreibfeld (dasselbe Formular wie der Dialog,
+  mit „Sichtbar bis“ und Anhang). Die große Einstiegskarte ohne Backend bleibt. „Ansehen als …“ hat ein Auge statt des
+  Zahnrads; ein gemeinsames Seiten-Menü (Bearbeiten, Titelbild, Ansehen als, Melden) folgt.
+- **Benachrichtigungen:** Neue Beiträge benachrichtigen weiterhin nicht (F-416 folgt); Reaktionen verlinken `/p/<id>`.
+- Fotos an Beiträgen kommen mit Phase 7; Ablauffrist für Text-Beiträge weiter offen (21.11).
 
 ### 21.10 Fragen an den Betreiber – entschieden 02.11.2026
 

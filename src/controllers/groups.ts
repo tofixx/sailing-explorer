@@ -1,4 +1,4 @@
-import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type PostInput, type StreamFilter, type StreamPage } from '../services/api';
+import { ApiError, api, groupApi, postApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type PostInput, type StreamFilter, type StreamPage } from '../services/api';
 import { locate, nearCenter, readNearPrefs, writeNearPrefs, type NearPrefs } from '../services/near-prefs';
 import { roundCoord, type NearRadius, type StreamMode } from '../domain/near';
 import type { NearInfo } from '../components/sx-home-feed';
@@ -7,6 +7,7 @@ import type { SxGroupPage } from '../components/sx-group-page';
 import type { SxHomeFeed } from '../components/sx-home-feed';
 import type { SxProfilePage } from '../components/sx-profile-page';
 import { errorText } from './session';
+import { canWriteInGroup, effectivePostBy } from '../domain/posts';
 
 export interface GroupsUi {
   page: SxGroupPage;
@@ -76,11 +77,15 @@ export class GroupsController {
     page.data = data;
     page.signedIn = this.signedIn();
     document.title = `${data.group.name} · Sail Explorer`;
-    const [stream, boats] = await Promise.all([
-      groupApi.stream(data.group.id, null, this.current.key).catch(() => ({ items: [], cursor: null }) as StreamPage),
-      data.group.role ? api.myBoats().then((r) => r.boats).catch(() => []) : Promise.resolve([]),
+    const g = data.group;
+    const [stream, boats, compose] = await Promise.all([
+      groupApi.stream(g.id, null, this.current.key).catch(() => ({ items: [], cursor: null }) as StreamPage),
+      g.role ? api.myBoats().then((r) => r.boats).catch(() => []) : Promise.resolve([]),
+      // „Sichtbar bis“ mit Kette und eigene Törns zum Anhängen – nur, wer hier schreiben darf (F-409, F-426)
+      canWriteInGroup(g.role, effectivePostBy(g.kind, g.postBy)) ? postApi.compose(`group:${g.id}`).catch(() => null) : Promise.resolve(null),
     ]);
-    Object.assign(page, { stream, myBoats: boats });
+    const target = compose?.targets.find((t) => t.ref.kind === 'group' && t.id === g.id) ?? null;
+    Object.assign(page, { stream, myBoats: boats, compose: target ? { target, shares: compose!.shares } : null });
   }
 
   async openCreate(): Promise<void> {
@@ -229,7 +234,7 @@ export class GroupsController {
   }
 
   async createPost(d: { groupId: string } & PostInput) {
-    if (await this.act(() => groupApi.post(d.groupId, { body: d.body, link: d.link, visibility: d.visibility }), 'Veröffentlicht')) this.ui.page.clearComposer?.();
+    if (await this.act(() => groupApi.post(d.groupId, { body: d.body, link: d.link, visibility: d.visibility, reach: d.reach, shareId: d.shareId }), 'Veröffentlicht')) this.ui.page.clearComposer?.();
   }
 
   async deletePost(id: string) {

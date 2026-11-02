@@ -358,6 +358,25 @@ describe('F-01/F-02 Dateien laden', () => {
     await vi.waitFor(() => expect(state().tracks.map((t) => t.name)).toEqual(['Gedroppt']));
   });
 
+  it('[F-405] „+ Neu → Törn (GPX)“ öffnet die Dateiauswahl noch im Klick (ohne Anmeldung); die Wahl lädt wie Ziehen & Ablegen', async () => {
+    await startApp();
+    const opened: HTMLInputElement[] = [];
+    const spy = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (this: HTMLInputElement) {
+      opened.push(this);
+    });
+    try {
+      emit('sx-compose-open', { kind: 'gpx' });
+      expect(opened).toHaveLength(1);
+      expect(opened[0].type).toBe('file');
+      expect(opened[0].accept).toContain('.gpx');
+      Object.defineProperty(opened[0], 'files', { value: [file('neu.gpx', leg('Neu'))] });
+      opened[0].dispatchEvent(new Event('change'));
+      await vi.waitFor(() => expect(state().tracks.map((t) => t.name)).toEqual(['Neu']));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('[F-01] Routen- und Wegpunkt-Dateien werden ebenfalls geladen', async () => {
     await startApp();
     await load(file('r.gpx', gpxDoc(genPoints({ n: 5 }), 'Route', 'rte')), file('w.gpx', gpxDoc(genPoints({ n: 5 }), 'Wegpunkte', 'wpt')));

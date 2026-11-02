@@ -11,6 +11,8 @@ import './sx-title-edit';
 import './sx-support';
 import './sx-filter-select';
 import './sx-share-groups';
+import './sx-reach-picker';
+import { SHARE_REACH_OPTIONS, type Reach } from '../domain/posts';
 import { presetGroupIds, type ShareGroupChoice } from '../domain/groups';
 
 /** Was nach dem Hochladen wer sieht – ein Satz je Stufe (Konzept 1.1). */
@@ -79,6 +81,8 @@ export class SxShareDialog extends LitElement {
     offer: { state: true },
     boatId: { state: true },
     groupIds: { state: true },
+    /** „Sichtbar bis“ (F-427) – nur bei öffentlich */
+    reach: { state: true },
     savedGroupIds: { state: true },
   };
   declare open: boolean;
@@ -97,6 +101,7 @@ export class SxShareDialog extends LitElement {
   declare boatId: string;
   /** im Formular gewählte Gruppen; null = noch nicht angefasst → Gruppen des Boots */
   declare groupIds: string[] | null;
+  declare reach: Reach;
   /** gespeicherter Törn: vorläufige Auswahl bis zur Antwort des Servers (null = Stand des Törns) */
   declare savedGroupIds: string[] | null;
   declare image: ImageState | null;
@@ -129,6 +134,7 @@ export class SxShareDialog extends LitElement {
     this.groupChoices = [];
     this.boatId = '';
     this.groupIds = null;
+    this.reach = 'all';
     this.savedGroupIds = null;
     this.image = null;
     this.supportTiers = null;
@@ -327,6 +333,7 @@ export class SxShareDialog extends LitElement {
         this.offer = false;
         this.boatId = '';
         this.groupIds = null;
+        this.reach = 'all';
         dlg.showModal();
       } else if (!this.open && dlg.open) dlg.close();
     }
@@ -394,6 +401,7 @@ export class SxShareDialog extends LitElement {
       boatId: String(data.get('boat') || '') || null,
       includeView: data.get('view') === 'on',
       groupIds: this.groupChoices.length ? this.chosenGroups() : null,
+      reach: this.visibility === 'public' ? this.reach : 'all',
     });
   }
 
@@ -415,6 +423,13 @@ export class SxShareDialog extends LitElement {
       ></sx-share-groups>
       ${this.busy ? html`<div class="hint" role="status">Speichere …</div>` : ''}
       ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}`;
+  }
+
+  /** Gespeicherter öffentlicher Törn (Eigentümer:in): „Sichtbar bis“ sofort ändern (F-427). */
+  private savedReach(r: ShareResult) {
+    if (!r.share.isOwner || r.share.visibility !== 'public' || !r.share.reach) return '';
+    return html`<sx-reach-picker .options=${SHARE_REACH_OPTIONS} .value=${r.share.reach}
+      @sx-reach-change=${(e: CustomEvent<{ reach: Reach }>) => emit(this, 'sx-share-update', { id: r.share.id, patch: { reach: e.detail.reach } })}></sx-reach-picker>`;
   }
 
   private async copy() {
@@ -446,7 +461,7 @@ export class SxShareDialog extends LitElement {
         Liegt in deinem Konto – ${VISIBILITY_LABEL[vis]}.
       </p>
       ${this.resultTitle(r)}
-      ${this.savedGroups(r)}
+      ${this.savedGroups(r)} ${this.savedReach(r)}
       <div class="actions">
         <button class="btn" @click=${this.close}>Schließen</button>
         <button class="btn primary" @click=${() => {
@@ -477,7 +492,7 @@ export class SxShareDialog extends LitElement {
           <a class="btn" href=${r.url} target="_blank" rel="noopener">${icon('open')} Öffnen</a>
           ${r.share.isOwner ? html`<button class="btn" @click=${() => emit(this, 'sx-account')}>${icon('folder')} Konto &amp; Freigaben</button>` : ''}
         </div>
-        ${this.savedGroups(r)}
+        ${this.savedGroups(r)} ${this.savedReach(r)}
         ${this.supportTiers && !this.supportStatus?.supporter
           ? html`<sx-support class="support" variant="offer" .tiers=${this.supportTiers} .status=${this.supportStatus} ?busy=${this.checkoutBusy}></sx-support>`
           : ''}
@@ -545,6 +560,10 @@ export class SxShareDialog extends LitElement {
         .selected=${this.chosenGroups()}
         @sx-share-groups-change=${(e: CustomEvent<{ groupIds: string[] }>) => (this.groupIds = e.detail.groupIds)}
       ></sx-share-groups>
+      ${this.visibility === 'public'
+        ? html`<sx-reach-picker .options=${SHARE_REACH_OPTIONS} .value=${this.reach}
+            @sx-reach-change=${(e: CustomEvent<{ reach: Reach }>) => (this.reach = e.detail.reach)}></sx-reach-picker>`
+        : ''}
       <label class="check"><input type="checkbox" name="view" checked /> Aktuelle Ansicht mitgeben (Einfärbung &amp; Ebenen)</label>
       <div class="note warn">${icon('info')}<span>Die GPX-Dateien werden mit allen Positionen und Zeitstempeln gespeichert, dazu das Übersichtsbild für die Link-Vorschau. Du kannst die Freigabe jederzeit unter „Konto &amp; Freigaben“ ändern oder löschen.</span></div>
       ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}

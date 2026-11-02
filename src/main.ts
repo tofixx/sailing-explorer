@@ -32,6 +32,7 @@ import './components/sx-harbor-picker';
 import './components/sx-legal-page';
 import './components/sx-notifications';
 import './components/sx-logbook-form';
+import './components/sx-compose-dialog';
 import './components/sx-logbook-panel';
 import { App } from './app';
 

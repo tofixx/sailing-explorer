@@ -63,3 +63,9 @@ export const isPhotoVisibility = (v: unknown): v is PhotoVisibility => v === 'pu
 
 /** Effektive Sichtbarkeit eines Fotos: nie sichtbarer als sein Törn. */
 export const effectivePhotoVisibility = (photo: PhotoVisibility, share: Visibility): Visibility => minVisibility(photo, share);
+
+/**
+ * Pfad einer teilbaren Seite der App (Törn, Boot, Profil, Gruppe, Hafen, Beitrag `/p/<id>`) – nur solche werden als
+ * Link kopiert bzw. geteilt, nie fremde Adressen.
+ */
+export const isAppPath = (path: string): boolean => /^\/[sbughp]\/[A-Za-z0-9/-]+$/.test(path);

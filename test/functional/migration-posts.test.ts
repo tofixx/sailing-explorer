@@ -1,5 +1,6 @@
 // Migrationstest 0029 (F-400, F-422): bestehende Gruppen-Beiträge bekommen ihren Heimatverlauf (nur hier), jeder
 // Törn eine Post-Zeile mit derselben ID; „Ins Fahrtenbuch“: eigene Einträge bestätigt, GPX-Törns Vorschlag.
+// Danach 0030 (F-409): öffentliche Gruppen-Beiträge auf „überall“, damit sie in „Alles“/„Umgebung“ bleiben.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations, migrationFiles, startWorker, type Harness } from './worker-harness';
 
@@ -16,7 +17,7 @@ beforeAll(async () => {
   await run(`INSERT INTO shares (id, user_id, title, visibility, size_bytes, track_count, created_at, updated_at) VALUES ('MigPostGpxAAAAAAA1', 'MigPostUserAAAAAA1', 'GPX', 'private', 1, 1, ?, ?)`, T, T);
   await run(`INSERT INTO shares (id, user_id, title, visibility, size_bytes, track_count, created_at, updated_at, source) VALUES ('MigPostLogAAAAAAA1', 'MigPostUserAAAAAA1', 'Log', 'public', 1, 1, ?, ?, 'manual')`, T + 1, T + 1);
   expect(migrationFiles({ from: '0029' })[0]).toBe('0029_posts.sql');
-  await applyMigrations(db, migrationFiles({ from: '0029' }));
+  await applyMigrations(db, migrationFiles({ from: '0029', before: '0030' }));
 }, 60_000);
 afterAll(async () => {
   await h?.dispose();
@@ -42,5 +43,22 @@ describe('F-400 Migration Beiträge als Grundtyp', () => {
     expect(await db.prepare(`SELECT log_state FROM shares WHERE id = 'MigPostLogAAAAAAA1'`).first()).toEqual({ log_state: 'confirmed' });
     await db.prepare(`INSERT INTO shares (id, user_id, title, size_bytes, track_count, created_at, updated_at) VALUES ('MigPostNewAAAAAAA1', 'MigPostUserAAAAAA1', 'Neu', 1, 1, 1, 1)`).bind().run();
     expect(await db.prepare(`SELECT log_state FROM shares WHERE id = 'MigPostNewAAAAAAA1'`).first()).toEqual({ log_state: 'suggested' });
+  });
+});
+
+describe('F-409 Migration 0030: Bestand bleibt in der Community', () => {
+  it('[F-409] öffentliche Gruppen-Beiträge → „überall“; „Nur Mitglieder“, Profil-Beiträge und Törns unverändert', async () => {
+    const db = await h.db();
+    const run = (sql: string, ...args: unknown[]) => db.prepare(sql).bind(...args).run();
+    await run(`INSERT INTO posts (id, author_id, group_id, body, created_at, channel_kind, channel_id, visibility, reach) VALUES ('MigPostMembAAAAAA1', 'MigPostUserAAAAAA1', 'MigPostClubAAAAAA1', 'Intern', ?, 'group', 'MigPostClubAAAAAA1', 'members', 'here')`, T);
+    await run(`INSERT INTO posts (id, author_id, body, created_at, channel_kind, channel_id, visibility, reach) VALUES ('MigPostProfAAAAAA1', 'MigPostUserAAAAAA1', 'Profil', ?, 'user', 'MigPostUserAAAAAA1', 'public', 'here')`, T);
+    const files = migrationFiles({ from: '0030', before: '0031' });
+    expect(files).toEqual(['0030_post_reach.sql']);
+    await applyMigrations(db, files);
+    const reach = async (id: string) => (await db.prepare('SELECT reach FROM posts WHERE id = ?').bind(id).first<{ reach: string }>())?.reach;
+    expect(await reach('MigPostNewsAAAAAA1')).toBe('all');
+    expect(await reach('MigPostMembAAAAAA1')).toBe('here');
+    expect(await reach('MigPostProfAAAAAA1')).toBe('here');
+    expect(await reach('MigPostLogAAAAAAA1')).toBe('all');
   });
 });

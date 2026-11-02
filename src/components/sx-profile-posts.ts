@@ -1,33 +1,43 @@
-import { LitElement, html } from 'lit';
+import { LitElement, html, nothing, type PropertyValues } from 'lit';
 import { GROUP_KIND_LABEL } from '../domain/groups';
 import { whoSeesLabel, type ProfilePost } from '../domain/posts';
 import { fmtDateTime } from '../util/html';
 import { icon } from './icons';
-import { POST_VISIBILITY_ICON, base, emit, linkedText, postCardStyles } from './shared';
+import { POST_VISIBILITY_ICON, base, emit, highlightStyles, linkedText, postCardStyles, revealCard } from './shared';
 
 /**
  * Beiträge einer Person für Besucher (F-420): im Profil und in Gruppen, die der Betrachter sehen darf – der Server
  * prüft, hier wird nur gezeigt. „Wo steht es“ nennt die Gruppe; „Nur Mitglieder“ ist gekennzeichnet. Meldet `sx-report`.
  */
 export class SxProfilePosts extends LitElement {
-  static properties = { items: { attribute: false }, preview: { type: Boolean } };
+  static properties = { items: { attribute: false }, preview: { type: Boolean }, highlight: { type: String } };
   declare items: ProfilePost[];
   /** in der Vorschau „Ansehen als …“ kein Melden */
   declare preview: boolean;
+  /** Beitrag aus `/p/<id>` hervorheben (F-406) */
+  declare highlight: string | null;
 
   constructor() {
     super();
     this.items = [];
     this.preview = false;
+    this.highlight = null;
   }
 
-  static styles = [base, postCardStyles];
+  static styles = [base, postCardStyles, highlightStyles];
+
+  private shown: string | null = null;
+
+  updated(changed: PropertyValues<this>) {
+    if (!this.highlight || (!changed.has('highlight') && !changed.has('items')) || this.shown === this.highlight) return;
+    if (revealCard(this.renderRoot as ShadowRoot, this.highlight)) this.shown = this.highlight;
+  }
 
   render() {
     if (!this.items.length) return '';
     return html`<ol class="posts">
       ${this.items.map(
-        (p) => html`<li class="post" id="p-${p.id}">
+        (p) => html`<li class="post ${p.id === this.highlight ? 'hl' : ''}" id="p-${p.id}" tabindex=${p.id === this.highlight ? -1 : nothing}>
           <div class="head">
             ${icon('comment')}
             <span class="t">${p.group ? html`Beitrag in <a href="/g/${p.group.slug}">${GROUP_KIND_LABEL[p.group.kind]} ${p.group.name}</a>` : 'Beitrag'}</span>

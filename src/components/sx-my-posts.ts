@@ -1,12 +1,14 @@
-import { LitElement, css, html } from 'lit';
+import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
 import { LOG_STATE_LABEL, logStateOn, type LogState } from '../domain/logbook';
-import { MY_POST_AREAS, whereLabel, whoSeesLabel, type MyPost, type MyPostArea, type PostVisibility } from '../domain/posts';
+import {
+  MY_POST_AREAS, POST_VISIBILITY_CHOICE, REACH_LABEL, channelKey, channelName, channelPath, whereLabel, whoSeesLabel,
+  type ComposeTarget, type MyPost, type MyPostArea, type PostVisibility, type Reach,
+} from '../domain/posts';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
-import { POST_VISIBILITY_ICON, base, emit, linkedText, postCardStyles } from './shared';
-import './sx-post-composer';
+import { POST_VISIBILITY_ICON, base, emit, highlightStyles, linkedText, postCardStyles, revealCard } from './shared';
+import './sx-reach-picker';
 import './sx-title-edit';
-import type { SxPostComposer } from './sx-post-composer';
 
 const KIND_ICON: Partial<Record<MyPost['kind'], IconName>> = { voyage: 'map', logbook: 'book', text: 'comment' };
 
@@ -14,9 +16,11 @@ const KIND_ICON: Partial<Record<MyPost['kind'], IconName>> = { voyage: 'map', lo
  * „Mein Verlauf“ auf der eigenen Seite (Konzept 21.2, B12, F-401): alle eigenen Törns, Fahrtenbuch-Einträge und
  * Beiträge – jede Sichtbarkeit, jeder Verlauf. Jede Karte trennt „Wer sieht es“ (Sichtbarkeit) und „Wo steht es“
  * (Verlauf); „Nur ich“ steht zusätzlich im Bereich „Privat“. Dazu ein Text-Beitrag im eigenen Profil (F-420) und am
- * Törn der Schalter „Ins Fahrtenbuch“ (F-422). Rein präsentational – Events: `sx-my-posts-area` { area },
- * `sx-my-posts-more`, `sx-my-post-create` { body, link, visibility }, `sx-my-post-delete` { id, kind },
- * `sx-log-state` { id, logState }.
+ * Törn der Schalter „Ins Fahrtenbuch“ (F-422). Reiter „Alles · Fahrtenbuch · Nur ich“ (F-428; leeres Fahrtenbuch mit
+ * „Eintrag hinzufügen“). Neues entsteht nur über „+ Neu“. Text-Beiträge tragen „Sichtbar bis“, Teilen (mit Schlüssel
+ * bei „Nur mit Link“) und „Sichtbarkeit“ ändern (F-409). Rein präsentational – Events: `sx-my-posts-area` { area },
+ * `sx-my-posts-more`, `sx-my-post-delete` { id, kind }, `sx-my-post-update` { id, visibility, reach }, `sx-log-state`
+ * { id, logState }, `sx-logbook-start`, `sx-page-share` { path, title }.
  */
 export class SxMyPosts extends LitElement {
   static properties = {
@@ -27,6 +31,12 @@ export class SxMyPosts extends LitElement {
     busy: { type: Boolean },
     /** darf „Nur ich“ wählen (Unterstützer, E1) */
     supporter: { type: Boolean },
+    /** Verläufe mit Stufen und Kette (zum Ändern von „Sichtbar bis“, F-409) */
+    targets: { attribute: false },
+    highlight: { type: String },
+    editing: { state: true },
+    editVis: { state: true },
+    editReach: { state: true },
   };
   declare items: MyPost[];
   declare cursor: string | null;
@@ -34,6 +44,12 @@ export class SxMyPosts extends LitElement {
   declare loading: boolean;
   declare busy: boolean;
   declare supporter: boolean;
+  declare targets: ComposeTarget[];
+  declare highlight: string | null;
+  /** Beitrag, dessen Sichtbarkeit gerade geändert wird */
+  declare editing: string | null;
+  declare editVis: PostVisibility;
+  declare editReach: Reach;
 
   constructor() {
     super();
@@ -43,11 +59,29 @@ export class SxMyPosts extends LitElement {
     this.loading = false;
     this.busy = false;
     this.supporter = false;
+    this.targets = [];
+    this.highlight = null;
+    this.editing = null;
+    this.editVis = 'public';
+    this.editReach = 'all';
+  }
+
+  private shown: string | null = null;
+
+  updated(changed: PropertyValues<this>) {
+    if (!this.highlight || (!changed.has('highlight') && !changed.has('items')) || this.shown === this.highlight) return;
+    if (revealCard(this.renderRoot as ShadowRoot, this.highlight)) this.shown = this.highlight;
+  }
+
+  private target(p: MyPost): ComposeTarget | undefined {
+    const key = channelKey(p.channel);
+    return this.targets.find((t) => channelKey(t.ref) === key);
   }
 
   static styles = [
     base,
     postCardStyles,
+    highlightStyles,
     css`
       :host {
         display: grid;
@@ -91,6 +125,13 @@ export class SxMyPosts extends LitElement {
         font-size: var(--fs-s);
         color: var(--text-2);
       }
+      .edit {
+        display: grid;
+        gap: var(--s-2);
+        padding: var(--s-3);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+      }
       .warn {
         display: inline-flex;
         align-items: center;
@@ -102,11 +143,6 @@ export class SxMyPosts extends LitElement {
       }
     `,
   ];
-
-  /** Nach erfolgreichem Posten (vom Controller aufgerufen). */
-  clearComposer() {
-    this.renderRoot.querySelector<SxPostComposer>('sx-post-composer')?.clear();
-  }
 
   private tab(area: MyPostArea, label: string, ic: IconName) {
     const on = this.area === area;
@@ -126,14 +162,42 @@ export class SxMyPosts extends LitElement {
     if (area !== this.area) emit(this, 'sx-my-posts-area', { area });
   }
 
-  /** „Wer sieht es“ und „Wo steht es“ – zwei getrennte Angaben (B12). */
+  /** „Wer sieht es“ und „Wo steht es“ – zwei getrennte Angaben (B12); bei Text-Beiträgen „Sichtbar bis“ (F-409). */
   private meta(p: MyPost) {
     const who = whoSeesLabel(p.visibility as PostVisibility, p.channel.kind === 'group' ? p.channel.name : null);
     return html`<div class="meta">
       <span>${icon(POST_VISIBILITY_ICON[p.visibility])} Wer sieht es: <b>${who}</b></span>
       <span>${icon('map')} Wo steht es: <b>${whereLabel(p.channel, p.groups)}</b></span>
+      ${p.reach && p.visibility === 'public' ? html`<span>${icon('globe')} Sichtbar bis: <b>${REACH_LABEL[p.reach]}</b></span>` : ''}
       <span>${fmtDateTime(p.createdAt)}</span>
     </div>`;
+  }
+
+  /** Sichtbarkeit und „Sichtbar bis“ ändern (F-409) – nur mit den Stufen, die es im Verlauf gibt. */
+  private editor(p: MyPost, t: ComposeTarget) {
+    const choices = t.choices.includes(p.visibility) ? t.choices : [p.visibility, ...t.choices];
+    return html`<div class="edit">
+      <label><span class="label">Wer sieht es?</span>
+        <select @change=${(e: Event) => (this.editVis = (e.target as HTMLSelectElement).value as PostVisibility)}>
+          ${choices.map((v) => html`<option value=${v} ?selected=${v === this.editVis}>${POST_VISIBILITY_CHOICE[v]}</option>`)}
+        </select></label>
+      ${this.editVis === 'public'
+        ? html`<sx-reach-picker .options=${t.reaches} .value=${this.editReach} @sx-reach-change=${(e: CustomEvent<{ reach: Reach }>) => (this.editReach = e.detail.reach)}></sx-reach-picker>`
+        : html`<span class="note">Nicht öffentliche Beiträge bleiben nur hier.</span>`}
+      <div class="tools">
+        <button class="btn small primary" ?disabled=${this.busy} @click=${() => {
+          emit(this, 'sx-my-post-update', { id: p.id, visibility: this.editVis, reach: this.editReach });
+          this.editing = null;
+        }}>${icon('check')} Speichern</button>
+        <button class="btn small" @click=${() => (this.editing = null)}>Abbrechen</button>
+      </div>
+    </div>`;
+  }
+
+  /** Text-Beitrag: wo er steht (verlinkt). */
+  private textHead(p: MyPost) {
+    const path = channelPath(p.channel);
+    return p.channel.kind === 'user' ? 'Beitrag in deinem Profil' : html`Beitrag in <a href=${path ?? '/'}>${channelName(p.channel)}</a>`;
   }
 
   /** „Ins Fahrtenbuch“ (F-422): an = Vorschlag bzw. bestätigt, aus = ausgeschlossen; Vorschläge lassen sich bestätigen. */
@@ -151,22 +215,34 @@ export class SxMyPosts extends LitElement {
 
   private card(p: MyPost) {
     const voyage = p.voyage;
-    return html`<li class="post ${p.visibility === 'private' ? 'private' : ''}" id="p-${p.id}">
+    const target = voyage ? undefined : this.target(p);
+    const hl = p.id === this.highlight;
+    return html`<li class="post ${p.visibility === 'private' ? 'private' : ''} ${hl ? 'hl' : ''}" id="p-${p.id}" tabindex=${hl ? -1 : nothing}>
       <div class="head">
         ${icon(KIND_ICON[p.kind] ?? 'comment')}
         <span class="t">${voyage
           ? html`<sx-title-edit share-id=${p.id} scope="mine" editable .value=${voyage.title}></sx-title-edit>
               <a href=${voyage.path} aria-label="Törn öffnen: ${voyage.title}">Öffnen</a> <span class="note">${fmtNum(voyage.distNm, 1)} sm · ${fmtDate(voyage.startedAt ?? p.createdAt)}</span>`
-          : p.channel.kind === 'group'
-            ? html`Beitrag in <a href="/g/${p.channel.slug}">${p.channel.name}</a>`
-            : 'Beitrag in deinem Profil'}</span>
+          : this.textHead(p)}</span>
       </div>
       ${p.body ? html`<p class="body">${linkedText(p.body)}</p>` : ''}
       ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}
+      ${p.attached ? html`<span class="note">${icon('map')} Törn: <a href="/s/${p.attached.id}">${p.attached.title}</a></span>` : ''}
       ${this.meta(p)}
       ${p.hidden ? html`<span class="warn" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung</span>` : ''}
+      ${target && this.editing === p.id ? this.editor(p, target) : ''}
       <div class="tools">
         ${voyage ? this.logState(p) : ''}
+        ${!voyage && p.path && p.visibility !== 'private'
+          ? html`<button class="btn small ghost" @click=${() => emit(this, 'sx-page-share', { path: p.path, title: 'Beitrag' })}>${icon('share')} Teilen</button>`
+          : ''}
+        ${target && this.editing !== p.id
+          ? html`<button class="btn small ghost" ?disabled=${this.busy} @click=${() => {
+              this.editing = p.id;
+              this.editVis = p.visibility;
+              this.editReach = p.reach ?? 'here';
+            }}>${icon('pencil')} Sichtbarkeit</button>`
+          : ''}
         <button class="btn small ghost danger" ?disabled=${this.busy} aria-label=${voyage ? `Törn ${voyage.title} löschen` : 'Beitrag löschen'}
           @click=${() => emit(this, 'sx-my-post-delete', { id: p.id, kind: p.kind })}>${icon('trash')} Löschen</button>
       </div>
@@ -177,22 +253,20 @@ export class SxMyPosts extends LitElement {
     const more = this.cursor
       ? html`<div class="more"><button class="btn" ?disabled=${this.loading} @click=${() => emit(this, 'sx-my-posts-more')}>${this.loading ? 'Lade …' : 'Mehr laden'}</button></div>`
       : '';
+    // Neues entsteht über „+ Neu“ (ein Einstieg, F-405); im leeren Fahrtenbuch der direkte Weg zum ersten Eintrag
+    const empty = this.loading
+      ? 'Lade …'
+      : this.area === 'private'
+        ? 'Nichts, was nur du siehst – „Nur ich“ wählst du beim Schreiben bzw. Teilen.'
+        : this.area === 'logbook'
+          ? html`Noch nichts im Fahrtenbuch.<br /><button class="btn" @click=${() => emit(this, 'sx-logbook-start')}>${icon('plus')} Eintrag hinzufügen</button>`
+          : 'Noch nichts. Über „+ Neu“ legst du Törns, Fahrtenbuch-Einträge und Beiträge an.';
     return html`
-      <sx-post-composer label="Beitrag in deinem Profil" placeholder="Was gibt es Neues?" ?busy=${this.busy}
-        .choices=${this.supporter ? ['public', 'private'] : ['public']}
-        .choiceHints=${{ public: 'Auf deinem Profil und bei deinen Followern – nur bei öffentlichem Profil.', private: 'Nur du siehst ihn – im Bereich „Privat“.' }}
-        hint=${this.supporter ? '' : 'Öffentlich, wenn dein Profil öffentlich ist. „Nur ich“ gibt es für Unterstützer.'}
-        @sx-post-submit=${(e: CustomEvent) => {
-          e.stopPropagation();
-          emit(this, 'sx-my-post-create', e.detail);
-        }}></sx-post-composer>
       <div class="tabs" role="tablist" aria-label="Bereich" @keydown=${(e: KeyboardEvent) => this.onTabKey(e)}>
-        ${this.tab('all', 'Alles', 'globe')} ${this.tab('private', 'Privat', 'lock')}
+        ${this.tab('all', 'Alles', 'globe')} ${this.tab('logbook', 'Fahrtenbuch', 'book')} ${this.tab('private', 'Nur ich', 'lock')}
       </div>
       <div id="my-list" role="tabpanel" aria-labelledby="tab-${this.area}">
-        ${this.items.length
-          ? html`<ol class="posts">${this.items.map((p) => this.card(p))}</ol>`
-          : html`<div class="empty">${this.loading ? 'Lade …' : this.area === 'private' ? 'Nichts Privates – was nur du siehst, steht hier.' : 'Noch nichts. Deine Törns, Fahrtenbuch-Einträge und Beiträge erscheinen hier.'}</div>`}
+        ${this.items.length ? html`<ol class="posts">${this.items.map((p) => this.card(p))}</ol>` : html`<div class="empty">${empty}</div>`}
         ${more}
       </div>`;
   }

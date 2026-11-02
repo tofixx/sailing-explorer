@@ -1,6 +1,7 @@
 // Vereine und Teams (Konzept 11.1, F-150 … F-157): anlegen, Rollen, Sichtbarkeit, Beitrittsanfragen, Boote,
 // Gruppenseite. Einladungen laufen über worker/invites.ts, Beiträge über worker/posts.ts, Neuigkeiten über stream.ts.
 import type { Env } from './env';
+import { postLogKey } from './post-sql';
 import { IN_LOGBOOK_SQL, RECORDED_NM_SQL } from './logbook-sql';
 import { currentUser, requireUser, type User } from './auth';
 import { roleFor } from './boats';
@@ -372,7 +373,7 @@ export async function purgeUserGroups(env: Env, userId: string): Promise<D1Prepa
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'post' AND target_id IN (SELECT id FROM posts WHERE author_id = ?)`).bind(userId),
     env.DB.prepare('DELETE FROM posts WHERE author_id = ?').bind(userId),
     // Tageszähler des Profil-Verlaufs (F-420) – Gruppen-Zähler tragen keine Konto-ID
-    env.DB.prepare('DELETE FROM post_log WHERE group_id = ?').bind(`user:${userId}`),
+    env.DB.prepare('DELETE FROM post_log WHERE group_id = ?').bind(postLogKey({ kind: 'user', id: userId })),
     env.DB.prepare('DELETE FROM group_requests WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM group_members WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM share_groups WHERE share_id IN (SELECT id FROM shares WHERE user_id = ?)').bind(userId),

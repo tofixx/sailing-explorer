@@ -207,7 +207,8 @@ describe('F-420 Text-Beiträge im eigenen Profil', () => {
     // Reagieren geht, die Autor:in bekommt eine Glocke mit Link aufs Profil
     expect((await s.send('PUT', `/api/reactions/post/${post!.id}`, fan.cookie, { kind: 'like' })).status).toBe(200);
     const bell = await json<{ items: Array<{ kind: string; href: string; text: string }> }>(await s.send('GET', '/api/notifications', p.cookie));
-    expect(bell.items.find((n) => n.kind === 'reaction')).toMatchObject({ href: `/u/${p.handle}` });
+    // Beiträge verlinken `/p/<id>` (F-406)
+    expect(bell.items.find((n) => n.kind === 'reaction')).toMatchObject({ href: `/p/${post!.id}` });
   });
 
   it('[F-420] nicht öffentliches Profil: Beitrag für niemanden sonst sichtbar; „Nur ich“ nur für Unterstützer und nie im Log', async () => {

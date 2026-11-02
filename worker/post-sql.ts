@@ -2,13 +2,31 @@
 // (`share_id = id`), Heimatverlauf ist das Profil der Eigentümer:in. Sie fällt per ON DELETE CASCADE mit dem Törn.
 // Ohne Abhängigkeit zu shares/posts, damit beide Module es importieren können.
 import type { Env } from './env';
+import { HttpError } from './http';
+import { isReach, type Reach } from '../src/domain/posts';
 
-/** Post-Zeile eines neuen Törns – im selben Batch wie die Törn-Zeile (`source`: gpx | manual). */
-export const sharePostStmt = (env: Env, shareId: string, userId: string, source: 'gpx' | 'manual', now: number) =>
+/**
+ * Post-Zeile eines neuen Törns – im selben Batch wie die Törn-Zeile (`source`: gpx | manual). `reach`: „Sichtbar bis“
+ * (F-427), ohne Angabe wie bisher „überall“.
+ */
+export const sharePostStmt = (env: Env, shareId: string, userId: string, source: 'gpx' | 'manual', now: number, reach: Reach = 'all') =>
   env.DB.prepare(
     `INSERT OR IGNORE INTO posts (id, author_id, kind, channel_kind, channel_id, share_id, body, reach, created_at)
-     VALUES (?1, ?2, ?3, 'user', ?2, ?1, '', 'all', ?4)`,
-  ).bind(shareId, userId, source === 'manual' ? 'logbook' : 'voyage', now);
+     VALUES (?1, ?2, ?3, 'user', ?2, ?1, '', ?5, ?4)`,
+  ).bind(shareId, userId, source === 'manual' ? 'logbook' : 'voyage', now, reach);
+
+/** „Sichtbar bis“ eines Törns aus Header bzw. JSON (F-427): fehlt = „überall“, Unbekanntes → 400. */
+export function readShareReach(raw: unknown): Reach {
+  if (raw === undefined || raw === null || raw === '') return 'all';
+  if (!isReach(raw)) throw new HttpError(400, 'invalid_reach', 'Unbekannte Stufe „Sichtbar bis“.');
+  return raw;
+}
+
+/**
+ * Schlüssel des Tageszählers „Beiträge je Verlauf“ (`post_log.group_id`, auch nach dem Löschen): Gruppe = ihre ID (wie
+ * seit Konzept 11.4), sonst `<art>:<id>` (Profil `user:<id>`, Hafen `harbor:<id>`, Boot `boat:<id>`).
+ */
+export const postLogKey = (c: { kind: 'user' | 'group' | 'harbor' | 'boat'; id: string }): string => (c.kind === 'group' ? c.id : `${c.kind}:${c.id}`);
 
 /** Höchstens so viele fehlende Post-Zeilen je Nacht nachtragen. */
 const REPAIR_MAX = 200;

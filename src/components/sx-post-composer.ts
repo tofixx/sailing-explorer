@@ -1,14 +1,18 @@
 import { LitElement, css, html } from 'lit';
 import { commentLength } from '../domain/comment-text';
 import { POST_LINK_MAX, POST_MAX } from '../domain/groups';
-import { POST_VISIBILITY_CHOICE, type PostVisibility } from '../domain/posts';
+import { POST_VISIBILITY_CHOICE, type AttachableShare, type PostVisibility, type Reach, type ReachOption } from '../domain/posts';
+import { fmtDate } from '../util/html';
 import { icon } from './icons';
 import { POST_VISIBILITY_ICON, base, emit } from './shared';
+import './sx-reach-picker';
 
 /**
- * Text-Beitrag schreiben (Konzept 11.4, 21): Text, optionaler Link und „Wer sieht es“ aus den Stufen des Verlaufs
- * (`choices`, F-402). Gruppenseite und eigene Seite nutzen dasselbe Formular. Rein präsentational – meldet
- * `sx-post-submit` { body, link, visibility }; der Host leert es nach Erfolg mit `clear()`.
+ * Text-Beitrag schreiben (Konzept 11.4, 21): Text, optionaler Link, „Wer sieht es“ aus den Stufen des Verlaufs
+ * (`choices`, F-402), „Sichtbar bis“ mit Kette (`reaches`, F-409; Vorschlag „überall“) und ein eigener Törn als Anhang
+ * (`shares`, F-426). Gruppenseite, eigene Seite und der Plus-Knopf (`sx-compose-dialog`) nutzen dasselbe Formular.
+ * Rein präsentational – meldet `sx-post-submit` { body, link, visibility, reach?, shareId }; der Host leert es nach
+ * Erfolg mit `clear()`.
  */
 export class SxPostComposer extends LitElement {
   static properties = {
@@ -19,9 +23,15 @@ export class SxPostComposer extends LitElement {
     /** Erklärung je Stufe (z. B. „Nur Mitglieder von …“) */
     choiceHints: { attribute: false },
     busy: { type: Boolean },
+    /** Stufen „Sichtbar bis“ des Verlaufs (leer: keine Auswahl, der Server nimmt den Standard) */
+    reaches: { attribute: false },
+    /** eigene Törns zum Anhängen (leer: keine Auswahl) */
+    shares: { attribute: false },
     body: { state: true },
     link: { state: true },
     visibility: { state: true },
+    reach: { state: true },
+    shareId: { state: true },
   };
   declare label: string;
   declare placeholder: string;
@@ -29,6 +39,10 @@ export class SxPostComposer extends LitElement {
   declare choices: PostVisibility[];
   declare choiceHints: Partial<Record<PostVisibility, string>>;
   declare busy: boolean;
+  declare reaches: ReachOption[];
+  declare shares: AttachableShare[];
+  declare reach: Reach;
+  declare shareId: string;
   declare body: string;
   declare link: string;
   declare visibility: PostVisibility;
@@ -44,6 +58,10 @@ export class SxPostComposer extends LitElement {
     this.body = '';
     this.link = '';
     this.visibility = 'public';
+    this.reaches = [];
+    this.shares = [];
+    this.reach = 'all';
+    this.shareId = '';
   }
 
   static styles = [
@@ -117,12 +135,39 @@ export class SxPostComposer extends LitElement {
   clear() {
     this.body = '';
     this.link = '';
+    this.shareId = '';
+  }
+
+  /** Gewählte Stufe „Sichtbar bis“ – gibt es sie im Verlauf nicht, die höchste vorhandene. */
+  private currentReach(): Reach | undefined {
+    if (!this.reaches.length) return undefined;
+    return this.reaches.some((o) => o.reach === this.reach) ? this.reach : this.reaches[this.reaches.length - 1].reach;
   }
 
   private submit(e: Event) {
     e.preventDefault();
     const visibility = this.choices.includes(this.visibility) ? this.visibility : this.choices[0];
-    emit(this, 'sx-post-submit', { body: this.body, link: this.link.trim(), visibility });
+    const reach = visibility === 'public' ? this.currentReach() : undefined;
+    emit(this, 'sx-post-submit', { body: this.body, link: this.link.trim(), visibility, ...(reach ? { reach } : {}), shareId: this.shareId || null });
+  }
+
+  /** „Sichtbar bis“ nur bei öffentlich; sonst der Hinweis, dass es im Verlauf bleibt. */
+  private reachPicker(visibility: PostVisibility) {
+    if (!this.reaches.length) return '';
+    return html`<sx-reach-picker .options=${visibility === 'public' ? this.reaches : this.reaches.slice(0, 1)} .value=${this.currentReach() ?? 'all'}
+      note=${visibility === 'public' ? '' : 'Nicht öffentliche Beiträge bleiben nur hier.'}
+      @sx-reach-change=${(e: CustomEvent<{ reach: Reach }>) => (this.reach = e.detail.reach)}></sx-reach-picker>`;
+  }
+
+  /** Eigenen Törn anhängen (F-426) – fällt für Leser weg, die den Törn nicht sehen dürfen. */
+  private sharePicker() {
+    if (!this.shares.length) return '';
+    return html`<label><span class="label">Törn anhängen (optional)</span>
+      <select .value=${this.shareId} @change=${(e: Event) => (this.shareId = (e.target as HTMLSelectElement).value)}>
+        <option value="">Kein Törn</option>
+        ${this.shares.map((s) => html`<option value=${s.id} ?selected=${s.id === this.shareId}>${s.title}${s.startedAt ? ` · ${fmtDate(s.startedAt)}` : ''}</option>`)}
+      </select>
+      <span class="hint">Wer den Törn nicht sehen darf, sieht den Beitrag ohne Anhang.</span></label>`;
   }
 
   render() {
@@ -148,6 +193,7 @@ export class SxPostComposer extends LitElement {
           </fieldset>
           ${this.choiceHints[current] ? html`<p class="hint">${this.choiceHints[current]}</p>` : ''}`
         : ''}
+      ${this.reachPicker(current)} ${this.sharePicker()}
       <div class="row"><button class="btn primary" type="submit" ?disabled=${this.busy || !len || len > POST_MAX}>${icon('comment')} Veröffentlichen</button>
         ${this.hint ? html`<span class="hint">${this.hint}</span>` : ''}</div>
     </form>`;

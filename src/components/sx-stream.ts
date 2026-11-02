@@ -1,9 +1,9 @@
-import { LitElement, css, html } from 'lit';
+import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
 import { photoImageUrl, shareImageUrl, type StreamItem } from '../services/api';
 import { GROUP_KIND_LABEL, streamHeadline } from '../domain/groups';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
-import { base, coverBanner, coverBannerStyles, emit, linkedText, logbookTag } from './shared';
+import { base, coverBanner, coverBannerStyles, emit, highlightStyles, linkedText, logbookTag, revealCard } from './shared';
 import './sx-reactions';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
@@ -20,7 +20,8 @@ const KIND_ICON: Record<StreamItem['kind'], IconName> = {
 /**
  * Neuigkeiten (Konzept 11.3, F-160): Liste der Einträge, „Mehr laden“ per Cursor. Rein präsentational – Fremdtext
  * (Titel, Namen, Beiträge) geht nur durch Lit-Templates, Links in Beiträgen aus `linkify`, nie `innerHTML`.
- * Meldet `sx-stream-more` { scope } und `sx-post-delete` { id }.
+ * Beiträge tragen den Anker `p-<id>` (F-406), ihre Zeitangabe ist der Permalink `/p/<id>` (bei Törns `/s/<id>`);
+ * `highlight` scrollt zur Karte und hebt sie kurz hervor. Meldet `sx-stream-more` { scope } und `sx-post-delete` { id }.
  */
 export class SxStream extends LitElement {
   static properties = {
@@ -31,14 +32,17 @@ export class SxStream extends LitElement {
     emptyText: { type: String, attribute: 'empty-text' },
     /** Gruppe als Kontext (Gruppenseite): Gruppennamen nicht wiederholen */
     inGroup: { type: Boolean, attribute: 'in-group' },
+    /** Beitrag hervorheben (Anker aus `/p/<id>`, neue Karte nach dem Schreiben) */
+    highlight: { type: String },
   };
   declare items: StreamItem[];
   declare cursor: string | null;
   declare loading: boolean;
   /** wer „Mehr laden“ bedient: Startseite (persönlich bzw. öffentlich), Gruppen- oder Hafenseite */
-  declare scope: 'home' | 'group' | 'harbor' | 'public';
+  declare scope: 'home' | 'group' | 'harbor' | 'boat' | 'public';
   declare emptyText: string;
   declare inGroup: boolean;
+  declare highlight: string | null;
 
   constructor() {
     super();
@@ -48,11 +52,21 @@ export class SxStream extends LitElement {
     this.scope = 'home';
     this.emptyText = 'Noch keine Neuigkeiten.';
     this.inGroup = false;
+    this.highlight = null;
+  }
+
+  /** Hervorgehobene Karte einmal in den Blick holen, sobald sie gerendert ist. */
+  private shown: string | null = null;
+
+  updated(changed: PropertyValues<this>) {
+    if (!this.highlight || (!changed.has('highlight') && !changed.has('items')) || this.shown === this.highlight) return;
+    if (revealCard(this.renderRoot as ShadowRoot, this.highlight)) this.shown = this.highlight;
   }
 
   static styles = [
     base,
     coverBannerStyles,
+    highlightStyles,
     css`
       /* Spaßname (F-349): kursiv mit Schloss, nicht mit einem echten Namen verwechselbar */
       .pseudo {
@@ -169,6 +183,23 @@ export class SxStream extends LitElement {
       .reactions {
         margin-top: var(--s-2);
       }
+      a.when {
+        color: inherit;
+        text-decoration: none;
+      }
+      a.when:hover time {
+        text-decoration: underline;
+      }
+      .attach {
+        display: inline-flex;
+        gap: var(--s-1);
+        align-items: center;
+        margin-top: var(--s-2);
+        font-size: var(--fs-s);
+      }
+      .attach a {
+        color: var(--accent);
+      }
       .more {
         margin-top: var(--s-3);
         display: flex;
@@ -211,18 +242,8 @@ export class SxStream extends LitElement {
               ? html`<a href="/s/${v.id}"><img class="cover" src=${shareImageUrl(v.id)} alt="" loading="lazy" decoding="async" /></a>`
               : ''}`;
       }
-      case 'post': {
-        const p = i.post!;
-        return html`<div class="head">
-            <span class="what">${this.inGroup ? 'Neuigkeit' : html`Neuigkeit von <a href="/g/${i.group!.slug}">${i.group!.name}</a>`}</span>
-            ${i.actor ? html`<span class="ctx">von ${this.who(i)}</span>` : ''}
-            ${p.canDelete
-              ? html`<span class="tools"><button class="btn small ghost danger" aria-label="Beitrag löschen" @click=${() => emit(this, 'sx-post-delete', { id: p.id })}>${icon('trash')}</button></span>`
-              : html`<span class="tools"><button class="btn small ghost" aria-label="Beitrag melden" @click=${() => emit(this, 'sx-report', { kind: 'post', id: p.id, label: 'diesen Beitrag' })}>${icon('flag')}</button></span>`}
-          </div>
-          <p class="body">${linkedText(p.body)}</p>
-          ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}`;
-      }
+      case 'post':
+        return this.post(i);
       case 'logbook': {
         // gebündelte Nachträge (F-308): bis zu fünf Einträge verlinkt
         const l = i.logbook!;
@@ -256,6 +277,32 @@ export class SxStream extends LitElement {
     }
   }
 
+  /** Wo steht der Beitrag: Gruppe, Hafen, Boot oder Profil der Person (F-425). */
+  private postWhat(i: StreamItem) {
+    const w = i.post?.where;
+    if (i.group) return this.inGroup ? 'Neuigkeit' : html`Neuigkeit von <a href="/g/${i.group.slug}">${i.group.name}</a>`;
+    if (w?.kind === 'harbor') return this.scope === 'harbor' ? 'Beitrag im Hafen' : html`Beitrag im Hafen <a href="/h/${w.slug}">${w.name}</a>`;
+    if (w?.kind === 'boat') return this.scope === 'boat' ? 'Beitrag am Boot' : html`Beitrag am Boot <a href="/b/${w.id}">${w.name}</a>`;
+    return 'Beitrag';
+  }
+
+  /** Beitrag (F-406, F-426): Text, Link, angehängter Törn, Teilen, Löschen bzw. Melden. */
+  private post(i: StreamItem) {
+    const p = i.post!;
+    return html`<div class="head">
+        <span class="what">${this.postWhat(i)}</span>
+        ${i.actor ? html`<span class="ctx">von ${this.who(i)}</span>` : ''}
+        <span class="tools">
+          ${p.canDelete
+            ? html`<button class="btn small ghost danger" aria-label="Beitrag löschen" @click=${() => emit(this, 'sx-post-delete', { id: p.id })}>${icon('trash')}</button>`
+            : html`<button class="btn small ghost" aria-label="Beitrag melden" @click=${() => emit(this, 'sx-report', { kind: 'post', id: p.id, label: 'diesen Beitrag' })}>${icon('flag')}</button>`}
+        </span>
+      </div>
+      <p class="body">${linkedText(p.body)}</p>
+      ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}
+      ${p.voyage ? html`<span class="attach">${icon('map')} Törn: <a href="/s/${p.voyage.id}">${p.voyage.title}</a> · ${fmtNum(p.voyage.distNm, 1)} sm</span>` : ''}`;
+  }
+
   /** Titelbild des Boots, der Person oder der Gruppe, um die es geht (Konzept 13.2) – verlinkt wie der Eintrag. */
   private banner(i: StreamItem) {
     if (!i.cover) return '';
@@ -264,12 +311,21 @@ export class SxStream extends LitElement {
     return href ? html`<a href=${href} tabindex="-1" aria-hidden="true">${img}</a>` : img;
   }
 
+  /** Zeitangabe als Permalink (Beitrag `/p/<id>`, Törn `/s/<id>`), sonst nur die Zeit. */
+  private when(i: StreamItem) {
+    const t = html`<time datetime=${new Date(i.createdAt).toISOString()}>${fmtDateTime(i.createdAt)}</time>`;
+    const href = i.kind === 'post' && i.post ? (i.post.path ?? `/p/${i.post.id}`) : i.voyage && (i.kind === 'voyage' || i.kind === 'photos') ? `/s/${i.voyage.id}` : null;
+    return href ? html`<a class="when" href=${href} title="Link zu diesem Eintrag">${t}</a>` : t;
+  }
+
   private item(i: StreamItem) {
-    return html`<li aria-label=${streamHeadline(i)}>
+    const pid = i.kind === 'post' ? i.post?.id : undefined;
+    const hl = !!pid && pid === this.highlight;
+    return html`<li aria-label=${streamHeadline(i)} id=${pid ? `p-${pid}` : nothing} class=${hl ? 'hl' : nothing} tabindex=${hl ? -1 : nothing}>
       <span class="ic" aria-hidden="true">${icon(KIND_ICON[i.kind] ?? 'info')}</span>
       <div>
         ${this.content(i)} ${this.banner(i)}
-        <time datetime=${new Date(i.createdAt).toISOString()}>${fmtDateTime(i.createdAt)}</time>
+        ${this.when(i)}
         ${i.reactions ? html`<sx-reactions class="reactions" .value=${i.reactions}></sx-reactions>` : ''}
       </div>
     </li>`;

@@ -18,7 +18,7 @@ export async function groupFeed(request: Request, env: Env, slug: string): Promi
   const hit = await cache?.match(key).catch(() => undefined);
   const body = hit
     ? await hit.text()
-    : atomFeed(origin, { slug: g.slug, name: g.name, description: g.description, updated: g.updated_at }, (await groupItems(env, g.id, { id: null }, { at: Number.MAX_SAFE_INTEGER, id: '~' })).items);
+    : atomFeed(origin, { slug: g.slug, name: g.name, description: g.description, updated: g.updated_at }, (await groupItems(env, g, { id: null }, { at: Number.MAX_SAFE_INTEGER, id: '~' })).items);
   if (!hit) await cache?.put(key, new Response(body, { headers: { 'Cache-Control': `max-age=${TTL}` } })).catch(() => undefined);
   return new Response(body, {
     headers: {

@@ -235,10 +235,14 @@ export async function startSession(request: Request, env: Env, user: User, now: 
   return json({ user }, { headers: { 'Set-Cookie': sessionCookie(request, session, maxAge) } });
 }
 
-/** GET /api/auth/me – `admin: true` nur für Admins (Kopfzeile „Admin“, Konzept 18.1). */
+/**
+ * GET /api/auth/me – `admin: true` nur für Admins (Kopfzeile „Admin“, Konzept 18.1); `handle` der eigenen Seite für das
+ * Konto-Menü (F-428), null ohne Profil.
+ */
 export async function me(request: Request, env: Env): Promise<Response> {
   const user = await currentUser(request, env);
-  return json({ user, ...(isAdmin(env, user?.id) ? { admin: true } : {}) });
+  const p = user ? await env.DB.prepare('SELECT handle, display_name FROM profiles WHERE user_id = ?').bind(user.id).first<{ handle: string; display_name: string }>() : null;
+  return json({ user: user ? { ...user, handle: p?.handle ?? null, displayName: p?.display_name ?? null } : null, ...(isAdmin(env, user?.id) ? { admin: true } : {}) });
 }
 
 export async function logout(request: Request, env: Env): Promise<Response> {

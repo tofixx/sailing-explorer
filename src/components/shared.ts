@@ -361,6 +361,41 @@ export function linkedText(t: string) {
   return linkify(t).map((p) => (p.href ? html`<a href=${p.href} rel="nofollow ugc noopener noreferrer" target="_blank">${p.text}</a>` : p.text));
 }
 
+/**
+ * Karte `p-<id>` in einer Liste in den Blick holen (Anker aus `/p/<id>`, neue Karte nach dem Schreiben, F-406). Liefert
+ * true, wenn sie gerendert ist; der Aufrufer merkt sich das, damit späteres Nachladen nicht erneut springt.
+ */
+export function revealCard(root: ShadowRoot | HTMLElement, id: string): boolean {
+  const el = root.querySelector<HTMLElement>(`#p-${CSS.escape(id)}`);
+  if (!el) return false;
+  const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' });
+  el.focus({ preventScroll: true });
+  return true;
+}
+
+/** Hervorgehobene Karte (`.hl`): Rahmen in Akzentfarbe, verblasst langsam. */
+export const highlightStyles = css`
+  .hl {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+  .hl:focus {
+    outline: none;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .hl {
+      animation: hl-fade 3s var(--ease) 1.5s forwards;
+    }
+    @keyframes hl-fade {
+      to {
+        border-color: var(--border-soft);
+        box-shadow: none;
+      }
+    }
+  }
+`;
+
 /** Symbol je Beitrags-Sichtbarkeit („Wer sieht es“, Konzept 21). */
 export const POST_VISIBILITY_ICON: Record<PostVisibility, IconName> = { public: 'globe', members: 'community', unlisted: 'link', private: 'lock' };
 

@@ -1,10 +1,9 @@
-// Beiträge als Grundtyp (Konzept 21, Phase 1): „Mein Verlauf“ auf der eigenen Seite laden und blättern (F-401),
-// Text-Beiträge im eigenen Profil schreiben (F-420), eigene Beiträge und Törns löschen (F-404), „Ins Fahrtenbuch“
+// Beiträge als Grundtyp (Konzept 21): „Mein Verlauf“ auf der eigenen Seite laden und blättern (F-401) – auch direkt
+// im Reiter „Fahrtenbuch“ (`?bereich=fahrtenbuch`, F-428) –, Sichtbarkeit und „Sichtbar bis“ ändern (F-409), eigene Beiträge und Törns löschen (F-404), „Ins Fahrtenbuch“
 // schalten (F-422) und „Ansehen als …“ (F-423). Die Komponenten melden nur Absichten.
-import { api, postApi, type PostInput } from '../services/api';
+import { api, postApi } from '../services/api';
 import type { SxProfilePage } from '../components/sx-profile-page';
-import type { SxMyPosts } from '../components/sx-my-posts';
-import type { MyPostArea, PostKind, ProfilePreview } from '../domain/posts';
+import type { MyPostArea, PostKind, PostVisibility, ProfilePreview, Reach } from '../domain/posts';
 import type { LogState } from '../domain/logbook';
 import { errorText } from './session';
 
@@ -15,20 +14,22 @@ export class PostsController {
     return this.ui.page;
   }
 
-  private get list(): SxMyPosts | null {
-    return this.page.renderRoot.querySelector<SxMyPosts>('sx-my-posts');
-  }
 
   private ownHandle(): string | null {
     const d = this.page.data;
     return d?.kind === 'profile' && (d.profile.isSelf || d.preview) ? d.profile.handle : null;
   }
 
-  /** Eigene Seite geöffnet: Unterstützer-Status (für „Nur ich“) und die erste Seite „Mein Verlauf“. */
+  /**
+   * Eigene Seite geöffnet: Unterstützer-Status (für „Nur ich“), Verläufe mit Stufen und eigene Törns (Schreiben,
+   * „Sichtbar bis“ ändern) und die erste Seite „Mein Verlauf“ – mit `?bereich=fahrtenbuch` gleich das Fahrtenbuch.
+   */
   async openOwn(): Promise<void> {
-    this.page.myArea = 'all';
-    const [support] = await Promise.all([api.support().catch(() => null), this.load()]);
+    this.page.myArea = new URLSearchParams(location.search).get('bereich') === 'fahrtenbuch' ? 'logbook' : 'all';
+    const [support, compose] = await Promise.all([api.support().catch(() => null), postApi.compose().catch(() => null), this.load()]);
     this.page.supporter = !!support?.supporter;
+    this.page.myTargets = compose?.targets ?? [];
+    if (this.page.myArea === 'logbook') this.page.renderRoot.querySelector('sx-my-posts')?.scrollIntoView({ block: 'start' });
   }
 
   /** Erste Seite des gewählten Bereichs (bzw. weitere mit `more`). */
@@ -47,17 +48,20 @@ export class PostsController {
     }
   }
 
+  /** Reiter wechseln – die Adresse merkt sich „Fahrtenbuch“, damit Neuladen und Teilen dort bleiben (F-428). */
   setArea(area: MyPostArea): Promise<void> {
     this.page.myArea = area;
     this.page.myPosts = null;
+    const url = new URL(location.href);
+    if (area === 'logbook') url.searchParams.set('bereich', 'fahrtenbuch');
+    else url.searchParams.delete('bereich');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
     return this.load();
   }
 
-  async create(input: PostInput): Promise<void> {
-    if (await this.run(() => postApi.create(input), 'Veröffentlicht')) {
-      this.list?.clearComposer();
-      await this.load();
-    }
+  /** Sichtbarkeit bzw. „Sichtbar bis“ eines Text-Beitrags ändern (F-409). */
+  async update(id: string, patch: { visibility: PostVisibility; reach: Reach }): Promise<void> {
+    if (await this.run(() => postApi.update(id, patch), 'Gespeichert')) await this.load();
   }
 
   async remove(id: string, kind: PostKind): Promise<void> {

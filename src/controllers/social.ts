@@ -84,6 +84,36 @@ export class SocialController {
     }
   }
 
+  // ---------------------------------------------------------------- Bootsseite: Neuigkeiten (F-425)
+
+  /** Schlüssel der offenen Bootsseite („Nur mit Link“) – auch für „Mehr laden“. */
+  private boatKey: string | null = null;
+
+  /** Neuigkeiten der gerade angezeigten Bootsseite nachladen (Beiträge am Boot, Törns, neue Gruppen und Häfen). */
+  async loadBoatStream(key?: string | null): Promise<void> {
+    const d = this.ui.page.data;
+    if (d?.kind !== 'boat') return;
+    this.boatKey = key ?? null;
+    const stream = await socialApi.boatStream(d.boat.id, null, this.boatKey).catch(() => ({ items: [], cursor: null }) as StreamPage);
+    const now = this.ui.page.data;
+    if (now?.kind === 'boat' && now.boat.id === d.boat.id) this.ui.page.data = { ...now, stream };
+  }
+
+  async moreBoat(): Promise<void> {
+    const page = this.ui.page;
+    const d = page.data;
+    if (d?.kind !== 'boat' || !d.stream?.cursor) return;
+    page.streamLoading = true;
+    try {
+      const next = await socialApi.boatStream(d.boat.id, d.stream.cursor, this.boatKey);
+      page.data = { ...d, stream: { ...next, items: [...d.stream.items, ...next.items] } };
+    } catch (e) {
+      this.ui.toast(errorText(e));
+    } finally {
+      page.streamLoading = false;
+    }
+  }
+
   async saveHarbor(d: { id: string; patch: HarborPatch }): Promise<void> {
     if (!this.signedIn()) return this.ui.openLogin('Zum Bearbeiten bitte anmelden.');
     try {
@@ -202,7 +232,7 @@ export class SocialController {
     const gs = fix(gp.stream);
     if (gs !== gp.stream) gp.stream = gs ?? null;
     const pd = this.ui.page.data;
-    if (pd?.kind === 'harbor') {
+    if (pd?.kind === 'harbor' || pd?.kind === 'boat') {
       const ps = fix(pd.stream);
       if (ps !== pd.stream) this.ui.page.data = { ...pd, stream: ps };
     }

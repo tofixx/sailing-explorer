@@ -2,7 +2,8 @@
 import { funnyName } from '../src/domain/names';
 import { canManageGroup, isActivityKind, type GroupKind, type GroupRole, type StreamItem } from '../src/domain/groups';
 import { coverRef } from '../src/domain/cover';
-import { canSeePost, isPostVisibility, isReach, type PostVisibility } from '../src/domain/posts';
+import { timingSafeEqual } from './validate';
+import { canSeePost, isChannelKind, isPostVisibility, isReach, reachCovers, type ChannelKind, type PostVisibility, type Reach } from '../src/domain/posts';
 
 /** Eine Aktivität samt allem, was die Prüfung braucht (ein Batch, LEFT JOINs). */
 export interface ActivityRow {
@@ -51,6 +52,28 @@ export interface ActivityRow {
   /** Sichtbarkeit und Reichweite des Beitrags (0029, Konzept 21) */
   p_vis?: string | null;
   p_reach?: string | null;
+  /** Heimatverlauf des Beitrags, Schlüssel „Nur mit Link“ (Phase 2, F-406, F-425) */
+  p_ck?: string | null;
+  p_cid?: string | null;
+  p_key?: string | null;
+  /** Hafen- bzw. Boots-Verlauf des Beitrags */
+  ph_slug?: string | null;
+  ph_name?: string | null;
+  ph_hidden?: number | null;
+  pb_name?: string | null;
+  pb_vis?: string | null;
+  pb_hidden?: number | null;
+  pb_owner_suspended?: number | null;
+  /** angehängter Törn (F-426) */
+  ps_id?: string | null;
+  ps_title?: string | null;
+  ps_dist?: number | null;
+  ps_vis?: string | null;
+  ps_hidden?: number | null;
+  ps_locked?: number | null;
+  ps_owner?: string | null;
+  /** „Sichtbar bis“ des Törns (F-427) */
+  s_reach?: string | null;
   /** Hafen bei `harbor` (Konzept 12.4) */
   h_slug?: string | null;
   h_name?: string | null;
@@ -81,9 +104,27 @@ export function logbookIds(data: string): string[] {
   }
 }
 
+/**
+ * Wo gelesen wird (F-409): Stream einer Gruppe (mit ihrem Verein), eines Hafens, eines Boots oder die Community
+ * („Alles“, „Umgebung“). Fehlt es (persönlicher Stream), entscheiden die beim Schreiben angeglichenen Ziele.
+ */
+export type ReadAt =
+  | { kind: 'group'; id: string; parentId: string | null }
+  | { kind: 'harbor'; id: string }
+  | { kind: 'boat'; id: string }
+  | { kind: 'community' }
+  /** einzelne Karte über `/p/<id>` (F-406) */
+  | { kind: 'single' };
+
 export interface Viewer {
   id: string | null;
+  at?: ReadAt;
+  /** Schlüssel aus `/p/<id>/<schlüssel>` (nur Einzelansicht) */
+  postKey?: string | null;
 }
+
+/** Stufe, die ein Verlauf für ausgebreitete Beiträge bzw. Törns verlangt (Gruppe = Verein, Hafen, Community). */
+const levelOf = (at: ReadAt): Reach | null => (at.kind === 'group' ? 'club' : at.kind === 'harbor' ? 'harbor' : at.kind === 'community' ? 'all' : null);
 
 const publicBoat = (r: ActivityRow) => (r.b_id && r.b_vis === 'public' && !r.b_hidden && !r.b_owner_suspended ? { id: r.b_id, name: r.b_name ?? '' } : null);
 
@@ -99,6 +140,54 @@ function groupVisible(r: ActivityRow): boolean {
   const role = (r.g_role as GroupRole | null) ?? null;
   if (r.g_hidden && !canManageGroup(role)) return false;
   return r.g_vis === 'public' || role !== null;
+}
+
+/**
+ * Beitrag (F-402, F-406, F-409, F-420, F-425, F-426): Sichtbarkeit wie überall, ausgeblendete nie im Stream. Außerhalb
+ * des Heimatverlaufs (Ausbreitung nach oben) nur, solange Beitrag und Heimatverlauf öffentlich sind und „Sichtbar bis“
+ * die Stufe des lesenden Verlaufs abdeckt; Vereinsbeiträge in ihren Teams wie bisher ohne Stufe. Der angehängte Törn
+ * erscheint nur, wenn der Lesende ihn sehen darf.
+ */
+function shapePost(r: ActivityRow, viewer: Viewer, base: StreamItem, group: StreamItem['group'], actor: StreamItem['actor']): StreamItem | null {
+  if (!r.p_id || r.p_hidden || !isPostVisibility(r.p_vis ?? 'public')) return null;
+  const visibility = (r.p_vis ?? 'public') as PostVisibility;
+  const channel: ChannelKind = isChannelKind(r.p_ck) ? r.p_ck : r.group_id ? 'group' : 'user';
+  const role = (r.g_role as GroupRole | null) ?? null;
+  const isAuthor = !!viewer.id && viewer.id === r.p_author;
+  const at = viewer.at;
+  const atHome = !!at && 'id' in at && at.kind === channel && at.id === r.p_cid;
+  const boatPublic = r.pb_vis === 'public' && !r.pb_hidden && !r.pb_owner_suspended;
+  const where: NonNullable<StreamItem['post']>['where'] =
+    channel === 'harbor' && r.ph_slug && !r.ph_hidden ? { kind: 'harbor', slug: r.ph_slug, name: r.ph_name ?? '' }
+    : channel === 'boat' && r.p_cid && r.pb_name !== null && r.pb_name !== undefined && (boatPublic || atHome) ? { kind: 'boat', id: r.p_cid, name: r.pb_name }
+    : undefined;
+  const channelVisible = channel === 'group' ? !!group : channel === 'user' ? true : !!where;
+  const keyOk = !!r.p_key && !!viewer.postKey && timingSafeEqual(viewer.postKey, r.p_key);
+  const visible = canSeePost(
+    { visibility, channel, hidden: false, authorSuspended: false, authorPublic: !!actor },
+    { isAuthor: isAuthor && channel === 'user', channelVisible, isMember: role !== null, keyOk },
+  );
+  if (!visible || (channel === 'group' && !group)) return null;
+  const reach = isReach(r.p_reach) ? r.p_reach : 'here';
+  if (at && at.kind !== 'single' && !atHome) {
+    const homePublic = channel === 'group' ? r.g_vis === 'public' && !r.g_hidden : channel === 'boat' ? boatPublic : channel === 'harbor' ? !!where : !!actor;
+    if (visibility !== 'public' || !homePublic) return null;
+    // Vereinsbeiträge in den Teams des Vereins (Konzept 11.4) – nach unten, ohne Stufe
+    const downward = at.kind === 'group' && channel === 'group' && !!at.parentId && r.p_cid === at.parentId;
+    const lvl = levelOf(at);
+    if (!downward && (!lvl || !reachCovers(reach, lvl))) return null;
+  }
+  const canDelete = isAuthor || (channel === 'group' && canManageGroup(role));
+  const attached =
+    r.ps_id && !r.ps_locked && ((r.ps_vis === 'public' && !r.ps_hidden) || (!!viewer.id && viewer.id === r.ps_owner))
+      ? { id: r.ps_id, title: r.ps_title ?? '', distNm: r.ps_dist ?? 0 }
+      : null;
+  const path = keyOk && visibility === 'unlisted' ? `/p/${r.p_id}/${r.p_key}` : `/p/${r.p_id}`;
+  return {
+    ...base,
+    group,
+    post: { id: r.p_id, body: r.p_body ?? '', link: r.p_link, canDelete, visibility, reach, path, ...(where ? { where } : {}), voyage: attached },
+  };
 }
 
 /**
@@ -125,6 +214,9 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [],
       // Nur jetzt öffentliche, nicht ausgeblendete Törns – privat geschaltet, ausgeblendet oder gelöscht: weg.
       if (!r.s_id || r.s_vis !== 'public' || r.s_hidden) return null;
       if (r.kind === 'photos' && !thumbs.length) return null;
+      // „Sichtbar bis“ (F-427): Hafen und Community prüfen die Stufe beim Lesen; Gruppen folgen Auswahl und Zielen
+      const lvl = viewer.at && viewer.at.kind !== 'group' ? levelOf(viewer.at) : null;
+      if (lvl && !reachCovers(isReach(r.s_reach) ? r.s_reach : 'all', lvl)) return null;
       const voyage = {
         id: r.s_id, title: r.s_title ?? '', distNm: r.s_dist ?? 0, startedAt: r.s_started, hasImage: !!r.s_image, boat: publicBoat(r),
         ...(r.s_source === 'manual' ? { logbook: true } : {}),
@@ -142,22 +234,8 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [],
       if (!group || !boat) return null;
       return withCover({ ...base, group, boat }, boatCover(r));
     }
-    case 'post': {
-      // Gruppen- oder Profil-Beitrag (F-402, F-420): Sichtbarkeit wie überall, ausgeblendete nie im Stream
-      if (!r.p_id || r.p_hidden || !isPostVisibility(r.p_vis ?? 'public')) return null;
-      const visibility = (r.p_vis ?? 'public') as PostVisibility;
-      const role = (r.g_role as GroupRole | null) ?? null;
-      const inGroup = !!r.group_id;
-      const isAuthor = !!viewer.id && viewer.id === r.p_author;
-      const visible = canSeePost(
-        { visibility, channel: inGroup ? 'group' : 'user', hidden: false, authorSuspended: false, authorPublic: !!actor },
-        { isAuthor: isAuthor && !inGroup, groupVisible: !!group, isMember: role !== null },
-      );
-      if (!visible || (inGroup && !group)) return null;
-      const canDelete = isAuthor || (inGroup && canManageGroup(role));
-      const reach = isReach(r.p_reach) ? r.p_reach : 'here';
-      return { ...base, group, post: { id: r.p_id, body: r.p_body ?? '', link: r.p_link, canDelete, visibility, reach } };
-    }
+    case 'post':
+      return shapePost(r, viewer, base, group, actor);
     case 'milestone': {
       const nm = Number(data.nm) || 0;
       const year = Number(data.year) || 0;

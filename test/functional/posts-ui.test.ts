@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // Oberfläche der Beiträge (Konzept 21, Phase 1): „Mein Verlauf“ mit „Wer sieht es“/„Wo steht es“ und Bereich „Privat“
-// (F-401), Schalter „Ins Fahrtenbuch“ (F-422), Beitrag schreiben mit Sichtbarkeit (F-402, F-420), Schreibrecht in der
+// (F-401, Reiter „Fahrtenbuch“ F-428), Schalter „Ins Fahrtenbuch“ (F-422), „Sichtbar bis“ ändern (F-409), Schreibrecht in der
 // Gruppe (F-421), Beiträge für Besucher und „Ansehen als …“ (F-423). Komponenten zeigen nur an und melden Absichten.
 import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-my-posts';
@@ -59,7 +59,7 @@ const items: MyPost[] = [
 ];
 
 describe('sx-my-posts', () => {
-  it('[F-401] Karten trennen „Wer sieht es“ und „Wo steht es“; Privates und „Nur mit Link“ gekennzeichnet; Bereich „Privat“', async () => {
+  it('[F-401] Karten trennen „Wer sieht es“ und „Wo steht es“; Privates und „Nur mit Link“ gekennzeichnet; Bereich „Nur ich“', async () => {
     const areas = listen('sx-my-posts-area');
     const el = await mount('sx-my-posts', { items, cursor: 'c1', area: 'all' });
     const t = text(el.shadowRoot);
@@ -74,15 +74,17 @@ describe('sx-my-posts', () => {
     expect(el.shadowRoot.querySelector('li.post.private')).not.toBeNull();
     expect(el.shadowRoot.querySelector('a[href="/s/S1/key"]')).not.toBeNull();
     const tabs = [...el.shadowRoot.querySelectorAll('[role="tab"]')] as HTMLButtonElement[];
-    expect(tabs.map((b) => b.getAttribute('aria-selected'))).toEqual(['true', 'false']);
-    expect(tabs.map((b) => b.tabIndex)).toEqual([0, -1]);
-    tabs[1].click();
+    // Reiter „Alles · Fahrtenbuch · Nur ich“ (F-428) – „Nur ich“ wie im Sichtbarkeits-Picker
+    expect(tabs.map((b) => b.textContent!.trim())).toEqual(['Alles', 'Fahrtenbuch', 'Nur ich']);
+    expect(tabs.map((b) => b.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false']);
+    expect(tabs.map((b) => b.tabIndex)).toEqual([0, -1, -1]);
+    tabs[2].click();
     expect(areas).toEqual([{ area: 'private' }]);
     // Tabs-Muster: Pfeiltasten und Pos1/Ende
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-    expect(areas).toEqual([{ area: 'private' }, { area: 'private' }, { area: 'private' }]);
+    expect(areas).toEqual([{ area: 'private' }, { area: 'logbook' }, { area: 'private' }]);
     expect(el.shadowRoot.querySelector('[role="tabpanel"]')!.getAttribute('aria-labelledby')).toBe('tab-all');
     expect(button(el.shadowRoot, /Mehr laden/)).toBeTruthy();
   });
@@ -102,28 +104,41 @@ describe('sx-my-posts', () => {
     expect(deletes).toEqual([{ id: 'S1', kind: 'voyage' }]);
   });
 
-  it('[F-420] Profil-Beitrag schreiben: „Nur ich“ nur für Unterstützer; meldet Text, Link und Sichtbarkeit', async () => {
-    const creates = listen('sx-my-post-create');
-    const el = await mount('sx-my-posts', { items: [], cursor: null, area: 'all', supporter: true });
+  it('[F-428] Reiter „Fahrtenbuch“: leer mit „Eintrag hinzufügen“; kein eigenes Schreibfeld – Neues entsteht über „+ Neu“', async () => {
+    const starts = listen('sx-logbook-start');
+    const el = await mount('sx-my-posts', { items: [], cursor: null, area: 'logbook' });
     await settle(el);
-    const c = inner(el, 'sx-post-composer');
-    const ta = c.shadowRoot.querySelector('textarea') as HTMLTextAreaElement;
-    ta.value = 'Saisonstart';
-    ta.dispatchEvent(new Event('input'));
-    await c.updateComplete;
-    // Zähler erst ab 90 % ansagen
-    expect(c.shadowRoot.querySelector('.counter')!.getAttribute('aria-live')).toBe('off');
-    const radios = [...c.shadowRoot.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
-    expect(radios).toHaveLength(2);
-    radios[1].click();
-    await c.updateComplete;
-    (c.shadowRoot.querySelector('form') as HTMLFormElement).requestSubmit();
-    expect(creates).toEqual([{ body: 'Saisonstart', link: '', visibility: 'private' }]);
+    expect(el.shadowRoot.querySelector('sx-post-composer')).toBeNull();
+    button(el.shadowRoot, /Eintrag hinzufügen/)!.click();
+    expect(starts).toHaveLength(1);
+    const all = await mount('sx-my-posts', { items: [], cursor: null, area: 'all' });
+    expect(button(all.shadowRoot, /Eintrag hinzufügen/)).toBeUndefined();
+    expect(text(all.shadowRoot)).toContain('+ Neu');
+  });
 
-    const free = await mount('sx-my-posts', { items: [], cursor: null, area: 'all', supporter: false });
-    await settle(free);
-    expect(inner(free, 'sx-post-composer').shadowRoot.querySelectorAll('input[type="radio"]')).toHaveLength(0);
-    expect(text(inner(free, 'sx-post-composer').shadowRoot)).toContain('„Nur ich“ gibt es für Unterstützer');
+  it('[F-409] Text-Beitrag: „Sichtbar bis“ anzeigen und mit den Stufen des Verlaufs ändern; Teilen mit Schlüssel bei „Nur mit Link“', async () => {
+    const updates = listen('sx-my-post-update');
+    const shares = listen('sx-page-share');
+    const post = { id: 'P9', kind: 'text', createdAt: T, visibility: 'public', channel: { kind: 'group', slug: 'reg', name: 'Regatta', groupKind: 'team' }, groups: [], body: 'Hallo', link: null, hidden: false, reach: 'all', path: '/p/P9', attached: { id: 'S1', title: 'Rügen' } };
+    const targets = [{ ref: { kind: 'group', slug: 'reg', name: 'Regatta', groupKind: 'team' }, id: 'G1', choices: ['public', 'members'], reaches: [
+      { reach: 'here', label: 'Nur hier', chain: 'nur Regatta' }, { reach: 'club', label: 'Bis Verein', chain: 'Regatta → PYC' }, { reach: 'all', label: 'Überall', chain: 'Regatta → PYC → überall' },
+    ] }];
+    const el = await mount('sx-my-posts', { items: [post], cursor: null, area: 'all', targets });
+    expect(text(el.shadowRoot)).toContain('Sichtbar bis: Überall');
+    expect(el.shadowRoot.querySelector('a[href="/s/S1"]')).not.toBeNull();
+    button(el.shadowRoot, /Teilen/)!.click();
+    expect(shares).toEqual([{ path: '/p/P9', title: 'Beitrag' }]);
+    button(el.shadowRoot, /Sichtbarkeit/)!.click();
+    await el.updateComplete;
+    const picker = inner(el, 'sx-reach-picker');
+    await picker.updateComplete;
+    const sel = picker.shadowRoot.querySelector('select') as HTMLSelectElement;
+    expect([...sel.options].map((o) => o.value)).toEqual(['here', 'club', 'all']);
+    sel.value = 'club';
+    sel.dispatchEvent(new Event('change'));
+    await el.updateComplete;
+    button(el.shadowRoot, /Speichern/)!.click();
+    expect(updates).toEqual([{ id: 'P9', visibility: 'public', reach: 'club' }]);
   });
 });
 

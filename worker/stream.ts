@@ -3,11 +3,16 @@
 // Index, nie die Quelle. Reaktionen (Konzept 12.5) werden je Seite in einer Abfrage dazugelesen.
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
-import { HttpError, json, readJson } from './http';
+import { HttpError, countKeyFailure, json, readJson } from './http';
 import { loadGroup, loadGroupBySlug, visibleGroup } from './groups';
 import { harborVisible, loadHarbor, loadHarborBySlug, HARBOR_NOT_FOUND } from './harbors';
 import { homeShape, homeStmt, type HomeRow } from './home';
 import { isAdmin } from './moderation';
+import { roleFor } from './boats';
+import { canView, requestKey } from './access';
+import { BOAT_ID_RE } from './validate';
+import { reachAtLeastSql } from './reach-sql';
+import type { Visibility } from '../src/domain/visibility';
 import { logbookIds, shapeItem, type ActivityRow, type LogShare, type Viewer } from './stream-shape';
 import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
 import {
@@ -18,18 +23,25 @@ import { emptyReactions, summarizeReactions, type ReactionKind } from '../src/do
 import { UNREAD_MAX, UNREAD_SCAN, seenUntil } from '../src/domain/unread';
 import { DEFAULT_RADIUS, NEAR_MAX_PLACES, boundingBox, isNearRadius, parseCenter, withinRadius, type LatLon } from '../src/domain/near';
 
-const ROWS_SQL = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subject_id, a.group_id, a.data, a.created_at,
+/** Spalten und Verknüpfungen je Aktivität `a` (`?1` = Betrachter) – gleich für Streams und die Einzelkarte `/p/<id>`. */
+const ROW_COLS_JOINS = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subject_id, a.group_id, a.data, a.created_at,
     ap.handle AS actor_handle, ap.display_name AS actor_name, (ap.visibility = 'public' AND ap.hidden_at IS NULL) AS actor_public,
     (au.suspended_at IS NOT NULL) AS actor_suspended, (au.id IS NOT NULL) AS actor_exists,
     s.id AS s_id, s.title AS s_title, s.dist_nm AS s_dist, s.started_at AS s_started, s.has_image AS s_image, s.visibility AS s_vis, s.hidden_at AS s_hidden, s.source AS s_source,
+    (SELECT sp.reach FROM posts sp WHERE sp.id = s.id) AS s_reach,
     b.id AS b_id, b.name AS b_name, b.visibility AS b_vis, b.hidden_at AS b_hidden,
     EXISTS (SELECT 1 FROM users bu WHERE bu.id = b.owner_id AND bu.suspended_at IS NOT NULL) AS b_owner_suspended,
     g.id AS g_id, g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.hidden_at AS g_hidden, gm.role AS g_role,
     EXISTS (SELECT 1 FROM users gu WHERE gu.id = g.owner_id AND gu.suspended_at IS NOT NULL) AS g_owner_suspended,
     p.id AS p_id, p.body AS p_body, p.link AS p_link, p.hidden_at AS p_hidden, p.author_id AS p_author, p.visibility AS p_vis, p.reach AS p_reach,
+    p.channel_kind AS p_ck, p.channel_id AS p_cid, p.link_key AS p_key,
+    ph.slug AS ph_slug, ph.name AS ph_name, ph.hidden_at AS ph_hidden,
+    pb.name AS pb_name, pb.visibility AS pb_vis, pb.hidden_at AS pb_hidden,
+    EXISTS (SELECT 1 FROM users pbu WHERE pbu.id = pb.owner_id AND pbu.suspended_at IS NOT NULL) AS pb_owner_suspended,
+    ps.id AS ps_id, ps.title AS ps_title, ps.dist_nm AS ps_dist, ps.visibility AS ps_vis, ps.hidden_at AS ps_hidden, ps.locked_at AS ps_locked, ps.user_id AS ps_owner,
     h.slug AS h_slug, h.name AS h_name, h.hidden_at AS h_hidden,
     cb.ver AS cb_ver, cb.focus_y AS cb_y, cu.ver AS cu_ver, cu.focus_y AS cu_y, cg.ver AS cg_ver, cg.focus_y AS cg_y
-  FROM activity a
+  FROM a
   LEFT JOIN users au ON au.id = a.actor_id
   LEFT JOIN profiles ap ON ap.user_id = a.actor_id
   LEFT JOIN shares s ON a.subject_kind = 'share' AND s.id = a.subject_id
@@ -37,11 +49,23 @@ const ROWS_SQL = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subject_id,
   LEFT JOIN groups g ON g.id = COALESCE(a.group_id, CASE WHEN a.subject_kind = 'group' THEN a.subject_id END)
   LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = ?1
   LEFT JOIN posts p ON a.subject_kind = 'post' AND p.id = a.subject_id
+  LEFT JOIN harbors ph ON p.channel_kind = 'harbor' AND ph.id = p.channel_id
+  LEFT JOIN boats pb ON p.channel_kind = 'boat' AND pb.id = p.channel_id
+  LEFT JOIN shares ps ON ps.id = json_extract(p.data, '$.shareId')
   LEFT JOIN harbors h ON a.kind = 'harbor' AND h.id = json_extract(a.data, '$.harbor')
   LEFT JOIN covers cb ON cb.kind = 'b' AND cb.object_id = b.id
   LEFT JOIN covers cu ON cu.kind = 'u' AND cu.object_id = a.actor_id
-  LEFT JOIN covers cg ON cg.kind = 'g' AND cg.object_id = g.id
-  WHERE a.id IN (SELECT value FROM json_each(?2))`;
+  LEFT JOIN covers cg ON cg.kind = 'g' AND cg.object_id = g.id`;
+
+const ROWS_SQL = `WITH a AS (SELECT * FROM activity WHERE id IN (SELECT value FROM json_each(?2))) ${ROW_COLS_JOINS}`;
+
+/**
+ * Ein Text-Beitrag als Aktivitäts-Zeile (`?2` = Beitrag) – auch „Nur mit Link“, die nie im Log stehen. Gleiche Spalten
+ * und dieselbe Prüfung wie im Stream (F-406).
+ */
+const POST_ROW_SQL = `WITH a AS (SELECT p0.id AS id, 'post' AS kind, p0.author_id AS actor_id, 'post' AS subject_kind, p0.id AS subject_id,
+    p0.group_id AS group_id, '{}' AS data, p0.created_at AS created_at FROM posts p0 WHERE p0.id = ?2 AND p0.share_id IS NULL)
+  ${ROW_COLS_JOINS}`;
 
 interface Candidate {
   id: string;
@@ -116,14 +140,16 @@ async function photoThumbs(env: Env, rows: ActivityRow[]): Promise<Map<string, s
  * neueste zuerst. Eine Abfrage für die ganze Seite. Im Gruppen-Stream (`groupId`) nur die Einträge, die in dieser
  * Gruppe gezeigt werden (F-374) – ein Bündel ohne solche fällt beim Lesen weg.
  */
-async function logbookShares(env: Env, rows: ActivityRow[], groupId?: string): Promise<Map<string, LogShare[]>> {
+async function logbookShares(env: Env, rows: ActivityRow[], groupId?: string, community = false): Promise<Map<string, LogShare[]>> {
   const bundles = rows.filter((r) => r.kind === 'logbook').map((r) => ({ id: r.id, ids: logbookIds(r.data) }));
   const out = new Map<string, LogShare[]>();
   const all = [...new Set(bundles.flatMap((b) => b.ids))];
   if (!all.length) return out;
+  // Community („Alles“, „Umgebung“): nur Einträge mit „Sichtbar bis: überall“ (F-427)
   const { results } = await env.DB.prepare(
     `SELECT id, title, dist_nm FROM shares WHERE id IN (SELECT value FROM json_each(?1)) AND visibility = 'public' AND hidden_at IS NULL AND locked_at IS NULL
-       ${groupId ? 'AND id IN (SELECT share_id FROM share_groups WHERE group_id = ?2)' : ''}`,
+       ${groupId ? 'AND id IN (SELECT share_id FROM share_groups WHERE group_id = ?2)' : ''}
+       ${community ? `AND ${reachAtLeastSql('shares.id', 'all')}` : ''}`,
   )
     .bind(...(groupId ? [JSON.stringify(all), groupId] : [JSON.stringify(all)]))
     .all<{ id: string; title: string; dist_nm: number }>();
@@ -143,7 +169,7 @@ async function resolve(env: Env, viewer: Viewer, candidates: Candidate[], scanne
   const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(viewer.id ?? '', JSON.stringify(ids)).all<ActivityRow>();
   const byId = new Map(rows.map((r) => [r.id, r]));
   const thumbs = await photoThumbs(env, rows);
-  const logs = await logbookShares(env, rows, groupId);
+  const logs = await logbookShares(env, rows, groupId, viewer.at?.kind === 'community');
   const items: StreamItem[] = [];
   let last: Candidate | null = null;
   for (const c of candidates) {
@@ -168,6 +194,15 @@ export async function visibleActivity(env: Env, viewerId: string | null, id: str
     thumbs = results.map((p) => p.id);
   }
   return shapeItem(row, { id: viewerId }, thumbs, (await logbookShares(env, [row])).get(row.id) ?? []);
+}
+
+/** Ein Text-Beitrag als Karte für diesen Betrachter (Einzelansicht `/p/<id>`, F-406) – oder null. */
+export async function postCard(env: Env, viewerId: string | null, postId: string, key: string | null): Promise<StreamItem | null> {
+  const row = await env.DB.prepare(POST_ROW_SQL).bind(viewerId ?? '', postId).first<ActivityRow>();
+  if (!row) return null;
+  const item = shapeItem(row, { id: viewerId, at: { kind: 'single' }, postKey: key });
+  if (item) await attachReactions(env, [item], viewerId);
+  return item;
 }
 
 const cursorOf = (request: Request): StreamCursor => {
@@ -253,7 +288,7 @@ export async function markStreamSeen(request: Request, env: Env): Promise<Respon
 
 // ---------------------------------------------------------------- Streams einzelner Ziele (Gruppe, Hafen)
 
-async function targetCandidates(env: Env, kind: 'group' | 'harbor', id: string, c: StreamCursor): Promise<Candidate[]> {
+async function targetCandidates(env: Env, kind: 'group' | 'harbor' | 'boat', id: string, c: StreamCursor): Promise<Candidate[]> {
   const { results } = await env.DB.prepare(
     `SELECT activity_id AS id, created_at AS at FROM activity_target
      WHERE target_kind = ?1 AND target_id = ?2 AND (created_at < ?3 OR (created_at = ?3 AND activity_id < ?4))
@@ -264,23 +299,27 @@ async function targetCandidates(env: Env, kind: 'group' | 'harbor', id: string, 
   return results;
 }
 
-/** Einträge einer Gruppe (Ziel `group`) – auch für RSS (worker/feed.ts). */
-export async function groupItems(env: Env, groupId: string, viewer: Viewer, c: StreamCursor) {
-  return resolve(env, viewer, await targetCandidates(env, 'group', groupId, c), STREAM_SCAN, undefined, groupId);
+/**
+ * Einträge einer Gruppe (Ziel `group`) – auch für RSS (worker/feed.ts). Ausgebreitete Beiträge (Teams → Verein) nur,
+ * solange „Sichtbar bis“ den Verein abdeckt (F-409); `parentId`: Verein eines Teams (dessen Beiträge kommen herunter).
+ */
+export async function groupItems(env: Env, group: { id: string; parent_id?: string | null }, viewer: Viewer, c: StreamCursor) {
+  const at = { kind: 'group' as const, id: group.id, parentId: group.parent_id ?? null };
+  return resolve(env, { ...viewer, at }, await targetCandidates(env, 'group', group.id, c), STREAM_SCAN, undefined, group.id);
 }
 
 /** Hafen-Stream: Törns und Fotos nur mit (jetzt) öffentlichem Boot – sonst verriete er den Hafen eines privaten Boots. */
 const harborKeep = (i: StreamItem) => (i.kind === 'voyage' || i.kind === 'photos' ? !!i.voyage?.boat : true);
 
+/** Hafen-Stream (F-425): eigene Beiträge und Ausbreitung bis „Sichtbar bis: Hafen“ (F-409). */
 export async function harborItems(env: Env, harborId: string, viewer: Viewer, c: StreamCursor) {
-  return resolve(env, viewer, await targetCandidates(env, 'harbor', harborId, c), STREAM_SCAN, harborKeep);
+  return resolve(env, { ...viewer, at: { kind: 'harbor', id: harborId } }, await targetCandidates(env, 'harbor', harborId, c), STREAM_SCAN, harborKeep);
 }
 
-/**
- * „Alles“: Profil-Beiträge nur mit „Sichtbar bis: überall“ (Konzept 21.7) – in Phase 1 noch keine, die Ausbreitung
- * nach oben folgt mit Phase 2. Gruppen-Beiträge erscheinen wie bisher.
- */
-const communityKeep = (i: StreamItem) => (i.kind === 'post' && !i.group ? i.post?.reach === 'all' : true);
+/** Boots-Stream (F-425): Beiträge am Boot, seine Törns (ab „Sichtbar bis: Hafen“), neue Gruppen und Häfen. */
+export async function boatItems(env: Env, boatId: string, viewer: Viewer, c: StreamCursor) {
+  return resolve(env, { ...viewer, at: { kind: 'boat', id: boatId } }, await targetCandidates(env, 'boat', boatId, c), STREAM_SCAN);
+}
 
 const PUBLIC_TTL = 60;
 
@@ -317,11 +356,33 @@ export async function groupStream(request: Request, env: Env, id: string): Promi
   // Mitglieder nie aus dem Cache: er ist ohne Betrachter berechnet und enthält keine „Nur Mitglieder“-Beiträge (F-415)
   const shared = group.visibility === 'public' && !group.hidden_at && role === null;
   if (!shared) {
-    const page = await groupItems(env, group.id, { id: user?.id ?? null }, c);
+    const page = await groupItems(env, group, { id: user?.id ?? null }, c);
     return json(page, { headers: { 'Cache-Control': 'private, no-store' } });
   }
   // Ohne Betrachter berechnet: gleich für alle, keine Löschen-Rechte im Cache.
-  return cachedPage(request, env, `groups/${group.id}/stream?cursor=${cursorParam(request)}`, () => groupItems(env, group.id, { id: null }, c), user?.id ?? null);
+  return cachedPage(request, env, `groups/${group.id}/stream?cursor=${cursorParam(request)}`, () => groupItems(env, group, { id: null }, c), user?.id ?? null);
+}
+
+/**
+ * GET /api/boats/:id/stream?cursor= – Neuigkeiten des Boots (F-425): sichtbar wie die Bootsseite (öffentlich, „Nur mit
+ * Link“ mit Schlüssel, sonst Verwalter). Öffentliche Boote sind für Nicht-Verwalter gleich und 60 s gecacht.
+ */
+export async function boatStream(request: Request, env: Env, id: string): Promise<Response> {
+  const key = requestKey(request);
+  const user = await currentUser(request, env);
+  const b = BOAT_ID_RE.test(id)
+    ? await env.DB.prepare('SELECT id, visibility, share_key, hidden_at, locked_at FROM boats WHERE id = ?').bind(id).first<{ id: string; visibility: Visibility; share_key: string | null; hidden_at: number | null; locked_at: number | null }>()
+    : null;
+  const role = b && user ? await roleFor(env, user.id, b.id) : null;
+  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key, hiddenAt: b.hidden_at, lockedAt: b.locked_at }, { manager: !!role, key, admin: isAdmin(env, user?.id) })) {
+    await countKeyFailure(env, request, key);
+    throw new HttpError(404, 'not_found', 'Dieses Boot gibt es nicht oder es ist privat.');
+  }
+  const c = cursorOf(request);
+  if (b.visibility !== 'public' || b.hidden_at || role) {
+    return json(await boatItems(env, b.id, { id: user?.id ?? null }, c), { headers: { 'Cache-Control': 'private, no-store' } });
+  }
+  return cachedPage(request, env, `boats/${b.id}/stream?cursor=${cursorParam(request)}`, () => boatItems(env, b.id, { id: null }, c), user?.id ?? null);
 }
 
 /** GET /api/harbors/:id/stream?cursor= – Neuigkeiten des Hafens (Häfen sind öffentlich: immer gecacht). */
@@ -394,9 +455,9 @@ export async function publicStream(request: Request, env: Env): Promise<Response
     const g = await loadGroupBySlug(env, clubSlug);
     if (!g || g.visibility !== 'public' || g.hidden_at) throw new HttpError(404, 'not_found', 'Diese Gruppe gibt es nicht oder sie ist nicht öffentlich.');
     filterKey = `club=${g.id}`;
-    compute = () => groupItems(env, g.id, { id: null }, c);
+    compute = () => groupItems(env, g, { id: null }, c);
   } else {
-    compute = async () => resolve(env, { id: null }, await recentCandidates(env, c), STREAM_SCAN, communityKeep);
+    compute = async () => resolve(env, { id: null, at: { kind: 'community' } }, await recentCandidates(env, c), STREAM_SCAN);
   }
   const withFilters = first ? async () => ({ ...(await compute()), filters: await publicFilters(env) }) : compute;
   return cachedPage(request, env, `stream/public?${filterKey}&cursor=${cursorParam(request)}`, withFilters, user?.id ?? null);
@@ -465,7 +526,7 @@ export async function nearStream(request: Request, env: Env): Promise<Response> 
     const { harbors, groups } = await placesNear(env, center, km);
     const keys = [...harbors.map((h) => ['harbor', h.id]), ...groups.map((g) => ['group', g.id])];
     const page = keys.length
-      ? await resolve(env, { id: null }, (await env.DB.prepare(PERSONAL_SQL).bind(JSON.stringify(keys), c.at, c.id, STREAM_SCAN).all<Candidate>()).results, STREAM_SCAN, harborKeep)
+      ? await resolve(env, { id: null, at: { kind: 'community' } }, (await env.DB.prepare(PERSONAL_SQL).bind(JSON.stringify(keys), c.at, c.id, STREAM_SCAN).all<Candidate>()).results, STREAM_SCAN, harborKeep)
       : { items: [], cursor: null };
     return first ? { ...page, near: { places: harbors.length + groups.length, center: place } } : page;
   };

@@ -175,7 +175,7 @@ describe('[F-160] shapeItem – Sichtbarkeit beim Lesen', () => {
   });
 
   it('Beiträge: Gruppe öffentlich oder Mitglied; geschlossen ohne Mitgliedschaft, ausgeblendet → null; Löschen nur Autor/Verwalter', () => {
-    expect(shapeItem(groupRow(), viewer)!.post).toEqual({ id: 'Post00000000000001', body: 'Hallo', link: null, canDelete: false, visibility: 'public', reach: 'here' });
+    expect(shapeItem(groupRow(), viewer)!.post).toEqual({ id: 'Post00000000000001', body: 'Hallo', link: null, canDelete: false, visibility: 'public', reach: 'here', path: '/p/Post00000000000001', voyage: null });
     expect(shapeItem(groupRow({ g_vis: 'private' }), viewer)).toBeNull();
     expect(shapeItem(groupRow({ g_vis: 'unlisted' }), viewer)).toBeNull();
     expect(shapeItem(groupRow({ g_vis: 'private', g_role: 'member' }), viewer)).not.toBeNull();
@@ -202,7 +202,7 @@ describe('[F-162] Atom-Feed und Texte', () => {
   });
 
   it('atomFeed: Einträge mit escapetem Nutzertext, Links aus der eigenen Origin', () => {
-    const item: StreamItem = { id: 'Act1', kind: 'post', createdAt: Date.UTC(2026, 9, 1), actor: { handle: 'a', displayName: '<Anna>' }, group: { slug: 'sc', name: 'S&C', kind: 'club' }, post: { id: 'P1', body: '</content><script>', link: null, canDelete: false } };
+    const item: StreamItem = { id: 'Act1', kind: 'post', createdAt: Date.UTC(2026, 9, 1), actor: { handle: 'a', displayName: '<Anna>' }, group: { slug: 'sc', name: 'S&C', kind: 'club' }, post: { id: 'P1', body: '</content><script>', link: null, canDelete: false, path: '/p/P1' } };
     const xml = atomFeed('https://sail.example', { slug: 'sc', name: 'S&C', description: '', updated: 0 }, [item]);
     expect(xml).toContain('<title>S&amp;C · Sail Explorer</title>');
     expect(xml).toContain('<content type="text">&lt;/content&gt;&lt;script&gt;</content>');

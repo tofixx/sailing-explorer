@@ -45,8 +45,8 @@ async function harbor(p: Person, name: string): Promise<{ res: Response; harbor:
   return { res, ...body };
 }
 const team = (owner: Person, club: { id: string }, o: Record<string, unknown> = {}) => s.group(owner, { kind: 'team', name: 'Regattacrew', parentId: club.id, ...o });
-const post = async (admin: Person, g: { id: string }, body = 'Hallo Hafen') => {
-  const res = await s.send('POST', `/api/groups/${g.id}/posts`, admin.cookie, { body });
+const post = async (admin: Person, g: { id: string }, body = 'Hallo Hafen', extra: Record<string, unknown> = {}) => {
+  const res = await s.send('POST', `/api/groups/${g.id}/posts`, admin.cookie, { body, ...extra });
   expect(res.status, await res.clone().text()).toBe(201);
   return ((await res.json()) as { post: { id: string } }).post;
 };
@@ -287,7 +287,8 @@ describe('F-176/F-177 Stream-Zusammensetzung', () => {
     const closedTeam = await team(owner, club, { name: 'Vorstand', visibility: 'private' });
     const me = await s.person();
     await s.join(owner, club, me);
-    const p1 = await post(owner, openTeam, 'Training am Samstag');
+    // „nur hier“: ohne Ausbreitung in den Verein (F-409) kommt er nur über den Heimatverein in den Stream
+    const p1 = await post(owner, openTeam, 'Training am Samstag', { reach: 'here' });
     const p2 = await post(owner, closedTeam, 'Vertraulich');
     // ohne Heimatverein: Teams des Vereins nicht im Stream (nur der Verein selbst)
     expect(postIds(await stream(me))).not.toContain(p1.id);

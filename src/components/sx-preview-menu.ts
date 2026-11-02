@@ -87,7 +87,7 @@ export class SxPreviewMenu extends LitElement {
     const cur = this.current ? previewParam(this.current) : null;
     return html`<div @keydown=${this.onKey} @focusout=${this.onFocusOut}>
       <button class="btn icon toggle" type="button" aria-label="Ansehen als …" title="Ansehen als …" aria-expanded=${this.open} aria-controls="pv"
-        @click=${() => (this.open = !this.open)}>${icon('gear')}</button>
+        @click=${() => (this.open = !this.open)}>${icon('eye')}</button>
       <div class="menu" id="pv" role="group" aria-labelledby="pv-h" ?hidden=${!this.open}>
         <p class="title" id="pv-h">Deine Seite ansehen als …</p>
         ${this.choices().map((p) => {

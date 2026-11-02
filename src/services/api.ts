@@ -15,13 +15,16 @@ import type { VoyageRole } from '../domain/crew-roles';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 import type { NotificationItem, NotificationKind, NotifyPrefs } from '../domain/notifications';
 import type { DistSource, LatLon, LogState, Logbook, ShareSource } from '../domain/logbook';
-import { previewParam, type MyPost, type MyPostArea, type PostBy, type PostVisibility, type PreviewOptions, type ProfilePost, type ProfilePreview } from '../domain/posts';
+import { previewParam, type AttachableShare, type ChannelKind, type ComposeTarget, type MyPost, type MyPostArea, type PostBy, type PostLink, type PostVisibility, type PreviewOptions, type ProfilePost, type ProfilePreview, type Reach } from '../domain/posts';
 
 export type { Visibility };
 
 export interface User {
   id: string;
   email: string;
+  /** Profilname und Anzeigename der eigenen Seite (Konto-Menü, F-428) – null ohne Profil */
+  handle?: string | null;
+  displayName?: string | null;
   /** Plattform-Admin (Konzept 18.1) – nur aus /api/auth/me */
   admin?: boolean;
 }
@@ -66,6 +69,8 @@ export interface ShareMeta extends Linkable {
   log?: Logbook;
   /** „Ins Fahrtenbuch“ (F-422) – fehlt bei älteren Servern */
   logState?: LogState;
+  /** „Sichtbar bis“ (F-427) – nur für die Eigentümer:in */
+  reach?: Reach;
 }
 
 /** Start- bzw. Zielhafen eines Törns (ausgeblendete Häfen: null) */
@@ -353,6 +358,8 @@ export type SharePatch = Partial<Pick<ShareMeta, 'title' | 'visibility' | 'view'
   boatId?: string | null;
   /** „In Gruppen zeigen“ (F-375): ersetzt die Auswahl */
   groupIds?: string[];
+  /** „Sichtbar bis“ (F-427) */
+  reach?: Reach;
   /** „Ins Fahrtenbuch“ (F-422): an (Vorschlag/bestätigt), bestätigen, ausschließen */
   logState?: LogState;
   /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
@@ -446,6 +453,8 @@ export const api = {
       title: string; summary: string; view: string; trackCount: number; visibility: Visibility; boatId: string | null; distNm: number; startedAt: number | null; endedAt?: number | null;
       /** „In Gruppen zeigen“ (F-373); fehlt bzw. null = Gruppen des Boots */
       groupIds?: string[] | null;
+      /** „Sichtbar bis“ (F-427) */
+      reach?: Reach;
     },
   ) =>
     call<{ share: ShareMeta }>('/api/shares', {
@@ -462,6 +471,7 @@ export const api = {
         ...(meta.startedAt && meta.endedAt ? { 'X-Share-Ended': String(meta.endedAt) } : {}),
         ...(meta.boatId ? { 'X-Share-Boat': meta.boatId } : {}),
         ...(meta.groupIds ? { 'X-Share-Groups': JSON.stringify(meta.groupIds) } : {}),
+        ...(meta.reach ? { 'X-Share-Reach': meta.reach } : {}),
       },
       body: gz,
     }),
@@ -1050,6 +1060,8 @@ export const socialApi = {
   harbor: (slug: string) => call<HarborPageData>(`/api/harbors/slug/${encodeURIComponent(slug)}`),
   updateHarbor: (id: string, patch: HarborPatch) => call<{ harbor: HarborPageData['harbor'] }>(`/api/harbors/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
   harborStream: (id: string, cursor?: string | null) => call<StreamPage>(`/api/harbors/${encodeURIComponent(id)}/stream${q({ cursor })}`),
+  /** Neuigkeiten des Boots (F-425); Schlüssel bei „Nur mit Link“ */
+  boatStream: (id: string, cursor?: string | null, key?: string | null) => call<StreamPage>(`/api/boats/${encodeURIComponent(id)}/stream${q({ cursor })}`, keyInit(key)),
   home: () => call<HomeInfo>('/api/me/home'),
   saveHome: (patch: { clubId?: string | null; harborId?: string | null }) => call<HomeInfo>('/api/me/home', jsonInit('PUT', patch)),
   nearStream: (cursor: string | null, center: NearCenter, r: number) =>
@@ -1177,6 +1189,28 @@ export interface PostInput {
   body: string;
   link: string;
   visibility: PostVisibility;
+  /** „Sichtbar bis“ (F-409); fehlt = Standard des Verlaufs */
+  reach?: Reach;
+  /** angehängter eigener Törn (F-426) */
+  shareId?: string | null;
+}
+
+/** Neuer Beitrag über den Plus-Knopf (F-405): Verlauf und Inhalt */
+export type ChannelPostInput = PostInput & { channel: { kind: ChannelKind; id: string } };
+
+/** „Wo steht es?“ und eigene Törns für das Formular (GET /api/me/compose) */
+export interface ComposeData {
+  targets: ComposeTarget[];
+  preselect: string | null;
+  shares: AttachableShare[];
+  supporter: boolean;
+}
+
+/** Neu angelegter Beitrag – mit Link zur Karte und Seite des Heimatverlaufs */
+export interface CreatedPost {
+  id: string;
+  path: string;
+  home: string | null;
 }
 
 /** Antwort der Profilseite – mit Beiträgen für Besucher (F-420) und der Vorschau „Ansehen als …“ (F-423) */
@@ -1198,7 +1232,14 @@ export const postApi = {
   /** „Mein Verlauf“ (F-401) */
   mine: (area: MyPostArea, cursor?: string | null) =>
     call<{ items: MyPost[]; cursor: string | null }>(`/api/me/posts?area=${area}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
-  /** Text-Beitrag im eigenen Profil (F-420) */
-  create: (input: PostInput) => call<{ post: { id: string } }>('/api/me/posts', jsonInit('POST', input)),
   remove: (id: string) => call<void>(`/api/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Verläufe zum Schreiben (F-405); `ctx` = Verlauf der offenen Seite, z. B. `group:<id>` */
+  compose: (ctx?: string | null) => call<ComposeData>(`/api/me/compose${q({ ctx })}`),
+  /** Beitrag in einen beliebigen Verlauf (F-405, F-425) */
+  createIn: (input: ChannelPostInput) => call<{ post: CreatedPost }>('/api/posts', jsonInit('POST', input)),
+  /** Sichtbarkeit bzw. „Sichtbar bis“ ändern (F-409) */
+  update: (id: string, patch: { visibility?: PostVisibility; reach?: Reach }) =>
+    call<{ post: { id: string; visibility: PostVisibility; reach: Reach; path: string } }>(`/api/posts/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
+  /** Karte und Ziel von `/p/<id>` (F-406) */
+  get: (id: string, key?: string | null) => call<{ item: StreamItem; link: PostLink }>(`/api/posts/${encodeURIComponent(id)}`, keyInit(key)),
 };

@@ -300,7 +300,7 @@ describe('sx-group-page', () => {
     ta.dispatchEvent(new Event('input'));
     await composer.updateComplete;
     (croot.querySelector('form') as HTMLFormElement).requestSubmit();
-    expect(posts).toEqual([{ groupId: 'G1', body: 'Absegeln am Samstag', link: '', visibility: 'public' }]);
+    expect(posts).toEqual([{ groupId: 'G1', body: 'Absegeln am Samstag', link: '', visibility: 'public', shareId: null }]);
     expect(text(root)).toContain('Beitrittsanfragen (1)');
     button(root, /Annehmen/)!.click();
     expect(reqs).toEqual([{ id: 'G1', userId: 'U9', approve: true }]);

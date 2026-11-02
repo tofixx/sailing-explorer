@@ -1,7 +1,7 @@
 import { LitElement, css, html } from 'lit';
 import { currentPosition } from '../services/near-prefs';
-import type { Boat, CrewVoyage, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, ProfilePageData, PublicHome, ShareMeta, StreamPage } from '../services/api';
-import { previewLabel, type MyPost, type MyPostArea } from '../domain/posts';
+import type { Boat, CrewVoyage, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, ProfilePageData, PublicHome, ShareMeta, StreamItem, StreamPage } from '../services/api';
+import { previewLabel, type ComposeTarget, type MyPost, type MyPostArea, type PostLink } from '../domain/posts';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
@@ -30,9 +30,12 @@ const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
 
 export type PageData =
   | ({ kind: 'profile' } & ProfilePageData)
-  | ({ kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[] } & PageMedia)
+  /** Bootsseite mit Neuigkeiten des Boots (F-425) */
+  | ({ kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[]; stream?: StreamPage | null } & PageMedia)
   /** Hafenseite /h/<slug> (Konzept 12.2) mit Neuigkeiten des Hafens */
-  | ({ kind: 'harbor'; stream?: StreamPage | null } & HarborPageData);
+  | ({ kind: 'harbor'; stream?: StreamPage | null } & HarborPageData)
+  /** einzelne Karte `/p/<id>` (F-406): Verlauf nicht sichtbar, „Nur mit Link“ oder nicht mehr im Verlauf zu finden */
+  | { kind: 'post'; item: StreamItem; link: PostLink };
 
 /** Öffentliche Profil-, Boots- bzw. Hafenseite mit Kennzahlen und gelisteten Törns. */
 export class SxProfilePage extends LitElement {
@@ -47,6 +50,10 @@ export class SxProfilePage extends LitElement {
     myLoading: { type: Boolean },
     busy: { type: Boolean },
     supporter: { type: Boolean },
+    /** Verläufe mit Stufen (für „Sichtbar bis“ in „Mein Verlauf“, F-409) */
+    myTargets: { attribute: false },
+    /** Beitrag aus `/p/<id>` hervorheben (F-406) */
+    highlight: { type: String },
     editing: { state: true },
   };
   declare data: PageData | null;
@@ -65,6 +72,8 @@ export class SxProfilePage extends LitElement {
   declare busy: boolean;
   /** darf „Nur ich“ wählen (E1) */
   declare supporter: boolean;
+  declare myTargets: ComposeTarget[];
+  declare highlight: string | null;
 
   constructor() {
     super();
@@ -78,6 +87,8 @@ export class SxProfilePage extends LitElement {
     this.myArea = 'all';
     this.myLoading = false;
     this.busy = false;
+    this.myTargets = [];
+    this.highlight = null;
     this.supporter = false;
   }
 
@@ -374,12 +385,13 @@ export class SxProfilePage extends LitElement {
       return html`<section aria-labelledby="mine-t">
         <h2 class="eyebrow" id="mine-t">Mein Verlauf</h2>
         <sx-my-posts .items=${this.myPosts?.items ?? []} .cursor=${this.myPosts?.cursor ?? null} area=${this.myArea}
-          ?loading=${this.myLoading} ?busy=${this.busy} ?supporter=${this.supporter}></sx-my-posts>
+          ?loading=${this.myLoading} ?busy=${this.busy} ?supporter=${this.supporter} .targets=${this.myTargets}
+          .highlight=${this.highlight}></sx-my-posts>
       </section>`;
     }
     if (!d.posts?.length) return '';
     return html`<section aria-labelledby="posts-t"><h2 class="eyebrow" id="posts-t">Beiträge</h2>
-      <sx-profile-posts .items=${d.posts} ?preview=${!!d.preview}></sx-profile-posts></section>`;
+      <sx-profile-posts .items=${d.posts} ?preview=${!!d.preview} .highlight=${this.highlight}></sx-profile-posts></section>`;
   }
 
   private profile(d: Extract<PageData, { kind: 'profile' }>) {
@@ -429,7 +441,7 @@ export class SxProfilePage extends LitElement {
           </section>`
         : ''}
       <sx-gallery .photos=${d.photos ?? []} heading="Fotos"></sx-gallery>
-      <section><h2 class="eyebrow">Törns</h2>${this.voyages(d.voyages)}</section>
+      ${p.isSelf ? '' : html`<section><h2 class="eyebrow">Törns</h2>${this.voyages(d.voyages)}</section>`}
       ${d.crewVoyages?.length ? html`<section><h2 class="eyebrow">Mitgesegelt</h2>${this.voyages(d.crewVoyages)}</section>` : ''}
     `;
   }
@@ -464,9 +476,27 @@ export class SxProfilePage extends LitElement {
       </header>
       ${b.role && b.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.stats(d.stats)}
+      <section aria-labelledby="boat-news"><h2 class="eyebrow" id="boat-news">Neuigkeiten</h2>
+        <sx-stream scope="boat" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
+          empty-text="Noch keine Neuigkeiten zu diesem Boot. Beiträge von Eigner und Boots-Admins erscheinen hier."></sx-stream>
+      </section>
       <sx-gallery .photos=${d.photos ?? []} heading="Fotos"></sx-gallery>
       <section><h2 class="eyebrow">Törns</h2>${this.voyages(d.voyages)}</section>
     `;
+  }
+
+  /** Einzelne Karte `/p/<id>` (F-406) – mit Weg zum Heimatverlauf, soweit sichtbar. */
+  private postView(d: Extract<PageData, { kind: 'post' }>) {
+    return html`<header class="hero">
+        <div class="mark" aria-hidden="true">${icon('comment')}</div>
+        <div><h1>Beitrag</h1><div class="lead">${d.link.home ? html`in <a href=${d.link.home}>${d.link.where}</a>` : d.link.where}</div></div>
+        <div class="actions">
+          ${d.item.post && d.item.post.visibility !== 'private'
+            ? html`<button class="btn primary" @click=${() => emit(this, 'sx-page-share', { path: d.item.post!.path ?? `/p/${d.item.post!.id}`, title: 'Beitrag' })}>${icon('share')} Teilen</button>`
+            : ''}
+        </div>
+      </header>
+      <section aria-label="Beitrag"><sx-stream scope="home" .items=${[d.item]} .highlight=${d.item.post?.id ?? null}></sx-stream></section>`;
   }
 
   /** Verein und Heimathafen auf dem Profil (nur, was der Server als öffentlich liefert) */
@@ -599,7 +629,7 @@ export class SxProfilePage extends LitElement {
       </div>
       <section>
         <h2 class="eyebrow">Neuigkeiten</h2>
-        <sx-stream scope="harbor" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading}
+        <sx-stream scope="harbor" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
           empty-text="Noch nichts los in diesem Hafen. Neue Boote und öffentliche Törns erscheinen hier."></sx-stream>
       </section>
       ${this.harborGroups(d).length
@@ -634,6 +664,7 @@ export class SxProfilePage extends LitElement {
     else if (this.data?.kind === 'profile') body = this.profile(this.data);
     else if (this.data?.kind === 'boat') body = this.boat(this.data);
     else if (this.data?.kind === 'harbor') body = this.harbor(this.data);
+    else if (this.data?.kind === 'post') body = this.postView(this.data);
     return html`<div class="page">${body}</div>`;
   }
 }

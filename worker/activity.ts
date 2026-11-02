@@ -5,6 +5,8 @@
 import type { Env } from './env';
 import { randomId } from './crypto';
 import { IN_LOGBOOK_SQL } from './logbook-sql';
+import { reachAtLeastSql } from './reach-sql';
+import { postLogKey } from './post-sql';
 import { crossedMilestones, dayKey, seasonOf, type ActivityKind } from '../src/domain/groups';
 import { deleteBoatReactions, deleteGroupReactions, nightlyReactionCleanup, userReactionCleanup } from './reaction-cleanup';
 import { deleteBoatNotifications, groupNotificationCleanup, userNotificationCleanup } from './notification-cleanup';
@@ -35,33 +37,47 @@ const targetStmt = (env: Env, id: string, kind: TargetKind, targetId: string, no
      SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM activity WHERE id = ?1)`,
   ).bind(id, kind, targetId, now);
 
-/**
- * Ziel „ausgewählte Gruppen des Törns“ (share_groups, Konzept 11.12) – per SQL, ohne vorher zu lesen. Nicht mehr alle
- * Gruppen von Boot und Segler: die Eigentümer:in wählt beim Speichern bzw. Teilen.
- */
-const shareGroupsStmt = (env: Env, id: string, shareId: string, now: number) =>
-  env.DB.prepare(
-    `INSERT OR IGNORE INTO activity_target (activity_id, target_kind, target_id, created_at)
-     SELECT ?1, 'group', group_id, ?3 FROM share_groups WHERE share_id = ?2 AND EXISTS (SELECT 1 FROM activity WHERE id = ?1)`,
-  ).bind(id, shareId, now);
-
 /** Törn- und Foto-Aktivitäten eines Törns (Teilabfrage, ?1 = Törn). */
 const SHARE_ACTS = `SELECT id FROM activity WHERE subject_kind = 'share' AND subject_id = ?1 AND kind IN ('voyage', 'photos')`;
 
 /**
- * Auswahl eines Törns geändert (F-375): Gruppen-Ziele seiner Törn- und Foto-Aktivitäten an share_groups angleichen.
- * Neue Ziele bekommen die Zeit der Aktivität – der Törn springt im Stream nicht nach oben und zählt nicht erneut.
+ * Publikum eines Törns (Konzept 11.12, 12.4, 21.2) – die eine Funktion für Anlegen und Neuberechnen: Segler, die
+ * ausgewählten Gruppen (share_groups); je nach „Sichtbar bis“ (F-427) ab „bis Verein“ die Vereine gewählter Teams, ab
+ * „bis Hafen“ Boot und Hafen des Boots (nur öffentliches, nicht ausgeblendetes Boot – sonst verriete der Hafen-Stream
+ * den Hafen eines nicht öffentlichen Boots). `acts`: Teilabfrage der Aktivitäten (?1 = Törn, ?2 = neue Aktivität);
+ * jedes Ziel bekommt die Zeit seiner Aktivität – nichts springt nach oben.
  */
-export const syncShareGroupTargets = (env: Env, shareId: string): D1PreparedStatement[] => [
-  env.DB.prepare(
-    `DELETE FROM activity_target WHERE target_kind = 'group' AND activity_id IN (${SHARE_ACTS})
-       AND target_id NOT IN (SELECT group_id FROM share_groups WHERE share_id = ?1)`,
-  ).bind(shareId),
-  env.DB.prepare(
-    `INSERT OR IGNORE INTO activity_target (activity_id, target_kind, target_id, created_at)
-     SELECT a.id, 'group', sg.group_id, a.created_at FROM activity a JOIN share_groups sg ON sg.share_id = a.subject_id
-     WHERE a.subject_kind = 'share' AND a.subject_id = ?1 AND a.kind IN ('voyage', 'photos')`,
-  ).bind(shareId),
+function shareTargetStmts(env: Env, shareId: string, acts: string, activityId = ''): D1PreparedStatement[] {
+  const ins = (targets: string) =>
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO activity_target (activity_id, target_kind, target_id, created_at)
+       SELECT a.id, t.kind, t.id, a.created_at FROM activity a, (${targets}) t WHERE a.id IN (${acts})`,
+    ).bind(...(activityId ? [shareId, activityId] : [shareId]));
+  return [
+    ins(`SELECT 'user' AS kind, user_id AS id FROM shares WHERE id = ?1`),
+    ins(`SELECT 'group' AS kind, group_id AS id FROM share_groups WHERE share_id = ?1`),
+    ins(
+      `SELECT 'group' AS kind, g.parent_id AS id FROM share_groups sg JOIN groups g ON g.id = sg.group_id
+       WHERE sg.share_id = ?1 AND g.parent_id IS NOT NULL AND ${reachAtLeastSql('?1', 'club')}`,
+    ),
+    ins(`SELECT 'boat' AS kind, boat_id AS id FROM shares WHERE id = ?1 AND boat_id IS NOT NULL AND ${reachAtLeastSql('?1', 'harbor')}`),
+    ins(
+      `SELECT 'harbor' AS kind, b.harbor_id AS id FROM shares s JOIN boats b ON b.id = s.boat_id
+       WHERE s.id = ?1 AND b.harbor_id IS NOT NULL AND b.visibility = 'public' AND b.hidden_at IS NULL AND ${reachAtLeastSql('?1', 'harbor')}`,
+    ),
+  ];
+}
+
+/** Ziele einer eben angelegten Aktivität eines Törns (gab es sie schon – doppelter bucket –, entsteht nichts). */
+const shareTargets = (env: Env, id: string, s: Pick<ShareForActivity, 'id'>): D1PreparedStatement[] => shareTargetStmts(env, s.id, 'SELECT ?2', id);
+
+/**
+ * Auswahl, „Sichtbar bis“ oder Boot eines Törns geändert (F-375, F-427): alle Ziele seiner Törn- und Foto-Aktivitäten
+ * verwerfen und aus derselben Funktion wie beim Anlegen neu aufbauen (wie `syncPostActivity`). Für einen Batch.
+ */
+export const syncShareActivity = (env: Env, shareId: string): D1PreparedStatement[] => [
+  env.DB.prepare(`DELETE FROM activity_target WHERE activity_id IN (${SHARE_ACTS})`).bind(shareId),
+  ...shareTargetStmts(env, shareId, SHARE_ACTS),
 ];
 
 /** Mitglied verlässt eine Gruppe (Austreten, Entfernen): Gruppen-Ziele seiner Törns in dieser Gruppe entfernen. */
@@ -71,16 +87,6 @@ export const memberShareTargetsCleanup = (env: Env, groupId: string, userId: str
        SELECT id FROM activity WHERE subject_kind = 'share' AND kind IN ('voyage', 'photos')
          AND subject_id IN (SELECT id FROM shares WHERE user_id = ?2))`,
   ).bind(groupId, userId);
-/**
- * Ziel „Hafen des Boots“ (Konzept 12.4) – nur für öffentliche, nicht ausgeblendete Boote, sonst verriete der
- * Hafen-Stream den Hafen eines nicht öffentlichen Boots. Die Hafenseite prüft beim Lesen zusätzlich.
- */
-const boatHarborStmt = (env: Env, id: string, boatId: string, now: number) =>
-  env.DB.prepare(
-    `INSERT OR IGNORE INTO activity_target (activity_id, target_kind, target_id, created_at)
-     SELECT ?1, 'harbor', harbor_id, ?3 FROM boats WHERE id = ?2 AND harbor_id IS NOT NULL AND visibility = 'public' AND hidden_at IS NULL
-       AND EXISTS (SELECT 1 FROM activity WHERE id = ?1)`,
-  ).bind(id, boatId, now);
 /** Vereinsbeiträge erscheinen auch in den Teams des Vereins. */
 const teamsStmt = (env: Env, id: string, groupId: string, now: number) =>
   env.DB.prepare(
@@ -106,22 +112,13 @@ export interface ShareForActivity {
   created_at: number;
 }
 
-/** Publikum eines Törns: Segler, Boot, Hafen des Boots (automatisch) und die ausgewählten Gruppen (share_groups). */
-function shareTargets(env: Env, id: string, s: ShareForActivity, now: number): D1PreparedStatement[] {
-  return [
-    targetStmt(env, id, 'user', s.user_id, now),
-    ...(s.boat_id ? [targetStmt(env, id, 'boat', s.boat_id, now), boatHarborStmt(env, id, s.boat_id, now)] : []),
-    shareGroupsStmt(env, id, s.id, now),
-  ];
-}
-
 /** Ein Törn ist (neu) öffentlich: einmal je Törn protokollieren, danach Meilensteine prüfen. */
 export async function recordVoyage(env: Env, s: ShareForActivity, now = Date.now()): Promise<void> {
   await safely('voyage', async () => {
     const id = randomId();
     await env.DB.batch([
       insertStmt(env, id, { kind: 'voyage', actorId: s.user_id, subjectKind: 'share', subjectId: s.id, bucket: `voyage:${s.id}` }, now),
-      ...shareTargets(env, id, s, now),
+      ...shareTargets(env, id, s),
     ]);
     await recordMilestones(env, s, now);
   });
@@ -136,7 +133,7 @@ export async function recordPhotos(env: Env, s: ShareForActivity, count = 1, now
       // Gibt es das Bündel schon, nur hochzählen – das folgende INSERT scheitert dann am eindeutigen bucket.
       env.DB.prepare(`UPDATE activity SET data = json_set(data, '$.count', COALESCE(json_extract(data, '$.count'), 0) + ?), updated_at = ? WHERE bucket = ?`).bind(count, now, bucket),
       insertStmt(env, id, { kind: 'photos', actorId: s.user_id, subjectKind: 'share', subjectId: s.id, data: { count }, bucket }, now),
-      ...shareTargets(env, id, s, now),
+      ...shareTargets(env, id, s),
     ]);
   });
 }
@@ -173,7 +170,8 @@ export async function recordLogbook(env: Env, s: ShareForActivity, now = Date.no
       bundleTarget('user', 'SELECT ?3 AS id', s.user_id),
       // Gruppen nur aus der Auswahl „In Gruppen zeigen“ des Eintrags (F-374) – wie bei Törns mit GPX
       bundleTarget('group', 'SELECT group_id AS id FROM share_groups WHERE share_id = ?3', s.id),
-      ...(s.boat_id ? [bundleTarget('boat', 'SELECT ?3 AS id', s.boat_id)] : []),
+      // Boot erst ab „Sichtbar bis: Hafen“ (F-427)
+      ...(s.boat_id ? [bundleTarget('boat', `SELECT ?3 AS id WHERE ${reachAtLeastSql('?4', 'harbor')}`, s.boat_id, s.id)] : []),
     ]);
     await recordMilestones(env, s, now);
   });
@@ -217,27 +215,52 @@ export async function recordHarborBoat(env: Env, harborId: string, boatId: strin
   });
 }
 
-/** Beitrag in einer Gruppe – Ziel die Gruppe und (bei Vereinen) ihre Teams. */
+/** Ein Beitrag, wie ihn das Aktivitäts-Log braucht (nur „Öffentlich“ und „Nur Mitglieder“ kommen hinein, 21.7). */
+export interface PostForActivity {
+  id: string;
+  authorId: string;
+  channel: { kind: 'user' | 'group' | 'harbor' | 'boat'; id: string };
+  visibility: 'public' | 'members';
+  /** Ausbreitung nach oben bis „Sichtbar bis“ (F-409), beim Schreiben aufgelöst – nur bei „Öffentlich“ */
+  upward: Array<{ kind: 'group' | 'harbor'; id: string }>;
+}
+
 /**
- * Beitrag (Konzept 11.3, 21.7): im Gruppen-Verlauf Ziel Gruppe, bei Vereinen zusätzlich alle Teams – „Nur Mitglieder“
- * nur die Heimatgruppe (F-415). Im Profil-Verlauf Ziel `user` (Follower, Teamkolleg:innen, man selbst, F-420).
- * Nicht öffentliche Profil-Beiträge kommen nie ins Log.
+ * Ziele eines Beitrags (Konzept 11.3, 21.7): Heimatverlauf – Gruppe (bei Vereinen und „Öffentlich“ zusätzlich ihre
+ * Teams), Profil (`user`: Follower, Teamkolleg:innen, man selbst), Hafen bzw. Boot – und bei „Öffentlich“ die Stufen
+ * darüber. „Nur Mitglieder“ nur die Heimatgruppe (F-415).
  */
-export async function recordPost(
-  env: Env,
-  p: { id: string; authorId: string; channel: { kind: 'group'; id: string } | { kind: 'user' }; visibility: 'public' | 'members' },
-  now = Date.now(),
-): Promise<void> {
+function postTargets(env: Env, id: string, p: PostForActivity, at: number): D1PreparedStatement[] {
+  const c = p.channel;
+  const home = c.kind === 'user' ? targetStmt(env, id, 'user', p.authorId, at) : targetStmt(env, id, c.kind, c.id, at);
+  if (p.visibility !== 'public') return [home];
+  return [home, ...(c.kind === 'group' ? [teamsStmt(env, id, c.id, at)] : []), ...p.upward.map((t) => targetStmt(env, id, t.kind, t.id, at))];
+}
+
+/** Beitrag ins Log (einmal je Beitrag); `now` = Zeit des Beitrags, auch wenn er erst später öffentlich wird. */
+export async function recordPost(env: Env, p: PostForActivity, now = Date.now()): Promise<void> {
   await safely('post', async () => {
     const id = randomId();
-    const groupId = p.channel.kind === 'group' ? p.channel.id : null;
     await env.DB.batch([
-      insertStmt(env, id, { kind: 'post', actorId: p.authorId, subjectKind: 'post', subjectId: p.id, groupId }, now),
-      ...(groupId
-        ? [targetStmt(env, id, 'group', groupId, now), ...(p.visibility === 'public' ? [teamsStmt(env, id, groupId, now)] : [])]
-        : [targetStmt(env, id, 'user', p.authorId, now)]),
+      insertStmt(env, id, { kind: 'post', actorId: p.authorId, subjectKind: 'post', subjectId: p.id, groupId: p.channel.kind === 'group' ? p.channel.id : null }, now),
+      ...postTargets(env, id, p, now),
     ]);
   });
+}
+
+/**
+ * Sichtbarkeit oder „Sichtbar bis“ geändert (F-409): Ziele angleichen. Nicht mehr im Log (null: „Nur mit Link“, „Nur
+ * ich“) – Aktivität weg; sonst die Ziele der bestehenden Aktivität ersetzen, mit ihrer Zeit (nichts springt nach oben);
+ * gab es noch keine, entsteht sie mit der Zeit des Beitrags.
+ */
+export async function syncPostActivity(env: Env, postId: string, p: PostForActivity | null, createdAt: number): Promise<void> {
+  if (!p) {
+    await env.DB.prepare(`DELETE FROM activity WHERE subject_kind = 'post' AND subject_id = ?`).bind(postId).run();
+    return;
+  }
+  const act = await env.DB.prepare(`SELECT id, created_at FROM activity WHERE subject_kind = 'post' AND subject_id = ?`).bind(postId).first<{ id: string; created_at: number }>();
+  if (!act) return recordPost(env, p, createdAt);
+  await env.DB.batch([env.DB.prepare('DELETE FROM activity_target WHERE activity_id = ?').bind(act.id), ...postTargets(env, act.id, p, act.created_at)]);
 }
 
 // ---------------------------------------------------------------- Meilensteine (Konzept 11.3, F-166)
@@ -298,8 +321,27 @@ export const deleteShareActivity = (env: Env, shareId: string) =>
 /** Gruppen-Auswahl eines Törns (Törn gelöscht oder abgelaufen) – ausdrücklich, nicht nur per ON DELETE CASCADE. */
 export const deleteShareGroups = (env: Env, shareId: string) => env.DB.prepare('DELETE FROM share_groups WHERE share_id = ?').bind(shareId);
 
-/** Boot gelöscht: Zuordnungen, Folgen, Aktivitäten mit dem Boot als Gegenstand, Ziele `boat`. */
+/**
+ * Hafen bzw. Boot gelöscht (Konzept 21.3.3, F-425): Text-Beiträge mit diesem Heimatverlauf samt Reaktionen,
+ * Benachrichtigungen, Meldungen, Aktivität und Tageszähler – es gibt keinen Fremdschlüssel auf `channel_id`. Fremde
+ * Beiträge, die nur hierher ausgebreitet waren, verlieren nur ihr Ziel (Ziele `harbor` bzw. `boat`).
+ */
+export function channelPostsCleanup(env: Env, kind: 'harbor' | 'boat', id: string): D1PreparedStatement[] {
+  const posts = `SELECT id FROM posts WHERE channel_kind = ?1 AND channel_id = ?2 AND share_id IS NULL`;
+  const stmt = (sql: string) => env.DB.prepare(sql).bind(kind, id);
+  return [
+    stmt(`DELETE FROM reactions WHERE subject_kind = 'post' AND subject_id IN (${posts})`),
+    stmt(`DELETE FROM notifications WHERE subject_kind = 'post' AND subject_id IN (${posts})`),
+    stmt(`DELETE FROM reports WHERE target_kind = 'post' AND target_id IN (${posts})`),
+    stmt(`DELETE FROM activity WHERE subject_kind = 'post' AND subject_id IN (${posts})`),
+    env.DB.prepare('DELETE FROM post_log WHERE group_id = ?').bind(postLogKey({ kind, id })),
+    stmt(`DELETE FROM posts WHERE channel_kind = ?1 AND channel_id = ?2 AND share_id IS NULL`),
+  ];
+}
+
+/** Boot gelöscht: Zuordnungen, Folgen, Beiträge im Boots-Verlauf, Aktivitäten mit dem Boot als Gegenstand, Ziele `boat`. */
 export const boatCleanup = (env: Env, boatId: string): D1PreparedStatement[] => [
+  ...channelPostsCleanup(env, 'boat', boatId),
   deleteBoatReactions(env, boatId),
   deleteBoatNotifications(env, boatId),
   env.DB.prepare(`DELETE FROM activity WHERE subject_kind = 'boat' AND subject_id = ?`).bind(boatId),
@@ -318,8 +360,9 @@ export const groupActivityCleanup = (env: Env, groupId: string): D1PreparedState
   env.DB.prepare('DELETE FROM post_log WHERE group_id = ?').bind(groupId),
 ];
 
-/** Hafen gelöscht (Moderation): Aktivitäten „Neues Boot im Hafen“ samt Reaktionen, Ziele `harbor`, Folgen. */
+/** Hafen gelöscht (Moderation): Beiträge im Hafen-Verlauf, Aktivitäten „Neues Boot im Hafen“ samt Reaktionen, Ziele `harbor`, Folgen. */
 export const harborActivityCleanup = (env: Env, harborId: string): D1PreparedStatement[] => [
+  ...channelPostsCleanup(env, 'harbor', harborId),
   env.DB.prepare(
     `DELETE FROM reactions WHERE subject_kind = 'activity' AND subject_id IN (SELECT id FROM activity WHERE kind = 'harbor' AND json_extract(data, '$.harbor') = ?1)`,
   ).bind(harborId),

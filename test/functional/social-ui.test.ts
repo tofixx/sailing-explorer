@@ -159,15 +159,17 @@ describe('Startseite (F-182)', () => {
     expect(inner(el, 'sx-stream').getAttribute('scope')).toBe('home');
   });
 
-  it('[F-182] Hochladen im Hintergrund: kompakte Karte, runder Knopf, Fußzeile; ohne Community die große Karte', async () => {
+  it('[F-182] [F-405] Hochladen im Hintergrund: kompakte Karte mit Hinweis auf „+ Neu“, kein eigener Knopf, Fußzeile; ohne Community die große Karte', async () => {
     const back = listen('sx-track-view');
     const el = await mount('sx-empty-state', { community: true, samples: [{ file: 'f', label: 'Beispiel' }] });
     expect(el.hasAttribute('community')).toBe(true);
     expect(el.shadowRoot.querySelector('.card.compact')).not.toBeNull();
     expect(el.shadowRoot.querySelector('h1:not(.sr-only)')).toBeNull(); // keine große Einstiegskarte – sichtbar führt der Stream, das h1 „Community“ ist nur für Screenreader (F-260)
-    expect(button(el.shadowRoot, /GPX-Datei wählen/)).toBeDefined();
-    const fab = el.shadowRoot.querySelector('button.fab')!;
-    expect(fab.getAttribute('aria-label')).toBe('Track anlegen – GPX-Datei laden');
+    // ein Einstieg zum Anlegen: „+ Neu“ in der Kopfzeile – hier weder GPX-Knopf noch runder Knopf noch Fahrtenbuch-Link
+    expect(button(el.shadowRoot, /GPX-Datei wählen/)).toBeUndefined();
+    expect(el.shadowRoot.querySelector('button.fab')).toBeNull();
+    expect(text(el.shadowRoot)).not.toContain('Ins Fahrtenbuch eintragen');
+    expect(text(el.shadowRoot.querySelector('.card.compact')!)).toContain('+ Neu');
     expect(el.shadowRoot.querySelector('slot[name="feed"]')).not.toBeNull();
     expect(el.shadowRoot.querySelector('footer a[href="/impressum"]')).not.toBeNull();
     expect(el.shadowRoot.querySelector('footer a[href="/datenschutz"]')).not.toBeNull();
@@ -188,11 +190,10 @@ describe('Startseite (F-182)', () => {
     expect(text(el.shadowRoot)).toContain('Loslassen, um die GPX-Dateien zu laden');
   });
 
-  it('[F-182] Kopfzeile: „Track anlegen“ als zweitrangiger Knopf', async () => {
+  it('[F-182] [F-405] Kopfzeile: „+ Neu“ statt „Track anlegen“', async () => {
     const el = await mount('sx-topbar', { home: true });
-    const b = button(el.shadowRoot, /Track anlegen/)!;
-    expect(b).toBeDefined();
-    expect(b.classList.contains('primary')).toBe(false);
+    expect(button(el.shadowRoot, /Track anlegen/)).toBeUndefined();
+    expect(el.shadowRoot.querySelector('sx-compose')).not.toBeNull();
     expect(el.hasAttribute('home')).toBe(true);
   });
 });

@@ -8,6 +8,8 @@ import type { Layers } from './store';
 export type Route =
   | { kind: 'home' }
   | { kind: 'share'; id: string; key?: string }
+  /** Beitrag ohne eigene Seite (F-406): führt zum Anker im Heimatverlauf */
+  | { kind: 'post'; id: string; key?: string }
   | { kind: 'profile'; handle: string; key?: string }
   | { kind: 'boat'; id: string; key?: string }
   | { kind: 'discover' }
@@ -44,6 +46,8 @@ export function absoluteLink(kind: 's' | 'b' | 'u' | 'g', idOrHandle: string, ob
 export function parseRoute(loc: Pick<Location, 'pathname' | 'search' | 'hash'>): Route {
   const share = new RegExp(`^/s/([A-Za-z0-9]{12,32})${KEY}/?$`).exec(loc.pathname);
   if (share) return withKey({ kind: 'share', id: share[1] }, share[2]);
+  const post = new RegExp(`^/p/([A-Za-z0-9]{12,32})${KEY}/?$`).exec(loc.pathname);
+  if (post) return withKey({ kind: 'post', id: post[1] }, post[2]);
   const profile = new RegExp(`^/u/([a-z0-9-]{3,30})${KEY}/?$`, 'i').exec(loc.pathname);
   if (profile) return withKey({ kind: 'profile', handle: profile[1].toLowerCase() }, profile[2]);
   const boat = new RegExp(`^/b/([A-Za-z0-9]{12,32})${KEY}/?$`).exec(loc.pathname);

@@ -1,5 +1,4 @@
 import { LitElement, css, html } from 'lit';
-import type { AccountTab } from './sx-account-dialog';
 import { icon, type IconName } from './icons';
 import { base, emit } from './shared';
 
@@ -93,36 +92,6 @@ export class SxJoinCard extends LitElement {
         width: 100%;
         min-height: max(44px, var(--control-h));
       }
-      .steps {
-        display: grid;
-        gap: var(--s-1);
-      }
-      .steps a,
-      .steps button {
-        display: flex;
-        align-items: center;
-        gap: var(--s-2);
-        min-height: 40px;
-        padding: 0 var(--s-2);
-        border: 0;
-        border-radius: var(--radius);
-        background: none;
-        color: var(--text);
-        font: inherit;
-        font-size: var(--fs-s);
-        text-align: left;
-        text-decoration: none;
-        cursor: pointer;
-      }
-      .steps a:hover,
-      .steps button:hover {
-        background: var(--surface-hover);
-      }
-      .steps svg {
-        width: 18px;
-        height: 18px;
-        color: var(--accent);
-      }
     `,
   ];
 
@@ -137,22 +106,9 @@ export class SxJoinCard extends LitElement {
     </section>`;
   }
 
-  /** Angemeldet: Wege zum Eigenen – Heimathafen, Verein und Einladen stehen schon in der Willkommens-Karte (14.3). */
-  private member() {
-    const account = (tab: AccountTab) => () => emit(this, 'sx-account', tab);
-    return html`<section aria-labelledby="join-t">
-      <h2 id="join-t">Dein Bereich</h2>
-      <div class="steps">
-        <button @click=${account('shares')}>${icon('share')} Deine Törns und Freigaben</button>
-        <button @click=${account('boats')}>${icon('sail')} Deine Boote</button>
-        <button @click=${account('profile')}>${icon('user')} Profil, Verein und Heimathafen</button>
-        <a href="/entdecken#vereine">${icon('pennant')} Alle Vereine und Teams</a>
-      </div>
-    </section>`;
-  }
-
   render() {
-    return this.signedIn ? this.member() : this.guest();
+    // Angemeldet: der Weg zum Eigenen ist das Konto-Menü oben (F-428) – hier kein zweiter
+    return this.signedIn ? '' : this.guest();
   }
 }
 customElements.define('sx-join-card', SxJoinCard);

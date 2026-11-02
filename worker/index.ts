@@ -27,6 +27,8 @@ import { groupRoutes } from './group-routes';
 import { canViewGroup, loadGroupBySlug } from './groups';
 import { groupFeed } from './feed';
 import { GROUP_KIND_LABEL } from '../src/domain/groups';
+import { firstLine } from '../src/domain/posts';
+import { postCard } from './stream';
 // ---- Häfen (Konzept 12.2) ----
 import { harborVisible, loadHarborByRedirect, loadHarborBySlug } from './harbors';
 // ---- Admin-Bereich (Konzept 18) ----
@@ -193,6 +195,13 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
       image: row.has_image ? `${origin}/api/shares/${row.id}/image${k}` : undefined,
     };
   }
+  if (kind === 'p') {
+    // Beitrag (F-406): Vorschau mit der ersten Zeile nur, wenn er effektiv öffentlich ist – wie für Gäste ohne Schlüssel
+    const item = await postCard(env, null, id, null);
+    if (!item?.post || item.post.visibility !== 'public') return fallback;
+    const where = item.group?.name ?? item.post.where?.name ?? item.actor?.displayName ?? '';
+    return { title: `${where ? `Beitrag · ${where}` : 'Beitrag'} · ${env.APP_NAME}`, description: firstLine(item.post.body) || DEFAULT_DESCRIPTION, index: false };
+  }
   if (kind === 'g') {
     // Gruppen: Vorschau wie Profile und Boote; geschlossene Gruppen sieht ohne Anmeldung niemand (neutral).
     const g = await loadGroupBySlug(env, id);
@@ -221,7 +230,7 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
   return { title: `${b.name} · ${env.APP_NAME}`, description: desc || 'Boot mit seinen Törns', index: index(b.visibility) };
 }
 
-/** /s/:id(/:key), /u/:handle(/:key), /b/:id(/:key), /g/:slug(/:key), /entdecken – liefert die App mit passenden Vorschau-Metadaten. */
+/** /s/:id(/:key), /p/:id(/:key), /u/:handle(/:key), /b/:id(/:key), /g/:slug(/:key), /entdecken – liefert die App mit passenden Vorschau-Metadaten. */
 async function metaPage(request: Request, env: Env, kind: string, id: string, key: string | null | undefined): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL('/', request.url), { headers: request.headers }));
   const meta: PageMeta = await pageMeta(env, kind, id, new URL(request.url).origin, key).catch(() => ({ title: env.APP_NAME, description: DEFAULT_DESCRIPTION, index: false }));
@@ -275,7 +284,7 @@ export default {
       const feed = /^\/g\/([a-z0-9-]{3,30})\/feed\.xml$/i.exec(url.pathname);
       if (feed && (request.method === 'GET' || request.method === 'HEAD')) return await groupFeed(request, env, feed[1].toLowerCase());
       const page =
-        /^\/(s|b)\/([A-Za-z0-9]{12,32})(?:\/([^/]+))?\/?$/.exec(url.pathname) ??
+        /^\/(s|b|p)\/([A-Za-z0-9]{12,32})(?:\/([^/]+))?\/?$/.exec(url.pathname) ??
         /^\/(u|g)\/([a-z0-9-]{3,30})(?:\/([^/]+))?\/?$/i.exec(url.pathname) ??
         /^\/(h)\/([a-z0-9-]{1,100})\/?$/.exec(url.pathname) ??
         /^\/(entdecken)()\/?$/.exec(url.pathname);

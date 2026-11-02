@@ -5,7 +5,7 @@
 import type { Env } from './env';
 import { requireUser } from './auth';
 import { HttpError, json } from './http';
-import { syncShareGroupTargets } from './activity';
+import { syncShareActivity } from './activity';
 import { GROUP_LIMITS } from '../src/domain/limits';
 import { parseGroupIds, type GroupKind, type ShareGroupChoice } from '../src/domain/groups';
 
@@ -64,7 +64,7 @@ export function replaceShareGroups(env: Env, shareId: string, userId: string, id
       shareId, userId, JSON.stringify(ids),
     ),
     insertShareGroupsStmt(env, shareId, ids, now),
-    ...syncShareGroupTargets(env, shareId),
+    ...syncShareActivity(env, shareId),
   ];
 }
 

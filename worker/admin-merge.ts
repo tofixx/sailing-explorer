@@ -1,6 +1,7 @@
 // Zusammenführen im Admin-Bereich (Konzept 18.7, 18.8): Hafen-Dubletten und zwei Konten derselben Person.
 // Alles Umhängen läuft in einem D1-Batch (eine Transaktion); gelöscht wird über die üblichen Wege.
 import type { Env } from './env';
+import { postLogKey } from './post-sql';
 import { purgeUser } from './auth';
 import { HttpError, json, readJson } from './http';
 import { LOCKED, adminLogStmt, isAdmin, requireAdmin } from './moderation';
@@ -36,6 +37,9 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
     // Fahrtenbuch: Start- und Zielhafen der Törns (Konzept 19)
     env.DB.prepare('UPDATE shares SET from_harbor_id = ?1 WHERE from_harbor_id = ?2').bind(dst.id, src.id),
     env.DB.prepare('UPDATE shares SET to_harbor_id = ?1 WHERE to_harbor_id = ?2').bind(dst.id, src.id),
+    // Beiträge im Hafen-Verlauf (F-425) wandern mit – ihre Ziele `harbor` folgen unten
+    env.DB.prepare(`UPDATE posts SET channel_id = ?1 WHERE channel_kind = 'harbor' AND channel_id = ?2`).bind(dst.id, src.id),
+    env.DB.prepare('UPDATE post_log SET group_id = ?1 WHERE group_id = ?2').bind(postLogKey({ kind: 'harbor', id: dst.id }), postLogKey({ kind: 'harbor', id: src.id })),
     // Folgen: wer beiden folgt, folgt danach einmal
     env.DB.prepare(
       `INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at)

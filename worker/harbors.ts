@@ -9,6 +9,7 @@ import { LOCKED, adminLogStmt, assertActive, isAdmin, isLockedTarget } from './m
 import { SHARE_SELECT, shareShape, type ShareRow } from './shares';
 import { followStats } from './follows';
 import { harborActivityCleanup } from './activity';
+import { reachAtLeastSql } from './reach-sql';
 import { LIMITS, SHARE_ID_RE, cleanText } from './validate';
 import { HARBOR_LIMITS, harborKey, harborSlugBase, isHarborSlug, mayPlaceHarbor, parseHarborPosition, type HarborRef } from '../src/domain/harbors';
 import { canManageGroup } from '../src/domain/groups';
@@ -180,6 +181,9 @@ function harborShape(env: Env, h: HarborRow, viewerId: string | null) {
   };
 }
 
+/** Törn mit „Sichtbar bis“ mindestens Hafen (F-427) – „nur hier“ und „bis Verein“ stehen nicht auf der Hafenseite. */
+const REACHES_HARBOR = reachAtLeastSql('s.id', 'harbor');
+
 /** GET /api/harbors/slug/:slug – Hafenseite (F-173). */
 export async function getHarbor(request: Request, env: Env, slug: string): Promise<Response> {
   const h = (await loadHarborBySlug(env, slug)) ?? (await loadHarborByRedirect(env, slug));
@@ -196,7 +200,7 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     .bind(h.id)
     .all<{ id: string; name: string; boat_type: string; length_m: number | null; owner_handle: string | null; owner_name: string | null; owner_public: number | null }>();
   const { results: voyages } = await env.DB.prepare(
-    `${SHARE_SELECT} WHERE b.harbor_id = ? AND b.visibility = 'public' AND b.hidden_at IS NULL AND s.visibility = 'public' AND s.hidden_at IS NULL
+    `${SHARE_SELECT} WHERE b.harbor_id = ? AND b.visibility = 'public' AND b.hidden_at IS NULL AND s.visibility = 'public' AND s.hidden_at IS NULL AND ${REACHES_HARBOR}
      ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 30`,
   )
     .bind(h.id)
@@ -206,7 +210,7 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec,
        COALESCE(SUM(CASE WHEN COALESCE(s.started_at, s.created_at) >= ?2 THEN s.dist_nm END), 0) AS season
      FROM shares s JOIN boats b ON b.id = s.boat_id
-     WHERE b.harbor_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL AND s.visibility = 'public' AND s.hidden_at IS NULL AND ${IN_LOGBOOK_SQL}`,
+     WHERE b.harbor_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL AND s.visibility = 'public' AND s.hidden_at IS NULL AND ${IN_LOGBOOK_SQL} AND ${REACHES_HARBOR}`,
   )
     .bind(h.id, yearStart)
     .first<{ voyages: number; dist: number; rec: number; season: number }>();
