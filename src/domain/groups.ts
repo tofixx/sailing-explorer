@@ -159,6 +159,9 @@ export function crossedMilestones(before: number, after: number, thresholds: rea
 /** Kalenderjahr (UTC) eines Zeitpunkts – die Saison eines Törns. */
 export const seasonOf = (ms: number): number => new Date(ms).getUTCFullYear();
 
+/** Beginn dieser Saison (1. Januar UTC) – für Saison-Zahlen von Gruppe, Hafen und Community (F-431). */
+export const seasonStart = (ms: number): number => Date.UTC(seasonOf(ms), 0, 1);
+
 /** Tag (UTC, YYYY-MM-DD) für das Bündeln von Fotos je Törn und Tag. */
 export const dayKey = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 

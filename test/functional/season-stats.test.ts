@@ -3,6 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createShare, loginSupporter, startWorker, type Harness } from './worker-harness';
 import { SEASON_STATS_MIN, seasonStatsShown } from '../../src/domain/season-stats';
+import { seasonStart } from '../../src/domain/groups';
 
 let h: Harness;
 let n = 0;
@@ -52,6 +53,11 @@ describe('F-431 Saison-Zahlen (GET /api/discover/stats)', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('public, max-age=600');
     expect(await res.json()).toEqual({ season: new Date().getUTCFullYear(), voyages: 2, nm: 20, boats: 1 });
+  });
+
+  it('[F-431] eine Saison-Grenze für Community, Gruppe und Hafen: 1. Januar UTC', () => {
+    expect(seasonStart(Date.UTC(2026, 10, 2, 12))).toBe(Date.UTC(2026, 0, 1));
+    expect(seasonStart(Date.UTC(2027, 0, 1))).toBe(Date.UTC(2027, 0, 1));
   });
 
   it('[F-431] kleine Zahlen zeigt die Folie nicht', () => {

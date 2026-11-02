@@ -4,6 +4,8 @@ import { MILESTONES_NM } from '../domain/groups';
 import { fmtNum } from '../domain/format';
 import { seasonStatsShown, type SeasonStats } from '../domain/season-stats';
 import { icon } from './icons';
+import type { Sample } from './sx-empty-state';
+import { RECORDING_GUIDE_PATH } from '../content/recording-guide';
 import { POST_VISIBILITY_ICON, base, coverBanner, coverBannerStyles, emit } from './shared';
 import type { PostVisibility } from '../domain/posts';
 
@@ -25,6 +27,7 @@ export class SxGuestSlider extends LitElement {
     stats: { attribute: false },
     groups: { attribute: false },
     harbors: { attribute: false },
+    samples: { attribute: false },
     index: { state: true },
   };
   /** Saison-Zahlen (null = nicht geladen oder Fehler – die Folie zeigt dann Text) */
@@ -32,6 +35,8 @@ export class SxGuestSlider extends LitElement {
   /** öffentliche Vereine und Teams (in der Nähe, falls ein Ort bekannt ist) – Folie 2 */
   declare groups: DiscoverGroup[];
   declare harbors: DiscoverHarbor[];
+  /** Beispiel-Törns – Folie 1 bietet den ersten als Nebenlink an */
+  declare samples: Sample[];
   /** sichtbare Folie */
   declare index: number;
 
@@ -40,6 +45,7 @@ export class SxGuestSlider extends LitElement {
     this.stats = null;
     this.groups = [];
     this.harbors = [];
+    this.samples = [];
     this.index = 0;
   }
 
@@ -59,11 +65,14 @@ export class SxGuestSlider extends LitElement {
         box-shadow: var(--shadow-1);
         overflow: hidden;
       }
+      /* Tippflächen ≥ 44 px (UX-NAVIGATION N11) */
       .close {
         position: absolute;
-        top: var(--s-1);
-        right: var(--s-1);
+        top: 2px;
+        right: 2px;
         z-index: 1;
+        width: 44px;
+        height: 44px;
       }
       /* Folien nebeneinander, eine je Breite; nur waagerecht scrollbar – senkrecht scrollt die Seite */
       .track {
@@ -140,6 +149,24 @@ export class SxGuestSlider extends LitElement {
         font-size: var(--fs-s);
         color: var(--text-2);
       }
+      .more {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--s-1) var(--s-2);
+        font-size: var(--fs-s);
+        color: var(--text-3);
+      }
+      .more a,
+      .more .link {
+        border: 0;
+        padding: 0;
+        background: none;
+        font: inherit;
+        color: var(--accent);
+        cursor: pointer;
+        text-decoration: underline;
+      }
       .slide .btn.primary {
         margin-top: auto;
         align-self: flex-start;
@@ -175,8 +202,10 @@ export class SxGuestSlider extends LitElement {
         height: 100%;
         padding: var(--s-2);
       }
-      .covers figure {
+      .covers a {
+        display: block;
         margin: 0;
+        color: inherit;
         position: relative;
         border-radius: var(--radius-s);
         overflow: hidden;
@@ -186,7 +215,7 @@ export class SxGuestSlider extends LitElement {
         height: 100%;
         aspect-ratio: auto;
       }
-      .covers figcaption {
+      .covers .name {
         position: absolute;
         inset: auto 0 0;
         padding: 2px var(--s-1);
@@ -197,6 +226,14 @@ export class SxGuestSlider extends LitElement {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      p .entity {
+        color: var(--accent);
+        font-weight: 600;
+        text-decoration: none;
+      }
+      p .entity:hover {
+        text-decoration: underline;
       }
       .levels {
         list-style: none;
@@ -231,8 +268,8 @@ export class SxGuestSlider extends LitElement {
         display: flex;
       }
       .dot {
-        width: 28px;
-        height: 28px;
+        width: 44px;
+        height: 44px;
         border: 0;
         padding: 0;
         background: none;
@@ -251,12 +288,6 @@ export class SxGuestSlider extends LitElement {
       .dot[aria-current='true']::before {
         width: 20px;
         background: var(--accent);
-      }
-      @media (pointer: coarse) {
-        .dot {
-          width: 40px;
-          height: 40px;
-        }
       }
       /* Pfeile nur mit Maus – auf Touch-Geräten wird gewischt */
       .arrow {
@@ -348,24 +379,32 @@ export class SxGuestSlider extends LitElement {
       </div>`;
     }
     const withCover = this.groups.filter((g) => g.cover).slice(0, 3);
-    if (withCover.length) return html`<div class="covers">${withCover.map((g) => html`<figure>${coverBanner(g.cover!)}<figcaption>${g.name}</figcaption></figure>`)}</div>`;
+    if (withCover.length) return html`<div class="covers">${withCover.map((g) => html`<a href="/g/${g.slug}">${coverBanner(g.cover!)}<span class="name">${g.name}</span></a>`)}</div>`;
     return this.artFleet();
   }
 
   private slides() {
-    const names = [...this.groups.map((g) => g.name), ...this.harbors.map((h) => h.name)].slice(0, 3);
-    const example = names.length ? ` Zum Beispiel ${names.length > 1 ? `${names.slice(0, -1).join(', ')} und ${names[names.length - 1]}` : names[0]}.` : '';
+    // Nennungen sind Links (UX-NAVIGATION N3)
+    const names = [...this.groups.map((g) => ({ name: g.name, href: `/g/${g.slug}` })), ...this.harbors.map((h) => ({ name: h.name, href: `/h/${h.slug}` }))].slice(0, 3);
+    const link = (n: { name: string; href: string }) => html`<a class="entity" href=${n.href}>${n.name}</a>`;
+    const example = names.length
+      ? html` Zum Beispiel ${names.map((n, i) => html`${i === 0 ? '' : i === names.length - 1 ? ' und ' : ', '}${link(n)}`)}.`
+      : '';
     return [
       {
         title: 'Sofort ausprobieren – ohne App und ohne Konto',
         art: this.artTrack(),
         text: 'Zieh deine GPX-Datei rein – Strecke, Tempo, Wind und Wellen in Sekunden. Im Browser, ohne App, ohne Anmeldung.',
         action: html`<button class="btn primary" @click=${() => emit(this, 'sx-compose-open', { kind: 'gpx' })}>${icon('upload')} GPX ausprobieren</button>`,
+        // Nebenlinks, kein zweiter Knopf: Anleitung (F-450) und Beispiel-Törn
+        more: html`<div class="more"><a href=${RECORDING_GUIDE_PATH}>Wie zeichne ich auf?</a>${this.samples[0]
+          ? html`<span aria-hidden="true">·</span><button class="link" type="button" @click=${() => emit(this, 'sx-sample', this.samples[0].file)}>Beispiel ansehen</button>`
+          : ''}</div>`,
       },
       {
         title: 'Dein Revier, deine Leute',
         art: this.revierArt(),
-        text: `Vereine, Teams und Häfen deines Reviers – sieh, was auf Havel und Seen los ist.${example}`,
+        text: html`Vereine, Teams und Häfen deines Reviers – sieh, was auf Havel und Seen los ist.${example}`,
         action: html`<a class="btn primary" href="/entdecken">${icon('compass')} Vereine &amp; Häfen entdecken</a>`,
       },
       {
@@ -377,7 +416,7 @@ export class SxGuestSlider extends LitElement {
       {
         title: 'Du bestimmst, wer was sieht',
         art: this.artLevels(),
-        text: 'Privat, bis du teilst – öffentlich oder nur für deinen Verein. Mitgliedschaften sehen nur Mitglieder.',
+        text: 'Nichts verlässt dein Gerät, bis du speicherst – dann öffentlich oder nur für deinen Verein. Was nur für Mitglieder ist, sehen nur Mitglieder.',
         action: html`<button class="btn primary" @click=${() => emit(this, 'sx-guest-stream')}>${icon('community')} Community ansehen</button>`,
       },
     ];
@@ -430,13 +469,13 @@ export class SxGuestSlider extends LitElement {
     const n = slides.length;
     return html`<section aria-roledescription="carousel" aria-label="Willkommen bei Sail Explorer" @keydown=${this.onKey}>
       <button class="btn small ghost icon close" aria-label="Einführung ausblenden" title="Ausblenden" @click=${() => emit(this, 'sx-guest-dismiss')}>${icon('x')}</button>
-      <div class="track" aria-live="polite" @scroll=${this.onScroll} @scrollend=${this.onScrollEnd}>
+      <div class="track" @scroll=${this.onScroll} @scrollend=${this.onScrollEnd}>
         ${slides.map(
           (s, i) => html`<div class="slide" role="group" aria-roledescription="Folie" aria-label="${i + 1} von ${n}: ${s.title}">
             <div class="art">${s.art}</div>
             <h2>${s.title}</h2>
             <p>${s.text}</p>
-            ${s.action}
+            ${s.action} ${'more' in s ? s.more : ''}
           </div>`,
         )}
       </div>
