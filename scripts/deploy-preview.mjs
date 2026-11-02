@@ -3,6 +3,7 @@
 //
 //   node scripts/deploy-preview.mjs deploy <branch>   (nach `npm run build`)
 //   node scripts/deploy-preview.mjs delete <branch>
+//   node scripts/deploy-preview.mjs prune            (entfernt Vorschauen, deren Branch es nicht mehr gibt)
 //
 // Braucht CLOUDFLARE_API_TOKEN (wie der Produktions-Deploy). Anmeldung/Teilen sind in der
 // Vorschau absichtlich gesperrt (keine Secrets, Fail-closed) – sie dient der Oberfläche.
@@ -13,10 +14,11 @@ const CONFIG = 'dist/sailing_explorer/wrangler.json';
 const DB_NAME = 'sailing-explorer-preview';
 const BUCKET = 'sailing-explorer-tracks-preview';
 const ZONE = 'segeln-potsdam.de';
+const PROD = 'sailing-explorer';
 
 const [action, branch] = process.argv.slice(2);
-if (!action || !branch) {
-  console.error('Aufruf: node scripts/deploy-preview.mjs <deploy|delete> <branch>');
+if (!action || (!branch && action !== 'prune')) {
+  console.error('Aufruf: node scripts/deploy-preview.mjs <deploy|delete> <branch> | prune');
   process.exit(2);
 }
 
@@ -31,6 +33,35 @@ export function slug(name) {
     .replace(/-+$/, '');
 }
 
+const wrangler = (args, opts = {}) => execFileSync('npx', ['wrangler', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: process.platform === 'win32', ...opts });
+
+// Vorschauen ohne Branch entfernen: Branches werden ohne Pull Request gemergt und gelöscht, dann greift
+// preview-cleanup nicht. Läuft nach jedem Produktions-Deploy. Fail-safe: ohne Branch-Liste (oder ohne main darin)
+// wird nichts gelöscht, die Produktion nie.
+if (action === 'prune') {
+  const heads = execFileSync('git', ['ls-remote', '--heads', 'origin'], { encoding: 'utf8' })
+    .split('\n')
+    .map((l) => l.split('refs/heads/')[1])
+    .filter(Boolean);
+  if (!heads.includes('main')) {
+    console.error('Branch-Liste unvollständig – nichts entfernt.');
+    process.exit(0);
+  }
+  const keep = new Set(heads.map((h) => `${PROD}-${slug(h)}`));
+  const account = /"account_id":\s*"([0-9a-f]+)"/.exec(readFileSync('wrangler.jsonc', 'utf8'))?.[1];
+  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts`, {
+    headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
+  });
+  const body = await res.json();
+  if (!res.ok || !body.success) throw new Error(`Worker-Liste nicht lesbar (${res.status})`);
+  for (const { id } of body.result) {
+    if (id === PROD || !id.startsWith(`${PROD}-`) || keep.has(id)) continue;
+    wrangler(['delete', '--name', id, '--force']);
+    console.log(`Vorschau ${id} entfernt (Branch existiert nicht mehr).`);
+  }
+  process.exit(0);
+}
+
 const s = slug(branch);
 if (!s || s === 'main') {
   console.error(`Kein Vorschau-Name für Branch „${branch}“.`);
@@ -38,8 +69,6 @@ if (!s || s === 'main') {
 }
 const workerName = `sailing-explorer-${s}`;
 const host = `dev-${s}.${ZONE}`;
-
-const wrangler = (args, opts = {}) => execFileSync('npx', ['wrangler', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: process.platform === 'win32', ...opts });
 
 if (action === 'delete') {
   try {

@@ -42,7 +42,21 @@ steps:
       - event: [push, manual]
         branch: ${CI_REPO_DEFAULT_BRANCH}
 
-  # Jeder andere Branch: eigene Vorschau unter sailing-<branch>.wollow.ski
+  # Nach dem Produktions-Deploy: Vorschauen entfernen, deren Branch gelöscht ist (Branches werden ohne Pull Request
+  # gemergt, dann läuft preview-cleanup nicht). Ein Fehler hier hält den Deploy nicht auf.
+  - name: preview-prune
+    image: node:22-bookworm
+    environment:
+      CLOUDFLARE_API_TOKEN:
+        from_secret: cloudflare_api_token
+    commands:
+      - node scripts/deploy-preview.mjs prune
+    failure: ignore
+    when:
+      - event: [push, manual]
+        branch: ${CI_REPO_DEFAULT_BRANCH}
+
+  # Jeder andere Branch: eigene Vorschau unter dev-<branch>.segeln-potsdam.de
   # (eigener Worker, Vorschau-Datenbank und -Bucket; Anmeldung dort gesperrt).
   - name: preview
     image: node:22-bookworm

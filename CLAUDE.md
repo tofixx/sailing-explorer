@@ -47,10 +47,19 @@ Prüfpunkte:
 
 `npm run check` (Typecheck, Tests, Build) muss vorher grün sein.
 
-## Deploy nur bei Bedarf
+## Auslieferung: Branch → Vorschau → `main`
 
-Nicht jedes fertige Feature sofort pushen: Push nach `main` (Produktion) und Branch-Pushes (Vorschau) nur, wenn es
-nötig ist oder gewünscht wird. Sonst lokal committen, Review laufen lassen und Bescheid geben, dass es bereit ist.
+Deployt wird nur bei Bedarf oder auf Wunsch; bis dahin lokal committen und Bescheid geben, dass es bereit ist. Soll es
+live gehen, immer dieser Weg – nie direkt ungeprüft auf `main`:
+1. `npm run check` lokal grün, dann den Branch pushen. Woodpecker prüft ihn (Typecheck, Tests, Build) und stellt die
+   Vorschau `dev-<branch>.segeln-potsdam.de` bereit (eigene Datenbank, ohne Anmeldung).
+2. Währenddessen läuft der Review-Agent (oben). Befunde beheben, erneut pushen.
+3. Erst wenn die Branch-Pipeline grün ist und die Vorschau lädt (Startseite, geänderte Seiten, mobil): nach `main`
+   mergen und pushen. Die Pipeline wendet die Migrationen an und deployt; danach die Produktion kurz prüfen (Bundle
+   enthält die Änderung, betroffene `/api/…` antworten).
+4. Gemergte Branches auf `origin` löschen (`git push origin --delete <branch>`) und den lokalen Worktree entfernen
+   (vorher die `node_modules`-Junction mit `cmd /c rmdir node_modules` lösen, dann `git worktree remove`). Die Vorschau
+   räumt der Schritt `preview-prune` nach dem nächsten Produktions-Deploy ab.
 
 ## Lokale Arbeit
 
