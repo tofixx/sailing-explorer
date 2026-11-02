@@ -1,6 +1,6 @@
 // Docs konfliktarm (CLAUDE.md): Konzept-Abschnitte ab 26 stehen in eigenen Dateien unter docs/concept/,
 // in docs/CONCEPT.md nur eine Verweiszeile.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -28,5 +28,21 @@ describe('Konzept in eigenen Dateien ab Abschnitt 26', () => {
     expect(file).toMatch(/^# 26\. Diagramm-Großansicht/);
     expect(file).toMatch(/F-430/);
     expect(concept).not.toMatch(/\| Ein Mechanismus \|/);
+  });
+});
+
+describe('Migrationen', () => {
+  // wrangler hängt beim Anwenden ein INSERT in d1_migrations an – ohne abschließendes Semikolon bricht das ab
+  // („near INSERT: syntax error“), lokal fällt es nicht auf.
+  it('jede Migration endet mit einem Semikolon', () => {
+    const dir = resolve(__dirname, '../migrations');
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.sql'))) {
+      const code = readFileSync(resolve(dir, f), 'utf8')
+        .split('\n')
+        .filter((l) => l.trim() && !l.trim().startsWith('--'))
+        .join('\n')
+        .trim();
+      expect(code.endsWith(';'), f).toBe(true);
+    }
   });
 });
