@@ -10,7 +10,9 @@ import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { base, emit, onMapStyles, writePostButton } from './shared';
+import { base, emit, onMapStyles, pageMenuReveal, writePostButton } from './shared';
+import './sx-page-menu';
+import type { PageMenuItem } from './sx-page-menu';
 import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import type { SxHarborPicker } from './sx-harbor-picker';
@@ -33,6 +35,9 @@ export class SxGroupPage extends LitElement {
     streamLoading: { type: Boolean },
     /** Beitrag aus `/p/<id>` hervorheben (F-406) */
     highlight: { type: String },
+    /** Pins der Gruppe und Verwaltungsrecht (F-403) */
+    pins: { attribute: false },
+    manage: { type: Boolean },
     loading: { type: Boolean },
     error: { type: String },
     busy: { type: Boolean },
@@ -50,6 +55,8 @@ export class SxGroupPage extends LitElement {
   declare stream: StreamPage | null;
   declare streamLoading: boolean;
   declare highlight: string | null;
+  declare pins: StreamPage['items'];
+  declare manage: boolean;
   declare loading: boolean;
   declare error: string;
   declare busy: boolean;
@@ -72,6 +79,8 @@ export class SxGroupPage extends LitElement {
     this.stream = null;
     this.streamLoading = false;
     this.highlight = null;
+    this.pins = [];
+    this.manage = false;
     this.loading = false;
     this.error = '';
     this.busy = false;
@@ -87,6 +96,7 @@ export class SxGroupPage extends LitElement {
 
   static styles = [
     base,
+    pageMenuReveal,
     css`
       :host {
         display: block;
@@ -485,9 +495,6 @@ export class SxGroupPage extends LitElement {
         <button class="btn primary" type="submit" ?disabled=${this.busy}>${icon('check')} Speichern</button>
         <button class="btn ghost" type="button" @click=${() => (this.editing = false)}>Abbrechen</button>
         ${g.visibility === 'unlisted' ? html`<button class="btn" type="button" @click=${() => emit(this, 'sx-group-save', { id: g.id, patch: { rotateKey: true } })}>${icon('link')} Link erneuern</button>` : ''}
-        ${g.role === 'owner'
-          ? html`<button class="btn danger" type="button" @click=${() => confirm(`„${g.name}“ wirklich löschen? Mitglieder, Beiträge und Neuigkeiten der Gruppe werden gelöscht. Törns und Boote bleiben.`) && emit(this, 'sx-group-delete', { id: g.id })}>${icon('trash')} Gruppe löschen</button>`
-          : ''}
       </div>
     </form>`;
   }
@@ -505,11 +512,32 @@ export class SxGroupPage extends LitElement {
     </div>`;
   }
 
-  /** Mitglieder: Glocke statt „Folgen“ – durchgestrichen = Neuigkeiten stumm (F-346). */
-  private muteButton(id: string, muted: boolean) {
-    const label = muted ? 'Neuigkeiten wieder anzeigen' : 'Neuigkeiten stumm schalten';
-    return html`<button class="btn ghost icon" type="button" aria-pressed=${muted ? 'true' : 'false'} title=${muted ? 'Stumm – Neuigkeiten erscheinen nicht in deinem Stream und der Wochenmail' : 'Neuigkeiten erscheinen in deinem Stream – zum Stummschalten tippen'} aria-label=${label}
-      ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-mute', { id, muted: !muted })}>${icon(muted ? 'bell-off' : 'bell')}</button>`;
+  /**
+   * Zahnrad-Menü (N6, F-429): Bearbeiten und Löschen (Verwalter bzw. Eigentümer), Stumm (F-346) und Austreten
+   * (Mitglieder außer dem Eigentümer), Melden (alle anderen) – nur, was erlaubt ist.
+   */
+  private menuItems(d: GroupPageData): PageMenuItem[] {
+    const g = d.group;
+    const m = d.membership;
+    const manager = canManageGroup(g.role);
+    const items: PageMenuItem[] = [];
+    if (manager) items.push({ id: 'edit', label: 'Bearbeiten', icon: 'pencil' });
+    if (m.role) {
+      items.push(m.muted ? { id: 'unmute', label: 'Neuigkeiten wieder anzeigen', icon: 'bell' } : { id: 'mute', label: 'Neuigkeiten stumm schalten', icon: 'bell-off' });
+      if (m.role !== 'owner') items.push({ id: 'leave', label: 'Austreten', icon: 'logout' });
+    }
+    if (!manager) items.push({ id: 'report', label: 'Melden', icon: 'flag', divider: items.length > 0 });
+    if (g.role === 'owner') items.push({ id: 'delete', label: 'Gruppe löschen', icon: 'trash', danger: true, divider: true });
+    return items;
+  }
+
+  private onMenu(d: GroupPageData, id: string) {
+    const g = d.group;
+    if (id === 'edit') this.startEdit(g);
+    else if (id === 'mute' || id === 'unmute') emit(this, 'sx-group-mute', { id: g.id, muted: id === 'mute' });
+    else if (id === 'leave') confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id });
+    else if (id === 'report') emit(this, 'sx-report', { kind: 'group', id: g.id, label: `die Gruppe ${g.name}` });
+    else if (id === 'delete' && confirm(`„${g.name}“ wirklich löschen? Mitglieder, Beiträge und Neuigkeiten der Gruppe werden gelöscht. Törns und Boote bleiben.`)) emit(this, 'sx-group-delete', { id: g.id });
   }
 
   private joinActions(d: GroupPageData) {
@@ -517,9 +545,8 @@ export class SxGroupPage extends LitElement {
     const m = d.membership;
     // Gäste: erst anmelden; bei „Nur auf Einladung“ nur der Hinweis wie für Angemeldete (F-333)
     if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : html`<span class="faint">Beitritt nur auf Einladung</span>`;
-    if (m.role) return html`${this.muteButton(g.id, !!m.muted)}${m.role === 'owner'
-        ? html`<span class="faint" title="Übergib die Gruppe in der Mitgliederliste an einen Admin – danach kannst du austreten.">Eigentümer</span>`
-        : html`<button class="btn ghost" @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id })}>${icon('logout')} Austreten</button>`}`;
+    // Mitglieder: Stumm und Austreten stehen im Zahnrad-Menü (N6); stumm bleibt am Kopf erkennbar
+    if (m.role) return m.muted ? html`<span class="faint" title="Neuigkeiten erscheinen nicht in deinem Stream und der Wochenmail">${icon('bell-off')} Stumm</span>` : '';
     if (m.requested) return html`<span class="faint">Anfrage gestellt</span><button class="btn ghost" @click=${() => emit(this, 'sx-group-withdraw', { id: g.id })}>Anfrage zurückziehen</button>`;
     if (m.canJoin) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitreten</button>`;
     if (m.canRequest) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitritt anfragen</button>`;
@@ -552,9 +579,7 @@ export class SxGroupPage extends LitElement {
               title="Folgen: Neuigkeiten der Gruppe in deinem Stream, ohne Mitglied zu sein"></sx-follow>`
           : ''}
         ${v !== 'private' || manager ? html`<button class="btn" @click=${() => emit(this, 'sx-page-share', { path: v === 'unlisted' && !manager ? location.pathname : path, title: g.name })}>${icon('share')} Teilen</button>` : ''}
-        ${manager
-          ? html`<button class="btn" @click=${() => this.startEdit(g)}>${icon('pencil')} Bearbeiten</button>`
-          : html`<button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'group', id: g.id, label: `die Gruppe ${g.name}` })}>${icon('flag')} Melden</button>`}
+        <sx-page-menu label=${g.name} .items=${this.menuItems(d)} @sx-page-menu-pick=${(e: CustomEvent<{ id: string }>) => this.onMenu(d, e.detail.id)}></sx-page-menu>
         ${g.kind === 'club' && !(g.verified && g.role === 'owner')
           ? html`<sx-claim kind="group" target-id=${g.id} name=${g.name} ?signed-in=${this.signedIn}></sx-claim>`
           : ''}
@@ -691,6 +716,7 @@ export class SxGroupPage extends LitElement {
           </span>
         </div>
         <sx-stream scope="group" in-group .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
+          .pins=${this.pins} ?manage=${this.manage}
           empty-text="Noch keine Neuigkeiten in dieser Gruppe."></sx-stream>
       </section>
       <sx-gallery .photos=${d.photos ?? []} heading="Fotos aus Törns von Mitgliedern und Booten"></sx-gallery>

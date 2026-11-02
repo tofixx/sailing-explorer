@@ -39,6 +39,9 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
     env.DB.prepare('UPDATE shares SET to_harbor_id = ?1 WHERE to_harbor_id = ?2').bind(dst.id, src.id),
     // Beiträge im Hafen-Verlauf (F-425) wandern mit – ihre Ziele `harbor` folgen unten
     env.DB.prepare(`UPDATE posts SET channel_id = ?1 WHERE channel_kind = 'harbor' AND channel_id = ?2`).bind(dst.id, src.id),
+    // Pins im Hafen (F-403) wandern mit; doppelte fallen
+    env.DB.prepare(`UPDATE OR IGNORE channel_pins SET channel_id = ?1 WHERE channel_kind = 'harbor' AND channel_id = ?2`).bind(dst.id, src.id),
+    env.DB.prepare(`DELETE FROM channel_pins WHERE channel_kind = 'harbor' AND channel_id = ?`).bind(src.id),
     env.DB.prepare('UPDATE post_log SET group_id = ?1 WHERE group_id = ?2').bind(postLogKey({ kind: 'harbor', id: dst.id }), postLogKey({ kind: 'harbor', id: src.id })),
     // Folgen: wer beiden folgt, folgt danach einmal
     env.DB.prepare(
@@ -159,6 +162,8 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     db.prepare('UPDATE comments SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     // Beiträge samt Profil-Verlauf (Konzept 21.3): auch die Post-Zeilen der Törns wandern mit
     db.prepare(`UPDATE posts SET author_id = ?1, channel_id = CASE WHEN channel_kind = 'user' AND channel_id = ?2 THEN ?1 ELSE channel_id END WHERE author_id = ?2`).bind(A, B),
+    // Pins im Profil-Verlauf (F-403) wandern mit
+    db.prepare(`UPDATE OR IGNORE channel_pins SET channel_id = ?1 WHERE channel_kind = 'user' AND channel_id = ?2`).bind(A, B),
     db.prepare('UPDATE activity SET actor_id = ?1 WHERE actor_id = ?2').bind(A, B),
     db.prepare(`UPDATE activity SET subject_id = ?1 WHERE subject_kind = 'user' AND subject_id = ?2`).bind(A, B),
     // Bündel-Schlüssel mit der Konto-ID (Beitritt, Meilensteine): ans Ziel; gab es ihn dort schon, bleibt der des Ziels

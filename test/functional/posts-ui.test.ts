@@ -4,7 +4,7 @@
 // Gruppe (F-421), Beiträge für Besucher und „Ansehen als …“ (F-423). Komponenten zeigen nur an und melden Absichten.
 import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-my-posts';
-import '../../src/components/sx-preview-menu';
+import '../../src/components/sx-page-menu';
 import '../../src/components/sx-profile-page';
 import '../../src/components/sx-group-page';
 import '../../src/components/sx-title-edit';
@@ -180,33 +180,32 @@ describe('sx-title-edit (F-424)', () => {
   });
 });
 
-describe('sx-preview-menu', () => {
-  it('[F-423] Zahnrad mit aria-expanded, Vorschauen je Hafen und Gruppe, „Vorschau beenden“, Escape schließt', async () => {
-    const picks = listen('sx-profile-preview');
-    const el = await mount('sx-preview-menu', { options: { harbor: { name: 'Potsdam' }, groups: [{ id: 'G1', name: 'PYC', kind: 'club' }] }, current: null });
-    const toggle = button(el.shadowRoot, /Ansehen als/)!;
+/** Eintrag im Zahnrad-Menü einer Seite (N6, F-429) */
+const menuOf = (el: LitEl) => el.shadowRoot.querySelector('sx-page-menu') as LitEl | null;
+const menuItem = (el: LitEl, label: RegExp) => {
+  const m = menuOf(el);
+  return m ? button(m.shadowRoot, label) : undefined;
+};
+
+describe('sx-page-menu', () => {
+  it('[F-429] Zahnrad mit aria-expanded, nur übergebene Einträge, Auswahl als Event, Escape schließt; ohne Einträge kein Knopf', async () => {
+    const picks = listen('sx-page-menu-pick');
+    const el = await mount('sx-page-menu', { label: 'PYC', items: [{ id: 'edit', label: 'Bearbeiten', icon: 'pencil' }, { id: 'report', label: 'Melden', icon: 'flag', divider: true }] });
+    const toggle = button(el.shadowRoot, /Mehr zu PYC/)!;
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     toggle.click();
     await el.updateComplete;
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    const t = text(el.shadowRoot);
-    expect(t).toContain('Jemand aus deinem Hafen Potsdam');
-    expect(t).toContain('Mitglied von PYC');
-    expect(t).toContain('zeigt in dieser Stufe dasselbe wie Öffentlich');
-    expect(button(el.shadowRoot, /Vorschau beenden/)).toBeUndefined();
-    button(el.shadowRoot, /Mitglied von PYC/)!.click();
-    expect(picks).toEqual([{ preview: { as: 'group', groupId: 'G1' } }]);
-    el.current = { as: 'group', groupId: 'G1' };
-    el.open = true;
-    await el.updateComplete;
-    expect(button(el.shadowRoot, /Mitglied von PYC/)!.getAttribute('aria-pressed')).toBe('true');
-    button(el.shadowRoot, /Vorschau beenden/)!.click();
-    expect(picks.at(-1)).toEqual({ preview: null });
+    button(el.shadowRoot, /Melden/)!.click();
+    expect(picks).toEqual([{ id: 'report' }]);
+    expect(el.open).toBe(false);
     el.open = true;
     await el.updateComplete;
     el.shadowRoot.querySelector('div')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await el.updateComplete;
     expect(el.open).toBe(false);
+    const empty = await mount('sx-page-menu', { items: [] });
+    expect(empty.shadowRoot.querySelector('button')).toBeNull();
   });
 });
 
@@ -227,7 +226,9 @@ describe('sx-profile-page (Beiträge, Vorschau)', () => {
     const list = inner(el, 'sx-profile-posts');
     expect(text(list.shadowRoot)).toContain('Nur Mitglieder von PYC');
     expect(list.shadowRoot.querySelector('a[href="/g/pyc"]')).not.toBeNull();
-    expect(inner(el, 'sx-preview-menu')).toBeNull();
+    // fremde Seite: im Zahnrad nur „Melden“
+    expect(menuItem(el, /Melden/)).toBeDefined();
+    expect(menuItem(el, /Ansehen als/)).toBeUndefined();
 
     const self = await mount('sx-profile-page', {
       data: { kind: 'profile', ...profile({ profile: { ...profile().profile, isSelf: true }, posts: [], previewOptions: { harbor: null, groups: [] } }) },
@@ -236,7 +237,12 @@ describe('sx-profile-page (Beiträge, Vorschau)', () => {
     await settle(self);
     expect(text(self.shadowRoot)).toContain('Mein Verlauf');
     expect(inner(self, 'sx-my-posts')).not.toBeNull();
-    expect(inner(self, 'sx-preview-menu')).not.toBeNull();
+    // eigene Seite: Bearbeiten und „Ansehen als …“ im selben Zahnrad (F-423, F-429)
+    expect(menuItem(self, /Bearbeiten/)).toBeDefined();
+    const picks = listen('sx-profile-preview');
+    menuItem(self, /Ansehen als: Öffentlich/)!.click();
+    expect(picks).toEqual([{ preview: { as: 'public' } }]);
+    expect(button(self.shadowRoot, /Bearbeiten/)).toBeUndefined();
   });
 
   it('[F-423] Vorschau deutlich markiert, ohne Folgen/Melden, mit „Vorschau beenden“; unsichtbare Seite erklärt', async () => {
@@ -280,7 +286,7 @@ describe('sx-group-page (Schreibrecht)', () => {
 
     const saves = listen('sx-group-save');
     const owner = await mount('sx-group-page', { data: groupData('owner', 'club', 'admins'), signedIn: true });
-    button(owner.shadowRoot, /Bearbeiten/)!.click();
+    menuItem(owner, /Bearbeiten/)!.click();
     await owner.updateComplete;
     expect(text(owner.shadowRoot)).toContain('Wer darf Beiträge schreiben?');
     const radio = [...owner.shadowRoot.querySelectorAll('input[name="postby"]')] as HTMLInputElement[];
@@ -292,7 +298,7 @@ describe('sx-group-page (Schreibrecht)', () => {
     expect((saves[0] as { patch: { postBy: string } }).patch.postBy).toBe('members');
 
     const admin = await mount('sx-group-page', { data: groupData('admin', 'club', 'admins'), signedIn: true });
-    button(admin.shadowRoot, /Bearbeiten/)!.click();
+    menuItem(admin, /Bearbeiten/)!.click();
     await admin.updateComplete;
     expect(text(admin.shadowRoot)).not.toContain('Wer darf Beiträge schreiben?');
   });

@@ -64,6 +64,11 @@ export class SocialController {
     document.title = `Hafen ${d.harbor.name} · Sail Explorer`;
   }
 
+  /** Hafenseite neu laden (z. B. nach dem Löschen eines Beitrags dort). */
+  async refreshHarbor(): Promise<void> {
+    if (this.harborSlug && this.ui.page.data?.kind === 'harbor') await this.reloadHarbor().catch(() => undefined);
+  }
+
   /** Nach An- oder Abmelden: Rechte (Bearbeiten, Folgen) neu laden. */
   async userChanged(): Promise<void> {
     if (this.harborSlug && !this.ui.page.hidden && this.ui.page.data?.kind === 'harbor') await this.reloadHarbor().catch(() => undefined);
@@ -90,7 +95,7 @@ export class SocialController {
   private boatKey: string | null = null;
 
   /** Neuigkeiten der gerade angezeigten Bootsseite nachladen (Beiträge am Boot, Törns, neue Gruppen und Häfen). */
-  async loadBoatStream(key?: string | null): Promise<void> {
+  async loadBoatStream(key: string | null = this.boatKey): Promise<void> {
     const d = this.ui.page.data;
     if (d?.kind !== 'boat') return;
     this.boatKey = key ?? null;

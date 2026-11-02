@@ -575,3 +575,22 @@ export const postCardStyles = css`
  */
 export const writePostButton = (host: HTMLElement) =>
   html`<button class="btn small primary" type="button" @click=${() => emit(host, 'sx-compose-open', { kind: 'text' })}>${icon('pencil')} Beitrag schreiben</button>`;
+
+/**
+ * Zahnrad-Menü der Seite (sx-page-menu, N6): mit Maus erst bei Hover bzw. Fokus über Kopf oder Titelbild sichtbar,
+ * auf Touch-Geräten immer. Für Seiten mit `.hero` (und davor ggf. `sx-cover`).
+ */
+export const pageMenuReveal = css`
+  @media (hover: hover) and (pointer: fine) {
+    .hero sx-page-menu {
+      opacity: 0;
+      transition: opacity 0.15s var(--ease);
+    }
+    .hero:hover sx-page-menu,
+    .hero:focus-within sx-page-menu,
+    sx-cover:hover + .hero sx-page-menu,
+    .hero sx-page-menu[open] {
+      opacity: 1;
+    }
+  }
+`;

@@ -488,3 +488,83 @@ describe('F-416 Benachrichtigung bei neuen Beiträgen', () => {
     expect(await bell(local)).toHaveLength(1);
   });
 });
+
+describe('F-403 Anpinnen', () => {
+  const pin = (p: Person, postId: string, channel: { kind: string; id: string }, pinned = true) => s.send('PUT', `/api/posts/${postId}/pin`, p.cookie, { channel, pinned });
+  const pins = async (channel: string, p?: Person) => ok<{ items: Array<{ post?: { id: string } }>; canManage: boolean }>(await s.send('GET', `/api/pins?channel=${channel}`, p?.cookie));
+
+  it('[F-403] in jedem Verlauf, in dem der Beitrag erscheint, nur dort; nur Verwalter; Pins nur, was Lesende sehen; nie gecacht', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const member = await s.person({ profile: 'public' });
+    const club = await s.group(owner, { name: 'Pinclub' });
+    const team = await s.group(owner, { kind: 'team', name: 'Pinteam', parentId: club.id });
+    await s.join(owner, team, member);
+    const a = await write(owner, { kind: 'group', id: team.id }, { body: 'Termine', reach: 'club' });
+    const b = await write(owner, { kind: 'group', id: team.id }, { body: 'Nur Team', reach: 'here' });
+    expect((await pin(owner, a!.id, { kind: 'group', id: club.id })).status).toBe(200);
+    // im Verein nicht erschienen → 404; Mitglied ohne Verwaltung → 403
+    expect((await pin(owner, b!.id, { kind: 'group', id: club.id })).status).toBe(404);
+    expect((await pin(member, b!.id, { kind: 'group', id: team.id })).status).toBe(403);
+    const clubPins = await s.send('GET', `/api/pins?channel=group:${club.id}`, undefined);
+    expect(clubPins.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(((await clubPins.json()) as { items: Array<{ post: { id: string } }> }).items.map((i) => i.post.id)).toEqual([a!.id]);
+    // wirkt nur dort: im Team nicht angepinnt
+    expect((await pins(`group:${team.id}`, member)).items).toEqual([]);
+    expect((await pins(`group:${team.id}`, owner)).canManage).toBe(true);
+    // „Sichtbar bis“ herabgesetzt → der Pin im Verein zeigt nichts mehr
+    await ok(await s.send('PATCH', `/api/posts/${a!.id}`, owner.cookie, { reach: 'here' }));
+    expect((await pins(`group:${club.id}`)).items).toEqual([]);
+    // lösen
+    expect((await pin(owner, a!.id, { kind: 'group', id: club.id }, false)).status).toBe(200);
+    expect(await one('SELECT 1 AS x FROM channel_pins WHERE post_id = ?', a!.id)).toBeNull();
+  });
+
+  it('[F-403] Profil: nur die Person selbst; angepinnte stehen für Besucher oben', async () => {
+    const p = await s.person({ profile: 'public' });
+    const visitor = await s.person({ profile: 'public' });
+    const old = await write(p, { kind: 'user' }, { body: 'Alt, aber wichtig' });
+    await write(p, { kind: 'user' }, { body: 'Neu' });
+    expect((await pin(p, old!.id, { kind: 'user', id: '' })).status).toBe(200);
+    const page = await ok<{ posts: Array<{ id: string; pinned?: boolean }> }>(await s.send('GET', `/api/profiles/${p.handle}`, visitor.cookie));
+    expect(page.posts[0]).toMatchObject({ id: old!.id, pinned: true });
+    expect((await ok<{ items: Array<{ id: string; pinned: boolean }> }>(await s.send('GET', '/api/me/posts', p.cookie))).items.find((i) => i.id === old!.id)!.pinned).toBe(true);
+    expect((await pin(visitor, old!.id, { kind: 'user', id: '' })).status).toBe(404);
+  });
+
+  it('[F-403] [F-425] Löschpfade: Beitrag, Gruppe, Hafen, Boot, Konto; Verwalter von Hafen und Boot löschen fremde Beiträge dort', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const team = await s.group(owner, { kind: 'team' });
+    const gp = await write(owner, { kind: 'group', id: team.id }, { body: 'x' });
+    await ok(await pin(owner, gp!.id, { kind: 'group', id: team.id }));
+    const gp2 = await write(owner, { kind: 'group', id: team.id }, { body: 'y' });
+    await ok(await pin(owner, gp2!.id, { kind: 'group', id: team.id }));
+    expect((await s.send('DELETE', `/api/posts/${gp!.id}`, owner.cookie)).status).toBe(204);
+    expect(await one('SELECT 1 AS x FROM channel_pins WHERE post_id = ?', gp!.id)).toBeNull();
+    expect((await s.send('DELETE', `/api/groups/${team.id}`, owner.cookie, { confirm: team.slug })).status).toBeLessThan(300);
+    expect(await one(`SELECT 1 AS x FROM channel_pins WHERE channel_kind = 'group' AND channel_id = ?`, team.id)).toBeNull();
+    // Hafen: Anleger:in verwaltet, löscht einen fremden Beitrag; Pin fällt mit dem Hafen
+    const creator = await s.person({ profile: 'public' });
+    const skipper = await s.person({ profile: 'public' });
+    const h1 = await harbor(creator);
+    await s.boat(skipper, { harborId: h1.id });
+    const hp = await write(skipper, { kind: 'harbor', id: h1.id }, { body: 'fremd' });
+    const hp2 = await write(skipper, { kind: 'harbor', id: h1.id }, { body: 'bleibt angepinnt' });
+    await ok(await pin(creator, hp2!.id, { kind: 'harbor', id: h1.id }));
+    expect((await pins(`harbor:${h1.id}`, creator)).canManage).toBe(true);
+    expect((await s.send('DELETE', `/api/posts/${hp!.id}`, creator.cookie)).status).toBe(204);
+    expect((await s.send('DELETE', `/api/posts/${hp2!.id}`, (await s.person()).cookie)).status).toBe(404);
+    expect((await s.send('DELETE', `/api/admin/harbors/${h1.id}`, admin.cookie, { confirm: h1.id })).status).toBe(204);
+    expect(await one(`SELECT 1 AS x FROM channel_pins WHERE channel_kind = 'harbor' AND channel_id = ?`, h1.id)).toBeNull();
+    // Boot: Pin fällt mit dem Boot; Profil-Pins mit dem Konto
+    const bo = await s.person({ profile: 'public' });
+    const boat = await s.boat(bo);
+    const bp = await write(bo, { kind: 'boat', id: boat.id }, { body: 'Boot' });
+    await ok(await pin(bo, bp!.id, { kind: 'boat', id: boat.id }));
+    const up = await write(bo, { kind: 'user' }, { body: 'Profil' });
+    await ok(await pin(bo, up!.id, { kind: 'user', id: '' }));
+    expect((await s.send('DELETE', `/api/boats/${boat.id}`, bo.cookie)).status).toBe(204);
+    expect(await one(`SELECT 1 AS x FROM channel_pins WHERE channel_kind = 'boat' AND channel_id = ?`, boat.id)).toBeNull();
+    expect((await s.send('DELETE', '/api/account', bo.cookie)).status).toBe(200);
+    expect(await one(`SELECT 1 AS x FROM channel_pins WHERE channel_kind = 'user' AND channel_id = ?`, bo.user.id)).toBeNull();
+  });
+});

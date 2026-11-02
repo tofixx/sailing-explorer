@@ -298,7 +298,8 @@ describe('Häfen in der Oberfläche (F-171 … F-174)', () => {
     expect(el.shadowRoot.querySelector('a[href="/b/B1"]')).not.toBeNull();
     expect(inner(el, 'sx-stream').getAttribute('scope')).toBe('harbor');
     expect(inner(el, 'sx-follow').getAttribute('kind')).toBe('harbor');
-    button(el.shadowRoot, /Bearbeiten/)!.click();
+    // Bearbeiten im Zahnrad-Menü der Seite (N6, F-429)
+    button((el.shadowRoot.querySelector('sx-page-menu') as unknown as { shadowRoot: ShadowRoot }).shadowRoot, /Bearbeiten/)!.click();
     await el.updateComplete;
     const form = el.shadowRoot.querySelector('form.edit') as HTMLFormElement;
     (form.querySelector('#hlat') as HTMLInputElement).value = '52,5';

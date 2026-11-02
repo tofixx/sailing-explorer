@@ -8,7 +8,7 @@ export const logbookPath = (handle: string) => `/u/${handle}?bereich=fahrtenbuch
 
 /**
  * Konto-Menü am Avatar oben rechts (F-428): der eine Weg zu „Meine Seite“, „Mein Fahrtenbuch“ und „Konto &
- * Einstellungen“ (Menü-Muster wie sx-preview-menu, mobil als Sheet). Ohne Profil führen „Meine Seite“ und „Mein
+ * Einstellungen“ (Menü-Muster wie sx-page-menu, mobil als Sheet). Ohne Profil führen „Meine Seite“ und „Mein
  * Fahrtenbuch“ zum Anlegen des Profils im Konto. Meldet `sx-account` { tab? }.
  */
 export class SxAccountMenu extends LitElement {

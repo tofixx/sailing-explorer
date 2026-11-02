@@ -28,6 +28,8 @@ const paths = {
   eyeOff: svg`<path d="M3 3l18 18M10.6 5.6A9 9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-3 3.7M6.6 6.9C4 8.6 2.5 12 2.5 12S6 18.5 12 18.5a9 9 0 0 0 5-1.5"/><path d="M9.9 9.9a2.8 2.8 0 0 0 4.2 4.2"/>`,
   x: svg`<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>`,
   trash: svg`<path class="f" d="M6 7.5h12l-1 11.5a2 2 0 0 1-2 1.8H9a2 2 0 0 1-2-1.8z"/><path d="M4 7.5h16M6 7.5l1 11.5a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8l1-11.5M9.5 7.5V4.5h5v3M10 11v6M14 11v6"/>`,
+  // Anpinnen (F-403): Stecknadel
+  pin: svg`<path class="f" d="M9 3h6l-1 6 3 3H7l3-3z"/><path d="M9 3h6l-1 6 3 3H7l3-3zM12 12v9"/>`,
   pencil: svg`<path class="f" d="M4 20v-3.5L15.5 5a2.5 2.5 0 0 1 3.5 3.5L7.5 20z"/><path d="M4 20v-3.5L15.5 5a2.5 2.5 0 0 1 3.5 3.5L7.5 20zM13.5 7l3.5 3.5"/>`,
   lock: svg`<rect class="f" x="5" y="10.5" width="14" height="10" rx="2.5"/><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5M12 14.5v2"/>`,
   // Öffentlich per Link: Kompassrose

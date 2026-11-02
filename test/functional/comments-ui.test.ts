@@ -27,6 +27,12 @@ const button = (el: LitEl | ShadowRoot, label: RegExp) => {
   return [...root.querySelectorAll('button')].find((b) => label.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`)) as HTMLButtonElement | undefined;
 };
 
+/** Eintrag im Zahnrad-Menü der Seite (N6, F-429) */
+const menuItem = (el: LitEl, label: RegExp) => {
+  const m = el.shadowRoot.querySelector('sx-page-menu') as LitEl | null;
+  return m ? button(m, label) : undefined;
+};
+
 let cleanups: Array<() => void> = [];
 function listen(name: string) {
   const got: unknown[] = [];
@@ -259,13 +265,13 @@ describe('sx-profile-page – Melden', () => {
     const reports = listen('sx-report');
     const profile = { handle: 'mats', displayName: 'Mats', bio: '', visibility: 'public', isSelf: false };
     const el = await mount('sx-profile-page', { data: { kind: 'profile', profile, boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [] } });
-    button(el, /Melden/)!.click();
+    menuItem(el, /Melden/)!.click();
     expect(reports).toEqual([{ kind: 'profile', id: 'mats', label: 'das Profil von Mats' }]);
     const self = await mount('sx-profile-page', { data: { kind: 'profile', profile: { ...profile, isSelf: true }, boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [] } });
-    expect(button(self, /Melden/)).toBeUndefined();
+    expect(menuItem(self, /Melden/)).toBeUndefined();
     const boat = { id: 'B1', name: 'Möwe', boatType: '', lengthM: null, sailNumber: '', homePort: '', description: '', visibility: 'public', createdAt: 0, updatedAt: 0, owner: null, role: null };
     const b = await mount('sx-profile-page', { data: { kind: 'boat', boat, stats: { voyages: 0, distNm: 0 }, voyages: [] } });
-    button(b, /Melden/)!.click();
+    menuItem(b, /Melden/)!.click();
     expect(reports[1]).toEqual({ kind: 'boat', id: 'B1', label: 'das Boot Möwe' });
   });
 });

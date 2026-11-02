@@ -39,7 +39,7 @@ export class SxProfilePosts extends LitElement {
       ${this.items.map(
         (p) => html`<li class="post ${p.id === this.highlight ? 'hl' : ''}" id="p-${p.id}" tabindex=${p.id === this.highlight ? -1 : nothing}>
           <div class="head">
-            ${icon('comment')}
+            ${p.pinned ? html`<span title="Angepinnt">${icon('pin')}</span>` : icon('comment')}
             <span class="t">${p.group ? html`Beitrag in <a href="/g/${p.group.slug}">${GROUP_KIND_LABEL[p.group.kind]} ${p.group.name}</a>` : 'Beitrag'}</span>
             ${this.preview
               ? ''

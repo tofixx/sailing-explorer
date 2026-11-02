@@ -86,6 +86,7 @@ import type { ClaimRequest } from './services/api';
 import { PostsController } from './controllers/posts';
 import { ComposeController } from './controllers/compose';
 import { PostLinkController, anchorPost, type PostList } from './controllers/post-link';
+import { PinsController } from './controllers/pins';
 import type { SxComposeDialog } from './components/sx-compose-dialog';
 import type { ComposeKind } from './components/sx-compose';
 import type { ChannelPostInput, CreatedPost } from './services/api';
@@ -181,6 +182,7 @@ export class App {
   private unread: UnreadController;
   private compose: ComposeController;
   private postLink: PostLinkController;
+  private pins: PinsController;
   /** „Mein Verlauf“ der eigenen Seite fertig geladen (für den Anker `#p-<id>`) */
   private ownLoaded: Promise<void> = Promise.resolve();
   /** angezeigte Seite statt Karte (Entdecken bzw. Profil, Gruppe …) – für die Bereiche in der Kopfzeile */
@@ -291,6 +293,12 @@ export class App {
       posted: (post) => this.showPosted(post),
     });
     this.postLink = new PostLinkController({ list: () => this.postList(), ready: () => this.ownLoaded });
+    this.pins = new PinsController({
+      // Pins an die sichtbare Seite: Gruppenseite bzw. Hafen-/Bootsseite
+      show: (pins, manage) => Object.assign(this.ui.groupPage.hidden ? this.ui.page : this.ui.groupPage, { pins, manage }),
+      toast: (msg, ms) => this.toast(msg, ms),
+      refreshOwn: () => this.posts.load(),
+    });
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
     this.store.subscribe((s, prev) => this.render(s, prev));
@@ -772,7 +780,16 @@ export class App {
     on<{ id: string }>('sx-group-invite-revoke', (d) => g.revokeInvite(d.id));
     on<{ id: string; boatId: string }>('sx-group-boat-add', (d) => g.addBoat(d));
     on<{ id: string; boatId: string }>('sx-group-boat-remove', (d) => g.removeBoat(d));
-    on<{ id: string }>('sx-post-delete', (d) => g.deletePost(d.id));
+    on<{ id: string }>('sx-post-delete', async (d) => {
+      await g.deletePost(d.id);
+      // Hafen- bzw. Bootsseite: Stream und Pins neu (Verwalter löschen dort auch fremde Beiträge, F-425)
+      const kind = this.ui.page.hidden ? null : this.ui.page.data?.kind;
+      if (kind === 'harbor') await this.social.refreshHarbor();
+      if (kind === 'boat') await this.social.loadBoatStream();
+      if (kind === 'harbor' || kind === 'boat') await this.pins.open(this.pinChannel());
+    });
+    // Anpinnen (F-403): im Verlauf der Seite bzw. aus „Mein Verlauf“ im eigenen Profil
+    on<{ postId: string; pinned: boolean; own?: boolean }>('sx-pin', (d) => void this.pins.toggle(d.postId, d.pinned, !!d.own));
     // ---- Beiträge als Grundtyp (Konzept 21): „Mein Verlauf“, Profil-Beiträge, Fahrtenbuch, „Ansehen als …“ ----
     const po = this.posts;
     on<{ area: MyPostArea }>('sx-my-posts-area', (d) => po.setArea(d.area));
@@ -1031,6 +1048,7 @@ export class App {
       const h = d?.kind === 'harbor' ? d.harbor : null;
       // „+ Neu → Text“ schlägt diesen Hafen vor (F-405)
       if (h) this.compose.setContext({ kind: 'harbor', id: h.id });
+      void this.pins.open(h ? { kind: 'harbor', id: h.id } : null);
       return this.showPlace(this.ui.page, h && h.lat != null && h.lon != null ? { lat: h.lat, lon: h.lon } : null);
     }
     if (route.kind === 'group') {
@@ -1040,7 +1058,10 @@ export class App {
       // Gruppenseite geöffnet: Beitrittsanfragen dazu gelesen (F-253)
       const group = this.ui.groupPage.data?.group;
       if (group) this.notifications.viewing({ subjectKind: 'group', subjectId: group.id });
-      if (group && nav === this.navSeq) this.compose.setContext({ kind: 'group', id: group.id });
+      if (group && nav === this.navSeq) {
+        this.compose.setContext({ kind: 'group', id: group.id });
+        void this.pins.open({ kind: 'group', id: group.id });
+      }
       return;
     }
     if (route.kind === 'group-new') {
@@ -1067,6 +1088,7 @@ export class App {
         // Neuigkeiten des Boots (F-425) und „+ Neu → Text“ mit diesem Boot
         void this.social.loadBoatStream(route.key);
         this.compose.setContext({ kind: 'boat', id: d.boat.id });
+        void this.pins.open({ kind: 'boat', id: d.boat.id });
       }
     } catch (e) {
       page.error = e instanceof ApiError && e.status === 404 ? 'Diese Seite gibt es nicht oder sie ist privat.' : errorText(e);
@@ -1137,6 +1159,12 @@ export class App {
     }
     if (d?.kind === 'profile') return { ids: () => (d.posts ?? []).map((p) => p.id), hasMore: () => false, more: async () => undefined, mark };
     return null;
+  }
+
+  /** Verlauf der offenen Hafen- bzw. Bootsseite (für die Pins). */
+  private pinChannel(): { kind: 'harbor' | 'boat'; id: string } | null {
+    const d = this.ui.page.data;
+    return d?.kind === 'harbor' ? { kind: 'harbor', id: d.harbor.id } : d?.kind === 'boat' ? { kind: 'boat', id: d.boat.id } : null;
   }
 
   /** Nach dem Schreiben (F-405): in den Heimatverlauf, die neue Karte oben hervorgehoben (gleiche Seite: neu laden). */
@@ -1262,6 +1290,7 @@ export class App {
     }
     this.pageSection = null;
     this.compose.setContext(null);
+    void this.pins.open(null);
     this.ui.page.highlight = null;
     this.ui.groupPage.highlight = null;
     this.ui.page.hidden = true;

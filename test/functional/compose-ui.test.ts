@@ -162,6 +162,32 @@ describe('sx-stream: Beitragskarte', () => {
   });
 });
 
+describe('sx-stream: Pins (F-403)', () => {
+  it('[F-403] Angepinnt über dem Stream; Verwalter pinnen, lösen und löschen fremde Beiträge im Hafen', async () => {
+    const pins = listen('sx-pin');
+    const deletes = listen('sx-post-delete');
+    const item: StreamItem = {
+      id: 'A1', kind: 'post', createdAt: T, actor: null, group: null,
+      post: { id: 'P1', body: 'Kran', link: null, canDelete: false, path: '/p/P1', where: { kind: 'harbor', slug: 'potsdam', name: 'Potsdam' } },
+    };
+    const other: StreamItem = { ...item, id: 'A2', post: { ...item.post!, id: 'P2' } };
+    const el = await mount('sx-stream', { scope: 'harbor', items: [item, other], pins: [item], manage: true });
+    const section = el.shadowRoot.querySelector('section.pins')!;
+    expect(text(section)).toContain('Angepinnt');
+    expect(section.querySelectorAll('li')).toHaveLength(1);
+    const list = [...el.shadowRoot.children].find((c) => c.tagName === 'OL')!;
+    const lis = list.querySelectorAll('li');
+    button(lis[0], /Lösen/)!.click();
+    button(lis[1], /Anpinnen/)!.click();
+    expect(pins).toEqual([{ postId: 'P1', pinned: false }, { postId: 'P2', pinned: true }]);
+    button(lis[1], /Beitrag löschen/)!.click();
+    expect(deletes).toEqual([{ id: 'P2' }]);
+    const reader = await mount('sx-stream', { scope: 'harbor', items: [item], pins: [] });
+    expect(button(reader.shadowRoot, /Anpinnen|Lösen/)).toBeUndefined();
+    expect(button(reader.shadowRoot, /Beitrag löschen/)).toBeUndefined();
+  });
+});
+
 describe('sx-account-menu', () => {
   it('[F-428] Meine Seite, Mein Fahrtenbuch (Adresse mit Reiter), Konto & Einstellungen; Avatar mit dem Profilnamen', async () => {
     const accounts = listen('sx-account');

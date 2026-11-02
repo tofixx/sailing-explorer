@@ -34,6 +34,10 @@ export class SxStream extends LitElement {
     inGroup: { type: Boolean, attribute: 'in-group' },
     /** Beitrag hervorheben (Anker aus `/p/<id>`, neue Karte nach dem Schreiben) */
     highlight: { type: String },
+    /** angepinnte Beiträge dieses Verlaufs (F-403) – über dem Stream */
+    pins: { attribute: false },
+    /** verwaltet den Verlauf: anpinnen, lösen, fremde Beiträge des Hafens bzw. Boots löschen */
+    manage: { type: Boolean },
   };
   declare items: StreamItem[];
   declare cursor: string | null;
@@ -43,6 +47,8 @@ export class SxStream extends LitElement {
   declare emptyText: string;
   declare inGroup: boolean;
   declare highlight: string | null;
+  declare pins: StreamItem[];
+  declare manage: boolean;
 
   constructor() {
     super();
@@ -53,6 +59,8 @@ export class SxStream extends LitElement {
     this.emptyText = 'Noch keine Neuigkeiten.';
     this.inGroup = false;
     this.highlight = null;
+    this.pins = [];
+    this.manage = false;
   }
 
   /** Hervorgehobene Karte einmal in den Blick holen, sobald sie gerendert ist. */
@@ -200,6 +208,18 @@ export class SxStream extends LitElement {
       .attach a {
         color: var(--accent);
       }
+      .pins {
+        margin-bottom: var(--s-3);
+      }
+      .pins .eyebrow {
+        display: flex;
+        align-items: center;
+        gap: var(--s-1);
+        margin-bottom: var(--s-2);
+      }
+      li.pinned {
+        border-color: var(--accent);
+      }
       .more {
         margin-top: var(--s-3);
         display: flex;
@@ -289,11 +309,16 @@ export class SxStream extends LitElement {
   /** Beitrag (F-406, F-426): Text, Link, angehängter Törn, Teilen, Löschen bzw. Melden. */
   private post(i: StreamItem) {
     const p = i.post!;
+    const pinned = this.pins.some((x) => x.post?.id === p.id);
     return html`<div class="head">
         <span class="what">${this.postWhat(i)}</span>
         ${i.actor ? html`<span class="ctx">von ${this.who(i)}</span>` : ''}
         <span class="tools">
-          ${p.canDelete
+          ${this.manage
+            ? html`<button class="btn small ghost" aria-label=${pinned ? 'Lösen' : 'Anpinnen'} title=${pinned ? 'Lösen' : 'Anpinnen'}
+                @click=${() => emit(this, 'sx-pin', { postId: p.id, pinned: !pinned })}>${icon('pin')}</button>`
+            : ''}
+          ${p.canDelete || (this.manage && p.where?.kind === this.scope)
             ? html`<button class="btn small ghost danger" aria-label="Beitrag löschen" @click=${() => emit(this, 'sx-post-delete', { id: p.id })}>${icon('trash')}</button>`
             : html`<button class="btn small ghost" aria-label="Beitrag melden" @click=${() => emit(this, 'sx-report', { kind: 'post', id: p.id, label: 'diesen Beitrag' })}>${icon('flag')}</button>`}
         </span>
@@ -318,10 +343,10 @@ export class SxStream extends LitElement {
     return href ? html`<a class="when" href=${href} title="Link zu diesem Eintrag">${t}</a>` : t;
   }
 
-  private item(i: StreamItem) {
+  private item(i: StreamItem, asPin = false) {
     const pid = i.kind === 'post' ? i.post?.id : undefined;
-    const hl = !!pid && pid === this.highlight;
-    return html`<li aria-label=${streamHeadline(i)} id=${pid ? `p-${pid}` : nothing} class=${hl ? 'hl' : nothing} tabindex=${hl ? -1 : nothing}>
+    const hl = !asPin && !!pid && pid === this.highlight;
+    return html`<li aria-label=${streamHeadline(i)} id=${pid && !asPin ? `p-${pid}` : nothing} class=${hl ? 'hl' : asPin ? 'pinned' : nothing} tabindex=${hl ? -1 : nothing}>
       <span class="ic" aria-hidden="true">${icon(KIND_ICON[i.kind] ?? 'info')}</span>
       <div>
         ${this.content(i)} ${this.banner(i)}
@@ -336,8 +361,12 @@ export class SxStream extends LitElement {
     const more = this.cursor
       ? html`<div class="more"><button class="btn" ?disabled=${this.loading} @click=${() => emit(this, 'sx-stream-more', { scope: this.scope })}>${this.loading ? 'Lade …' : 'Mehr laden'}</button></div>`
       : '';
-    if (!this.items.length) return html`${this.loading ? html`<div class="empty">Lade …</div>` : html`<div class="empty">${this.emptyText}</div>`}${more}`;
-    return html`<ol>
+    // Pins (F-403) über dem Stream; ihre Karten stehen unten zusätzlich an ihrer Stelle
+    const pinned = this.pins.length
+      ? html`<section class="pins" aria-label="Angepinnt"><p class="eyebrow">${icon('pin')} Angepinnt</p><ol>${this.pins.map((i) => this.item(i, true))}</ol></section>`
+      : '';
+    if (!this.items.length) return html`${pinned}${this.loading ? html`<div class="empty">Lade …</div>` : html`<div class="empty">${this.emptyText}</div>`}${more}`;
+    return html`${pinned}<ol>
         ${this.items.map((i) => this.item(i))}
       </ol>
       ${more}`;

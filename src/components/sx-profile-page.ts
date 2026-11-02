@@ -1,13 +1,13 @@
 import { LitElement, css, html } from 'lit';
 import { currentPosition } from '../services/near-prefs';
 import type { Boat, CrewVoyage, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, ProfilePageData, PublicHome, ShareMeta, StreamItem, StreamPage } from '../services/api';
-import { previewLabel, type ComposeTarget, type MyPost, type MyPostArea, type PostLink } from '../domain/posts';
+import { parseProfilePreview, previewLabel, previewParam, type ComposeTarget, type MyPost, type MyPostArea, type PostLink, type ProfilePreview } from '../domain/posts';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
-import { base, emit, logbookTag, onMapStyles, writePostButton } from './shared';
+import { base, emit, logbookTag, onMapStyles, pageMenuReveal, writePostButton } from './shared';
 import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
@@ -19,7 +19,8 @@ import './sx-page-media';
 import './sx-filter-select';
 import './sx-my-posts';
 import './sx-profile-posts';
-import './sx-preview-menu';
+import './sx-page-menu';
+import type { PageMenuItem } from './sx-page-menu';
 
 /** Kurzer Hinweis für Eigentümer, wer die Seite sieht. */
 const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
@@ -54,6 +55,9 @@ export class SxProfilePage extends LitElement {
     myTargets: { attribute: false },
     /** Beitrag aus `/p/<id>` hervorheben (F-406) */
     highlight: { type: String },
+    /** Pins von Hafen bzw. Boot und Verwaltungsrecht (F-403) */
+    pins: { attribute: false },
+    manage: { type: Boolean },
     editing: { state: true },
   };
   declare data: PageData | null;
@@ -74,6 +78,8 @@ export class SxProfilePage extends LitElement {
   declare supporter: boolean;
   declare myTargets: ComposeTarget[];
   declare highlight: string | null;
+  declare pins: StreamItem[];
+  declare manage: boolean;
 
   constructor() {
     super();
@@ -89,11 +95,14 @@ export class SxProfilePage extends LitElement {
     this.busy = false;
     this.myTargets = [];
     this.highlight = null;
+    this.pins = [];
+    this.manage = false;
     this.supporter = false;
   }
 
   static styles = [
     base,
+    pageMenuReveal,
     css`
       /* Kopf „Neuigkeiten“ mit „Beitrag schreiben“ (F-405) */
       .news-head {
@@ -385,10 +394,40 @@ export class SxProfilePage extends LitElement {
     </div>`;
   }
 
-  /** „Ansehen als …“ – nur auf der eigenen Seite (auch während der Vorschau). */
-  private previewMenu(d: Extract<PageData, { kind: 'profile' }>) {
-    if (!d.previewOptions) return '';
-    return html`<sx-preview-menu .options=${d.previewOptions} .current=${d.preview ?? null}></sx-preview-menu>`;
+  /** „Ansehen als …“ (F-423) als Einträge des Zahnrad-Menüs – nur auf der eigenen Seite (auch während der Vorschau). */
+  private previewItems(d: Extract<PageData, { kind: 'profile' }>): PageMenuItem[] {
+    const o = d.previewOptions;
+    if (!o) return [];
+    const cur = d.preview ? previewParam(d.preview) : null;
+    const choices: ProfilePreview[] = [{ as: 'public' }, ...(o.harbor ? [{ as: 'harbor' as const }] : []), ...o.groups.map((g) => ({ as: 'group' as const, groupId: g.id }))];
+    return [
+      ...choices.map((p, i) => ({ id: `preview:${previewParam(p)}`, label: `Ansehen als: ${previewLabel(p, o)}`, icon: 'eye' as const, pressed: cur === previewParam(p), divider: i === 0 })),
+      ...(d.preview ? [{ id: 'preview:end', label: 'Vorschau beenden', icon: 'x' as const }] : []),
+    ];
+  }
+
+  /** Zahnrad-Menü der Seite (N6, F-429): eigene Seite Bearbeiten und „Ansehen als …“, fremde Melden. */
+  private profileMenu(d: Extract<PageData, { kind: 'profile' }>) {
+    const p = d.profile;
+    const items: PageMenuItem[] = p.isSelf
+      ? [{ id: 'edit', label: 'Bearbeiten', icon: 'pencil' }, ...this.previewItems(d)]
+      : d.preview
+        ? this.previewItems(d)
+        : [{ id: 'report', label: 'Melden', icon: 'flag' }];
+    return html`<sx-page-menu label=${p.displayName} .items=${items} @sx-page-menu-pick=${(e: CustomEvent<{ id: string }>) => {
+      const id = e.detail.id;
+      if (id === 'edit') emit(this, 'sx-account', 'profile');
+      else if (id === 'report') emit(this, 'sx-report', { kind: 'profile', id: p.handle, label: `das Profil von ${p.displayName}` });
+      else if (id === 'preview:end') emit(this, 'sx-profile-preview', { preview: null });
+      else if (id.startsWith('preview:')) emit(this, 'sx-profile-preview', { preview: parseProfilePreview(id.slice('preview:'.length)) });
+    }}></sx-page-menu>`;
+  }
+
+  /** Zahnrad-Menü einfacher Seiten: Bearbeiten für Verwalter, sonst Melden. */
+  private simpleMenu(label: string, canEdit: boolean, onEdit: () => void, report: { kind: string; id: string; label: string }) {
+    const items: PageMenuItem[] = canEdit ? [{ id: 'edit', label: 'Bearbeiten', icon: 'pencil' }] : [{ id: 'report', label: 'Melden', icon: 'flag' }];
+    return html`<sx-page-menu label=${label} .items=${items}
+      @sx-page-menu-pick=${(e: CustomEvent<{ id: string }>) => (e.detail.id === 'edit' ? onEdit() : emit(this, 'sx-report', report))}></sx-page-menu>`;
   }
 
   /** Eigene Seite: „Mein Verlauf“ (F-401); Besucher (und Vorschau): Beiträge, die sie sehen dürfen (F-420). */
@@ -411,7 +450,7 @@ export class SxProfilePage extends LitElement {
     if (d.preview && !d.preview.visible) {
       return html`${this.previewBanner(d)}
         <div class="state">${icon('lock')} Diese Betrachter sehen deine Seite nicht – sie ist ${p.visibility === 'unlisted' ? 'nur mit Link' : p.visibility === 'private' ? 'nur für dich' : 'gerade ausgeblendet'} sichtbar.
-          <br /><br />${this.previewMenu(d)}</div>`;
+          <br /><br />${this.profileMenu(d)}</div>`;
     }
     return html`
       ${this.previewBanner(d)}
@@ -428,12 +467,7 @@ export class SxProfilePage extends LitElement {
             ? html`<sx-follow kind="user" target-id=${p.handle} label=${p.displayName} .stats=${d.social} ?signed-in=${this.signedIn}></sx-follow>`
             : ''}
           ${d.preview ? '' : this.shareButton('u', p.handle, p.displayName, 'Profil teilen', p, !!p.isSelf)}
-          ${p.isSelf
-            ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'profile')}>${icon('pencil')} Bearbeiten</button>`
-            : d.preview
-              ? ''
-              : html`<button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'profile', id: p.handle, label: `das Profil von ${p.displayName}` })}>${icon('flag')} Melden</button>`}
-          ${this.previewMenu(d)}
+          ${this.profileMenu(d)}
         </div>
       </header>
       ${p.isSelf && p.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
@@ -481,16 +515,14 @@ export class SxProfilePage extends LitElement {
             ? html`<sx-follow kind="boat" target-id=${b.id} label=${b.name} .stats=${d.social} ?signed-in=${this.signedIn}></sx-follow>`
             : ''}
           ${this.shareButton('b', b.id, b.name, 'Boot teilen', b, !!b.role)}
-          ${b.role
-            ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'boats')}>${icon('pencil')} Bearbeiten</button>`
-            : html`<button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'boat', id: b.id, label: `das Boot ${b.name}` })}>${icon('flag')} Melden</button>`}
+          ${this.simpleMenu(b.name, !!b.role, () => emit(this, 'sx-account', 'boats'), { kind: 'boat', id: b.id, label: `das Boot ${b.name}` })}
         </div>
       </header>
       ${b.role && b.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.stats(d.stats)}
       <section aria-labelledby="boat-news">
         <div class="news-head"><h2 class="eyebrow" id="boat-news">Neuigkeiten</h2>${b.role ? writePostButton(this) : ''}</div>
-        <sx-stream scope="boat" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
+        <sx-stream scope="boat" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight} .pins=${this.pins} ?manage=${this.manage}
           empty-text="Noch keine Neuigkeiten zu diesem Boot. Beiträge von Eigner und Boots-Admins erscheinen hier."></sx-stream>
       </section>
       <sx-gallery .photos=${d.photos ?? []} heading="Fotos"></sx-gallery>
@@ -573,8 +605,7 @@ export class SxProfilePage extends LitElement {
   private harborForm(d: Extract<PageData, { kind: 'harbor' }>) {
     const h = d.harbor;
     const clubs = d.clubChoices;
-    if (!h.canEdit && !clubs.length && !d.canClearClub) return '';
-    if (!this.editing) return html`<button class="btn" @click=${() => (this.editing = true)}>${icon('pencil')} Bearbeiten</button>`;
+    if (!this.editing || (!h.canEdit && !clubs.length && !d.canClearClub)) return '';
     return html`<form class="edit" @submit=${(e: Event) => this.saveHarbor(e, h.id)}>
       ${h.canEdit
         ? html`<div><label class="label" for="hn">Name</label><input id="hn" name="name" type="text" maxlength="80" required .value=${h.name} /></div>
@@ -628,8 +659,8 @@ export class SxProfilePage extends LitElement {
         <div class="actions">
           <sx-follow kind="harbor" target-id=${h.id} label=${h.name} .stats=${d.social} ?signed-in=${this.signedIn}></sx-follow>
           <button class="btn primary" @click=${() => emit(this, 'sx-page-share', { path: `/h/${h.slug}`, title: h.name })}>${icon('share')} Teilen</button>
+          ${this.simpleMenu(h.name, h.canEdit || d.clubChoices.length > 0 || d.canClearClub, () => (this.editing = true), { kind: 'harbor', id: h.id, label: `den Hafen ${h.name}` })}
           ${this.harborForm(d)}
-          <button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'harbor', id: h.id, label: `den Hafen ${h.name}` })}>${icon('flag')} Melden</button>
           ${h.verified && h.canEdit ? '' : html`<sx-claim kind="harbor" target-id=${h.id} name=${h.name} ?signed-in=${this.signedIn}></sx-claim>`}
         </div>
       </header>
@@ -642,7 +673,7 @@ export class SxProfilePage extends LitElement {
       </div>
       <section>
         <div class="news-head"><h2 class="eyebrow">Neuigkeiten</h2>${d.canPost ? writePostButton(this) : ''}</div>
-        <sx-stream scope="harbor" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
+        <sx-stream scope="harbor" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight} .pins=${this.pins} ?manage=${this.manage}
           empty-text="Noch nichts los in diesem Hafen. Neue Boote und öffentliche Törns erscheinen hier."></sx-stream>
       </section>
       ${this.harborGroups(d).length

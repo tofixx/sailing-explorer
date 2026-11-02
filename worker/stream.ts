@@ -14,7 +14,7 @@ import { BOAT_ID_RE } from './validate';
 import { reachAtLeastSql } from './reach-sql';
 import type { Visibility } from '../src/domain/visibility';
 import type { Reach } from '../src/domain/posts';
-import { logbookIds, shapeItem, type ActivityRow, type LogShare, type Viewer } from './stream-shape';
+import { logbookIds, shapeItem, type ActivityRow, type LogShare, type ReadAt, type Viewer } from './stream-shape';
 import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
 import {
   STREAM_PAGE, STREAM_SCAN, canManageGroup, decodeCursor, encodeCursor, reactionSubjectOf,
@@ -199,10 +199,11 @@ export async function visibleActivity(env: Env, viewerId: string | null, id: str
 }
 
 /** Ein Text-Beitrag als Karte für diesen Betrachter (Einzelansicht `/p/<id>`, F-406) – oder null. */
-export async function postCard(env: Env, viewerId: string | null, postId: string, key: string | null): Promise<StreamItem | null> {
+export async function postCard(env: Env, viewerId: string | null, postId: string, key: string | null, at: ReadAt = { kind: 'single' }): Promise<StreamItem | null> {
   const row = await env.DB.prepare(POST_ROW_SQL).bind(viewerId ?? '', postId).first<ActivityRow>();
   if (!row) return null;
-  const item = shapeItem(row, { id: viewerId, at: { kind: 'single' }, postKey: key });
+  // `at`: Einzelansicht bzw. – für Pins (F-403) – der Verlauf, in dem gelesen wird (Stufe und Öffentlichkeit wie im Stream)
+  const item = shapeItem(row, { id: viewerId, at, postKey: key });
   if (item) await attachReactions(env, [item], viewerId);
   return item;
 }

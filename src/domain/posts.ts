@@ -200,6 +200,23 @@ export const canWriteInHarbor = (w: { hasBoat: boolean; isCreator: boolean; isAd
 /** Boot: Eigner und Boots-Admins. */
 export const canWriteOnBoat = (role: 'owner' | 'admin' | null): boolean => role === 'owner' || role === 'admin';
 
+/**
+ * Wer einen Verlauf verwaltet – anpinnen (B1, F-403) und fremde Beiträge dort löschen: im Profil die Person selbst, in
+ * der Gruppe Eigentümer:in und Admins, im Hafen Vertretung bzw. Anleger:in und Moderation, am Boot Eigner und Admins.
+ */
+export function canManageChannel(c: { kind: ChannelKind; isSelf?: boolean; groupRole?: GroupRole | null; harborCreator?: boolean; boatRole?: 'owner' | 'admin' | null; admin?: boolean }): boolean {
+  switch (c.kind) {
+    case 'user':
+      return !!c.isSelf;
+    case 'group':
+      return canManageGroup(c.groupRole ?? null);
+    case 'harbor':
+      return !!c.harborCreator || !!c.admin;
+    case 'boat':
+      return canWriteOnBoat(c.boatRole ?? null);
+  }
+}
+
 // ---------------------------------------------------------------- Schreiben in Gruppen (B3)
 
 export const POST_BY = ['admins', 'members'] as const;
@@ -317,6 +334,8 @@ export interface MyPost {
   path?: string;
   /** angehängter eigener Törn (F-426) */
   attached?: { id: string; title: string } | null;
+  /** im eigenen Profil angepinnt (F-403) */
+  pinned?: boolean;
 }
 
 /** Ein Verlauf, in den das Konto schreiben darf (F-405): „Wo steht es?“ mit Stufen und Kette. */
@@ -360,6 +379,8 @@ export interface ProfilePost {
   group: { slug: string; name: string; kind: GroupKind } | null;
   /** effektive Sichtbarkeit („Wer sieht es“) */
   visibility: PostVisibility;
+  /** im Profil angepinnt (F-403) */
+  pinned?: boolean;
 }
 
 // ---------------------------------------------------------------- „Ansehen als …“ (F-423)

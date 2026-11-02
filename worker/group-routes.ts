@@ -6,6 +6,7 @@ import {
 } from './groups';
 import { inviteGroup } from './invites';
 import { createChannelPost, createPost, createProfilePost, deletePost, getCompose, getPost, listMyPosts, updatePost } from './posts';
+import { listPins, setPin } from './pins';
 import { boatStream, groupStream, markStreamSeen, personalStream, streamUnread } from './stream';
 import { follow, getSuggestions, unfollow } from './follows';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
@@ -41,6 +42,9 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['DELETE', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => deletePost(r, env, id)],
   // Phase 2 (Konzept 21.12): Plus-Knopf, „Sichtbar bis“, `/p/<id>`, Hafen- und Boots-Verlauf
   ['GET', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => getPost(r, env, id)],
+  // Phase 3 (Konzept 21.13): Pins
+  ['PUT', new RegExp(`^/api/posts/${ID}/pin$`), (r, env, [id]) => setPin(r, env, id)],
+  ['GET', /^\/api\/pins$/, (r, env) => listPins(r, env)],
   ['PATCH', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => updatePost(r, env, id)],
   ['POST', /^\/api\/posts$/, (r, env) => createChannelPost(r, env)],
   ['GET', /^\/api\/me\/compose$/, (r, env) => getCompose(r, env)],

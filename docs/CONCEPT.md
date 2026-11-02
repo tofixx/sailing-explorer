@@ -2542,7 +2542,7 @@ Anleger:in“ prüft vorher `mayAdoptHarbor` (`worker/claim-cleanup.ts`) – je 
 Stand: 02.11.2026, **Entscheidungen des Betreibers eingearbeitet (21.0), Phase 1 (21.11) und Phase 2 (21.12) umgesetzt.**
 Anforderungs-IDs hier sind Platzhalter (**F-400 ff.**) und werden erst bei der Umsetzung nach `docs/REQUIREMENTS.md`
 übernommen – vergeben sind F-400, F-401, F-402, F-404, F-405, F-406, F-409, F-415 (Bedeutung wie unten), F-420 … F-424
-(21.11) und F-425 … F-428 (21.12).
+(21.11), F-425 … F-428 (21.12) und F-403, F-416, F-429 (21.13).
 
 Anlass (Betreiber): *„Ich denke es macht Sinn, Posts als solche zu definieren und diese können dann ein GPX-Törn sein,
 oder Umfrage, Veranstaltung mit Check-in, Fotos oder nur ein Fahrtenbuch-Eintrag. Alle Typen sollten über den
@@ -2983,8 +2983,11 @@ Abweichungen bzw. Festlegungen gegenüber 21.2–21.7:
   Heimathafen hat (21.7 nennt ihn als Weg in die Umgebung). Teams ohne Verein breiten sich über ihren eigenen Heimathafen aus.
 - **Lesen:** Gruppen-, Hafen- und Community-Streams prüfen Stufe und Öffentlichkeit beim Lesen; der persönliche Stream
   folgt den beim Schreiben angeglichenen Zielen. Öffentliche Streams sind 60 s gecacht (wie 11.12): ein herabgesetzter
-  Beitrag kann dort so lange noch erscheinen. „Nur Mitglieder“, „Nur mit Link“, „Nur ich“ und Vorschauen kommen nie in
-  einen Cache.
+  Beitrag kann dort so lange noch erscheinen. „Nur Mitglieder“, „Nur mit Link“, „Nur ich“, Vorschauen und Pins kommen
+  nie in einen Cache. **Bewusst keine Versionsnummer je Verlauf im Cache-Schlüssel:** Sie bräuchte je öffentlichem Abruf
+  eine zusätzliche D1-Abfrage, einen Zähler je Verlauf und je Community-Seite, und jeder Schreibweg (Beiträge, Törns,
+  Fotos, Boote, Gruppen, Moderation, Ablauf) müsste ihn für alle betroffenen Verläufe hochzählen – ein vergessener Weg
+  ließe Altes unbegrenzt stehen statt höchstens 60 s. Die Grenze von 60 s ist klein, sicher und billig (Prinzip 6).
 - **Törns:** „nur hier“ = Profil und gewählte Gruppen (ohne Boot), „bis Verein“ zusätzlich Vereine gewählter Teams,
   „bis Hafen“ zusätzlich Boot, Hafen des Boots und Hafenseite. Ziele von Törn und Fotos entstehen beim Anlegen und bei
   jeder Änderung (Auswahl, Boot, Sichtbarkeit, „Sichtbar bis“) aus derselben Funktion. `/entdecken` gehört zur
@@ -2996,8 +2999,32 @@ Abweichungen bzw. Festlegungen gegenüber 21.2–21.7:
   Konto-Menü ersetzt die Karte „Dein Bereich“. Gruppen-, Hafen- und Bootsseiten haben kein eigenes Schreibfeld mehr,
   sondern „Beitrag schreiben“ (öffnet „+ Neu → Text“ mit diesem Verlauf). Die große Einstiegskarte ohne Backend bleibt. „Ansehen als …“ hat ein Auge statt des
   Zahnrads; ein gemeinsames Seiten-Menü (Bearbeiten, Titelbild, Ansehen als, Melden) folgt.
-- **Benachrichtigungen:** Neue Beiträge benachrichtigen weiterhin nicht (F-416 folgt); Reaktionen verlinken `/p/<id>`.
+- **Benachrichtigungen:** Reaktionen verlinken `/p/<id>`; neue Beiträge siehe 21.13 (F-416).
 - Fotos an Beiträgen kommen mit Phase 7; Ablauffrist für Text-Beiträge weiter offen (21.11).
+
+### 21.13 Umsetzung Phase 3: Pins, Benachrichtigungen, Seiten-Menü (02.11.2026)
+
+Architektur-Skizze (CLAUDE.md „Vor dem ersten Code“):
+
+| Punkt | Pins (F-403) | Neue Beiträge (F-416) | Seiten-Menü (F-429) |
+|---|---|---|---|
+| Datenmodell | `channel_pins (channel_kind, channel_id, post_id → posts ON DELETE CASCADE, created_at)`, Migration `0031_channel_pins`, ohne Konto-ID | Art `post` in `notifications` (Gegenstand Beitrag), Kanal `off` in `notify_prefs` | – |
+| Querschnitte | Sichtbarkeit: Karte über `postCard` mit Lese-Kontext des Verlaufs (dieselbe Prüfung wie der Stream); Cache: eigener, nie gecachter Abruf; Rechte: `canManageChannel` | Publikum nur Heimatverlauf (Gruppe ohne stumme, Hafen, Boot), Fan-out 200, Mail über Sammelmail | ersetzt Einzelknöpfe (Bearbeiten, Melden, Stumm, Austreten, Löschen, „Ansehen als …“) |
+| Löschpfade | Beitrag → Cascade; Gruppe, Hafen, Boot, Konto → `channelPinsCleanup`; Häfen/Konten zusammengeführt → wandern; nächtlich verwaiste | wie alle Benachrichtigungen (Beitrag, Konto, nächtlich) | – |
+| Komponenten | `sx-stream` (`pins`, `manage`, Knopf „Anpinnen“/„Lösen“), `sx-my-posts` („Im Profil anpinnen“), `controllers/pins.ts` | Einstellungen im Konto (`channelsFor`) | `sx-page-menu` (Muster `menuStyles`, mobil Sheet), `pageMenuReveal` |
+
+Festlegungen:
+
+- Angepinnt werden Text-Beiträge; Törns behalten ihre eigene Seite (Pins für Törns später).
+- Pins stehen über dem Stream der Seite und zusätzlich an ihrer Stelle im Stream; „Lösen“ geht auch, wenn der Beitrag
+  dort nicht mehr erscheint. Angezeigt werden die neuesten 50 Pins.
+- Verwalter von Hafen (Anleger:in bzw. Vertretung, Moderation) und Boot (Eigner, Admins) löschen dort auch fremde
+  Beiträge; ein eigenes „Ausblenden“ gibt es wie bei Gruppen nicht – dafür bleibt die Meldung an die Moderation.
+- Neue Beiträge: eine Benachrichtigung je Beitrag (Link `/p/<id>`) statt einer gebündelten Zeile je Verlauf – sonst
+  führte der Link nicht zur Karte; die Tagesgrenze (5 je Verlauf) begrenzt die Menge, Mails bündelt die Sammelmail.
+- Fahrtenbuch-Bündel und Austritt bauen ihre Ziele aus derselben Funktion wie Törns (`shareTargetStmts`); Bündel zeigen im
+  Hafen- und Community-Stream nur Einträge, deren „Sichtbar bis“ die Stufe abdeckt.
+- Das Seiten-Menü führt kein „Titelbild“: es wird wie bisher direkt am Bild geändert.
 
 ### 21.10 Fragen an den Betreiber – entschieden 02.11.2026
 

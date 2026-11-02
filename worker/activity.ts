@@ -326,6 +326,10 @@ export const deleteShareActivity = (env: Env, shareId: string) =>
 /** Gruppen-Auswahl eines Törns (Törn gelöscht oder abgelaufen) – ausdrücklich, nicht nur per ON DELETE CASCADE. */
 export const deleteShareGroups = (env: Env, shareId: string) => env.DB.prepare('DELETE FROM share_groups WHERE share_id = ?').bind(shareId);
 
+/** Verlauf gelöscht (Gruppe, Hafen, Boot, Konto, F-403): seine Pins – kein Fremdschlüssel auf `channel_id`. */
+const channelPinsCleanup = (env: Env, kind: 'user' | 'group' | 'harbor' | 'boat', id: string) =>
+  env.DB.prepare('DELETE FROM channel_pins WHERE channel_kind = ? AND channel_id = ?').bind(kind, id);
+
 /**
  * Hafen bzw. Boot gelöscht (Konzept 21.3.3, F-425): Text-Beiträge mit diesem Heimatverlauf samt Reaktionen,
  * Benachrichtigungen, Meldungen, Aktivität und Tageszähler – es gibt keinen Fremdschlüssel auf `channel_id`. Fremde
@@ -335,6 +339,7 @@ export function channelPostsCleanup(env: Env, kind: 'harbor' | 'boat', id: strin
   const posts = `SELECT id FROM posts WHERE channel_kind = ?1 AND channel_id = ?2 AND share_id IS NULL`;
   const stmt = (sql: string) => env.DB.prepare(sql).bind(kind, id);
   return [
+    channelPinsCleanup(env, kind, id),
     stmt(`DELETE FROM reactions WHERE subject_kind = 'post' AND subject_id IN (${posts})`),
     stmt(`DELETE FROM notifications WHERE subject_kind = 'post' AND subject_id IN (${posts})`),
     stmt(`DELETE FROM reports WHERE target_kind = 'post' AND target_id IN (${posts})`),
@@ -357,6 +362,7 @@ export const boatCleanup = (env: Env, boatId: string): D1PreparedStatement[] => 
 
 /** Gruppe gelöscht: Aktivitäten der Gruppe, Ziele `group`, Folgen, Beitragszähler. */
 export const groupActivityCleanup = (env: Env, groupId: string): D1PreparedStatement[] => [
+  channelPinsCleanup(env, 'group', groupId),
   deleteGroupReactions(env, groupId),
   groupNotificationCleanup(env, groupId),
   env.DB.prepare(`DELETE FROM activity WHERE group_id = ?1 OR (subject_kind = 'group' AND subject_id = ?1)`).bind(groupId),
@@ -378,6 +384,7 @@ export const harborActivityCleanup = (env: Env, harborId: string): D1PreparedSta
 
 /** Konto gelöscht: Aktivitäten des Kontos und seiner Törns, Folgen in beide Richtungen, Ziele `user`. */
 export const userActivityCleanup = (env: Env, userId: string): D1PreparedStatement[] => [
+  channelPinsCleanup(env, 'user', userId),
   // Reaktionen zuerst – sie verweisen auf Törns, Fotos, Beiträge und Aktivitäten des Kontos (Konzept 12.5).
   ...userReactionCleanup(env, userId),
   // Benachrichtigungen ebenso vor Beiträgen und Einladungen (Konzept 17.5)
@@ -427,6 +434,14 @@ export function nightlyActivityCleanup(env: Env, now: number): D1PreparedStateme
     ),
     env.DB.prepare('DELETE FROM group_requests WHERE created_at < ?').bind(now - 90 * DAY),
     env.DB.prepare('DELETE FROM post_log WHERE created_at < ?').bind(now - DAY),
+    // Pins verschwundener Verläufe (F-403) – die Beiträge selbst fallen per Fremdschlüssel
+    env.DB.prepare(
+      `DELETE FROM channel_pins WHERE
+         (channel_kind = 'group' AND NOT EXISTS (SELECT 1 FROM groups WHERE id = channel_pins.channel_id))
+         OR (channel_kind = 'harbor' AND NOT EXISTS (SELECT 1 FROM harbors WHERE id = channel_pins.channel_id))
+         OR (channel_kind = 'boat' AND NOT EXISTS (SELECT 1 FROM boats WHERE id = channel_pins.channel_id))
+         OR (channel_kind = 'user' AND NOT EXISTS (SELECT 1 FROM users WHERE id = channel_pins.channel_id))`,
+    ),
     // zuletzt: Reaktionen, deren Gegenstand eben (oder früher) verschwand
     ...nightlyReactionCleanup(env, now),
   ];

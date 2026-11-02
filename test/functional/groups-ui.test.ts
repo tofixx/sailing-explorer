@@ -34,6 +34,11 @@ const text = (root: ShadowRoot | Element) => (root.textContent ?? '').replace(/\
 const buttons = (root: ParentNode) => [...root.querySelectorAll('button')];
 const button = (root: ParentNode, label: RegExp) => buttons(root).find((b) => label.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`)) as HTMLButtonElement | undefined;
 const inner = (el: LitEl, tag: string) => el.shadowRoot.querySelector(tag) as LitEl;
+/** Eintrag im Zahnrad-Menü der Seite (N6, F-429) */
+const menu = (el: LitEl, label: RegExp) => {
+  const m = el.shadowRoot.querySelector('sx-page-menu') as LitEl | null;
+  return m ? button(m.shadowRoot, label) : undefined;
+};
 
 let cleanups: Array<() => void> = [];
 function listen(name: string) {
@@ -251,7 +256,7 @@ describe('sx-group-page', () => {
     expect(el.shadowRoot.querySelector('a[href="/g/jugend"]')).not.toBeNull();
     expect(el.shadowRoot.querySelector('a[href="/g/sc-kiel/feed.xml"]')).not.toBeNull();
     expect(el.shadowRoot.querySelector('sx-follow')).not.toBeNull();
-    expect(button(el.shadowRoot, /Melden/)).toBeDefined();
+    expect(menu(el, /Melden/)).toBeDefined();
     expect(el.shadowRoot.querySelector('textarea')).toBeNull(); // kein Beitragsformular
     button(el.shadowRoot, /Beitritt anfragen/)!.click();
     expect(joins).toEqual([{ id: 'G1' }]);
@@ -314,19 +319,21 @@ describe('sx-group-page', () => {
   it('[F-163] Bearbeiten: Admins ändern die Sichtbarkeit nicht; Eigner kann löschen', async () => {
     const saves = listen('sx-group-save');
     const admin = await mount('sx-group-page', { data: pageData({}, 'admin'), signedIn: true, supporter: true });
-    button(admin.shadowRoot, /Bearbeiten/)!.click();
+    menu(admin, /Bearbeiten/)!.click();
     await admin.updateComplete;
     const radios = [...admin.shadowRoot.querySelectorAll('input[name="vis"]')] as HTMLInputElement[];
     expect(radios.every((r) => r.disabled)).toBe(true);
     expect(text(admin.shadowRoot)).toContain('Die Sichtbarkeit ändert nur der Eigentümer.');
-    expect(button(admin.shadowRoot, /Gruppe löschen/)).toBeUndefined();
+    expect(menu(admin, /Gruppe löschen/)).toBeUndefined();
     (admin.shadowRoot.querySelector('form[aria-label="Gruppe bearbeiten"]') as HTMLFormElement).requestSubmit();
     expect(saves[0]).toMatchObject({ id: 'G1', patch: { name: 'SC <Kiel>', slug: 'sc-kiel' } });
     expect((saves[0] as { patch: Record<string, unknown> }).patch.visibility).toBeUndefined();
     const owner = await mount('sx-group-page', { data: pageData({}, 'owner'), signedIn: true });
-    button(owner.shadowRoot, /Bearbeiten/)!.click();
+    menu(owner, /Bearbeiten/)!.click();
     await owner.updateComplete;
-    expect(button(owner.shadowRoot, /Gruppe löschen/)).toBeDefined();
+    // Löschen nur einmal: im Zahnrad-Menü, nicht zusätzlich im Formular
+    expect(menu(owner, /Gruppe löschen/)).toBeDefined();
+    expect(button(owner.shadowRoot, /Gruppe löschen/)).toBeUndefined();
   });
 
   it('[F-163] Anlegen: Adresse aus dem Namen, nicht öffentliche Stufen nur für Unterstützer, Ereignis mit allen Feldern', async () => {
@@ -387,7 +394,7 @@ describe('Entdecken und Einladungsdialog', () => {
 });
 
 describe('Mitgliedschaft: Glocke, Austreten, Übergeben, Meine Gruppen (F-346 … F-348)', () => {
-  it('[F-346] Mitglieder sehen die Glocke statt „Folgen“ und „Austreten“; Nicht-Mitglieder weiter „Folgen“', async () => {
+  it('[F-346] [F-429] Mitglieder: Stumm und Austreten im Zahnrad-Menü statt „Folgen“; Nicht-Mitglieder weiter „Folgen“', async () => {
     const mutes = listen('sx-group-mute');
     const leaves = listen('sx-group-leave');
     const realConfirm = window.confirm;
@@ -395,17 +402,18 @@ describe('Mitgliedschaft: Glocke, Austreten, Übergeben, Meine Gruppen (F-346 �
     try {
       const el = await mount('sx-group-page', { data: pageData({}, 'member'), signedIn: true });
       expect(el.shadowRoot.querySelector('sx-follow')).toBeNull();
-      const bell = button(el.shadowRoot, /Neuigkeiten stumm schalten/)!;
-      expect(bell.getAttribute('aria-pressed')).toBe('false');
-      bell.click();
+      menu(el, /Neuigkeiten stumm schalten/)!.click();
       expect(mutes).toEqual([{ id: 'G1', muted: true }]);
-      button(el.shadowRoot, /Austreten/)!.click();
+      menu(el, /Austreten/)!.click();
       expect(leaves).toEqual([{ id: 'G1' }]);
+      // Melden nicht für Verwalter; für Mitglieder schon
+      expect(menu(el, /Melden/)).toBeDefined();
       const muted = await mount('sx-group-page', { data: pageData({ membership: { role: 'member', requested: false, canRequest: false, muted: true } }, 'member'), signedIn: true });
-      expect(button(muted.shadowRoot, /Neuigkeiten wieder anzeigen/)!.getAttribute('aria-pressed')).toBe('true');
+      expect(menu(muted, /Neuigkeiten wieder anzeigen/)).toBeDefined();
+      expect(text(muted.shadowRoot)).toContain('Stumm');
       const guest = await mount('sx-group-page', { data: pageData(), signedIn: true });
       expect(guest.shadowRoot.querySelector('sx-follow')).not.toBeNull();
-      expect(button(guest.shadowRoot, /stumm/)).toBeUndefined();
+      expect(menu(guest, /stumm/)).toBeUndefined();
     } finally {
       window.confirm = realConfirm;
     }

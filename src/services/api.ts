@@ -1241,6 +1241,11 @@ export const postApi = {
   /** Sichtbarkeit bzw. „Sichtbar bis“ ändern (F-409) */
   update: (id: string, patch: { visibility?: PostVisibility; reach?: Reach }) =>
     call<{ post: { id: string; visibility: PostVisibility; reach: Reach; path: string } }>(`/api/posts/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
+  /** Pins eines Verlaufs (F-403), z. B. `group:<id>` – nie gecacht */
+  pins: (channel: string) => call<{ items: StreamItem[]; canManage: boolean }>(`/api/pins${q({ channel })}`),
+  /** anpinnen bzw. lösen (F-403); Profil: `{ kind: 'user', id: '' }` */
+  pin: (id: string, channel: { kind: ChannelKind; id: string }, pinned: boolean) =>
+    call<{ pinned: boolean }>(`/api/posts/${encodeURIComponent(id)}/pin`, jsonInit('PUT', { channel, pinned })),
   /** Karte und Ziel von `/p/<id>` (F-406) */
   get: (id: string, key?: string | null) => call<{ item: StreamItem; link: PostLink }>(`/api/posts/${encodeURIComponent(id)}`, keyInit(key)),
 };

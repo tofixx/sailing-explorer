@@ -236,6 +236,10 @@ export class SxMyPosts extends LitElement {
         ${!voyage && p.path && p.visibility !== 'private'
           ? html`<button class="btn small ghost" @click=${() => emit(this, 'sx-page-share', { path: p.path, title: 'Beitrag' })}>${icon('share')} Teilen</button>`
           : ''}
+        ${!voyage && p.channel.kind === 'user' && p.visibility !== 'private'
+          ? html`<button class="btn small ghost" ?disabled=${this.busy} @click=${() => emit(this, 'sx-pin', { postId: p.id, pinned: !p.pinned, own: true })}>
+              ${icon('pin')} ${p.pinned ? 'Lösen' : 'Im Profil anpinnen'}</button>`
+          : ''}
         ${target && this.editing !== p.id
           ? html`<button class="btn small ghost" ?disabled=${this.busy} @click=${() => {
               this.editing = p.id;

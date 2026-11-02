@@ -23,7 +23,7 @@ import { GROUP_LIMITS } from '../src/domain/limits';
 import { cleanComment, commentLength, countLinks } from '../src/domain/comment-text';
 import { POST_MAX, POST_MAX_LINKS, STREAM_PAGE, canManageGroup, decodeCursor, encodeCursor, parsePostLink, type GroupKind, type GroupRole } from '../src/domain/groups';
 import {
-  canChoosePostVisibility, canSeePost, canWriteInGroup, channelKey, channelPath, effectivePostBy, effectivePostVisibility, isChannelKind, isMyPostArea,
+  canChoosePostVisibility, canManageChannel, canSeePost, canWriteInGroup, channelKey, channelPath, effectivePostBy, effectivePostVisibility, isChannelKind, isMyPostArea,
   isPostVisibility, isReach, postVisibilityChoices, reachChoices, reachFor, reachTargets, shareKindOf,
   type AttachableShare, type ChannelKind, type ChannelRef, type MyPost, type PostKind, type PostLink, type PostVisibility, type ProfilePost, type Reach, type ReachChain,
 } from '../src/domain/posts';
@@ -340,19 +340,32 @@ export async function deletePost(request: Request, env: Env, id: string): Promis
   const user = await requireUser(request, env);
   const p = SHARE_ID_RE.test(id)
     ? await env.DB.prepare(
-        `SELECT p.id, p.author_id, p.group_id, p.share_id, g.locked_at, s.locked_at AS s_locked, s.user_id AS s_owner FROM posts p
-         LEFT JOIN groups g ON g.id = p.group_id LEFT JOIN shares s ON s.id = p.share_id WHERE p.id = ?`,
+        `SELECT p.id, p.author_id, p.group_id, p.share_id, p.channel_kind, p.channel_id, g.locked_at, s.locked_at AS s_locked, s.user_id AS s_owner,
+           h.created_by AS h_creator FROM posts p
+         LEFT JOIN groups g ON g.id = p.group_id LEFT JOIN shares s ON s.id = p.share_id
+         LEFT JOIN harbors h ON p.channel_kind = 'harbor' AND h.id = p.channel_id WHERE p.id = ?`,
       )
         .bind(id)
-        .first<{ id: string; author_id: string; group_id: string | null; share_id: string | null; locked_at: number | null; s_locked: number | null; s_owner: string | null }>()
+        .first<{
+          id: string; author_id: string; group_id: string | null; share_id: string | null; channel_kind: string | null; channel_id: string | null;
+          locked_at: number | null; s_locked: number | null; s_owner: string | null; h_creator: string | null;
+        }>()
     : null;
   if (!p || p.locked_at || p.s_locked) throw NOT_FOUND();
   if (p.share_id) {
     // Törn: wie ownedShare gegen die Eigentümer:in des Törns prüfen, nicht gegen die Kopie in posts.author_id
     if (p.s_owner !== user.id) throw NOT_FOUND();
   } else {
-    const role = p.group_id ? await roleIn(env, user.id, p.group_id) : null;
-    if (p.author_id !== user.id && !canManageGroup(role)) throw NOT_FOUND();
+    // Autor:in oder wer den Heimatverlauf verwaltet (Gruppe, Hafen, Boot – F-403/F-425)
+    const kind: ChannelKind = isChannelKind(p.channel_kind) ? p.channel_kind : p.group_id ? 'group' : 'user';
+    const manages = canManageChannel({
+      kind,
+      groupRole: p.group_id ? await roleIn(env, user.id, p.group_id) : null,
+      harborCreator: !!p.h_creator && p.h_creator === user.id,
+      admin: isAdmin(env, user.id),
+      boatRole: kind === 'boat' && p.channel_id ? await roleFor(env, user.id, p.channel_id) : null,
+    });
+    if (p.author_id !== user.id && (kind === 'user' || !manages)) throw NOT_FOUND();
   }
   await removePost(env, p.id);
   return new Response(null, { status: 204 });
@@ -392,6 +405,7 @@ interface MyRow {
   b_vis: Visibility | null;
   a_id: string | null;
   a_title: string | null;
+  pinned: number;
 }
 
 /**
@@ -405,7 +419,8 @@ const MY_POSTS_SQL = `SELECT p.id, p.kind, p.visibility, p.body, p.link, p.hidde
        WHERE x.share_id = p.share_id AND sg.hidden_at IS NULL AND sg.locked_at IS NULL) AS s_groups,
     g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis,
     h.slug AS h_slug, h.name AS h_name, b.id AS b_id, b.name AS b_name, b.visibility AS b_vis,
-    a.id AS a_id, a.title AS a_title
+    a.id AS a_id, a.title AS a_title,
+    EXISTS (SELECT 1 FROM channel_pins cp WHERE cp.channel_kind = 'user' AND cp.channel_id = ?1 AND cp.post_id = p.id) AS pinned
   FROM posts p
   LEFT JOIN shares s ON s.id = p.share_id
   LEFT JOIN groups g ON g.id = p.group_id
@@ -454,6 +469,7 @@ function myPostShape(r: MyRow): MyPost | null {
     channel, groups: [], body: r.body, link: r.link, hidden: !!r.hidden_at,
     reach: isReach(r.reach) ? r.reach : 'here', path: postPath(r.id, r.visibility, r.link_key),
     attached: r.a_id ? { id: r.a_id, title: r.a_title ?? '' } : null,
+    pinned: !!r.pinned,
   };
 }
 
@@ -510,6 +526,7 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
   // Sichtbarkeit schon im SQL (neueste 20 sichtbare, keine älteren fallen weg); canSeePost prüft danach noch einmal
   const { results } = await env.DB.prepare(
     `SELECT p.id, p.body, p.link, p.created_at, p.visibility, p.group_id,
+       EXISTS (SELECT 1 FROM channel_pins cp WHERE cp.channel_kind = 'user' AND cp.channel_id = ?1 AND cp.post_id = p.id) AS pinned,
        g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden, g.locked_at AS g_locked,
        COALESCE((SELECT m.role FROM group_members m WHERE m.group_id = g.id AND m.user_id = ?2), CASE WHEN g.id = ?3 THEN 'member' END) AS role
      FROM posts p LEFT JOIN groups g ON g.id = p.group_id
@@ -522,10 +539,10 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
            OR EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.user_id = ?2)
            OR g.id = ?3))
        )
-     ORDER BY p.created_at DESC LIMIT 20`,
+     ORDER BY pinned DESC, p.created_at DESC LIMIT 20`,
   )
     .bind(authorId, userId, previewGroup)
-    .all<VisitorRow & { role: GroupRole | null }>();
+    .all<VisitorRow & { role: GroupRole | null; pinned: number }>();
   const out: ProfilePost[] = [];
   for (const r of results) {
     if (!isPostVisibility(r.visibility)) continue;
@@ -542,6 +559,8 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
       id: r.id, createdAt: r.created_at, body: r.body, link: r.link,
       group: g ? { slug: g.g_slug!, name: g.g_name!, kind: g.g_kind! } : null,
       visibility: effectivePostVisibility(r.visibility, g ? g.g_vis : null),
+      // im Profil angepinnt (F-403) – nur Profil-Beiträge, die Liste beginnt mit ihnen
+      ...(r.pinned && !g ? { pinned: true } : {}),
     });
   }
   return out;
