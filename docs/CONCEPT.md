@@ -3092,3 +3092,52 @@ Nach CLAUDE.md „Vor dem ersten Code“:
 
 Entfernt: `sx-join-card` (Vorteilsliste und „Anmelden & mitmachen“) samt Verdrahtung; die Liste der Unterstützer-Vorteile
 steht weiter im Unterstützen-Bereich des Kontos.
+
+## 23. Törn-Arbeitsbereich: genau ein Törn
+
+Anlass: Rückmeldung des Betreibers (02.11.2026) – nach dem Abmelden erschien ein gespeicherter Törn als „Entwurf“,
+neue GPX hingen sich an jeden offenen Törn (auch an fremde), und man sah nicht, in welchem Törn man ist. Leitlinie:
+„Weniger ist mehr, ein Weg nach Rom.“ Anforderungen F-432 … F-438, geändert F-06, F-15, F-30, F-75, F-76, F-225, F-405.
+
+### 23.1 Modell
+
+Der Arbeitsbereich (Karte, Seitenleiste) zeigt immer **genau einen Törn**:
+
+| Art | `State.mode` | Status in der Kopfzeile | GPX hinzufügen / entfernen | Gespeichert in |
+|---|---|---|---|---|
+| Entwurf | `local` | „Entwurf · nur dieses Gerät“, Titel = erster Track (sonst „Neuer Törn“) | ja (Track-Liste) | IndexedDB, **ein** Platz `current` |
+| eigener gespeicherter Törn | `share`, `isOwner` | „Gespeichert · Öffentlich / Nur mit Link / Nur ich“ | nein (Server kann Tracks nicht ersetzen, 22.3) | D1/R2 (Konzept 21) |
+| fremde bzw. geteilte Ansicht, Beispiel, `?track=`, `#g=` | `share` bzw. `link` | „Ansicht“ | nein | – |
+
+- **Neuer Törn:** „+ Neu → Törn (GPX)“, die Startkarte ohne Community und Ziehen & Ablegen außerhalb des offenen
+  Entwurfs beginnen einen neuen Entwurf und ersetzen den Arbeitsbereich. Liegt im Entwurfsplatz schon ein Entwurf mit
+  Tracks, fragt nach der Dateiwahl ein Dialog „Entwurf ‚…‘ verwerfen und neuen Törn beginnen?“. Die Frage kommt erst
+  nach der Wahl, weil der Browser die Dateiauswahl nur direkt aus dem Klick öffnet. So gilt die Frage für alle Wege.
+- **Mehrere GPX:** nur über „GPX hinzufügen“ in der Track-Liste des offenen Entwurfs (oder durch Ablegen auf ihm).
+- **Wechsel:** Ein anderer Törn (Stream, „Mein Verlauf“, Link) ersetzt den Arbeitsbereich. Der Entwurf bleibt im
+  Entwurfsplatz, „+ Neu“ bietet dann „Entwurf fortsetzen: ‚…‘“. Das ist kein zweiter Einstieg (N1), weil er nur
+  erscheint, wenn der Entwurf nicht offen ist.
+- **Schließen (×):** leert den Arbeitsbereich und zeigt die Startseite. Ein Entwurf bleibt im Entwurfsplatz.
+- **Speichern:** Nach „Speichern“ bzw. „Speichern & Link erstellen“ wird aus dem Entwurf der eigene gespeicherte Törn
+  (`mode: share`, Adresse `/s/<id>`). Der Entwurfsplatz wird geleert, damit nichts doppelt als Entwurf weiterlebt.
+- **Abmelden (auch Konto löschen, Abmelden in einem anderen Tab):** Arbeitsbereich und Entwurfsplatz werden geleert
+  (geteilter Rechner). Ein Gast-Entwurf von vor der Anmeldung gehört danach zum Konto und wird mit entfernt.
+- **Beispiele** sind eine „Ansicht“ und überschreiben keinen Entwurf.
+
+### 23.2 Skizze (CLAUDE.md)
+
+| Punkt | Entscheidung |
+|---|---|
+| Datenmodell | nichts Neues: kein Server, keine Migration. `State` bekommt `draft` (Titel und Zahl der Tracks im Entwurfsplatz). |
+| Querschnitte | keine Sichtbarkeit, kein Stream, kein Zähler. Abmelden ruft über einen Haken im `SessionController` den Arbeitsbereich. |
+| Löschpfade | Entwurfsplatz: neuer Törn (nach Nachfrage), letzter Track entfernt, Speichern, Abmelden bzw. Konto löschen. Sonst liegt nichts lokal. |
+| Komponenten | `WorkspaceController` (`src/controllers/workspace.ts`) übernimmt den Ablauf „Tracks“ aus `app.ts` (Laden, Wetter, Entwurf, Freigabe, Link). `sx-topbar` zeigt den Törn-Chip (Titel, Status, ×) als Property `toern`. `sx-compose` bekommt `draft` („Entwurf fortsetzen“). `sx-track-list` bekommt `addable` („GPX hinzufügen“) und Tippen zum Hervorheben. Neu ist `sx-confirm` (geteilter Ja/Nein-Dialog mit `dialogStyles`, mobil randlos). Events: `sx-toern-close`, `sx-files-add`, `sx-compose-open { kind: 'draft' }`, `sx-confirm-ok`, `sx-confirm-cancel`. |
+| 375 px | Der Chip sitzt wie bisher mittig unter der Kopfzeile über der Karte, mit Titel (gekürzt), kurzem Status und × (44 px). Auf der Startseite ist er ausgeblendet, dort zeigt der Reiter „Törn“ den Weg zurück. |
+| Parallele Arbeit | `feature/beitraege-phase2` (PostLinkController: `openPost`/`revealAnchor` bleiben unberührt), `feature/gaeste-slider` (Startseite: hier nur der Link „weitere GPX hinzufügen“ in `sx-empty-state` gestrichen). |
+
+### 23.3 Offen
+
+- **Tracks an gespeicherten Törns ändern:** `PATCH /api/shares/:id` ersetzt die Nutzlast nur für Fahrtenbuch-Einträge
+  ohne GPX (Route ≤ 32 KB). Für GPX-Törns gibt es keinen Weg, Tracks zu ersetzen oder zu ergänzen. Dafür bräuchte es
+  Plausibilität, Speicherzähler-Differenz, Neuberechnung von Distanz und Zeit sowie Wetter, Fotos (Zeitbezug) und das
+  Vorschaubild. Bis dahin gibt es „GPX hinzufügen“ nur im Entwurf.

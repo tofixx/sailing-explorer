@@ -1,13 +1,22 @@
 import { LitElement, css, html, nothing } from 'lit';
 import type { User } from '../services/api';
 import type { Mode } from '../services/store';
-import { icon, logo } from './icons';
+import { icon, logo, type IconName } from './icons';
 import { base, emit } from './shared';
 import './sx-compose';
 import './sx-account-menu';
 
 /** Angezeigter Bereich: Törn-Ansicht, Community (Startseite), Entdecken oder eine andere Seite (Profil, Gruppe …). */
 export type TopbarSection = 'track' | 'community' | 'discover' | 'page';
+
+/** Offener Törn (Konzept 23, F-433): Titel, Zustand (lang und kurz für schmale Breiten), Farbe und Symbol. */
+export interface ToernLabel {
+  title: string;
+  status: string;
+  short: string;
+  tone: 'draft' | 'saved' | 'view';
+  icon: IconName;
+}
 
 /** Community von einer Seite aus: Startseite mit Stream, auch wenn Tracks im Browser liegen (F-220). */
 export const COMMUNITY_HREF = '/?community';
@@ -21,6 +30,8 @@ export class SxTopbar extends LitElement {
     backend: { type: Boolean },
     home: { type: Boolean, reflect: true },
     saved: { type: Boolean },
+    toern: { attribute: false },
+    draft: { attribute: false },
     section: { attribute: false },
     unread: { attribute: false },
     bell: { attribute: false },
@@ -34,6 +45,10 @@ export class SxTopbar extends LitElement {
   declare home: boolean;
   /** geladene Tracks sind als Freigabe gespeichert */
   declare saved: boolean;
+  /** offener Törn für den Chip neben dem Logo (null = keiner) */
+  declare toern: ToernLabel | null;
+  /** Titel des Entwurfs, der sich über „+ Neu“ fortsetzen lässt (F-436) */
+  declare draft: string | null;
   declare section: TopbarSection;
   /** Badge an „Community“ (F-221): leer = keins, sonst Zahl bzw. „99+“ */
   declare unread: string;
@@ -50,6 +65,8 @@ export class SxTopbar extends LitElement {
     this.backend = false;
     this.home = false;
     this.saved = false;
+    this.toern = null;
+    this.draft = null;
     this.section = 'track';
     this.unread = '';
     this.bell = '';
@@ -224,16 +241,6 @@ export class SxTopbar extends LitElement {
       .btn.login:hover {
         background: var(--accent-soft);
       }
-      button.chip {
-        cursor: pointer;
-        font: inherit;
-        font-size: var(--fs-s);
-        font-weight: 600;
-      }
-      button.chip:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
-      }
       .chip.warn {
         background: var(--warn-bg);
         border-color: color-mix(in srgb, var(--warn) 45%, transparent);
@@ -245,19 +252,36 @@ export class SxTopbar extends LitElement {
         color: var(--ok);
       }
       .chip.status {
-        max-width: none;
+        max-width: min(60ch, calc(100vw - 2 * var(--s-4)));
       }
-      /* Text staffelt sich mit der Breite: lang (breiter Desktop) · kurz (neben den Reitern, Handy) */
-      .chip .mid {
+      /* Törn-Chip (F-433): Titel kürzt sich, Zustand und × bleiben stehen */
+      .chip .st {
+        flex: none;
+        font-weight: 500;
+      }
+      .chip .st .short {
         display: none;
       }
-      @media (max-width: 1450px) {
-        .chip .long {
-          display: none;
-        }
-        .chip .mid {
-          display: inline;
-        }
+      .chip .x {
+        display: inline-grid;
+        place-items: center;
+        flex: none;
+        width: 24px;
+        height: 24px;
+        margin: -2px calc(-1 * var(--s-2)) -2px 0;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      .chip .x:hover {
+        background: color-mix(in srgb, currentColor 14%, transparent);
+      }
+      .chip .x:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
       }
       @media (max-width: 760px) {
         /* Handy: die Bereiche als eigene Reiterzeile über die volle Breite unter der Kopfzeile */
@@ -292,16 +316,33 @@ export class SxTopbar extends LitElement {
         .keep .label-text {
           display: inline;
         }
-        /* Handy: kurz, aber neben dem Logo sichtbar */
-        .chip .long {
-          display: none;
-        }
-        .chip {
-          max-width: 18ch;
-        }
         .btn.collapse {
           padding: 0;
           width: var(--control-h);
+        }
+      }
+      /* Handy: der Chip liegt über der Karte – auf der Startseite (Stream) zeigt der Reiter „Törn“ den Weg zurück;
+         × als Touch-Ziel mit 40 px */
+      @media (max-width: 760px) {
+        :host([home]) .chip.status {
+          display: none;
+        }
+        .chip.toern {
+          min-height: 40px;
+          padding-block: 0;
+        }
+        .chip .x {
+          width: 40px;
+          height: 40px;
+          margin-block: 0;
+        }
+      }
+      @media (max-width: 480px) {
+        .chip .st .full {
+          display: none;
+        }
+        .chip .st .short {
+          display: inline;
         }
       }
       @media (max-width: 420px) {
@@ -358,33 +399,21 @@ export class SxTopbar extends LitElement {
     </nav>`;
   }
 
+  /** Welcher Törn offen ist (F-433): Titel · Zustand · × „Törn schließen“. Speichern und Anmelden sind eigene Knöpfe. */
   private chip() {
-    if (this.mode.kind === 'share') {
-      const s = this.mode.share;
-      return html`<span class="chip shared" title="Geteilte Ansicht">${icon(s.visibility === 'private' ? 'lock' : s.visibility === 'public' ? 'globe' : 'link')}<span>${s.title}</span></span>`;
-    }
-    if (this.mode.kind === 'link') {
-      return html`<span class="chip shared" title="Ansicht aus einem Link – wird nicht gespeichert">${icon('link')}<span>${this.mode.title}</span></span>`;
-    }
-    if (!this.hasTracks) return nothing;
-    // Ohne Backend gibt es kein Speichern – nur der Hinweis auf den Browser.
-    if (!this.backend) return html`<span class="chip" title="Deine Tracks werden nur in diesem Browser gespeichert.">${icon('lock')}<span>Gast-Sitzung · nur dieses Gerät</span></span>`;
-    if (this.saved) {
-      return html`<button class="chip status ok" @click=${() => emit(this, 'sx-account')} title="Gespeichert in deinem Konto – unter „Konto & Freigaben“ verwalten.">
-        ${icon('check')}<span>Gespeichert</span>
-      </button>`;
-    }
-    // Nicht gespeichert: Gäste zum Anmelden, Angemeldete zum Teilen anregen – mit Hinweis auf Teilen und Community.
-    const guest = !this.user;
-    const why = 'Gespeichert ist er in deinem Konto, teilbar per Link oder Bild und – wenn öffentlich – in der Community unter Entdecken.';
-    return html`<button
-      class="chip status warn"
-      @click=${() => emit(this, guest ? 'sx-login' : 'sx-save')}
-      title=${guest ? `Dein Törn liegt nur in diesem Browser. Melde dich per E-Mail-Link an: ${why}` : `Noch nicht gespeichert. Speichere deinen Törn: ${why}`}
-      aria-label=${guest ? 'Nicht gespeichert – anmelden zum Speichern, Teilen und für die Community' : 'Nicht gespeichert – jetzt speichern'}
-    >
-      ${icon(guest ? 'lock' : 'info')}<span class="long">Nicht gespeichert – ${guest ? 'anmelden, um zu speichern, zu teilen und in der Community zu zeigen' : 'speichern, dann teilen und in der Community zeigen'}</span><span class="mid">Nicht gespeichert · ${guest ? 'Anmelden' : 'Speichern'}</span>
-    </button>`;
+    const t = this.toern;
+    if (!t) return nothing;
+    const hint =
+      t.tone === 'saved' ? 'In deinem Konto gespeichert.'
+      : t.tone === 'view' ? 'Ansicht – nicht dein Entwurf. Eigene Tracks beginnen über „+ Neu“ einen neuen Törn.'
+      : !this.backend ? 'Liegt nur in diesem Browser.'
+      : this.user ? 'Liegt nur in diesem Browser – „Speichern“ legt ihn in deinem Konto ab, dann kannst du ihn teilen.'
+      : 'Liegt nur in diesem Browser. Melde dich an, um ihn zu speichern, zu teilen und in der Community zu zeigen.';
+    const tone = t.tone === 'draft' ? 'warn' : t.tone === 'saved' ? 'ok' : 'shared';
+    return html`<span class="chip status toern ${tone}" title=${`${t.title} – ${t.status}. ${hint}`}>
+      ${icon(t.icon)}<span class="t">${t.title}</span><span class="st"><span class="full">· ${t.status}</span><span class="short">· ${t.short}</span></span>
+      <button class="x" type="button" title="Törn schließen" aria-label=${`Törn schließen: ${t.title}`} @click=${() => emit(this, 'sx-toern-close')}>${icon('x')}</button>
+    </span>`;
   }
 
   render() {
@@ -396,7 +425,7 @@ export class SxTopbar extends LitElement {
       ${this.chip()}
       <span class="spacer"></span>
       <div class="actions">
-        <sx-compose></sx-compose>
+        <sx-compose .draft=${this.draft}></sx-compose>
         ${this.hasTracks && this.home && !this.backend
           ? html`<button class="btn collapse" @click=${() => emit(this, 'sx-track-view')} title="Zurück zur Törn-Ansicht">
               ${icon('map')}<span class="label-text">Mein Törn</span>

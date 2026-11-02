@@ -4,10 +4,10 @@ import { base, emit, menuStyles } from './shared';
 import { MenuController } from './menu-controller';
 
 /** Arten, die es in Phase 2 gibt (Konzept 21.4) – Umfrage, Veranstaltung und Fotos folgen in späteren Phasen. */
-export type ComposeKind = 'gpx' | 'logbook' | 'text';
+export type ComposeKind = 'gpx' | 'logbook' | 'text' | 'draft';
 
 const KINDS: Array<{ kind: ComposeKind; icon: IconName; label: string; hint: string }> = [
-  { kind: 'gpx', icon: 'map', label: 'Törn (GPX)', hint: 'GPX-Datei laden – wird lokal ausgewertet' },
+  { kind: 'gpx', icon: 'map', label: 'Törn (GPX)', hint: 'Neuer Törn aus GPX-Dateien – wird lokal ausgewertet' },
   { kind: 'logbook', icon: 'book', label: 'Fahrtenbuch-Eintrag', hint: 'Törn ohne Track eintragen' },
   { kind: 'text', icon: 'comment', label: 'Text', hint: 'Beitrag in Profil, Gruppe, Hafen oder Boot' },
 ];
@@ -21,12 +21,16 @@ const KINDS: Array<{ kind: ComposeKind; icon: IconName; label: string; hint: str
 export class SxCompose extends LitElement {
   static properties = {
     open: { type: Boolean, reflect: true },
+    draft: { attribute: false },
   };
   declare open: boolean;
+  /** Titel des Entwurfs, der gerade nicht offen ist – dann oben „Entwurf fortsetzen“ (F-436) */
+  declare draft: string | null;
 
   constructor() {
     super();
     this.open = false;
+    this.draft = null;
   }
 
   static styles = [
@@ -89,6 +93,10 @@ export class SxCompose extends LitElement {
       ${this.open ? html`<div class="backdrop" @click=${() => (this.open = false)}></div>` : nothing}
       <div class="menu" id="nm" role="group" aria-labelledby="nm-h" ?hidden=${!this.open}>
         <p class="title" id="nm-h">Was möchtest du anlegen?</p>
+        ${this.draft
+          ? html`<button class="item" type="button" @click=${() => this.pick('draft')}>
+              <span class="mark">${icon('pencil')}</span><span>Entwurf fortsetzen: „${this.draft}“<small>Nur auf diesem Gerät, noch nicht gespeichert</small></span></button>`
+          : nothing}
         ${KINDS.map(
           (k) => html`<button class="item" type="button" @click=${() => this.pick(k.kind)}>
             <span class="mark">${icon(k.icon)}</span><span>${k.label}<small>${k.hint}</small></span></button>`,
