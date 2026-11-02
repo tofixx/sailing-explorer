@@ -69,6 +69,7 @@ import { UnreadController } from './controllers/unread';
 import { MapStyleController } from './controllers/map-style';
 import type { MapStyleScope, SxMapStyle } from './components/sx-map-style';
 import type { SxLegalPage } from './components/sx-legal-page';
+import { RECORDING_GUIDE } from './content/recording-guide';
 import type { SxAdminPage } from './components/sx-admin-page';
 import type { ReactDetail, SxReactions } from './components/sx-reactions';
 import type { HarborChoice, SxHarborPicker } from './components/sx-harbor-picker';
@@ -165,6 +166,7 @@ export class App {
     homeFeed: $<SxHomeFeed>('sx-home-feed'),
     join: $<SxJoinCard>('sx-join-card'),
     legalPage: $<SxLegalPage>('sx-legal-page'),
+    guidePage: $<HTMLElement>('sx-guide-page'),
     shareReactions: $<SxReactions>('#share-reactions'),
     reactionsPanel: $<HTMLElement>('#reactions-panel'),
     notifications: $<SxNotifications>('sx-notifications'),
@@ -340,6 +342,7 @@ export class App {
         case 'group-new':
         case 'harbor':
         case 'legal':
+        case 'guide':
           await this.openPage(route);
           return await this.postLink.revealAnchor();
         case 'admin':
@@ -1035,7 +1038,8 @@ export class App {
       | { kind: 'group'; slug: string; key?: string }
       | { kind: 'group-new' }
       | { kind: 'harbor'; slug: string }
-      | { kind: 'legal'; page: 'impressum' | 'datenschutz' },
+      | { kind: 'legal'; page: 'impressum' | 'datenschutz' }
+      | { kind: 'guide' },
   ) {
     this.ui.app.setAttribute('data-page', '');
     this.clearPlace();
@@ -1049,6 +1053,12 @@ export class App {
       this.ui.legalPage.page = route.page;
       this.ui.legalPage.hidden = false;
       document.title = `${route.page === 'impressum' ? 'Impressum' : 'Datenschutz'} · Sail Explorer`;
+      return;
+    }
+    if (route.kind === 'guide') {
+      // Anleitung „Aufzeichnen“ aus src/content/recording-guide.ts – ohne Backend (Konzept 25, F-450).
+      this.ui.guidePage.hidden = false;
+      document.title = `${RECORDING_GUIDE.title} · Sail Explorer`;
       return;
     }
     this.compose.setContext(null);
@@ -1247,6 +1257,7 @@ export class App {
     this.ui.discoverPage.hidden = true;
     this.ui.groupPage.hidden = true;
     this.ui.legalPage.hidden = true;
+    this.ui.guidePage.hidden = true;
     const admin = document.querySelector<HTMLElement>('sx-admin-page');
     if (admin) admin.hidden = true;
     document.title = 'Sail Explorer';

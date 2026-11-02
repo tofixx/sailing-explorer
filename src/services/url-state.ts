@@ -19,6 +19,8 @@ export type Route =
   | { kind: 'harbor'; slug: string }
   /** Impressum und Datenschutz (Konzept 12.7) – ohne Backend */
   | { kind: 'legal'; page: 'impressum' | 'datenschutz' }
+  /** Anleitung „So zeichnest du deinen Törn auf“ (Konzept 25) – ohne Backend */
+  | { kind: 'guide' }
   | { kind: 'admin' }
   | { kind: 'login'; token: string | null }
   | { kind: 'invite'; token: string | null }
@@ -61,6 +63,7 @@ export function parseRoute(loc: Pick<Location, 'pathname' | 'search' | 'hash'>):
   if (harbor) return { kind: 'harbor', slug: harbor[1].toLowerCase() };
   const legal = /^\/(impressum|datenschutz)\/?$/.exec(loc.pathname);
   if (legal) return { kind: 'legal', page: legal[1] as 'impressum' | 'datenschutz' };
+  if (/^\/anleitung\/aufzeichnen\/?$/.test(loc.pathname)) return { kind: 'guide' };
   // Admin-Bereich (Konzept 18): der Server liefert Nicht-Admins 404, die API ebenso
   if (/^\/admin\/?$/.test(loc.pathname)) return { kind: 'admin' };
   if (loc.pathname === '/login') {
