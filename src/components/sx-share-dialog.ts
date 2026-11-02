@@ -438,6 +438,7 @@ export class SxShareDialog extends LitElement {
     return html`<sx-title-edit share-id=${r.share.id} .value=${r.share.title} ?editable=${r.share.isOwner}></sx-title-edit>`;
   }
 
+  /** Nach dem Speichern: Bestätigung und „Jetzt teilen“. */
   private savedPanel(r: ShareResult) {
     const vis: Visibility = isVisibility(r.share.visibility) ? r.share.visibility : 'public';
     return html`<div class="body">
