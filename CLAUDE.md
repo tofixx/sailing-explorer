@@ -4,6 +4,22 @@ Grundlagen: `docs/PRINCIPLES.md`, `docs/CONCEPT.md`, `docs/REQUIREMENTS.md` (Tes
 Ein Push auf `main` deployt die Produktion (segeln-potsdam.de) samt D1-Migrationen; andere Branches landen als
 öffentliche Vorschau unter `dev-<branch>.segeln-potsdam.de`.
 
+## Vor dem ersten Code: Architektur-Skizze
+
+Jedes Feature, das Daten speichert oder mehr als eine Komponente berührt, beginnt mit einer kurzen Skizze im
+Konzept-Abschnitt (`docs/CONCEPT.md`, höchstens eine Tabelle), geprüft gegen `docs/PRINCIPLES.md` (insbesondere
+„Erweitern“):
+1. **Datenmodell** – neue Art von `posts` oder Erweiterung eines bestehenden Objekts? Tabellen/Spalten, reservierte
+   Migrationsnummer (gleich als Datei committen).
+2. **Querschnitte** – welche davon werden berührt: Sichtbarkeit/Sperre (welche SQL-Bausteine), Publikum im Stream
+   (welche Ziel-Funktion), Caches, Zähler/Kontingente, Benachrichtigungen, Einbettungen, Admin/Moderation, Zusammenführen.
+3. **Lösch- und Sichtbarkeitspfade** – Tabelle „gespeichert → entfernt auf welchem Weg“ (wie Konzept 21.3.3) und
+   „wer sieht es wo“.
+4. **Komponentenschnitt** – Seite, Controller, Komponenten, Events; welche geteilten Bausteine (`dialogStyles`, Sheet)
+   genutzt werden; Verhalten bei 375 px.
+5. **Parallele Arbeit** – welche anderen Branches dieselben Querschnitte anfassen (`git log --all -- <datei>`); dort
+   vorher abstimmen statt nachher integrieren.
+
 ## Vor jedem Deploy: Review durch einen eigenen Agenten
 
 Bevor etwas nach `main` gemergt oder gepusht wird, prüft ein separater Agent den Diff (`main...<branch>`) – nicht
@@ -15,8 +31,8 @@ Prüfpunkte:
    Migrationen; widersprüchliches Verhalten.
 3. **Wiederverwendung vor Neuentwicklung** – vorhandene Helfer, Komponenten und Muster genutzt statt dupliziert?
 4. **Modularisierung** – klare Modulgrenzen, reine Regeln in `src/domain`, keine Gottdateien.
-5. **Architekturprinzipien** – `docs/PRINCIPLES.md`, fail closed, ein Löschpfad je Objekt, Sichtbarkeit beim Lesen
-   prüfen, Tests je F-ID.
+5. **Architekturprinzipien** – `docs/PRINCIPLES.md` (auch „Erweitern“), fail closed, ein Löschpfad je Objekt,
+   Sichtbarkeit beim Lesen prüfen, Tests je F-ID; stimmt der Code mit der Architektur-Skizze überein?
 6. **Löschkonzept** – wird alles, was das Feature speichert (D1-Zeilen, R2-Dateien, Zähler), auf jedem Weg wieder
    entfernt: ersetzt (alte Datei), einzeln gelöscht, Eltern-Objekt gelöscht (Törn, Boot, Gruppe, Hafen), Konto gelöscht,
    inaktives Konto entfernt, Aufbewahrung abgelaufen (Saison), Moderation? Bleibt der Speicherzähler stimmig? Gibt es

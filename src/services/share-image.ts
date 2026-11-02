@@ -380,37 +380,54 @@ function drawInfo(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box, opts
   ctx.textAlign = 'left';
 }
 
-/** Logo „Segel im Kompass“ (wie logo() in components/icons.ts) – ohne Path2D, damit es überall zeichnet. */
+/** Logo „Kielspur“ (freies Zeichen wie logo() in components/icons.ts) – ohne Path2D, damit es überall zeichnet. */
 function drawLogo(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
   const k = size / 32;
-  const p = (px: number, py: number): [number, number] => [x + px * k, y + py * k];
-  const poly = (pts: Array<[number, number]>) => {
-    ctx.beginPath();
-    pts.forEach(([px, py], i) => (i ? ctx.lineTo(...p(px, py)) : ctx.moveTo(...p(px, py))));
-    ctx.closePath();
-    ctx.fill();
+  const X = (px: number) => x + px * k;
+  const Y = (py: number) => y + py * k;
+  const grad = (a: string, b: string) => {
+    const g = ctx.createLinearGradient(X(4), Y(3), X(28), Y(27));
+    g.addColorStop(0, a);
+    g.addColorStop(1, b);
+    return g;
   };
   ctx.save();
-  roundRect(ctx, x, y, size, size, 8 * k);
-  ctx.fillStyle = C.accent;
+  // Großsegel
+  ctx.fillStyle = grad('#0e6bd8', '#22b8b0');
+  ctx.beginPath();
+  ctx.moveTo(X(17), Y(3));
+  ctx.quadraticCurveTo(X(23.5), Y(11), X(26.5), Y(21));
+  ctx.lineTo(X(17), Y(21));
+  ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = '#fff';
-  ctx.fillStyle = '#fff';
+  // Vorsegel
+  ctx.fillStyle = grad('#5ba8f2', '#8fe3d6');
+  ctx.beginPath();
+  ctx.moveTo(X(15.4), Y(6));
+  ctx.lineTo(X(15.4), Y(21));
+  ctx.lineTo(X(6.5), Y(21));
+  ctx.quadraticCurveTo(X(9.6), Y(12.6), X(15.4), Y(6));
+  ctx.closePath();
+  ctx.fill();
+  // Rumpf
+  ctx.fillStyle = C.ink;
+  ctx.beginPath();
+  ctx.moveTo(X(4.5), Y(23));
+  ctx.lineTo(X(28), Y(23));
+  ctx.quadraticCurveTo(X(26), Y(27.6), X(21.8), Y(27.6));
+  ctx.lineTo(X(9.6), Y(27.6));
+  ctx.quadraticCurveTo(X(5.8), Y(27.2), X(4.5), Y(23));
+  ctx.closePath();
+  ctx.fill();
+  // Kielspur
+  ctx.strokeStyle = '#22b8b0';
+  ctx.lineWidth = 1.5 * k;
   ctx.lineCap = 'round';
-  ctx.globalAlpha = 0.55;
-  ctx.lineWidth = 1.6 * k;
+  ctx.setLineDash([0.1 * k, 2.6 * k]);
   ctx.beginPath();
-  ctx.arc(...p(16, 16), 10.5 * k, 0, Math.PI * 2);
+  ctx.moveTo(X(7), Y(30));
+  ctx.bezierCurveTo(X(12), Y(31.6), X(18), Y(28.8), X(27), Y(30.4));
   ctx.stroke();
-  ctx.globalAlpha = 1;
-  ctx.lineWidth = 2 * k;
-  ctx.beginPath();
-  ctx.moveTo(...p(16, 3.5));
-  ctx.lineTo(...p(16, 6.5));
-  ctx.stroke();
-  poly([[16, 9], [22, 21], [16, 21]]);
-  ctx.globalAlpha = 0.75;
-  poly([[14.5, 11.5], [10, 21], [14.5, 21]]);
   ctx.restore();
 }
 
