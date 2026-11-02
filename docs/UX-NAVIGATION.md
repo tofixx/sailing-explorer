@@ -168,7 +168,7 @@ Mobil zusätzlich: Reiterzeile kostet eine zweite Kopfzeile; „Track anlegen“
 |---|---|---|---|
 | B7 | Avatare/Initialen nie klickbar (Mitglieder, Vorschläge, Entdecken-Personen-Icon nur als Teil der Karte), Stream ohne Avatar | `sx-group-page.ts` 638; `sx-home-feed.ts` 453 | `sx-entity-link` mit Avatar |
 | B8 | Topbar-Avatar zeigt `email[0]`, Konto-Dialog und Profil `displayName[0]` | `sx-topbar.ts` 444 vs. `sx-account-dialog.ts` 1066 | eine Avatar-Komponente |
-| B9 | Zahnrad = „Ansehen als …“ | `sx-preview-menu.ts` 89 | Zahnrad = Seitenmenü (Bearbeiten, Ansehen als, Titelbild, Melden) |
+| B9 | Zahnrad = „Ansehen als …“ | `sx-preview-menu.ts` 90 | Zahnrad = Seitenmenü (Bearbeiten, Ansehen als, Titelbild, Melden) |
 | B10 | „Privat“ als Stufe im Kopf und als Reiter in „Mein Verlauf“ | `sx-profile-page.ts` 331; `sx-my-posts.ts` 190 | Reiter „Nur ich“; Stufe als Symbol im Kopf (Schloss/Globus) mit Tooltip |
 | B11 | Glocke-Sackgassen: Reaktion auf Neuigkeit → `/`, Beitrag/Kommentar ohne Anker, Claim-Ergebnis nicht öffentlich → `/` | `worker/notifications.ts` 320, 325, 349, 352 | Ziel immer konkret (`/p/<id>`, `#kommentar-<id>`), sonst Eintrag nicht anzeigen |
 | B12 | Byline des Törns ohne Boot; Gruppen-Icon immer `sail` | `sx-voyage-byline.ts` 53–58 | Boot ergänzen, Icon aus zentraler Tabelle |
