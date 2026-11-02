@@ -7,6 +7,7 @@ import type { SxGroupPage } from '../components/sx-group-page';
 import type { SxHomeFeed } from '../components/sx-home-feed';
 import type { SxProfilePage } from '../components/sx-profile-page';
 import { errorText } from './session';
+import { NOTIFY_LEVEL_LABEL, type NotifyLevel } from '../domain/notifications';
 
 export interface GroupsUi {
   page: SxGroupPage;
@@ -48,7 +49,16 @@ export class GroupsController {
   constructor(
     private store: Store,
     private ui: GroupsUi,
-  ) {}
+  ) {
+    this.applyAutoPref(readNearPrefs().joins);
+  }
+
+  /** Schalter „Automatische Einträge“ (Gerät) an Startseite, Gruppen-, Hafen- und Bootsseite. */
+  private applyAutoPref(show: boolean) {
+    this.ui.home.joins = show;
+    this.ui.page.hideAuto = !show;
+    this.ui.profile.hideAuto = !show;
+  }
 
   private signedIn = () => !!this.store.get().user;
 
@@ -172,13 +182,22 @@ export class GroupsController {
     return this.membership(() => groupApi.withdraw(id), 'Anfrage zurückgezogen');
   }
 
-  leave(id: string) {
-    return this.membership(() => groupApi.removeMember(id, 'me'), 'Du bist ausgetreten.');
+  /** Austreten; `follow`: danach weiter folgen (F-446). */
+  leave(id: string, follow = false) {
+    return this.membership(() => groupApi.removeMember(id, 'me', follow), follow ? 'Du bist ausgetreten und folgst der Gruppe weiter.' : 'Du bist ausgetreten.');
   }
 
-  /** Neuigkeiten der Gruppe stumm bzw. wieder anzeigen (F-346). */
-  mute(d: { id: string; muted: boolean }) {
-    return this.membership(() => groupApi.mute(d.id, d.muted), d.muted ? 'Stumm – Neuigkeiten dieser Gruppe erscheinen nicht mehr in deinem Stream.' : 'Neuigkeiten dieser Gruppe erscheinen wieder.');
+  /**
+   * Stufe der Benachrichtigungen eines Verlaufs (F-449): die Glocke zeigt die Wahl sofort; „Stumm“ bzw. zurück ändert
+   * auch den persönlichen Stream (F-346) – dann Startseite und „Meine Gruppen“ neu.
+   */
+  async setNotifyLevel(d: { kind: FollowKind; id: string; level: NotifyLevel }) {
+    const ok = await this.act(() => groupApi.notifyLevel(d.kind, d.id, d.level), `Benachrichtigungen: ${NOTIFY_LEVEL_LABEL[d.level]}`);
+    if (ok) {
+      this.homeLoaded = false;
+      this.ui.onMembership?.();
+    }
+    return ok;
   }
 
   /** Eigner übergibt an einen Admin (F-347). */
@@ -392,10 +411,10 @@ export class GroupsController {
     return this.savePrefs({ mode });
   }
 
-  /** Beitrittsmeldungen ein-/ausblenden (F-350) – nur Anzeige, kein Neuladen. */
+  /** Automatische Einträge ein-/ausblenden (F-350, F-447) – nur Anzeige, kein Neuladen; gilt für alle Streams. */
   setJoins(show: boolean): void {
     writeNearPrefs({ ...readNearPrefs(), joins: show });
-    this.ui.home.joins = show;
+    this.applyAutoPref(show);
     // Badge zählt nur, was man sieht
     this.ui.onJoinsChanged?.();
   }

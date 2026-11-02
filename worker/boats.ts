@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { membersVisibleSql } from './member-sql';
 import { IN_LOGBOOK_SQL, RECORDED_NM_SQL } from './logbook-sql';
 import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
@@ -231,13 +232,14 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
     // Titelbild und neueste öffentliche Fotos der Törns mit diesem Boot (Konzept 13)
     ...pageCover('b', b.id, await loadCover(env, 'b', b.id), b.visibility === 'public' ? null : key),
     photos: await galleryPhotos(env, 'boat', b.id),
-    // „Verein des Boots“ (Konzept 12.2): öffentliche, nicht ausgeblendete Vereine, denen das Boot zugeordnet ist
+    // „Verein des Boots“ (Konzept 12.2): öffentliche, nicht ausgeblendete Vereine, denen das Boot zugeordnet ist – nur,
+    // wenn der Betrachter die Boote des Vereins sehen darf (F-442: öffentliche Mitgliederliste oder Mitglied)
     clubs: (
       await env.DB.prepare(
         `SELECT g.slug, g.name, g.kind FROM group_boats gb JOIN groups g ON g.id = gb.group_id
-         WHERE gb.boat_id = ? AND g.kind = 'club' AND g.visibility = 'public' AND g.hidden_at IS NULL ORDER BY g.name`,
+         WHERE gb.boat_id = ?1 AND g.kind = 'club' AND g.visibility = 'public' AND g.hidden_at IS NULL AND ${membersVisibleSql('g', '?2')} ORDER BY g.name`,
       )
-        .bind(id)
+        .bind(id, user?.id ?? '')
         .all<{ slug: string; name: string; kind: 'club' }>()
     ).results,
   });

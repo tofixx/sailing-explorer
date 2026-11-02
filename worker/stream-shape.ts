@@ -1,6 +1,6 @@
 // Prüfung einer Aktivität beim Lesen (Konzept 11.3, F-160) – rein, ohne Worker-APIs, damit unit-testbar.
-import { funnyName } from '../src/domain/names';
-import { canManageGroup, isActivityKind, type GroupKind, type GroupRole, type StreamItem } from '../src/domain/groups';
+import { memberAlias } from '../src/domain/names';
+import { canManageGroup, canSeeMembers, canSeeMembership, isActivityKind, type GroupKind, type GroupRole, type StreamItem } from '../src/domain/groups';
 import { coverRef } from '../src/domain/cover';
 import { timingSafeEqual } from './validate';
 import { canSeePost, isChannelKind, isPostVisibility, isReach, reachCovers, type ChannelKind, type PostVisibility, type Reach } from '../src/domain/posts';
@@ -42,6 +42,8 @@ export interface ActivityRow {
   g_vis: string | null;
   g_hidden: number | null;
   g_role: string | null;
+  /** wer die Mitgliederliste sieht (0032, F-440) */
+  g_members?: string | null;
   /** Eigner der Gruppe gesperrt – dann ohne Titelbild (wie auf /entdecken nicht gelistet) */
   g_owner_suspended?: number | null;
   p_id: string | null;
@@ -230,12 +232,15 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [],
       return { ...base, voyage, photos: { count, thumbs: thumbs.slice(0, 4) } };
     }
     case 'member':
-      if (!group) return null;
-      // Ohne öffentliches Profil der Spaßname (F-349) – „Ein neues Mitglied“ sagte zu wenig, der echte Name zu viel
-      return withCover({ ...base, group, ...(!actor && r.actor_id ? { alias: funnyName(r.actor_id) } : {}) }, actor ? coverRef('u', actor.handle, r.cu_ver, r.cu_y) : null);
+      // Beitritte sehen nur Mitglieder derselben Gruppe (F-443) – Gäste, Follower und Mitglieder des Vereins eines
+      // Teams nie; damit auch nie in öffentlichen Caches, RSS, „Alles“ und „Umgebung“ (ohne Betrachter berechnet).
+      if (!group || !canSeeMembership((r.g_role as GroupRole | null) ?? null)) return null;
+      // Ohne öffentliches Profil der Spaßname dieser Gruppe (F-349, F-441) – nie der gewählte Anzeigename
+      return withCover({ ...base, group, ...(!actor && r.actor_id && r.g_id ? { alias: memberAlias(r.actor_id, r.g_id) } : {}) }, actor ? coverRef('u', actor.handle, r.cu_ver, r.cu_y) : null);
     case 'boat': {
       const boat = publicBoat(r);
-      if (!group || !boat) return null;
+      // Boote der Gruppe folgen der Mitgliederliste (F-442): ein Boot verrät seinen Eigner
+      if (!group || !boat || !canSeeMembers(r.g_members, (r.g_role as GroupRole | null) ?? null)) return null;
       return withCover({ ...base, group, boat }, boatCover(r));
     }
     case 'post':

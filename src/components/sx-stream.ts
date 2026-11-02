@@ -1,6 +1,6 @@
 import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
 import { photoImageUrl, shareImageUrl, type StreamItem } from '../services/api';
-import { GROUP_KIND_LABEL, streamHeadline } from '../domain/groups';
+import { GROUP_KIND_LABEL, streamHeadline, isAutomaticKind } from '../domain/groups';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
 import { base, coverBanner, coverBannerStyles, emit, highlightStyles, linkedText, logbookTag, revealCard } from './shared';
@@ -22,6 +22,8 @@ const KIND_ICON: Record<StreamItem['kind'], IconName> = {
  * (Titel, Namen, Beiträge) geht nur durch Lit-Templates, Links in Beiträgen aus `linkify`, nie `innerHTML`.
  * Beiträge tragen den Anker `p-<id>` (F-406), ihre Zeitangabe ist der Permalink `/p/<id>` (bei Törns `/s/<id>`);
  * `highlight` scrollt zur Karte und hebt sie kurz hervor. Meldet `sx-stream-more` { scope } und `sx-post-delete` { id }.
+ * Automatische Einträge (Beitritt, Boot, Meilenstein – `isAutomaticKind`, F-447) erscheinen als kompakte graue
+ * Systemzeile ohne Kartenrahmen; `hideAuto` blendet sie aus (Schalter „Automatische Einträge“ auf dem Gerät).
  */
 export class SxStream extends LitElement {
   static properties = {
@@ -38,6 +40,8 @@ export class SxStream extends LitElement {
     pins: { attribute: false },
     /** verwaltet den Verlauf: anpinnen, lösen, fremde Beiträge des Hafens bzw. Boots löschen */
     manage: { type: Boolean },
+    /** automatische Einträge ausblenden (F-447) */
+    hideAuto: { type: Boolean, attribute: 'hide-auto' },
   };
   declare items: StreamItem[];
   declare cursor: string | null;
@@ -49,6 +53,7 @@ export class SxStream extends LitElement {
   declare highlight: string | null;
   declare pins: StreamItem[];
   declare manage: boolean;
+  declare hideAuto: boolean;
 
   constructor() {
     super();
@@ -61,6 +66,7 @@ export class SxStream extends LitElement {
     this.highlight = null;
     this.pins = [];
     this.manage = false;
+    this.hideAuto = false;
   }
 
   /** Hervorgehobene Karte einmal in den Blick holen, sobald sie gerendert ist. */
@@ -105,6 +111,45 @@ export class SxStream extends LitElement {
         border-radius: var(--radius);
         background: var(--surface);
         border: 1px solid var(--border-soft);
+      }
+      /* automatische Einträge (F-447): eine graue Zeile, kein Kartenrahmen */
+      li.auto {
+        grid-template-columns: 20px minmax(0, 1fr);
+        gap: var(--s-2);
+        padding: var(--s-1) var(--s-3);
+        background: none;
+        border: 0;
+        color: var(--text-2);
+        font-size: var(--fs-s);
+      }
+      li.auto .ic {
+        width: 20px;
+        height: 20px;
+        background: none;
+        color: var(--text-3);
+      }
+      li.auto .ic svg {
+        width: 14px;
+        height: 14px;
+      }
+      li.auto > div {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0 var(--s-2);
+        min-width: 0;
+      }
+      li.auto .head,
+      li.auto .what,
+      li.auto .head a {
+        font-weight: 500;
+      }
+      li.auto time {
+        display: inline;
+        margin: 0;
+      }
+      li.auto .cover {
+        display: none;
       }
       .ic {
         width: 32px;
@@ -343,7 +388,17 @@ export class SxStream extends LitElement {
     return href ? html`<a class="when" href=${href} title="Link zu diesem Eintrag">${t}</a>` : t;
   }
 
+  /** Systemzeile (F-447): Symbol, ein Satz, Zeit – grau, ohne Rahmen, ohne Titelbild; Reaktionen klein dahinter. */
+  private autoItem(i: StreamItem) {
+    return html`<li class="auto" aria-label=${streamHeadline(i)}>
+      <span class="ic" aria-hidden="true">${icon(KIND_ICON[i.kind] ?? 'info')}</span>
+      <div>${this.content(i)} ${this.when(i)}
+        ${i.reactions ? html`<sx-reactions class="reactions" .value=${i.reactions}></sx-reactions>` : ''}</div>
+    </li>`;
+  }
+
   private item(i: StreamItem, asPin = false) {
+    if (!asPin && isAutomaticKind(i.kind)) return this.autoItem(i);
     const pid = i.kind === 'post' ? i.post?.id : undefined;
     const hl = !asPin && !!pid && pid === this.highlight;
     return html`<li aria-label=${streamHeadline(i)} id=${pid && !asPin ? `p-${pid}` : nothing} class=${hl ? 'hl' : asPin ? 'pinned' : nothing} tabindex=${hl ? -1 : nothing}>
@@ -365,9 +420,10 @@ export class SxStream extends LitElement {
     const pinned = this.pins.length
       ? html`<section class="pins" aria-label="Angepinnt"><p class="eyebrow">${icon('pin')} Angepinnt</p><ol>${this.pins.map((i) => this.item(i, true))}</ol></section>`
       : '';
-    if (!this.items.length) return html`${pinned}${this.loading ? html`<div class="empty">Lade …</div>` : html`<div class="empty">${this.emptyText}</div>`}${more}`;
+    const items = this.hideAuto ? this.items.filter((i) => !isAutomaticKind(i.kind)) : this.items;
+    if (!items.length) return html`${pinned}${this.loading ? html`<div class="empty">Lade …</div>` : html`<div class="empty">${this.emptyText}</div>`}${more}`;
     return html`${pinned}<ol>
-        ${this.items.map((i) => this.item(i))}
+        ${items.map((i) => this.item(i))}
       </ol>
       ${more}`;
   }

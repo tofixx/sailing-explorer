@@ -58,6 +58,8 @@ export class SxProfilePage extends LitElement {
     /** Pins von Hafen bzw. Boot und Verwaltungsrecht (F-403) */
     pins: { attribute: false },
     manage: { type: Boolean },
+    /** automatische Einträge ausblenden (Gerät, F-447) */
+    hideAuto: { type: Boolean, attribute: 'hide-auto' },
     editing: { state: true },
   };
   declare data: PageData | null;
@@ -80,6 +82,7 @@ export class SxProfilePage extends LitElement {
   declare highlight: string | null;
   declare pins: StreamItem[];
   declare manage: boolean;
+  declare hideAuto: boolean;
 
   constructor() {
     super();
@@ -97,6 +100,7 @@ export class SxProfilePage extends LitElement {
     this.highlight = null;
     this.pins = [];
     this.manage = false;
+    this.hideAuto = false;
     this.supporter = false;
   }
 
@@ -524,7 +528,7 @@ export class SxProfilePage extends LitElement {
       ${this.stats(d.stats)}
       <section aria-labelledby="boat-news">
         <div class="news-head"><h2 class="eyebrow" id="boat-news">Neuigkeiten</h2>${b.role ? writePostButton(this) : ''}</div>
-        <sx-stream scope="boat" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight} .pins=${this.pins} ?manage=${this.manage}
+        <sx-stream scope="boat" ?hide-auto=${this.hideAuto} .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight} .pins=${this.pins} ?manage=${this.manage}
           empty-text="Noch keine Neuigkeiten zu diesem Boot. Beiträge von Eigner und Boots-Admins erscheinen hier."></sx-stream>
       </section>
       <sx-gallery .photos=${d.photos ?? []} heading="Fotos"></sx-gallery>
@@ -675,7 +679,7 @@ export class SxProfilePage extends LitElement {
       </div>
       <section>
         <div class="news-head"><h2 class="eyebrow">Neuigkeiten</h2>${d.canPost ? writePostButton(this) : ''}</div>
-        <sx-stream scope="harbor" .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight} .pins=${this.pins} ?manage=${this.manage}
+        <sx-stream scope="harbor" ?hide-auto=${this.hideAuto} .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight} .pins=${this.pins} ?manage=${this.manage}
           empty-text="Noch nichts los in diesem Hafen. Neue Boote und öffentliche Törns erscheinen hier."></sx-stream>
       </section>
       ${this.harborGroups(d).length

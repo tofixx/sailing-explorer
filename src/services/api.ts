@@ -6,14 +6,14 @@ import type { Placement } from '../domain/photo-place';
 import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
-import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, ShareGroupChoice, StreamItem, SuggestionReason } from '../domain/groups';
+import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, MembersVisible, ShareGroupChoice, StreamItem, SuggestionReason } from '../domain/groups';
 import type { CoverKind, CoverRef } from '../domain/cover';
 import type { HarborRef } from '../domain/harbors';
 import type { ClaimKind, MyClaim } from '../domain/claims';
 import type { MapStyleId } from '../domain/map-style';
 import type { VoyageRole } from '../domain/crew-roles';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
-import type { NotificationItem, NotificationKind, NotifyPrefs } from '../domain/notifications';
+import type { NotificationItem, NotificationKind, NotifyLevel, NotifyPrefs } from '../domain/notifications';
 import type { DistSource, LatLon, LogState, Logbook, ShareSource } from '../domain/logbook';
 import { previewParam, type AttachableShare, type ChannelKind, type ComposeTarget, type MyPost, type MyPostArea, type PostBy, type PostLink, type PostVisibility, type PreviewOptions, type ProfilePost, type ProfilePreview, type Reach } from '../domain/posts';
 
@@ -782,6 +782,8 @@ export interface GroupInfo extends Linkable {
   approveBy?: Approvers;
   /** wer Beiträge schreibt (F-421) – fehlt bei älteren Servern */
   postBy?: PostBy;
+  /** wer die Mitgliederliste sieht (F-440) – fehlt bei älteren Servern */
+  membersVisible?: MembersVisible;
   role: GroupRole | null;
   /** nur für Eigner und Admins: bis zur Prüfung ausgeblendet */
   hiddenAt?: number | null;
@@ -801,6 +803,8 @@ export interface GroupMember {
   id: string | null;
   handle: string | null;
   displayName: string;
+  /** Spaßname dieser Gruppe statt Name (Profil nicht öffentlich, F-441) */
+  alias?: boolean;
   role: GroupRole;
   isSelf: boolean;
 }
@@ -821,6 +825,8 @@ export interface FollowStats {
   /** nur bei Profilen */
   following?: number;
   isFollowing: boolean;
+  /** eigene Stufe der Benachrichtigungen (F-449) – null: weder Mitglied noch Follower */
+  notifyLevel?: NotifyLevel | null;
 }
 
 export interface GroupRequest {
@@ -839,7 +845,8 @@ export interface GroupPageData {
   teams: GroupRef[];
   stats: { members: number; boats: number; voyages: number; distNm: number; recordedNm?: number; seasonNm: number };
   members: GroupMember[];
-  others: number;
+  /** Liste verborgen (F-441): nur die Anzahl in `stats.members` */
+  membersHidden?: boolean;
   boats: GroupBoat[];
   social: FollowStats;
   membership: { role: GroupRole | null; requested: boolean; canRequest: boolean; canJoin?: boolean; canInvite?: boolean; canApprove?: boolean; muted?: boolean };
@@ -855,6 +862,8 @@ export interface MyGroup extends GroupInfo {
   members: number;
   /** Neuigkeiten stumm geschaltet (F-346) */
   muted?: boolean;
+  /** Stufe der Benachrichtigungen (F-449) */
+  notifyLevel?: NotifyLevel;
 }
 
 export interface StreamPage {
@@ -918,7 +927,7 @@ export interface DiscoverMembership {
   requested: string[];
 }
 
-export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy'>> & {
+export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy' | 'membersVisible'>> & {
   kind?: GroupKind;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
@@ -936,16 +945,14 @@ export const groupApi = {
   mine: () => call<{ groups: MyGroup[]; requests: Array<GroupRef & { id?: string; createdAt: number }> }>('/api/groups'),
   /** Eigner übergibt an einen Admin (F-347) */
   transfer: (id: string, userId: string) => call<{ owner: string }>(`/api/groups/${gid(id)}/owner`, jsonInit('POST', { userId })),
-  /** eigene Mitgliedschaft stumm bzw. laut (F-346) */
-  mute: (id: string, muted: boolean) => call<{ muted: boolean }>(`/api/groups/${gid(id)}/mute`, jsonInit('PUT', { muted })),
   create: (g: GroupInput) => call<{ group: GroupInfo }>('/api/groups', jsonInit('POST', g)),
   bySlug: (slug: string, key?: string | null) => call<GroupPageData>(`/api/groups/slug/${encodeURIComponent(slug)}`, keyInit(key)),
   get: (id: string, key?: string | null) => call<GroupPageData>(`/api/groups/${gid(id)}`, keyInit(key)),
   update: (id: string, g: GroupInput) => call<{ group: GroupInfo }>(`/api/groups/${gid(id)}`, jsonInit('PATCH', g)),
   remove: (id: string) => call<void>(`/api/groups/${gid(id)}`, { method: 'DELETE' }),
   setRole: (id: string, userId: string, role: 'admin' | 'member') => call<{ role: string }>(`/api/groups/${gid(id)}/members/${gid(userId)}`, jsonInit('PATCH', { role })),
-  /** userId 'me' = austreten */
-  removeMember: (id: string, userId: string) => call<void>(`/api/groups/${gid(id)}/members/${gid(userId)}`, { method: 'DELETE' }),
+  /** userId 'me' = austreten; `follow`: danach weiter folgen (F-446) */
+  removeMember: (id: string, userId: string, follow = false) => call<void>(`/api/groups/${gid(id)}/members/${gid(userId)}${follow ? '?follow=1' : ''}`, { method: 'DELETE' }),
   invite: (id: string, email: string | null) => call<InviteCreated>(`/api/groups/${gid(id)}/invites`, jsonInit('POST', email ? { email } : {})),
   request: (id: string, message: string, key?: string | null) =>
     call<{ requested: boolean; already?: boolean; joined?: boolean }>(`/api/groups/${gid(id)}/requests`, {
@@ -967,7 +974,22 @@ export const groupApi = {
   seen: (at?: number) => call<{ ok: true }>('/api/stream/seen', jsonInit('POST', { at })),
   suggestions: () => call<{ people: Suggestion[] }>('/api/me/suggestions'),
   follow: (kind: FollowKind, id: string, on: boolean) => call<FollowStats>(`/api/follows/${kind}/${encodeURIComponent(id)}`, { method: on ? 'PUT' : 'DELETE' }),
+  /** Stufe der Benachrichtigungen eines Verlaufs (F-449) */
+  notifyLevel: (kind: FollowKind, id: string, level: NotifyLevel) => call<{ level: NotifyLevel }>(`/api/notify/${kind}/${encodeURIComponent(id)}`, jsonInit('PUT', { level })),
+  /** alle Verläufe mit Stufe und die Voreinstellung (Konto → Benachrichtigungen) */
+  channels: () => call<{ defaultLevel: NotifyLevel; channels: NotifyChannel[] }>('/api/me/channels'),
+  defaultLevel: (level: NotifyLevel) => call<{ defaultLevel: NotifyLevel }>('/api/me/channels/default', jsonInit('PUT', { level })),
 };
+
+/** Ein Verlauf mit Stufe (F-449): `ref` für PUT /api/notify (Profil: Profilname, sonst ID), `level` null = Voreinstellung. */
+export interface NotifyChannel {
+  kind: FollowKind;
+  ref: string;
+  path: string | null;
+  name: string;
+  member: boolean;
+  level: NotifyLevel | null;
+}
 
 // ================================================================ Verein, Hafen, Team und Reaktionen (Konzept 12)
 

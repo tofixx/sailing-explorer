@@ -11,7 +11,7 @@ import { canView, nextShareKey, requestKey } from './access';
 import { assertActive, isAdmin, logLockedView } from './moderation';
 import { checkVisibilityChoice, isSupporter, supportConfigured, visibilityRequiresSupport } from './supporter';
 import { groupActivityCleanup, memberShareTargetsCleanup, recordBoat, recordMember } from './activity';
-import { followStats } from './follows';
+import { addFollow, followStats } from './follows';
 import { clearHomeClub } from './home';
 import { loadCover, pageCover, removeCoverOf } from './covers';
 import { galleryPhotos } from './gallery';
@@ -20,11 +20,12 @@ import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, parseVisibility } from './v
 import { GROUP_LIMITS, groupLimitMessage, groupVerdict } from '../src/domain/limits';
 import { canChooseVisibility, DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 import {
-  canApprove, canManageGroup, canRemoveMember, effectiveJoinMode, isApprovers, isGroupKind, isGroupRole, isJoinMode, normalizeSlug,
-  type Approvers, type GroupKind, type GroupRole, type JoinMode,
+  DEFAULT_MEMBERS_VISIBLE, canApprove, canManageGroup, canRemoveMember, canSeeMembers, effectiveJoinMode, isApprovers, isGroupKind, isGroupRole, isJoinMode,
+  isMembersVisible, normalizeSlug, type Approvers, type GroupKind, type GroupRole, type JoinMode, type MembersVisible,
 } from '../src/domain/groups';
-import { funnyName } from '../src/domain/names';
+import { funnyName, memberAlias } from '../src/domain/names';
 import { effectivePostBy, isPostBy } from '../src/domain/posts';
+import { isNotifyLevel, parseDefaultLevel } from '../src/domain/notifications';
 import { coverRef } from '../src/domain/cover';
 import { notifyRequest } from './notifications';
 import { claimTargetCleanup, displacedSql } from './claim-cleanup';
@@ -52,6 +53,8 @@ export interface GroupRow {
   approve_by: Approvers;
   /** wer Beiträge schreibt (0029, B3): admins | members, NULL = Standard je Art */
   post_by?: string | null;
+  /** wer die Mitgliederliste sieht (0032, F-440): members | public */
+  members_visible?: string | null;
   owner_id: string;
   hidden_at: number | null;
   /** gesperrt (0023, Konzept 18.2): niemand hat dann eine Rolle */
@@ -145,6 +148,8 @@ export function groupShape(g: GroupRow, role: GroupRole | null) {
     approveBy: g.approve_by,
     // wer Beiträge schreibt (F-421): gespeichert oder Standard je Art
     postBy: effectivePostBy(g.kind, g.post_by),
+    // wer die Mitgliederliste sieht (F-440) – unbekannt zählt wie „nur Mitglieder“
+    membersVisible: (isMembersVisible(g.members_visible) ? g.members_visible : DEFAULT_MEMBERS_VISIBLE) as MembersVisible,
     // Schlüssel und Link nur für Eigner und Admins (Konzept 2.4).
     shareKey: manager ? g.share_key : null,
     link: manager ? sharePath('g', g.slug, g.visibility, g.share_key) : null,
@@ -176,6 +181,8 @@ interface GroupInput {
   approveBy?: unknown;
   /** wer Beiträge schreibt (F-421) – nur der Eigner */
   postBy?: unknown;
+  /** wer die Mitgliederliste sieht (F-440) – nur der Eigner */
+  membersVisible?: unknown;
   parentId?: unknown;
   rotateKey?: unknown;
 }
@@ -199,6 +206,10 @@ function applyInput(g: GroupRow, input: GroupInput): Visibility | null {
   if (input.postBy !== undefined) {
     if (!isPostBy(input.postBy)) throw new HttpError(400, 'invalid_post_by', 'Unbekannte Regel, wer Beiträge schreibt.');
     g.post_by = input.postBy;
+  }
+  if (input.membersVisible !== undefined) {
+    if (!isMembersVisible(input.membersVisible)) throw new HttpError(400, 'invalid_members_visible', 'Unbekannte Regel, wer die Mitgliederliste sieht.');
+    g.members_visible = input.membersVisible;
   }
   if (input.joinMode !== undefined) {
     if (!isJoinMode(input.joinMode)) throw new HttpError(400, 'invalid_join_mode', 'Unbekannte Beitrittsregel.');
@@ -228,7 +239,7 @@ export async function createGroup(request: Request, env: Env): Promise<Response>
   const now = Date.now();
   const g: GroupRow = {
     id: randomId(), kind: input.kind, parent_id: null, slug: '', name: '', description: '', home_port: '', visibility: DEFAULT_VISIBILITY,
-    share_key: null, join_mode: 'request', approve_by: 'admins', owner_id: user.id, hidden_at: null, created_at: now, updated_at: now,
+    share_key: null, join_mode: 'request', approve_by: 'admins', members_visible: DEFAULT_MEMBERS_VISIBLE, owner_id: user.id, hidden_at: null, created_at: now, updated_at: now,
   };
   const requested = applyInput(g, { name: '', ...input, slug: input.slug ?? '' }) ?? DEFAULT_VISIBILITY;
 
@@ -256,9 +267,9 @@ export async function createGroup(request: Request, env: Env): Promise<Response>
   try {
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO groups (id, kind, parent_id, slug, name, description, home_port, harbor_id, visibility, share_key, join_mode, approve_by, post_by, owner_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(g.id, g.kind, g.parent_id, g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.owner_id, now, now),
+        `INSERT INTO groups (id, kind, parent_id, slug, name, description, home_port, harbor_id, visibility, share_key, join_mode, approve_by, post_by, members_visible, owner_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(g.id, g.kind, g.parent_id, g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.members_visible, g.owner_id, now, now),
       env.DB.prepare(`INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)`).bind(g.id, user.id, now),
     ]);
   } catch (err) {
@@ -277,10 +288,10 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   const { user, group: g, role } = await memberGroup(request, env, id, 'manager');
   const input = await readJson<GroupInput>(request);
   const previous = g.visibility;
-  const before = { approveBy: g.approve_by, joinMode: g.join_mode, postBy: effectivePostBy(g.kind, g.post_by) };
+  const before = { approveBy: g.approve_by, joinMode: g.join_mode, postBy: effectivePostBy(g.kind, g.post_by), membersVisible: g.members_visible };
   const next = applyInput(g, input);
-  if ((g.approve_by !== before.approveBy || g.join_mode !== before.joinMode || effectivePostBy(g.kind, g.post_by) !== before.postBy) && role !== 'owner') {
-    throw FORBIDDEN('Beitritt, wer Anfragen bestätigt und wer Beiträge schreibt, legt der Eigentümer fest.');
+  if ((g.approve_by !== before.approveBy || g.join_mode !== before.joinMode || effectivePostBy(g.kind, g.post_by) !== before.postBy || g.members_visible !== before.membersVisible) && role !== 'owner') {
+    throw FORBIDDEN('Beitritt, wer Anfragen bestätigt, wer Beiträge schreibt und wer die Mitglieder sieht, legt der Eigentümer fest.');
   }
   await applyHarbor(env, user, g, input);
   // Bestehende Vereine ohne Hafen dürfen weiter bearbeitet werden – nur ausdrücklich entfernen geht nicht (F-354)
@@ -294,9 +305,9 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   if (await slugTaken(env, g.slug, g.id)) throw SLUG_TAKEN();
   g.updated_at = Date.now();
   await env.DB.prepare(
-    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, approve_by = ?, post_by = ?, updated_at = ? WHERE id = ?',
+    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, approve_by = ?, post_by = ?, members_visible = ?, updated_at = ? WHERE id = ?',
   )
-    .bind(g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.updated_at, g.id)
+    .bind(g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.members_visible ?? DEFAULT_MEMBERS_VISIBLE, g.updated_at, g.id)
     .run();
   return json({ group: groupShape(g, role) });
 }
@@ -388,18 +399,24 @@ export async function purgeUserGroups(env: Env, userId: string): Promise<D1Prepa
 export async function listMyGroups(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const { results } = await env.DB.prepare(
-    `SELECT g.*, m.role AS my_role, m.muted_at AS my_muted, (SELECT COUNT(*) FROM group_members x WHERE x.group_id = g.id) AS members
+    `SELECT g.*, m.role AS my_role, m.notify_level AS my_level, (SELECT COUNT(*) FROM group_members x WHERE x.group_id = g.id) AS members
      FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? AND g.locked_at IS NULL ORDER BY g.name`,
   )
     .bind(user.id)
-    .all<GroupRow & { my_role: GroupRole; my_muted: number | null; members: number }>();
+    .all<GroupRow & { my_role: GroupRole; my_level: string | null; members: number }>();
   const { results: requests } = await env.DB.prepare(
     `SELECT g.id, g.slug, g.name, g.kind, r.created_at FROM group_requests r JOIN groups g ON g.id = r.group_id WHERE r.user_id = ? ORDER BY r.created_at DESC`,
   )
     .bind(user.id)
     .all<{ id: string; slug: string; name: string; kind: GroupKind; created_at: number }>();
+  const prefs = await env.DB.prepare('SELECT notify_prefs FROM users WHERE id = ?').bind(user.id).first<{ notify_prefs: string | null }>();
+  const fallback = parseDefaultLevel(prefs?.notify_prefs);
   return json({
-    groups: results.map((g) => ({ ...groupShape(g, g.my_role), members: g.members, muted: g.my_muted !== null })),
+    groups: results.map((g) => ({
+      ...groupShape(g, g.my_role), members: g.members, muted: g.my_level === 'muted',
+      // Stufe der Benachrichtigungen (F-449), ohne eigene Wahl die Voreinstellung
+      notifyLevel: isNotifyLevel(g.my_level) ? g.my_level : fallback,
+    })),
     requests: requests.map((r) => ({ id: r.id, ...short(r), createdAt: r.created_at })),
   });
 }
@@ -445,17 +462,24 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
   )
     .bind(group.id)
     .all<MemberRow>();
-  // Namentlich nur mit öffentlichem Profil; Eigner und Admins sehen alle Anzeigenamen (zum Verwalten), nie E-Mails.
-  const named = manager ? members : members.filter((m) => m.public_profile && m.handle);
-  const memberList = named.map((m) => ({
-    id: manager ? m.user_id : null,
-    handle: m.public_profile ? m.handle : null,
-    displayName: m.display_name || funnyName(m.user_id),
-    role: m.role,
-    isSelf: m.user_id === user?.id,
-  }));
+  // Mitgliederliste (F-440, F-441): Eigner und Admins sehen alle Anzeigenamen (zum Verwalten), nie E-Mails. Sonst nur
+  // Mitglieder bzw. alle bei öffentlicher Liste – dann Name mit öffentlichem Profil, sonst der Spaßname dieser Gruppe.
+  // Gäste und Nicht-Mitglieder ohne öffentliche Liste sehen nur die Zahl (stats.members).
+  const seeMembers = manager || canSeeMembers(group.members_visible, role);
+  const memberList = (seeMembers ? members : []).map((m) => {
+    const named = manager || (!!m.public_profile && !!m.handle);
+    return {
+      id: manager ? m.user_id : null,
+      handle: m.public_profile ? m.handle : null,
+      displayName: manager ? m.display_name || funnyName(m.user_id) : named ? (m.display_name ?? '') : memberAlias(m.user_id, group.id),
+      ...(named ? {} : { alias: true }),
+      role: m.role,
+      isSelf: m.user_id === user?.id,
+    };
+  });
 
-  // Boote: öffentliche für alle; eigene (verwaltete) zusätzlich für ihre Verwalter, damit sie sie entfernen können.
+  // Boote (F-442): öffentliche, soweit der Betrachter die Mitglieder sehen darf (ein Boot verrät seinen Eigner); eigene
+  // (verwaltete) immer für ihre Verwalter, damit sie sie entfernen können.
   const { results: boats } = await env.DB.prepare(
     `SELECT b.id, b.name, b.boat_type, b.length_m, b.home_port, b.visibility, b.hidden_at,
        (b.owner_id = ?2 OR EXISTS (SELECT 1 FROM boat_admins a WHERE a.boat_id = b.id AND a.user_id = ?2)) AS mine
@@ -464,7 +488,7 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     .bind(group.id, user?.id ?? '')
     .all<{ id: string; name: string; boat_type: string; length_m: number | null; home_port: string; visibility: Visibility; hidden_at: number | null; mine: number }>();
   const boatList = boats
-    .filter((b) => b.mine || (b.visibility === 'public' && !b.hidden_at))
+    .filter((b) => b.mine || (seeMembers && b.visibility === 'public' && !b.hidden_at))
     .map((b) => ({ id: b.id, name: b.name, boatType: b.boat_type, lengthM: b.length_m, homePort: b.home_port, mine: !!b.mine, canRemove: !!b.mine || manager, public: b.visibility === 'public' && !b.hidden_at }));
 
   // Verein bzw. Teams – nur sichtbare
@@ -479,7 +503,8 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     .all<{ slug: string; name: string; kind: GroupKind }>();
 
   const requested = !!user && !role && !!(await env.DB.prepare('SELECT 1 AS x FROM group_requests WHERE group_id = ? AND user_id = ?').bind(group.id, user.id).first());
-  const muted = !!user && !!role && !!(await env.DB.prepare('SELECT 1 AS x FROM group_members WHERE group_id = ? AND user_id = ? AND muted_at IS NOT NULL').bind(group.id, user.id).first());
+  const social = await followStats(env, 'group', group.id, user?.id ?? null);
+  const muted = !!role && social.notifyLevel === 'muted';
   const approver = canApprove(role, group.approve_by);
   const mode = effectiveJoinMode(group);
   return json({
@@ -488,9 +513,10 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     teams,
     stats: await groupStats(env, group.id),
     members: memberList,
-    others: members.length - named.length,
+    /** Liste verborgen (F-441): nur die Anzahl in `stats.members` */
+    membersHidden: !seeMembers,
     boats: boatList,
-    social: await followStats(env, 'group', group.id, user?.id ?? null),
+    social,
     // Titelbild und neueste öffentliche Fotos aus den in der Gruppe gezeigten Törns (Konzept 13, 11.12)
     ...pageCover('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request)),
     photos: await galleryPhotos(env, 'group', group.id),
@@ -554,14 +580,24 @@ export const GROUP_FULL = () => new HttpError(409, 'quota', `Eine Gruppe hat hö
 export async function addMember(env: Env, groupId: string, userId: string): Promise<boolean> {
   if ((await memberCount(env, groupId)) >= GROUP_LIMITS.members) throw GROUP_FULL();
   const now = Date.now();
+  // Aus Folgen wird Mitgliedschaft (F-446): die gewählte Stufe geht mit, die follows-Zeile fällt weg
   const [ins] = await env.DB.batch([
-    env.DB.prepare(`INSERT OR IGNORE INTO group_members (group_id, user_id, role, created_at) VALUES (?, ?, 'member', ?)`).bind(groupId, userId, now),
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO group_members (group_id, user_id, role, created_at, notify_level)
+       VALUES (?1, ?2, 'member', ?3, (SELECT notify_level FROM follows WHERE user_id = ?2 AND target_kind = 'group' AND target_id = ?1))`,
+    ).bind(groupId, userId, now),
     env.DB.prepare('DELETE FROM group_requests WHERE group_id = ? AND user_id = ?').bind(groupId, userId),
+    ...followToMemberStmts(env, groupId, userId),
   ]);
   if (!ins.meta.changes) return false;
   await recordMember(env, groupId, userId, now);
   return true;
 }
+
+/** Folgen und Mitgliedschaft schließen sich aus (F-446): wer Mitglied ist, folgt der Gruppe nicht (mehr). */
+export const followToMemberStmts = (env: Env, groupId: string, userId: string): D1PreparedStatement[] => [
+  env.DB.prepare(`DELETE FROM follows WHERE user_id = ? AND target_kind = 'group' AND target_id = ? AND EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = follows.target_id AND m.user_id = follows.user_id)`).bind(userId, groupId),
+];
 
 /** PATCH /api/groups/:id/members/:userId – nur der Eigner ernennt Admins bzw. setzt sie ab. */
 export async function setMemberRole(request: Request, env: Env, id: string, who: string): Promise<Response> {
@@ -586,6 +622,7 @@ export const transferGroupStmts = (env: Env, groupId: string, from: string | nul
      ON CONFLICT(group_id, user_id) DO UPDATE SET role = 'owner'`,
   ).bind(groupId, to, now),
   env.DB.prepare('DELETE FROM group_requests WHERE group_id = ? AND user_id = ?').bind(groupId, to),
+  ...followToMemberStmts(env, groupId, to),
   env.DB.prepare('UPDATE groups SET owner_id = ?, updated_at = ?, verified_at = NULL WHERE id = ?').bind(to, now, groupId),
 ];
 
@@ -608,12 +645,15 @@ export async function transferGroup(request: Request, env: Env, id: string): Pro
   return json({ owner: userId });
 }
 
-/** PUT /api/groups/:id/mute `{ muted }` – eigene Mitgliedschaft stumm schalten bzw. wieder laut (F-346). */
+/**
+ * PUT /api/groups/:id/mute `{ muted }` – eigene Mitgliedschaft stumm schalten bzw. wieder laut (F-346): Kurzform der
+ * Stufe (F-449) – stumm = `muted`, laut = zurück zur Voreinstellung.
+ */
 export async function muteGroup(request: Request, env: Env, id: string): Promise<Response> {
   const { user, group } = await memberGroup(request, env, id, 'member');
   const { muted } = await readJson<{ muted?: unknown }>(request);
   if (typeof muted !== 'boolean') throw new HttpError(400, 'invalid_mute', 'muted: true oder false.');
-  await env.DB.prepare('UPDATE group_members SET muted_at = ? WHERE group_id = ? AND user_id = ?').bind(muted ? Date.now() : null, group.id, user.id).run();
+  await env.DB.prepare('UPDATE group_members SET notify_level = ? WHERE group_id = ? AND user_id = ?').bind(muted ? 'muted' : null, group.id, user.id).run();
   return json({ muted });
 }
 
@@ -626,6 +666,10 @@ export async function removeMember(request: Request, env: Env, id: string, who: 
   if (target === user.id && role === 'owner') throw new HttpError(400, 'owner_cannot_leave', 'Übergib die Gruppe zuerst an einen Admin – oder lösche sie.');
   if (!canRemoveMember(role, targetRole, target === user.id)) throw FORBIDDEN('Admins entfernt nur der Eigentümer.');
   await env.DB.batch(leaveGroupStmts(env, group.id, target));
+  // Austritt mit „Weiter folgen?“ – Ja (`?follow=1`): Folgen mit „Nur Direktes“ (F-446), nur bei öffentlichen Gruppen
+  if (target === user.id && new URL(request.url).searchParams.get('follow') === '1' && group.visibility === 'public' && !group.hidden_at) {
+    await addFollow(env, user.id, 'group', group.id);
+  }
   return new Response(null, { status: 204 });
 }
 

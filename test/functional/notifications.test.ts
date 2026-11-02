@@ -42,7 +42,7 @@ const follow = async (p: Person, kind: string, id: string) => {
   expect(res.status, await res.clone().text()).toBe(200);
 };
 const post = async (admin: Person, g: { id: string }, body = 'Ansegeln am Samstag') => {
-  const res = await s.send('POST', `/api/groups/${g.id}/posts`, admin.cookie, { body });
+  const res = await s.send('POST', `/api/groups/${g.id}/posts`, admin.cookie, { visibility: 'public', body });
   expect(res.status, await res.clone().text()).toBe(201);
   return ((await res.json()) as { post: { id: string } }).post;
 };

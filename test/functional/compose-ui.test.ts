@@ -87,7 +87,7 @@ const targets: ComposeTarget[] = [
 ];
 
 describe('sx-compose-dialog', () => {
-  it('[F-405] [F-409] „Wo steht es?“ vorausgewählt, Stufen des Verlaufs mit Kette (Vorschlag „überall“), Anhang; meldet den Verlauf', async () => {
+  it('[F-405] [F-409] [F-445] „Wo steht es?“ vorausgewählt, in Gruppen „Nur Mitglieder“ vorgewählt, Stufen des Verlaufs mit Kette (Vorschlag „überall“), Anhang; meldet den Verlauf', async () => {
     const submits = listen('sx-compose-submit');
     const el = await mount('sx-compose-dialog', { open: true, targets, shares: [{ id: 'S1', title: 'Rügen', startedAt: T }], selected: 'group:reg' });
     await settle(el);
@@ -95,6 +95,11 @@ describe('sx-compose-dialog', () => {
     expect([...where.options].map((o) => o.textContent!.trim())).toEqual(['Mein Profil', 'Team Mittwochsregatta', 'Hafen Potsdam']);
     expect(where.value).toBe('group:reg');
     const c = inner(el, 'sx-post-composer');
+    await settle(c);
+    // in Gruppen vorgewählt „Nur Mitglieder“ (F-445) – „Öffentlich“ wählt man bewusst
+    const radios = c.shadowRoot.querySelectorAll('input[type="radio"]');
+    expect((radios[1] as HTMLInputElement).checked).toBe(true);
+    (radios[0] as HTMLInputElement).click();
     await settle(c);
     const picker = c.shadowRoot.querySelector('sx-reach-picker') as LitEl;
     await picker.updateComplete;

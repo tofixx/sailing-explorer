@@ -52,9 +52,72 @@ export const CHOOSABLE_LABEL: Record<ChoosableKind, string> = {
   post: 'Neue Beiträge in deinen Gruppen, deinem Hafen und an deinen Booten',
 };
 
-/** Wählbare Kanäle je Art: „Aus“ nur, wo es den Standard bildet (neue Beiträge, F-416) – sonst immer mindestens die Glocke. */
-export const channelsFor = (kind: ChoosableKind): readonly Channel[] => (kind === 'post' ? CHANNELS : CHANNELS.filter((c) => c !== 'off'));
-export const DEFAULT_CHANNELS: Record<ChoosableKind, Channel> = { comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none', post: 'off' };
+/**
+ * Wählbare Kanäle je Art – immer mindestens die Glocke. Ob ein neuer Beitrag überhaupt benachrichtigt, entscheidet seit
+ * F-449 die Stufe je Verlauf (`shouldNotify`), nicht mehr ein globales „Aus“; gespeichertes `off` fällt auf den Standard.
+ */
+export const channelsFor = (_kind: ChoosableKind): readonly Channel[] => CHANNELS.filter((c) => c !== 'off');
+export const DEFAULT_CHANNELS: Record<ChoosableKind, Channel> = { comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none', post: 'none' };
+
+// ---------------------------------------------------------------- Stufen je Verlauf (Konzept 24.6, F-449)
+
+/**
+ * Benachrichtigungs-Stufe je Verlauf (Gruppe als Mitglied, gefolgte Gruppe, Hafen, Boot, Profil): alle Beiträge,
+ * Wichtiges (Standard), nur Direktes, stumm (auch nicht im persönlichen Stream, F-346).
+ */
+export const NOTIFY_LEVELS = ['all', 'important', 'direct', 'muted'] as const;
+export type NotifyLevel = (typeof NOTIFY_LEVELS)[number];
+export const isNotifyLevel = oneOf(NOTIFY_LEVELS);
+/** Standard für Mitgliedschaften (bzw. die Voreinstellung des Kontos) … */
+export const DEFAULT_NOTIFY_LEVEL: NotifyLevel = 'important';
+/** … und für Folgende, die nur Öffentliches sehen und eher wenig Benachrichtigungen wollen (F-446). */
+export const FOLLOW_DEFAULT_LEVEL: NotifyLevel = 'direct';
+/** Wählbar als Voreinstellung für neue Verläufe – „stumm“ nur je Verlauf. */
+export const DEFAULT_LEVEL_CHOICES: readonly NotifyLevel[] = ['all', 'important', 'direct'];
+export const NOTIFY_LEVEL_LABEL: Record<NotifyLevel, string> = { all: 'Alle Beiträge', important: 'Wichtiges', direct: 'Nur Direktes', muted: 'Stumm' };
+export const NOTIFY_LEVEL_HINT: Record<NotifyLevel, string> = {
+  all: 'Glocke bei jedem neuen Beitrag.',
+  important: 'Umfragen, Veranstaltungen, angepinnte Beiträge und alles, was dich direkt betrifft.',
+  direct: 'Nur Reaktionen und Kommentare auf deine Inhalte, Erwähnungen und Anfragen.',
+  muted: 'Nichts – auch nicht in deinen Neuigkeiten.',
+};
+
+/**
+ * Art eines Ereignisses für die Stufen: Beitrag (Text, Törn …), wichtiger Beitrag (Umfrage, Veranstaltung, angepinnt)
+ * oder automatischer Eintrag (Beitritt, Boot, Meilenstein – benachrichtigt nie, F-448).
+ */
+export type NotifyEvent = 'post' | 'important' | 'automatic';
+export const NOTIFY_EVENTS: readonly NotifyEvent[] = ['post', 'important', 'automatic'];
+
+/** Ereignisart eines neuen bzw. angepinnten Beitrags aus seiner Art (`posts.kind`). */
+export const notifyEventOf = (postKind: string, pinned = false): NotifyEvent =>
+  pinned || postKind === 'poll' || postKind === 'event' ? 'important' : 'post';
+
+/**
+ * Die eine Regel (F-448, F-449): Benachrichtigt ein Ereignis bei dieser Stufe? Stumm nie, automatische Einträge nie,
+ * Direktes (Reaktion, Kommentar auf Eigenes, Erwähnung, Anfrage an Admins) ab „Nur Direktes“, Wichtiges ab
+ * „Wichtiges“, jeder Beitrag nur bei „Alle Beiträge“. Unbekannte Stufe zählt wie der Standard. Gleiche Regel als SQL:
+ * `notifyLevelSql` (worker/notify-sql.ts).
+ */
+export function shouldNotify(level: unknown, event: NotifyEvent, isDirect = false): boolean {
+  const l: NotifyLevel = isNotifyLevel(level) ? level : DEFAULT_NOTIFY_LEVEL;
+  if (l === 'muted' || event === 'automatic') return false;
+  if (isDirect) return true;
+  return event === 'important' ? l === 'all' || l === 'important' : l === 'all';
+}
+
+/** Alle Stufen, bei denen das Ereignis benachrichtigt – Grundlage des SQL-Bausteins. */
+export const levelsNotifying = (event: NotifyEvent, isDirect = false): NotifyLevel[] => NOTIFY_LEVELS.filter((l) => shouldNotify(l, event, isDirect));
+
+/** Voreinstellung für neue Verläufe aus `users.notify_prefs` (`level`; Unbekanntes → Standard). */
+export function parseDefaultLevel(raw: unknown): NotifyLevel {
+  try {
+    const v = typeof raw === 'string' && raw ? (JSON.parse(raw) as { level?: unknown }).level : undefined;
+    return isNotifyLevel(v) && DEFAULT_LEVEL_CHOICES.includes(v) ? v : DEFAULT_NOTIFY_LEVEL;
+  } catch {
+    return DEFAULT_NOTIFY_LEVEL;
+  }
+}
 export type NotifyPrefs = Record<ChoosableKind, Channel>;
 
 /** Gespeicherte Auswahl (JSON in `users.notify_prefs`) lesen – Unbekanntes fällt auf den Standard zurück. */

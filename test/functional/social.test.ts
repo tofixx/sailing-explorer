@@ -46,7 +46,7 @@ async function harbor(p: Person, name: string): Promise<{ res: Response; harbor:
 }
 const team = (owner: Person, club: { id: string }, o: Record<string, unknown> = {}) => s.group(owner, { kind: 'team', name: 'Regattacrew', parentId: club.id, ...o });
 const post = async (admin: Person, g: { id: string }, body = 'Hallo Hafen', extra: Record<string, unknown> = {}) => {
-  const res = await s.send('POST', `/api/groups/${g.id}/posts`, admin.cookie, { body, ...extra });
+  const res = await s.send('POST', `/api/groups/${g.id}/posts`, admin.cookie, { visibility: 'public', body, ...extra });
   expect(res.status, await res.clone().text()).toBe(201);
   return ((await res.json()) as { post: { id: string } }).post;
 };
@@ -78,7 +78,9 @@ describe('F-170 Mein Verein', () => {
     expect(mine.club.id).toBe(club.id);
     expect(mine.clubs.map((c) => c.id).sort()).toEqual([club.id, closed.id].sort());
 
-    const prof = (await (await h.fetch(`/api/profiles/${me.handle}`)).json()) as { home: { club: { slug: string; name: string } | null } };
+    // „Mitglied von“ nur für Mitglieder desselben Vereins (F-444) – Gäste nie
+    expect(((await (await h.fetch(`/api/profiles/${me.handle}`)).json()) as { home: { club: unknown } }).home.club).toBeNull();
+    const prof = (await (await s.send('GET', `/api/profiles/${me.handle}`, owner.cookie)).json()) as { home: { club: { slug: string; name: string } | null } };
     expect(prof.home.club).toEqual({ slug: club.slug, name: 'Potsdamer Yacht Club' });
     // geschlossener Verein: Wahl gilt, aber das Profil verrät ihn nicht
     await s.send('PUT', '/api/me/home', me.cookie, { clubId: closed.id });
@@ -140,7 +142,9 @@ describe('F-171 … F-174 Häfen', () => {
     expect(got.boat.homePort).toBe(hb.name);
     expect(got.clubs).toEqual([]);
     await s.send('POST', `/api/groups/${club.id}/boats`, owner.cookie, { boatId: boat.id });
-    const withClub = (await (await h.fetch(`/api/boats/${boat.id}`)).json()) as { clubs: Array<{ slug: string; name: string }> };
+    // „Verein des Boots“ folgt der Mitgliederliste des Vereins (F-442): Gäste nicht, Mitglieder schon
+    expect(((await (await h.fetch(`/api/boats/${boat.id}`)).json()) as { clubs: unknown[] }).clubs).toEqual([]);
+    const withClub = (await (await s.send('GET', `/api/boats/${boat.id}`, owner.cookie)).json()) as { clubs: Array<{ slug: string; name: string }> };
     expect(withClub.clubs).toEqual([{ slug: club.slug, name: 'SC Hafenblick', kind: 'club' }]);
     // Text (alte Clients): vorhandener Hafen per Normalisierung
     const viaText = await s.send('PATCH', `/api/boats/${boat.id}`, owner.cookie, { homePort: hb.name.toUpperCase() });
@@ -181,7 +185,7 @@ describe('F-171 … F-174 Häfen', () => {
     // Folgen
     const b = await s.person();
     const f = await s.send('PUT', `/api/follows/harbor/${hb.id}`, b.cookie);
-    expect(await f.json()).toEqual({ followers: 1, isFollowing: true });
+    expect(await f.json()).toEqual({ followers: 1, isFollowing: true, notifyLevel: 'direct' });
     // Vorschau
     expect(await (await h.fetch(`/h/${hb.slug}`)).text()).toContain(`Hafen ${hb.name} · Sail Explorer`);
     // ausgeblendet: 404 (Seite, Stream, Folgen); die Moderation sieht ihn

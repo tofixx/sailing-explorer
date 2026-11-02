@@ -3,10 +3,13 @@ import type { FollowKind, FollowStats } from '../services/api';
 import { plural } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
+import './sx-notify-bell';
+import { FOLLOW_DEFAULT_LEVEL } from '../domain/notifications';
 
 /**
  * „Folgen“-Knopf mit Follower-Anzahl (Konzept 11.2). Meldet `sx-follow` { kind, id, follow } – ohne Anmeldung
- * `sx-login`. Folgen öffnet nichts; der Knopf erscheint nur auf öffentlichen Seiten (die App entscheidet).
+ * `sx-login`. Folgen öffnet nichts; der Knopf erscheint nur auf öffentlichen Seiten (die App entscheidet). Wer folgt,
+ * bekommt daneben die Glocke mit der Stufe der Benachrichtigungen (`sx-notify-bell`, F-449).
  */
 export class SxFollow extends LitElement {
   static properties = {
@@ -65,9 +68,13 @@ export class SxFollow extends LitElement {
     const s = this.stats;
     const on = !!s?.isFollowing;
     const aria = this.label ? `${this.label} folgen` : 'Folgen';
-    return html`<button class="btn" aria-pressed=${on ? 'true' : 'false'} ?disabled=${this.busy} @click=${this.toggle} aria-label=${aria}>
-        ${icon(on ? 'check' : 'user')} ${on ? 'Folge ich' : 'Folgen'}
-      </button>
+    // Folgend (F-446): ein Knopf „Folgst du ▾“ mit Glockenstufe und Entfolgen; sonst „Folgen“
+    const head = on && this.signedIn
+      ? html`<sx-notify-bell following kind=${this.kind} target-id=${this.targetId} label=${this.label} level=${s?.notifyLevel ?? FOLLOW_DEFAULT_LEVEL}></sx-notify-bell>`
+      : html`<button class="btn" aria-pressed=${on ? 'true' : 'false'} ?disabled=${this.busy} @click=${this.toggle} aria-label=${aria}>
+          ${icon(on ? 'check' : 'user')} ${on ? 'Folge ich' : 'Folgen'}
+        </button>`;
+    return html`${head}
       ${s ? html`<span class="count">${plural(s.followers, 'Follower', 'Follower')}${s.following !== undefined ? ` · folgt ${s.following}` : ''}</span>` : ''}`;
   }
 }

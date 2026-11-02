@@ -16,7 +16,8 @@ interface CountRow {
 
 /**
  * Neues der letzten 7 Tage je Gruppe eines Kontos – nur, was beim Lesen sichtbar wäre: Törns und Fotos nur, wenn der
- * Törn öffentlich und nicht ausgeblendet ist; Beiträge nicht ausgeblendet; keine Inhalte gesperrter Konten.
+ * Törn öffentlich und nicht ausgeblendet ist; Beiträge nicht ausgeblendet; keine Inhalte gesperrter Konten. Nur Beiträge –
+ * automatische Einträge (Beitritte, F-448) zählen nicht; stumme Verläufe (F-449) fallen weg.
  */
 const COUNTS_SQL = `SELECT g.id AS group_id, g.slug, g.name, a.kind,
     SUM(CASE WHEN a.kind = 'photos' THEN COALESCE(json_extract(a.data, '$.count'), 1) ELSE 1 END) AS n
@@ -27,7 +28,7 @@ const COUNTS_SQL = `SELECT g.id AS group_id, g.slug, g.name, a.kind,
   LEFT JOIN users au ON au.id = a.actor_id
   LEFT JOIN shares s ON a.subject_kind = 'share' AND s.id = a.subject_id
   LEFT JOIN posts p ON a.subject_kind = 'post' AND p.id = a.subject_id
-  WHERE m.user_id = ?1 AND m.muted_at IS NULL AND a.kind IN ('voyage', 'photos', 'post', 'member')
+  WHERE m.user_id = ?1 AND m.notify_level IS NOT 'muted' AND a.kind IN ('voyage', 'photos', 'post')
     AND (a.actor_id IS NULL OR au.suspended_at IS NULL)
     AND (a.kind NOT IN ('voyage', 'photos') OR (s.visibility = 'public' AND s.hidden_at IS NULL))
     AND (a.kind <> 'post' OR (p.id IS NOT NULL AND p.hidden_at IS NULL))
@@ -53,14 +54,13 @@ export async function sendGroupDigests(env: Env, origin: string, now = Date.now(
     const { results } = await env.DB.prepare(COUNTS_SQL).bind(u.id, since, now).all<CountRow>();
     const byGroup = new Map<string, GroupDigestItem>();
     for (const r of results) {
-      const g = byGroup.get(r.group_id) ?? { name: r.name, path: `/g/${r.slug}`, voyages: 0, photos: 0, posts: 0, members: 0 };
+      const g = byGroup.get(r.group_id) ?? { name: r.name, path: `/g/${r.slug}`, voyages: 0, photos: 0, posts: 0 };
       if (r.kind === 'voyage') g.voyages += r.n;
       else if (r.kind === 'photos') g.photos += r.n;
       else if (r.kind === 'post') g.posts += r.n;
-      else if (r.kind === 'member') g.members += r.n;
       byGroup.set(r.group_id, g);
     }
-    const groups = [...byGroup.values()].filter((g) => g.voyages + g.photos + g.posts + g.members > 0);
+    const groups = [...byGroup.values()].filter((g) => g.voyages + g.photos + g.posts > 0);
     if (groups.length) {
       try {
         await sendMail(env, groupDigestMail(env, u.email, origin, groups));

@@ -1,6 +1,7 @@
 import { inviteWhat } from '../domain/invite-text';
-import type { MyGroup } from '../services/api';
+import type { MyGroup, NotifyChannel } from '../services/api';
 import './sx-my-groups';
+import './sx-notify-channels';
 import type { MyRequest } from './sx-my-groups';
 import { passkeysSupported } from '../services/passkey';
 import { LitElement, html, css, type PropertyValues } from 'lit';
@@ -13,7 +14,7 @@ import { boatLimitText, usageText } from '../domain/limits';
 import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { CHANNEL_LABEL, CHOOSABLE, CHOOSABLE_LABEL, DEFAULT_CHANNELS, MANDATORY_HINT, channelsFor, type Channel } from '../domain/notifications';
+import { CHANNEL_LABEL, CHOOSABLE, CHOOSABLE_LABEL, DEFAULT_CHANNELS, MANDATORY_HINT, channelsFor, type Channel, type NotifyLevel } from '../domain/notifications';
 import { base, dialogStyles, emit, inviteTarget, pendingLabel, logbookTag } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
@@ -37,6 +38,8 @@ const TABS: Array<[AccountTab, string]> = [
 export class SxAccountDialog extends LitElement {
   static properties = {
     myGroups: { attribute: false },
+    /** Stufen je Verlauf und Voreinstellung (F-449) */
+    notifyChannels: { attribute: false },
     open: { type: Boolean },
     tab: { type: String },
     user: { attribute: false },
@@ -76,6 +79,7 @@ export class SxAccountDialog extends LitElement {
   declare boats: Boat[];
   /** „Meine Gruppen“ (F-348) – null bis geladen */
   declare myGroups: { groups: MyGroup[]; requests: MyRequest[] } | null;
+  declare notifyChannels: { defaultLevel: NotifyLevel; channels: NotifyChannel[] } | null;
   declare shares: ShareMeta[];
   /** Admins des aufgeklappten Boots (data null = lädt) */
   declare admins: { boatId: string; data: BoatAdmins | null } | null;
@@ -1008,12 +1012,15 @@ export class SxAccountDialog extends LitElement {
           )}
         </div>
         <p class="hint">${icon('lock')} ${MANDATORY_HINT}</p>
+        <div class="label" id="notify-levels-h">Benachrichtigungen je Gruppe, Hafen, Boot und Profil</div>
+        <p class="hint">Die Glocke legt fest, wofür ein Verlauf dich benachrichtigt: alle Beiträge, Wichtiges (Standard), nur Direktes oder stumm. Oben wählst du, wie (Glocke, Mail, Push).</p>
+        <sx-notify-channels aria-labelledby="notify-levels-h" .data=${this.notifyChannels} ?busy=${this.busy}></sx-notify-channels>
         <label class="check">
           <input type="checkbox" aria-describedby="notify-groups-hint" .checked=${st.notifyGroups === 'weekly'} ?disabled=${this.busy}
             @change=${(e: Event) => emit(this, 'sx-settings-save', { notifyGroups: (e.target as HTMLInputElement).checked ? 'weekly' : 'off' })} />
           <span>Wöchentliche Sammelmail „Was war los in deinem Verein“</span>
         </label>
-        <p class="hint" id="notify-groups-hint">Sonntags, nur wenn es in deinen Vereinen und Teams Neues gibt – mit Anzahl neuer Törns, Fotos, Beiträge und Mitglieder, ohne Texte und Namen.</p>
+        <p class="hint" id="notify-groups-hint">Sonntags, nur wenn es in deinen Vereinen und Teams Neues gibt – mit Anzahl neuer Törns, Fotos und Beiträge, ohne Texte und Namen; stumme Gruppen fehlen.</p>
       </div>
       ${!st.hasProfile ? html`<div class="note">${icon('info')}<span>Zum Kommentieren brauchst du ein Profil mit Anzeigenamen (Reiter „Profil“).</span></div>` : ''}
     `;

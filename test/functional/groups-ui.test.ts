@@ -8,6 +8,7 @@ import '../../src/components/sx-home-feed';
 import '../../src/components/sx-group-page';
 import '../../src/components/sx-my-groups';
 import '../../src/components/sx-follow';
+import '../../src/components/sx-notify-channels';
 import '../../src/components/sx-profile-page';
 import '../../src/components/sx-discover';
 import '../../src/components/sx-invite-dialog';
@@ -100,18 +101,21 @@ describe('sx-stream', () => {
     expect(text(empty.shadowRoot)).toContain('Nix los.');
   });
 
-  it('[F-213] Titelbild mit Ausschnitt, verlinkt wie der Eintrag; Törn-Übersichtsbild unbeschnitten', async () => {
+  it('[F-213] [F-447] automatische Einträge als graue Systemzeile ohne Titelbild; Törn-Übersichtsbild unbeschnitten; ausblendbar', async () => {
     const withCover: StreamItem[] = [
       { id: 'b1', kind: 'boat', createdAt: T, actor: null, group: { slug: 'sc', name: 'SC Kiel', kind: 'club' }, boat: { id: 'B1', name: 'Möwe' }, cover: { src: '/api/covers/b/B1/v1', y: 20 } },
       { id: 'v1', kind: 'voyage', createdAt: T, actor: null, group: null, voyage: { id: 'S1', title: 'Rügen', distNm: 4, startedAt: T, hasImage: true, boat: null } },
     ];
     const el = await mount('sx-stream', { items: withCover, cursor: null });
-    const banner = el.shadowRoot.querySelector<HTMLImageElement>('img.banner')!;
-    expect(banner.getAttribute('src')).toBe('/api/covers/b/B1/v1');
-    expect(banner.style.objectPosition).toBe('50% 20%');
-    expect(banner.closest('a')!.getAttribute('href')).toBe('/b/B1');
-    expect(el.shadowRoot.querySelectorAll('img.banner')).toHaveLength(1);
+    const lines = el.shadowRoot.querySelectorAll('li');
+    expect(lines[0].classList.contains('auto')).toBe(true);
+    expect(lines[1].classList.contains('auto')).toBe(false);
+    expect(text(lines[0])).toContain('Möwe');
+    expect(el.shadowRoot.querySelectorAll('img.banner')).toHaveLength(0);
     expect(el.shadowRoot.querySelector('img.cover')).not.toBeNull();
+    const hidden = await mount('sx-stream', { items: withCover, cursor: null, hideAuto: true });
+    expect(hidden.shadowRoot.querySelectorAll('li')).toHaveLength(1);
+    expect(text(hidden.shadowRoot)).not.toContain('Möwe');
   });
 });
 
@@ -197,11 +201,16 @@ describe('sx-follow', () => {
     expect(text(el.shadowRoot)).toContain('1 Follower');
     button(el.shadowRoot, /Möwe folgen/)!.click();
     expect(follows).toEqual([{ kind: 'boat', id: 'B1', follow: true }]);
-    el.stats = { followers: 2, following: 5, isFollowing: true };
+    // Folgend (F-446): ein Knopf „Folgst du ▾“ mit Glockenstufe (Standard „Nur Direktes“) und „Entfolgen“
+    el.stats = { followers: 2, following: 5, isFollowing: true, notifyLevel: 'direct' };
     await el.updateComplete;
-    expect(button(el.shadowRoot, /Folge ich/)!.getAttribute('aria-pressed')).toBe('true');
     expect(text(el.shadowRoot)).toContain('folgt 5');
-    button(el.shadowRoot, /Folge ich/)!.click();
+    const bell = el.shadowRoot.querySelector('sx-notify-bell') as unknown as LitEl & { level: string; following: boolean };
+    await bell.updateComplete;
+    expect(bell.following).toBe(true);
+    expect(bell.level).toBe('direct');
+    expect(text(bell.shadowRoot)).toContain('Folgst du');
+    button(bell.shadowRoot, /Entfolgen/)!.click();
     expect(follows[1]).toEqual({ kind: 'boat', id: 'B1', follow: false });
     el.signedIn = false;
     await el.updateComplete;
@@ -246,13 +255,18 @@ const pageData = (over: Partial<GroupPageData> = {}, role: string | null = null)
   }) as GroupPageData;
 
 describe('sx-group-page', () => {
-  it('[F-163] Besucher: Kopf escaped, Kennzahlen, Teams, „Beitritt anfragen“, Folgen, Melden, „+ n weitere“, RSS', async () => {
+  it('[F-163] [F-441] Besucher: Kopf escaped, Kennzahlen, Teams, „Beitritt anfragen“, Folgen, Melden, Spaßname mit Schloss, RSS', async () => {
     const joins = listen('sx-group-join');
-    const el = await mount('sx-group-page', { data: pageData(), signedIn: true, stream: { items: [], cursor: null } });
+    const d0 = pageData();
+    d0.members = [...d0.members, { id: null, handle: null, displayName: 'Mutige Krabbe', alias: true, role: 'member', isSelf: false } as (typeof d0.members)[number]];
+    const el = await mount('sx-group-page', { data: d0, signedIn: true, stream: { items: [], cursor: null } });
     const t = text(el.shadowRoot);
     expect(t).toContain('SC <Kiel>');
     expect(t).toContain('Heimathafen Kiel');
-    expect(t).toContain('+ 3 weitere Mitglieder ohne öffentliches Profil');
+    expect(el.shadowRoot.querySelector('.pseudo')?.textContent).toContain('Mutige Krabbe');
+    // verborgene Liste: nur die Anzahl (F-441)
+    const hiddenList = await mount('sx-group-page', { data: pageData({ members: [], membersHidden: true }), signedIn: true });
+    expect(text(hiddenList.shadowRoot)).toContain('die Liste sehen nur Mitglieder');
     expect(el.shadowRoot.querySelector('a[href="/g/jugend"]')).not.toBeNull();
     expect(el.shadowRoot.querySelector('a[href="/g/sc-kiel/feed.xml"]')).not.toBeNull();
     expect(el.shadowRoot.querySelector('sx-follow')).not.toBeNull();
@@ -394,26 +408,28 @@ describe('Entdecken und Einladungsdialog', () => {
 });
 
 describe('Mitgliedschaft: Glocke, Austreten, Übergeben, Meine Gruppen (F-346 … F-348)', () => {
-  it('[F-346] [F-429] Mitglieder: Stumm und Austreten im Zahnrad-Menü statt „Folgen“; Nicht-Mitglieder weiter „Folgen“', async () => {
-    const mutes = listen('sx-group-mute');
+  it('[F-346] [F-429] [F-449] [F-446] Mitglieder: Glocke mit Stufen statt „Folgen“, Austreten im Zahnrad mit „Weiter folgen?“; Nicht-Mitglieder „Folgen“', async () => {
+    const levels = listen('sx-notify-level');
     const leaves = listen('sx-group-leave');
     const realConfirm = window.confirm;
     window.confirm = () => true;
     try {
-      const el = await mount('sx-group-page', { data: pageData({}, 'member'), signedIn: true });
+      const el = await mount('sx-group-page', { data: pageData({ social: { followers: 4, isFollowing: false, notifyLevel: 'important' } }, 'member'), signedIn: true });
       expect(el.shadowRoot.querySelector('sx-follow')).toBeNull();
-      menu(el, /Neuigkeiten stumm schalten/)!.click();
-      expect(mutes).toEqual([{ id: 'G1', muted: true }]);
+      const bell = el.shadowRoot.querySelector('sx-notify-bell') as unknown as LitEl & { level: string };
+      await bell.updateComplete;
+      expect(bell.level).toBe('important');
+      button(bell.shadowRoot, /^\s*Stumm/)!.click();
+      expect(levels).toEqual([{ kind: 'group', id: 'G1', level: 'muted' }]);
+      expect(menu(el, /stumm/i)).toBeUndefined();
       menu(el, /Austreten/)!.click();
-      expect(leaves).toEqual([{ id: 'G1' }]);
+      // öffentliche Gruppe: „Weiter folgen?“ (hier: ja)
+      expect(leaves).toEqual([{ id: 'G1', follow: true }]);
       // Melden nicht für Verwalter; für Mitglieder schon
       expect(menu(el, /Melden/)).toBeDefined();
-      const muted = await mount('sx-group-page', { data: pageData({ membership: { role: 'member', requested: false, canRequest: false, muted: true } }, 'member'), signedIn: true });
-      expect(menu(muted, /Neuigkeiten wieder anzeigen/)).toBeDefined();
-      expect(text(muted.shadowRoot)).toContain('Stumm');
       const guest = await mount('sx-group-page', { data: pageData(), signedIn: true });
       expect(guest.shadowRoot.querySelector('sx-follow')).not.toBeNull();
-      expect(menu(guest, /stumm/)).toBeUndefined();
+      expect(guest.shadowRoot.querySelector('sx-notify-bell')).toBeNull();
     } finally {
       window.confirm = realConfirm;
     }
@@ -437,22 +453,50 @@ describe('Mitgliedschaft: Glocke, Austreten, Übergeben, Meine Gruppen (F-346 �
     }
   });
 
-  it('[F-348] Konto „Meine Gruppen“: Glocke, Austreten (Eigner: Übergeben …), offene Anfragen zurückziehen', async () => {
-    const mutes = listen('sx-group-mute');
+  it('[F-348] [F-449] Konto „Meine Gruppen“: Glocke mit Stufe, Austreten (Eigner: Übergeben …), offene Anfragen zurückziehen', async () => {
+    const levels = listen('sx-notify-level');
     const withdraws = listen('sx-group-withdraw');
     const el = await mount('sx-my-groups', {
       groups: [
-        { id: 'G1', slug: 'pyc', name: 'PYC', kind: 'club', role: 'member', members: 9, muted: true },
+        { id: 'G1', slug: 'pyc', name: 'PYC', kind: 'club', role: 'member', members: 9, muted: true, notifyLevel: 'muted' },
         { id: 'G2', slug: 'eigen', name: 'Eigen', kind: 'team', role: 'owner', members: 2, muted: false },
       ],
       requests: [{ id: 'G3', slug: 'anfrage', name: 'Anfrageclub', kind: 'club', createdAt: T }],
     });
     expect(text(el.shadowRoot)).toContain('stumm');
-    button(el.shadowRoot, /PYC wieder anzeigen/)!.click();
-    expect(mutes).toEqual([{ id: 'G1', muted: false }]);
+    const bell = el.shadowRoot.querySelector('sx-notify-bell') as unknown as LitEl & { level: string };
+    await bell.updateComplete;
+    expect(bell.level).toBe('muted');
+    button(bell.shadowRoot, /Alle Beiträge/)!.click();
+    expect(levels).toEqual([{ kind: 'group', id: 'G1', level: 'all' }]);
     expect(buttons(el.shadowRoot).filter((b) => /Austreten/.test(b.textContent ?? ''))).toHaveLength(1);
     expect(el.shadowRoot.querySelector('a[href="/g/eigen"].btn')?.textContent).toContain('Übergeben');
     button(el.shadowRoot, /Zurückziehen/)!.click();
     expect(withdraws).toEqual([{ id: 'G3' }]);
+  });
+});
+
+describe('sx-notify-channels', () => {
+  it('[F-446] [F-449] Konto: Mitgliedschaften und Folgen getrennt, je mit Glocke; Voreinstellung meldet sx-notify-default', async () => {
+    const defaults = listen('sx-notify-default');
+    const el = await mount('sx-notify-channels', {
+      data: {
+        defaultLevel: 'important',
+        channels: [
+          { kind: 'group', ref: 'G1', path: '/g/pyc', name: 'PYC', member: true, level: null },
+          { kind: 'boat', ref: 'B1', path: '/b/B1', name: 'Möwe', member: false, level: 'direct' },
+        ],
+      },
+    });
+    const lists = el.shadowRoot.querySelectorAll('ul');
+    expect(lists).toHaveLength(2);
+    expect(lists[0].getAttribute('aria-label')).toBe('Mitgliedschaften');
+    expect(lists[1].getAttribute('aria-label')).toBe('Du folgst');
+    const bells = [...el.shadowRoot.querySelectorAll('sx-notify-bell')] as unknown as Array<{ level: string }>;
+    expect(bells.map((b) => b.level)).toEqual(['important', 'direct']);
+    const sel = el.shadowRoot.querySelector('select') as HTMLSelectElement;
+    sel.value = 'all';
+    sel.dispatchEvent(new Event('change'));
+    expect(defaults).toEqual([{ level: 'all' }]);
   });
 });

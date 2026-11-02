@@ -1,6 +1,6 @@
 import { LitElement, css, html } from 'lit';
 import type { DiscoverGroup, MyGroup, StreamFilter, StreamFilters, StreamPage, Suggestion } from '../services/api';
-import { GROUP_KIND_LABEL } from '../domain/groups';
+import { GROUP_KIND_LABEL, isAutomaticKind } from '../domain/groups';
 import { NEAR_RADII, type NearRadius, type StreamMode } from '../domain/near';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-harbor-picker';
@@ -491,10 +491,10 @@ export class SxHomeFeed extends LitElement {
     </div>`;
   }
 
-  /** Einträge ohne Beitrittsmeldungen, wenn sie ausgeblendet sind (F-350). */
+  /** Einträge ohne automatische Einträge (Beitritte, Boote, Meilensteine), wenn sie ausgeblendet sind (F-350, F-447). */
   private visibleItems() {
     const items = this.stream?.items ?? [];
-    return this.joins ? items : items.filter((i) => i.kind !== 'member');
+    return this.joins ? items : items.filter((i) => !isAutomaticKind(i.kind));
   }
 
   private modeTabs() {
@@ -503,8 +503,8 @@ export class SxHomeFeed extends LitElement {
       <div class="modes" role="toolbar" aria-label="Was zeigen?">
         ${modes.map((m) => html`<button type="button" aria-pressed=${this.mode === m ? 'true' : 'false'} @click=${() => this.mode !== m && emit(this, 'sx-stream-mode', { mode: m })}>${m === 'near' ? icon('anchor') : ''}${MODE_LABEL[m]}</button>`)}
       </div>
-      <button type="button" class="chip" aria-pressed=${this.joins ? 'true' : 'false'} title=${this.joins ? 'Beitrittsmeldungen ausblenden' : 'Beitrittsmeldungen zeigen'}
-        @click=${() => emit(this, 'sx-stream-joins', { show: !this.joins })}>${icon('user')} Beitritte</button>
+      <button type="button" class="chip" aria-pressed=${this.joins ? 'true' : 'false'} title=${this.joins ? 'Automatische Einträge (Beitritte, neue Boote, Meilensteine) ausblenden – gilt für alle Neuigkeiten auf diesem Gerät' : 'Automatische Einträge zeigen'}
+        @click=${() => emit(this, 'sx-stream-joins', { show: !this.joins })}>${icon('info')} Automatische Einträge</button>
     </div>`;
   }
 

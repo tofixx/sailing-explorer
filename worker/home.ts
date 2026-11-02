@@ -52,12 +52,13 @@ export function homeShape(h: HomeRow | null) {
 }
 
 /**
- * Für das öffentliche Profil: Verein nur öffentlich und nicht ausgeblendet, Hafen nur ausdrücklich gewählt oder von
- * einem öffentlichen eigenen Boot – sonst verriete das Profil eine geschlossene Gruppe oder ein privates Boot.
+ * Für das Profil anderer: „Mitglied von“ (Verein) nur für Mitglieder desselben Vereins (`clubVisible`, F-444 –
+ * `canSeeMembership`), Hafen nur ausdrücklich gewählt oder von einem öffentlichen eigenen Boot – sonst verriete das
+ * Profil eine Mitgliedschaft oder ein privates Boot.
  */
-export function publicHome(h: HomeRow | null) {
+export function publicHome(h: HomeRow | null, clubVisible: boolean) {
   return {
-    club: h?.club_id && h.club_public ? { slug: h.club_slug ?? '', name: h.club_name ?? '' } : null,
+    club: h?.club_id && clubVisible ? { slug: h.club_slug ?? '', name: h.club_name ?? '' } : null,
     harbor: h?.harbor_id && (h.harbor_explicit || h.harbor_public_boat) ? { slug: h.harbor_slug ?? '', name: h.harbor_name ?? '' } : null,
   };
 }

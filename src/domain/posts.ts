@@ -57,6 +57,12 @@ export function postVisibilityChoices(channel: ChannelKind): PostVisibility[] {
   }
 }
 
+/**
+ * Vorgewählte Stufe beim Schreiben (F-445): in Gruppen „Nur Mitglieder“ – „Öffentlich“ wählt man bewusst; sonst
+ * „Öffentlich“. Gilt im Formular und auf dem Server, wenn keine Stufe angegeben ist.
+ */
+export const defaultPostVisibility = (channel: ChannelKind): PostVisibility => (channel === 'group' ? 'members' : 'public');
+
 /** Darf diese Stufe gewählt werden? „Nur Mitglieder“ kostenlos (B4), „Nur mit Link“ und „Nur ich“ wie überall nur für Unterstützer (E1). */
 export function canChoosePostVisibility(v: PostVisibility, supporter: boolean): boolean {
   return v === 'public' || v === 'members' || supporter;

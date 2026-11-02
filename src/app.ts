@@ -78,7 +78,7 @@ import type { ReactionSubject } from './domain/reactions';
 import { NotificationsController } from './controllers/notifications';
 import type { SxNotifications } from './components/sx-notifications';
 import type { NotificationItem } from './services/api';
-import type { Channel, ChoosableKind } from './domain/notifications';
+import type { Channel, ChoosableKind, NotifyLevel } from './domain/notifications';
 import { disablePush, enablePush, pushKey } from './services/push';
 import { ClaimController } from './controllers/claims';
 import type { SxClaim } from './components/sx-claim';
@@ -724,6 +724,7 @@ export class App {
     on('sx-report-login', () => c.reportLogin());
     on('sx-report-close', () => c.closeReport());
     on('sx-account-opened', () => c.loadSettings());
+    on<{ level: NotifyLevel }>('sx-notify-default', (d) => c.saveDefaultLevel(d.level));
     on<{ notifyComments: NotifyMode }>('sx-settings-save', (d) => c.saveSettings(d));
     on('sx-admin-refresh', () => c.loadReports());
     on<{ id: string; action: AdminAction }>('sx-admin-decide', (d) => c.decide(d.id, d.action));
@@ -781,8 +782,8 @@ export class App {
       if (await so.saveHomeHarbor(d.harbor)) await g.loadHome(true);
     });
     on<{ id: string }>('sx-group-withdraw', (d) => g.withdraw(d.id));
-    on<{ id: string }>('sx-group-leave', (d) => g.leave(d.id));
-    on<{ id: string; muted: boolean }>('sx-group-mute', (d) => g.mute(d));
+    on<{ id: string; follow?: boolean }>('sx-group-leave', (d) => g.leave(d.id, !!d.follow));
+    on<{ kind: FollowKind; id: string; level: NotifyLevel }>('sx-notify-level', (d) => g.setNotifyLevel(d));
     on<{ id: string; userId: string }>('sx-group-transfer', (d) => g.transfer(d));
     on<{ id: string; userId: string; approve: boolean }>('sx-group-request', (d) => g.decide(d));
     on<{ id: string; userId: string; role: 'admin' | 'member' }>('sx-group-role', (d) => g.setRole(d));

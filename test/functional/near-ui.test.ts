@@ -158,12 +158,12 @@ describe('F-349/F-350 Beitrittsmeldungen', () => {
     expect(el.shadowRoot.querySelector('a[href="/g/mi"]')).not.toBeNull();
   });
 
-  it('[F-350] Schalter „Beitritte“ blendet Beitrittsmeldungen aus und meldet sx-stream-joins', async () => {
+  it('[F-350] [F-447] Schalter „Automatische Einträge“ blendet Beitritte (und andere automatische Einträge) aus und meldet sx-stream-joins', async () => {
     const joins = listen('sx-stream-joins');
     const el = await mount({ signedIn: false, mode: 'all', shown: 'all', joins: false, stream: { items: [join, voyage], cursor: null } });
     const stream = el.shadowRoot.querySelector('sx-stream') as unknown as { items: Array<{ kind: string }> };
     expect(stream.items.map((i) => i.kind)).toEqual(['voyage']);
-    button(el, /Beitritte/)!.click();
+    button(el, /Automatische Einträge/)!.click();
     expect(joins).toEqual([{ show: true }]);
   });
 

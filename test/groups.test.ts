@@ -112,7 +112,7 @@ const groupRow = (over: Partial<ActivityRow> = {}) =>
 
 describe('[F-213] shapeItem – Titelbilder nur öffentlicher Objekte', () => {
   const boatRow = (over: Partial<ActivityRow> = {}) =>
-    groupRow({ kind: 'boat', subject_kind: 'boat', subject_id: 'Boat00000000000001', b_id: 'Boat00000000000001', b_name: 'Möwe', b_vis: 'public', p_id: null, cb_ver: 'v1abcd', cb_y: 30, ...over });
+    groupRow({ kind: 'boat', subject_kind: 'boat', subject_id: 'Boat00000000000001', b_id: 'Boat00000000000001', b_name: 'Möwe', b_vis: 'public', p_id: null, cb_ver: 'v1abcd', cb_y: 30, g_role: 'member', ...over });
 
   it('neues Boot: Titelbild des öffentlichen Boots mit Ausschnitt; ohne Bild kein Feld', () => {
     expect(shapeItem(boatRow(), viewer)!.cover).toEqual({ src: '/api/covers/b/Boat00000000000001/v1abcd', y: 30 });
@@ -120,7 +120,7 @@ describe('[F-213] shapeItem – Titelbilder nur öffentlicher Objekte', () => {
   });
 
   it('Mitglied: Titelbild nur mit öffentlichem Profil; Meilenstein einer Gruppe nur bei öffentlicher Gruppe', () => {
-    const member = groupRow({ kind: 'member', subject_kind: 'group', p_id: null, cu_ver: 'u1abcd', cu_y: 10 });
+    const member = groupRow({ kind: 'member', subject_kind: 'group', p_id: null, cu_ver: 'u1abcd', cu_y: 10, g_role: 'member' });
     expect(shapeItem(member, viewer)!.cover).toEqual({ src: '/api/covers/u/anna/u1abcd', y: 10 });
     expect(shapeItem({ ...member, actor_public: 0 }, viewer)!.cover).toBeUndefined();
     const milestone = groupRow({ kind: 'milestone', subject_kind: 'group', subject_id: 'Grp000000000000001', p_id: null, data: '{"nm":100,"year":2026}', cg_ver: 'g1abcd', cg_y: null });

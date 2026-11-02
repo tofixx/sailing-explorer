@@ -45,8 +45,8 @@ export async function mergeHarbor(request: Request, env: Env, id: string): Promi
     env.DB.prepare('UPDATE post_log SET group_id = ?1 || substr(group_id, length(?2) + 1) WHERE substr(group_id, 1, length(?2)) = ?2').bind(postLogPrefix('harbor', dst.id), postLogPrefix('harbor', src.id)),
     // Folgen: wer beiden folgt, folgt danach einmal
     env.DB.prepare(
-      `INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at)
-       SELECT user_id, 'harbor', ?1, created_at FROM follows WHERE target_kind = 'harbor' AND target_id = ?2`,
+      `INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at, notify_level)
+       SELECT user_id, 'harbor', ?1, created_at, notify_level FROM follows WHERE target_kind = 'harbor' AND target_id = ?2`,
     ).bind(dst.id, src.id),
     env.DB.prepare(`DELETE FROM follows WHERE target_kind = 'harbor' AND target_id = ?`).bind(src.id),
     // Neuigkeiten: Ziele und „Neues Boot im Hafen“ (gab es dasselbe Boot schon im Ziel, bleibt nur dieses)
@@ -226,10 +226,12 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     db.prepare('UPDATE share_crew SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('DELETE FROM share_crew WHERE user_id = ?1 AND share_id IN (SELECT id FROM shares WHERE user_id = ?1)').bind(A),
     // Folgen in beide Richtungen, ohne Doppel und ohne Folgen auf sich selbst
-    db.prepare(`INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) SELECT ?1, target_kind, target_id, created_at FROM follows WHERE user_id = ?2`).bind(A, B),
-    db.prepare(`INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at) SELECT user_id, 'user', ?1, created_at FROM follows WHERE target_kind = 'user' AND target_id = ?2`).bind(A, B),
+    db.prepare(`INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at, notify_level) SELECT ?1, target_kind, target_id, created_at, notify_level FROM follows WHERE user_id = ?2`).bind(A, B),
+    db.prepare(`INSERT OR IGNORE INTO follows (user_id, target_kind, target_id, created_at, notify_level) SELECT user_id, 'user', ?1, created_at, notify_level FROM follows WHERE target_kind = 'user' AND target_id = ?2`).bind(A, B),
     db.prepare(`DELETE FROM follows WHERE user_id = ?1 OR (target_kind = 'user' AND target_id = ?1)`).bind(B),
     db.prepare(`DELETE FROM follows WHERE user_id = ?1 AND target_kind = 'user' AND target_id = ?1`).bind(A),
+    // Folgen und Mitgliedschaft schließen sich aus (F-446): Mitglied geworden → das Folgen der Gruppe fällt weg
+    db.prepare(`DELETE FROM follows WHERE user_id = ?1 AND target_kind = 'group' AND target_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)`).bind(A),
     // Reaktionen: die des Ziels gewinnen
     db.prepare(`INSERT OR IGNORE INTO reactions (subject_kind, subject_id, user_id, kind, created_at) SELECT subject_kind, subject_id, ?1, kind, created_at FROM reactions WHERE user_id = ?2`).bind(A, B),
     db.prepare('DELETE FROM reactions WHERE user_id = ?').bind(B),

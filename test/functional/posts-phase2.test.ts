@@ -32,7 +32,7 @@ const postIds = (st: StreamOut) => st.items.filter((i) => i.kind === 'post').map
 
 /** Beitrag über den Plus-Knopf in einen Verlauf. */
 async function write(p: Person, channel: { kind: string; id?: string }, body: Record<string, unknown>, status = 201) {
-  const res = await s.send('POST', '/api/posts', p.cookie, { channel: { id: '', ...channel }, ...body });
+  const res = await s.send('POST', '/api/posts', p.cookie, { channel: { id: '', ...channel }, ...(channel.kind === 'group' ? { visibility: 'public' } : {}), ...body });
   expect(res.status, await res.clone().text()).toBe(status);
   return status === 201 ? ((await res.json()) as { post: { id: string; path: string; home: string | null; reach: string } }).post : null;
 }
@@ -455,9 +455,13 @@ describe('F-427 /entdecken beachtet „Sichtbar bis“', () => {
 
 describe('F-416 Benachrichtigung bei neuen Beiträgen', () => {
   const bell = async (p: Person) => (await ok<{ items: Array<{ kind: string; href: string; text: string }> }>(await s.send('GET', '/api/notifications', p.cookie))).items.filter((n) => n.kind === 'post');
-  const optIn = async (p: Person, channel = 'none') => expect((await s.send('PATCH', '/api/me/settings', p.cookie, { notify: { post: channel } })).status).toBe(200);
+  // „Alle Beiträge“ als Voreinstellung (F-449) – Kanal wie gewählt
+  const optIn = async (p: Person, channel = 'none') => {
+    expect((await s.send('PATCH', '/api/me/settings', p.cookie, { notify: { post: channel } })).status).toBe(200);
+    expect((await s.send('PUT', '/api/me/channels/default', p.cookie, { level: 'all' })).status).toBe(200);
+  };
 
-  it('[F-416] Standard aus; eingeschaltet: Mitglieder der Heimatgruppe, nicht stumm, nie die Autor:in, Link /p/<id>; Ausbreitung benachrichtigt nie', async () => {
+  it('[F-416] [F-449] Standard „Wichtiges“ (kein Beitrag); „Alle Beiträge“: Mitglieder der Heimatgruppe, nicht stumm, nie die Autor:in, Link /p/<id>; Ausbreitung benachrichtigt nie', async () => {
     const owner = await s.person({ profile: 'public', supporter: true });
     const member = await s.person({ profile: 'public' });
     const silent = await s.person({ profile: 'public' });
@@ -626,7 +630,7 @@ describe('Review-Befunde Phase 2/3', () => {
     const member = await s.person({ profile: 'public' });
     const team = await s.group(owner, { kind: 'team' });
     await s.join(owner, team, member);
-    expect((await s.send('PATCH', '/api/me/settings', member.cookie, { notify: { post: 'none' } })).status).toBe(200);
+    expect((await s.send('PUT', `/api/notify/group/${team.id}`, member.cookie, { level: 'all' })).status).toBe(200);
     const post = await write(owner, { kind: 'group', id: team.id }, { body: 'gleich mit Link' });
     const bell = async () => (await ok<{ items: Array<{ kind: string }> }>(await s.send('GET', '/api/notifications', member.cookie))).items.filter((n) => n.kind === 'post');
     expect(await bell()).toHaveLength(1);

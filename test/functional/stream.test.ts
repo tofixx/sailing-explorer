@@ -42,20 +42,20 @@ describe('F-158 Folgen', () => {
     const g = await s.group(b);
     const r1 = await follow(a, 'user', b.handle!);
     expect(r1.status, await r1.clone().text()).toBe(200);
-    expect(await r1.json()).toEqual({ followers: 1, following: 0, isFollowing: true });
+    expect(await r1.json()).toEqual({ followers: 1, following: 0, isFollowing: true, notifyLevel: 'direct' });
     expect((await follow(a, 'user', b.handle!)).status).toBe(200); // doppelt zählt einmal
     expect((await follow(a, 'boat', boat.id)).status).toBe(200);
     expect((await follow(a, 'group', g.id)).status).toBe(200);
     const prof = (await (await s.send('GET', `/api/profiles/${b.handle}`, a.cookie)).json()) as { social: unknown };
-    expect(prof.social).toEqual({ followers: 1, following: 0, isFollowing: true });
+    expect(prof.social).toEqual({ followers: 1, following: 0, isFollowing: true, notifyLevel: 'direct' });
     const mine = (await (await s.send('GET', `/api/profiles/${a.handle}`, a.cookie)).json()) as { social: { following: number } };
     expect(mine.social.following).toBe(3);
     const bt = (await (await h.fetch(`/api/boats/${boat.id}`)).json()) as { social: unknown };
-    expect(bt.social).toEqual({ followers: 1, isFollowing: false });
+    expect(bt.social).toEqual({ followers: 1, isFollowing: false, notifyLevel: null });
     const self = await follow(a, 'user', a.handle!);
     expect(self.status).toBe(400);
     const un = await s.send('DELETE', `/api/follows/user/${b.handle}`, a.cookie);
-    expect(await un.json()).toEqual({ followers: 0, following: 0, isFollowing: false });
+    expect(await un.json()).toEqual({ followers: 0, following: 0, isFollowing: false, notifyLevel: null });
     expect((await follow(a, 'user', b.handle!)).status).toBe(200);
   });
 
@@ -189,7 +189,7 @@ describe('F-159/F-160 Neuigkeiten', () => {
     await follow(reader, 'group', club.id);
     const v1 = await s.share(sailor, { title: 'Gefolgter Segler' });
     const v2 = await s.share(boatOwner, { title: 'Gefolgtes Boot', boatId: boat.id });
-    const post = await s.send('POST', `/api/groups/${club.id}/posts`, boatOwner.cookie, { body: 'Hallo Follower' });
+    const post = await s.send('POST', `/api/groups/${club.id}/posts`, boatOwner.cookie, { visibility: 'public', body: 'Hallo Follower' });
     expect(post.status).toBe(201);
     const st = await stream(reader);
     expect(voyageIds(st)).toEqual(expect.arrayContaining([v1.id, v2.id]));
@@ -246,7 +246,7 @@ describe('F-159/F-160 Neuigkeiten', () => {
     const g = await s.group(owner);
     const first = await groupStream(g);
     expect(first.res.headers.get('X-Stream-Cache')).toBe('miss');
-    await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: 'Neu nach dem Cache' });
+    await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: 'Neu nach dem Cache' });
     const second = await groupStream(g);
     expect(second.res.headers.get('X-Stream-Cache')).toBe('hit');
     expect(kinds(second.body)).not.toContain('post'); // höchstens 60 s alt
@@ -306,21 +306,21 @@ describe('F-161/F-162 Beiträge und RSS', () => {
     const g = await s.group(owner);
     const m = await s.person();
     await s.join(owner, g, m);
-    expect((await s.send('POST', `/api/groups/${g.id}/posts`, m.cookie, { body: 'Ich bin nur Mitglied' })).status).toBe(403);
+    expect((await s.send('POST', `/api/groups/${g.id}/posts`, m.cookie, { visibility: 'public', body: 'Ich bin nur Mitglied' })).status).toBe(403);
     expect((await s.send('POST', `/api/groups/${g.id}/posts`, (await s.person()).cookie, { body: 'Fremd' })).status).toBe(403);
-    expect((await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: '   ' })).status).toBe(400);
-    expect((await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: 'x'.repeat(2001) })).status).toBe(400);
+    expect((await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: '   ' })).status).toBe(400);
+    expect((await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: 'x'.repeat(2001) })).status).toBe(400);
     const links = Array.from({ length: 6 }, (_, i) => `https://example.org/${i}`).join(' ');
-    expect(await s.errorOf(await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: links }))).toBe('too_many_links');
-    expect(await s.errorOf(await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: 'ok', link: 'javascript:alert(1)' }))).toBe('invalid_link');
-    const ok = await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: 'Absegeln​ am\tSamstag\n\n\n\n\nab 10 Uhr', link: 'https://example.org/termine' });
+    expect(await s.errorOf(await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: links }))).toBe('too_many_links');
+    expect(await s.errorOf(await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: 'ok', link: 'javascript:alert(1)' }))).toBe('invalid_link');
+    const ok = await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: 'Absegeln​ am\tSamstag\n\n\n\n\nab 10 Uhr', link: 'https://example.org/termine' });
     expect(ok.status).toBe(201);
     const { post } = (await ok.json()) as { post: { id: string; body: string; link: string } };
     expect(post.body).toBe('Absegeln am Samstag\n\n\n\nab 10 Uhr');
     expect(post.link).toBe('https://example.org/termine');
     expect((await s.send('DELETE', `/api/posts/${post.id}`, owner.cookie)).status).toBe(204);
-    for (let i = 0; i < GROUP_LIMITS.postsPerDay - 1; i++) expect((await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: `Nr. ${i}` })).status).toBe(201);
-    const over = await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: 'zu viel' });
+    for (let i = 0; i < GROUP_LIMITS.postsPerDay - 1; i++) expect((await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: `Nr. ${i}` })).status).toBe(201);
+    const over = await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: 'zu viel' });
     expect(over.status).toBe(429);
     expect(await s.errorOf(over)).toBe('post_quota');
   });
@@ -329,7 +329,7 @@ describe('F-161/F-162 Beiträge und RSS', () => {
     const owner = await s.person({ supporter: true });
     const club = await s.group(owner);
     const team = await s.group(owner, { kind: 'team', parentId: club.id });
-    const res = await s.send('POST', `/api/groups/${club.id}/posts`, owner.cookie, { body: 'Sommerfest!' });
+    const res = await s.send('POST', `/api/groups/${club.id}/posts`, owner.cookie, { visibility: 'public', body: 'Sommerfest!' });
     const { post } = (await res.json()) as { post: { id: string } };
     expect((await groupStream(team, owner)).body.items.find((i) => i.kind === 'post')?.post?.body).toBe('Sommerfest!');
     const m = await s.person();
@@ -342,7 +342,7 @@ describe('F-161/F-162 Beiträge und RSS', () => {
   it('[F-157] Beiträge melden: „Ich bin genannt“ blendet sofort aus; der Beitrag verschwindet aus dem Stream', async () => {
     const owner = await s.person();
     const g = await s.group(owner);
-    const res = await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: 'Über jemanden' });
+    const res = await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: 'Über jemanden' });
     const { post } = (await res.json()) as { post: { id: string } };
     const reporter = await s.person();
     const r = await s.send('POST', '/api/reports', reporter.cookie, { kind: 'post', id: post.id, reason: 'depicted' });
@@ -353,7 +353,7 @@ describe('F-161/F-162 Beiträge und RSS', () => {
   it('[F-162] Atom-Feed öffentlicher Gruppen: escaped, gültige Struktur, gecacht; geschlossene und unbekannte 404', async () => {
     const owner = await s.person({ supporter: true, profile: 'public' });
     const g = await s.group(owner, { name: 'Club <&> "Möwe"', description: "Wir & ihr <script>alert('x')</script>" });
-    await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: '<b>Fett</b> & ]]> \u0001 Ende', link: 'https://example.org/?a=1&b=2' });
+    await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: '<b>Fett</b> & ]]> \u0001 Ende', link: 'https://example.org/?a=1&b=2' });
     const res = await h.fetch(`/g/${g.slug}/feed.xml`);
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('application/atom+xml; charset=utf-8');
@@ -445,7 +445,7 @@ describe('F-165 Wöchentliche Sammelmail', () => {
     expect(((await set.json()) as { notifyGroups: string }).notifyGroups).toBe('weekly');
     expect((await s.send('PATCH', '/api/me/settings', reader.cookie, { notifyGroups: 'daily' })).status).toBe(400);
     await s.share(owner, { title: 'Geheimer Titel', groups: [g.id] });
-    await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: 'Beitragstext darf nicht in die Mail' });
+    await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: 'Beitragstext darf nicht in die Mail' });
     // als wäre die letzte Mail über eine Woche her
     await (await s.db()).prepare('UPDATE users SET groups_mailed_at = ? WHERE id = ?').bind(Date.now() - 8 * DAY, reader.user.id).run();
     const before = h.logs.length;
@@ -481,7 +481,7 @@ describe('F-167 Aufräumen', () => {
     await s.join(supOwner, g3, a2);
     await s.send('PATCH', `/api/groups/${g1.id}/members/${a1.user.id}`, supOwner.cookie, { role: 'admin' });
     await s.send('PATCH', `/api/groups/${g1.id}/members/${a2.user.id}`, supOwner.cookie, { role: 'admin' });
-    await s.send('POST', `/api/groups/${g1.id}/posts`, supOwner.cookie, { body: 'Abschied' });
+    await s.send('POST', `/api/groups/${g1.id}/posts`, supOwner.cookie, { visibility: 'public', body: 'Abschied' });
     await s.share(supOwner);
     const fan = await s.person();
     await follow(fan, 'user', supOwner.handle!);
@@ -519,7 +519,7 @@ describe('F-167 Aufräumen', () => {
          (SELECT COUNT(*) FROM activity WHERE subject_id = ?1) AS a, (SELECT COUNT(*) FROM activity_target WHERE target_id = ?1) AS t`,
     ).bind(boat.id).first<Record<string, number>>();
     expect(b).toEqual({ gb: 0, f: 0, a: 0, t: 0 });
-    await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body: 'Letzter Beitrag' });
+    await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: 'Letzter Beitrag' });
     await s.send('POST', `/api/groups/${g.id}/invites`, owner.cookie, {});
     expect((await s.send('DELETE', `/api/groups/${g.id}`, owner.cookie)).status).toBe(204);
     const rest = await db.prepare(

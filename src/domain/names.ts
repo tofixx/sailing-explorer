@@ -28,6 +28,12 @@ function hash(s: string): number {
   return h >>> 0;
 }
 
+/**
+ * Spaßname eines Mitglieds in einer Gruppe (F-441): je Gruppe ein eigener, damit dieselbe Person in Mitgliederlisten
+ * verschiedener Gruppen (und als Crew, F-134) nicht über den gleichen Spaßnamen verknüpfbar ist.
+ */
+export const memberAlias = (userId: string, groupId: string): string => funnyName(`${groupId}:${userId}`);
+
 /** Spaßname für ein Konto ohne eigenen Namen, z. B. „Verwegener Klabautermann“ – für dieselbe ID immer derselbe. */
 export function funnyName(id: string): string {
   const h = hash(id);

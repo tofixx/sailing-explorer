@@ -18,7 +18,7 @@ afterAll(async () => {
 const postIds = (o: StreamOut) => o.items.filter((i) => i.post).map((i) => i.post!.id);
 const stream = async (p: Person) => (await (await s.send('GET', '/api/stream', p.cookie)).json()) as StreamOut;
 const post = async (owner: Person, g: { id: string }, body: string) =>
-  ((await (await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { body })).json()) as { post: { id: string } }).post.id;
+  ((await (await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body })).json()) as { post: { id: string } }).post.id;
 const mine = async (p: Person) =>
   (await (await s.send('GET', '/api/groups', p.cookie)).json()) as { groups: Array<{ slug: string; role: string; muted: boolean }>; requests: Array<{ id: string; slug: string }> };
 const membership = async (g: { id: string }, p: Person) =>
@@ -115,7 +115,8 @@ describe('F-349 Beitrittsmeldung mit Namen', () => {
     const priv = await s.person({ profile: 'private', supporter: true });
     await s.join(owner, g, pub);
     await s.join(owner, g, priv);
-    const res = await h.fetch(`/api/groups/${g.id}/stream`);
+    // Beitritte sehen nur Mitglieder (F-443)
+    const res = await s.send('GET', `/api/groups/${g.id}/stream`, owner.cookie);
     const items = ((await res.json()) as { items: Array<{ kind: string; actor: { handle: string } | null; alias?: string }> }).items.filter((i) => i.kind === 'member');
     expect(items.some((i) => i.actor?.handle === pub.handle)).toBe(true);
     const anon = items.find((i) => !i.actor)!;

@@ -135,6 +135,35 @@ export function canRemoveMember(actor: GroupRole | null, target: GroupRole, self
   return actor === 'admin' && target === 'member';
 }
 
+// ---------------------------------------------------------------- Sichtbarkeit von Mitgliedschaften (Konzept 24)
+
+/**
+ * Wer sieht die Mitgliederliste (F-440, `groups.members_visible`): `members` = nur Mitglieder (Standard, auch für den
+ * Bestand), `public` = alle, die die Gruppe sehen. Legt der Eigner fest.
+ */
+export const MEMBERS_VISIBLE = ['members', 'public'] as const;
+export type MembersVisible = (typeof MEMBERS_VISIBLE)[number];
+export const isMembersVisible = oneOf(MEMBERS_VISIBLE);
+export const DEFAULT_MEMBERS_VISIBLE: MembersVisible = 'members';
+export const MEMBERS_VISIBLE_LABEL: Record<MembersVisible, string> = {
+  members: 'Nur Mitglieder – andere sehen nur die Anzahl',
+  public: 'Alle, die die Gruppe sehen – Namen nur mit öffentlichem Profil, sonst Spaßname',
+};
+
+/**
+ * Darf der Betrachter die Mitgliederliste und die Boote der Gruppe sehen (F-441, F-442)? Mitglieder immer, sonst nur bei
+ * öffentlicher Liste. `role` ist die Rolle in einer nicht gesperrten Gruppe (sonst null). Fail closed: unbekannte
+ * Einstellung zählt wie „nur Mitglieder“. Gleiche Regel als SQL: `membersVisibleSql` (worker/member-sql.ts).
+ */
+export const canSeeMembers = (setting: unknown, role: GroupRole | null): boolean => role !== null || setting === 'public';
+
+/**
+ * Darf der Betrachter die Mitgliedschaft einer Person in dieser Gruppe sehen – Beitrittsmeldung im Stream, „Mitglied von“
+ * im Profil (F-443, F-444)? Nur Mitglieder derselben Gruppe, unabhängig von der Listen-Einstellung; Gäste und andere nie.
+ * Gleiche Regel als SQL: `isMemberSql` (worker/member-sql.ts).
+ */
+export const canSeeMembership = (role: GroupRole | null): boolean => role !== null;
+
 // ---------------------------------------------------------------- Folgen
 
 export const FOLLOW_KINDS = ['user', 'boat', 'group', 'harbor'] as const;
@@ -147,6 +176,27 @@ export const isFollowKind = oneOf(FOLLOW_KINDS);
 export const ACTIVITY_KINDS = ['voyage', 'photos', 'member', 'boat', 'post', 'milestone', 'harbor', 'logbook'] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 export const isActivityKind = oneOf(ACTIVITY_KINDS);
+
+/**
+ * Beitrag oder automatischer Eintrag (F-447)? „Beitrag“ = von einer Person verfasst bzw. geteilt (Text, Törn, Fotos zum
+ * Törn, Fahrtenbuch-Nachtrag); „automatisch“ = Systemmeldung über einen Zustandswechsel (Beitritt, Boot in der Gruppe,
+ * neues Boot im Hafen, Meilenstein). Vollständig je Art – eine neue Art muss hier eingeordnet werden (Typprüfung).
+ * Automatische Einträge sind kompakte Systemzeilen, lassen sich ausblenden und benachrichtigen nie.
+ */
+export const STREAM_KIND_CLASS: Record<ActivityKind, 'post' | 'auto'> = {
+  voyage: 'post',
+  photos: 'post',
+  post: 'post',
+  logbook: 'post',
+  member: 'auto',
+  boat: 'auto',
+  harbor: 'auto',
+  milestone: 'auto',
+};
+/** Automatischer Eintrag? Unbekannte Arten zählen als automatisch (fail closed: nie benachrichtigen). */
+export const isAutomaticKind = (kind: string): boolean => !isActivityKind(kind) || STREAM_KIND_CLASS[kind] === 'auto';
+/** Arten, die der Schalter „Automatische Einträge“ ausblendet (für SQL und Filter). */
+export const AUTOMATIC_KINDS = ACTIVITY_KINDS.filter((k) => STREAM_KIND_CLASS[k] === 'auto');
 
 /** Saison-Meilensteine in Seemeilen (Konzept 11.3). */
 export const MILESTONES_NM = [100, 500, 1000] as const;

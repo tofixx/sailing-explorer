@@ -1,7 +1,7 @@
-import { ApiError, communityApi, type AdminAction, type SettingsPatch, type ShareMeta } from '../services/api';
+import { ApiError, communityApi, groupApi, type AdminAction, type SettingsPatch, type ShareMeta } from '../services/api';
 import type { Store } from '../services/store';
 import type { CommentsMode, ReportReason } from '../domain/comment-text';
-import { CHANNEL_LABEL, CHOOSABLE_LABEL, type Channel, type ChoosableKind } from '../domain/notifications';
+import { CHANNEL_LABEL, CHOOSABLE_LABEL, NOTIFY_LEVEL_LABEL, type Channel, type ChoosableKind, type NotifyLevel } from '../domain/notifications';
 import type { SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxComments } from '../components/sx-comments';
 import type { ReportTarget, SxReportDialog } from '../components/sx-report-dialog';
@@ -173,6 +173,7 @@ export class CommunityController {
     try {
       this.ui.account.settings = await communityApi.settings();
       if (this.ui.account.tab === 'reports') await this.loadReports();
+      this.ui.account.notifyChannels = await groupApi.channels();
     } catch {
       /* abgemeldet oder offline – der Dialog zeigt den Rest trotzdem */
     }
@@ -188,6 +189,14 @@ export class CommunityController {
     } finally {
       this.ui.account.busy = false;
     }
+  }
+
+  /** Voreinstellung der Stufe für Verläufe ohne eigene Wahl (F-449). */
+  saveDefaultLevel(level: NotifyLevel) {
+    return this.accountAct(async () => {
+      const r = await groupApi.defaultLevel(level);
+      this.ui.account.notifyChannels = this.ui.account.notifyChannels ? { ...this.ui.account.notifyChannels, defaultLevel: r.defaultLevel } : await groupApi.channels();
+    }, `Voreinstellung: ${NOTIFY_LEVEL_LABEL[level]}`);
   }
 
   saveSettings(s: SettingsPatch) {

@@ -12,6 +12,7 @@ import { funnyName } from '../src/domain/names';
 import { IN_LOGBOOK_SQL, RECORDED_NM_SQL } from './logbook-sql';
 import { followStats } from './follows';
 import { homeOf, publicHome, type HomeRow } from './home';
+import { isMemberSql } from './member-sql';
 import { BOAT_HARBOR_COLS } from './boats';
 import { loadCover, pageCover } from './covers';
 import { galleryPhotos } from './gallery';
@@ -169,6 +170,10 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
   )
     .bind(p.user_id)
     .first<{ voyages: number; dist: number; rec: number }>();
+  // „Mitglied von“ (F-444): die Person selbst, die Vorschau als Mitglied dieses Vereins, sonst nur echte Mitglieder
+  const clubVisible = !!home?.club_id && (isSelf
+    || (preview ? preview.as === 'group' && preview.groupId === home.club_id
+      : !!viewerId && !!(await env.DB.prepare(`SELECT ${isMemberSql('?1', '?2')} AS ok`).bind(home.club_id, viewerId).first<{ ok: number }>())?.ok));
   const reader = preview ? { preview: { memberOf: preview.as === 'group' ? preview.groupId : null } } : { userId: viewerId };
   return json(
     {
@@ -181,7 +186,7 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
       crewVoyages: await crewShares(env, p.user_id),
       social: await followStats(env, 'user', p.user_id, viewerId),
       // „Mein Verein“ und Heimathafen (Konzept 12.1/12.2) – nur, was öffentlich sein darf
-      home: publicHome(home),
+      home: publicHome(home, clubVisible),
       // Titelbild und neueste öffentliche Fotos aus eigenen und mitgesegelten Törns (Konzept 13)
       ...pageCover('u', p.handle, await loadCover(env, 'u', p.user_id), p.visibility === 'public' || preview ? null : key),
       photos: await galleryPhotos(env, 'user', p.user_id),

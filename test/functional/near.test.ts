@@ -41,8 +41,8 @@ describe('F-340 Umgebung', () => {
     const vPrivBoat = await s.share(owner, { boatId: (await s.boat(owner, { harborId: close.id, visibility: 'private' })).id });
     const club = await s.group(owner, { name: 'Nahverein', harborId: close.id });
     const closed = await s.group(owner, { name: 'Geschlossen nah', harborId: close.id, visibility: 'private' });
-    const pPub = await s.send('POST', `/api/groups/${club.id}/posts`, owner.cookie, { body: 'Hallo aus der Nähe' });
-    const pPriv = await s.send('POST', `/api/groups/${closed.id}/posts`, owner.cookie, { body: 'Intern' });
+    const pPub = await s.send('POST', `/api/groups/${club.id}/posts`, owner.cookie, { visibility: 'public', body: 'Hallo aus der Nähe' });
+    const pPriv = await s.send('POST', `/api/groups/${closed.id}/posts`, owner.cookie, { visibility: 'public', body: 'Intern' });
     const pubId = ((await pPub.json()) as { post: { id: string } }).post.id;
     const privId = ((await pPriv.json()) as { post: { id: string } }).post.id;
 

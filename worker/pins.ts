@@ -11,6 +11,7 @@ import { canViewGroup, loadGroup, roleIn } from './groups';
 import { harborVisible, loadHarbor } from './harbors';
 import { roleFor } from './boats';
 import { postCard } from './stream';
+import { notifyPost } from './notifications';
 import { SHARE_ID_RE } from './validate';
 import type { ReadAt } from './stream-shape';
 import { canManageChannel, isChannelKind, type ChannelKind } from '../src/domain/posts';
@@ -120,5 +121,15 @@ export async function setPin(request: Request, env: Env, postId: string): Promis
     ? env.DB.prepare('INSERT OR IGNORE INTO channel_pins (channel_kind, channel_id, post_id, created_at) VALUES (?, ?, ?, ?)').bind(access.kind, access.id, postId, Date.now())
     : env.DB.prepare('DELETE FROM channel_pins WHERE channel_kind = ? AND channel_id = ? AND post_id = ?').bind(access.kind, access.id, postId)
   ).run();
+  // Angepinnt = wichtig (F-449): benachrichtigt ab Stufe „Wichtiges“, wer zu diesem Beitrag noch nichts bekam. Außerhalb
+  // des Heimatverlaufs nur öffentliche Beiträge (dort sehen ihn ohnehin nur die Mitglieder des Heimatverlaufs).
+  if (body.pinned && access.kind !== 'user') {
+    const p = await env.DB.prepare('SELECT kind, author_id, visibility, channel_kind, channel_id FROM posts WHERE id = ?').bind(postId)
+      .first<{ kind: string; author_id: string; visibility: string; channel_kind: string; channel_id: string }>();
+    const home = !!p && p.channel_kind === access.kind && p.channel_id === access.id;
+    if (p && (home || p.visibility === 'public')) {
+      await notifyPost(env, { id: postId, authorId: user.id, kind: p.kind, pinned: true, channel: { kind: access.kind, id: access.id }, visibility: p.visibility });
+    }
+  }
   return json({ pinned: body.pinned });
 }

@@ -8,10 +8,14 @@ import { BOAT_ID_RE, SHARE_ID_RE, normalizeHandle } from './validate';
 import { GROUP_LIMITS } from '../src/domain/limits';
 import { isFollowKind, suggestionReasonText, type FollowKind, type SuggestionReason } from '../src/domain/groups';
 import { notifyFollow } from './notifications';
+import { viewerLevel } from './notify-levels';
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Das gibt es nicht (mehr) oder es ist nicht öffentlich.');
 
-/** Zahl der Follower, ob der Betrachter folgt und (bei Profilen) wie vielen die Person folgt. */
+/**
+ * Zahl der Follower, ob der Betrachter folgt und (bei Profilen) wie vielen die Person folgt – dazu seine Stufe der
+ * Benachrichtigungen (F-449), wenn er folgt bzw. Mitglied der Gruppe ist (sonst null: keine Glocke).
+ */
 export async function followStats(env: Env, kind: FollowKind, id: string, viewerId: string | null) {
   const row = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM follows WHERE target_kind = ?1 AND target_id = ?2) AS followers,
@@ -24,6 +28,7 @@ export async function followStats(env: Env, kind: FollowKind, id: string, viewer
     followers: row?.followers ?? 0,
     ...(kind === 'user' ? { following: row?.following ?? 0 } : {}),
     isFollowing: !!row?.mine,
+    notifyLevel: await viewerLevel(env, viewerId, kind, id),
   };
 }
 
@@ -31,7 +36,7 @@ export async function followStats(env: Env, kind: FollowKind, id: string, viewer
  * Ziel-ID zu Art und Kennung (Profil: Profilname, Boot und Gruppe: ID). `mustBePublic`: nur öffentliche, nicht
  * ausgeblendete Ziele – sonst null (wie „gibt es nicht“). Zum Entfolgen genügt, dass es die Zeile gibt.
  */
-async function resolveTarget(env: Env, kind: FollowKind, raw: string, mustBePublic: boolean): Promise<{ id: string; ownerId: string | null } | null> {
+export async function resolveTarget(env: Env, kind: FollowKind, raw: string, mustBePublic: boolean): Promise<{ id: string; ownerId: string | null } | null> {
   const pub = (alias: string) => (mustBePublic ? ` AND ${alias}.visibility = 'public' AND ${alias}.hidden_at IS NULL` : '');
   if (kind === 'user') {
     const handle = normalizeHandle(raw);
@@ -66,6 +71,10 @@ export async function follow(request: Request, env: Env, rawKind: string, raw: s
   const kind = parseKind(rawKind);
   const t = await resolveTarget(env, kind, raw, true);
   if (!t) throw NOT_FOUND();
+  // Folgen ist keine Vorstufe und kein Zusatz zur Mitgliedschaft (F-446): Mitglieder folgen ihrer Gruppe nicht
+  if (kind === 'group' && (await env.DB.prepare('SELECT 1 AS x FROM group_members WHERE group_id = ? AND user_id = ?').bind(t.id, user.id).first())) {
+    throw new HttpError(409, 'already_member', 'Als Mitglied bekommst du die Neuigkeiten ohnehin – die Glocke legt fest, wofür du benachrichtigt wirst.');
+  }
   if (kind === 'user' && t.id === user.id) throw new HttpError(400, 'own_object', 'Dir selbst kannst du nicht folgen.');
   if (!(await addFollow(env, user.id, kind, t.id))) {
     throw new HttpError(409, 'quota', `Du folgst schon ${GROUP_LIMITS.follows} Profilen, Booten, Gruppen und Häfen – entfolge zuerst anderen.`);

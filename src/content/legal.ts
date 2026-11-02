@@ -56,7 +56,7 @@ export interface LegalPage {
   sections: LegalSection[];
 }
 
-export const LEGAL_UPDATED = 'Oktober 2026';
+export const LEGAL_UPDATED = 'November 2026';
 
 const p = (text: string): LegalBlock => ({ kind: 'p', text });
 const ul = (...items: string[]): LegalBlock => ({ kind: 'ul', items });
@@ -153,8 +153,10 @@ export function datenschutz(op: Operator = OPERATOR): LegalPage {
           ul(
             '„Öffentlich“: für alle sichtbar, in der Community („Entdecken“, Startseite, Hafen- und Vereinsseiten) gelistet und von Suchmaschinen auffindbar – bei Törns einschließlich aller Positionen und Zeitpunkte.',
             '„Nur mit Link“: nur wer den geheimen Link kennt. „Nur ich“: nur du. Beide Stufen gibt es mit einer laufenden Unterstützung; kostenlos ist alles, was du teilst, öffentlich.',
-            'Profil-, Boots- und Gruppenseiten zeigen nur öffentliche Törns. Mitgliedschaften in Gruppen machen nichts sichtbar, was nicht ohnehin öffentlich ist; geschlossene Gruppen sehen nur ihre Mitglieder.',
-            'In den Neuigkeiten erscheinen nur öffentliche Inhalte; dein Name nur, wenn dein Profil öffentlich ist. Bei Reaktionen sehen andere deinen Namen nur mit öffentlichem Profil, sonst nur die Anzahl.',
+            'Profil-, Boots- und Gruppenseiten zeigen nur öffentliche Törns. Geschlossene Gruppen sehen nur ihre Mitglieder.',
+            'Mitgliedschaften in Vereinen und Teams: Die Mitgliederliste sehen standardmäßig nur die Mitglieder der Gruppe, alle anderen nur die Anzahl; macht die Gruppe sie öffentlich, erscheinen Namen nur bei öffentlichem Profil, sonst ein Spaßname je Gruppe. Dass du beigetreten bist und welcher Verein „deiner“ ist, sehen nur Mitglieder derselben Gruppe. Eigentümer:in und Admins der Gruppe sehen alle Anzeigenamen, nie deine E-Mail-Adresse.',
+            'Folgen ist keine Mitgliedschaft: Wer einer Gruppe, einem Hafen, einem Boot oder einer Person folgt, sieht nur Öffentliches. Wie oft du benachrichtigt wirst, stellst du je Gruppe bzw. je Folgen an der Glocke ein; gespeichert wird die Stufe an deiner Mitgliedschaft bzw. deinem Folgen und mit ihr gelöscht.',
+            'In den Neuigkeiten erscheinen für andere nur öffentliche Inhalte (Beiträge „Nur Mitglieder“ nur für die Mitglieder der Gruppe); dein Name nur, wenn dein Profil öffentlich ist. Bei Reaktionen sehen andere deinen Namen nur mit öffentlichem Profil, sonst nur die Anzahl.',
             'Crew eines Törns: Andere sehen Mitglieder und ihre Rolle an Bord (Skipper:in, Co-Skipper:in, Crew, Gast) nur auf öffentlichen Törns und nur mit öffentlichem Profil. Bestätigt die Skipperin bzw. der Skipper deine Rolle für den Meilennachweis, sehen das nur du, die Eigentümer:in und die Skipper:in; löschst du dein Konto, bleiben deine Bestätigungen ohne Bezug zu deinem Konto stehen.',
             'Deine E-Mail-Adresse ist nie öffentlich.',
           ),

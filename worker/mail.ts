@@ -283,12 +283,11 @@ export interface GroupDigestItem {
   voyages: number;
   photos: number;
   posts: number;
-  members: number;
 }
 
 /**
  * Wöchentliche Sammelmail „Was war los in deinem Verein“ (Konzept 11.7, opt-in). Nur Gruppen und Anzahlen – keine
- * Beitragstexte, keine Namen. Gruppennamen sind Nutzertext → gekürzt und escaped; Pfade stammen vom Server.
+ * Beitragstexte, keine Namen; nur Beiträge, keine automatischen Einträge wie Beitritte (F-448). Gruppennamen sind Nutzertext → gekürzt und escaped; Pfade stammen vom Server.
  */
 export function groupDigestMail(env: Env, to: string, origin: string, groups: GroupDigestItem[]): Mail {
   const app = env.APP_NAME;
@@ -301,7 +300,6 @@ export function groupDigestMail(env: Env, to: string, origin: string, groups: Gr
       g.voyages && (g.voyages === 1 ? '1 neuer Törn' : `${g.voyages} neue Törns`),
       g.photos && (g.photos === 1 ? '1 neues Foto' : `${g.photos} neue Fotos`),
       g.posts && (g.posts === 1 ? '1 Beitrag' : `${g.posts} Beiträge`),
-      g.members && (g.members === 1 ? '1 neues Mitglied' : `${g.members} neue Mitglieder`),
     ]
       .filter(Boolean)
       .join(', ');

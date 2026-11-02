@@ -1,8 +1,8 @@
 import { LitElement, css, html } from 'lit';
 import type { Boat, GroupInfo, GroupInput, GroupPageData, MyGroup, PendingInvite, StreamPage } from '../services/api';
 import {
-  APPROVERS, APPROVERS_LABEL, GROUP_KIND_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODES, JOIN_MODE_LABEL, JOIN_MODE_SHORT,
-  canApprove, canManageGroup, slugFromName, type Approvers, type GroupKind, type JoinMode,
+  APPROVERS, APPROVERS_LABEL, DEFAULT_MEMBERS_VISIBLE, GROUP_KIND_LABEL, MEMBERS_VISIBLE, MEMBERS_VISIBLE_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODES, JOIN_MODE_LABEL, JOIN_MODE_SHORT,
+  canApprove, canManageGroup, slugFromName, type Approvers, type GroupKind, type JoinMode, type MembersVisible,
 } from '../domain/groups';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import './sx-filter-select';
@@ -10,7 +10,7 @@ import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { base, emit, onMapStyles, pageMenuReveal, writePostButton } from './shared';
+import { base, emit, offerFollow, onMapStyles, pageMenuReveal, writePostButton } from './shared';
 import './sx-page-menu';
 import type { PageMenuItem } from './sx-page-menu';
 import { recordedNote } from '../domain/logbook';
@@ -18,6 +18,7 @@ import { VISIBILITY_ICON } from './sx-visibility-picker';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-stream';
 import './sx-follow';
+import './sx-notify-bell';
 import './sx-harbor-picker';
 import './sx-page-media';
 import './sx-claim';
@@ -38,6 +39,8 @@ export class SxGroupPage extends LitElement {
     /** Pins der Gruppe und Verwaltungsrecht (F-403) */
     pins: { attribute: false },
     manage: { type: Boolean },
+    /** automatische Einträge ausblenden (Gerät, F-447) */
+    hideAuto: { type: Boolean, attribute: 'hide-auto' },
     loading: { type: Boolean },
     error: { type: String },
     busy: { type: Boolean },
@@ -57,6 +60,7 @@ export class SxGroupPage extends LitElement {
   declare highlight: string | null;
   declare pins: StreamPage['items'];
   declare manage: boolean;
+  declare hideAuto: boolean;
   declare loading: boolean;
   declare error: string;
   declare busy: boolean;
@@ -81,6 +85,7 @@ export class SxGroupPage extends LitElement {
     this.highlight = null;
     this.pins = [];
     this.manage = false;
+    this.hideAuto = false;
     this.loading = false;
     this.error = '';
     this.busy = false;
@@ -232,6 +237,18 @@ export class SxGroupPage extends LitElement {
         flex: 1;
         min-width: 120px;
         overflow-wrap: anywhere;
+      }
+      /* Spaßname mit Schloss (F-441) – wie in Stream und Crew */
+      .pseudo {
+        font-style: italic;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .pseudo svg,
+      p.faint svg {
+        width: 14px;
+        height: 14px;
       }
       ul.list a {
         color: inherit;
@@ -423,8 +440,21 @@ export class SxGroupPage extends LitElement {
           </fieldset>`
         : ''}
       ${!create && owner && g ? this.postByOptions(g.kind, d.postBy ?? effectivePostBy(g.kind, g.postBy)) : ''}
+      ${owner ? this.membersVisibleOptions(d.membersVisible ?? g?.membersVisible ?? DEFAULT_MEMBERS_VISIBLE) : ''}
       ${this.formError ? html`<p class="error" role="alert">${this.formError}</p>` : ''}
     `;
+  }
+
+  /** Wer sieht die Mitgliederliste (F-440) – nur der Eigner; Standard „Nur Mitglieder“. */
+  private membersVisibleOptions(current: MembersVisible) {
+    return html`<fieldset class="opts" style="border:0;padding:0;margin:0">
+      <legend class="label">Wer sieht die Mitgliederliste?</legend>
+      ${(MEMBERS_VISIBLE as readonly MembersVisible[]).map(
+        (v) => html`<label class="opt"><input type="radio" name="membersvis" .checked=${current === v} @change=${() => this.set({ membersVisible: v })} />
+          <span><b>${MEMBERS_VISIBLE_LABEL[v]}</b>${v === DEFAULT_MEMBERS_VISIBLE ? html` <span class="faint">(Standard)</span>` : ''}</span></label>`,
+      )}
+      <p class="hint">Die Anzahl der Mitglieder sehen alle. Eigentümer und Admins sehen immer alle Anzeigenamen, nie E-Mail-Adressen. Die Boote der Gruppe folgen dieser Einstellung.</p>
+    </fieldset>`;
   }
 
   /** Wer schreibt Beiträge (F-421) – nur der Eigner; Standard je Art ist markiert. */
@@ -474,7 +504,7 @@ export class SxGroupPage extends LitElement {
 
   /** Bearbeiten öffnen: Entwurf aus der aktuellen Gruppe. */
   private startEdit(g: GroupInfo) {
-    this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode, approveBy: g.approveBy ?? 'admins', postBy: effectivePostBy(g.kind, g.postBy) };
+    this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode, approveBy: g.approveBy ?? 'admins', postBy: effectivePostBy(g.kind, g.postBy), membersVisible: g.membersVisible ?? DEFAULT_MEMBERS_VISIBLE };
     this.editing = true;
   }
 
@@ -489,6 +519,7 @@ export class SxGroupPage extends LitElement {
         if (g.role !== 'owner') {
           delete patch.approveBy;
           delete patch.postBy;
+          delete patch.membersVisible;
         }
         emit(this, 'sx-group-save', { id: g.id, patch });
       }}>
@@ -515,8 +546,8 @@ export class SxGroupPage extends LitElement {
   }
 
   /**
-   * Zahnrad-Menü (N6, F-429): Bearbeiten und Löschen (Verwalter bzw. Eigentümer), Stumm (F-346) und Austreten
-   * (Mitglieder außer dem Eigentümer), Melden (alle anderen) – nur, was erlaubt ist.
+   * Zahnrad-Menü (N6, F-429): Bearbeiten und Löschen (Verwalter bzw. Eigentümer), Austreten (Mitglieder außer dem
+   * Eigentümer), Melden (alle anderen) – nur, was erlaubt ist. Stumm und die anderen Stufen stehen an der Glocke (F-449).
    */
   private menuItems(d: GroupPageData): PageMenuItem[] {
     const g = d.group;
@@ -524,10 +555,7 @@ export class SxGroupPage extends LitElement {
     const manager = canManageGroup(g.role);
     const items: PageMenuItem[] = [];
     if (manager) items.push({ id: 'edit', label: 'Bearbeiten', icon: 'pencil' });
-    if (m.role) {
-      items.push(m.muted ? { id: 'unmute', label: 'Neuigkeiten wieder anzeigen', icon: 'bell' } : { id: 'mute', label: 'Neuigkeiten stumm schalten', icon: 'bell-off' });
-      if (m.role !== 'owner') items.push({ id: 'leave', label: 'Austreten', icon: 'logout' });
-    }
+    if (m.role && m.role !== 'owner') items.push({ id: 'leave', label: 'Austreten', icon: 'logout' });
     if (!manager) items.push({ id: 'report', label: 'Melden', icon: 'flag', divider: items.length > 0 });
     if (g.role === 'owner') items.push({ id: 'delete', label: 'Gruppe löschen', icon: 'trash', danger: true, divider: true });
     return items;
@@ -536,8 +564,7 @@ export class SxGroupPage extends LitElement {
   private onMenu(d: GroupPageData, id: string) {
     const g = d.group;
     if (id === 'edit') this.startEdit(g);
-    else if (id === 'mute' || id === 'unmute') emit(this, 'sx-group-mute', { id: g.id, muted: id === 'mute' });
-    else if (id === 'leave') confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id });
+    else if (id === 'leave' && confirm(`„${g.name}“ verlassen?`)) emit(this, 'sx-group-leave', { id: g.id, follow: offerFollow(g) });
     else if (id === 'report') emit(this, 'sx-report', { kind: 'group', id: g.id, label: `die Gruppe ${g.name}` });
     else if (id === 'delete' && confirm(`„${g.name}“ wirklich löschen? Mitglieder, Beiträge und Neuigkeiten der Gruppe werden gelöscht. Törns und Boote bleiben.`)) emit(this, 'sx-group-delete', { id: g.id });
   }
@@ -547,9 +574,9 @@ export class SxGroupPage extends LitElement {
     const m = d.membership;
     // Gäste: erst anmelden; bei „Nur auf Einladung“ nur der Hinweis wie für Angemeldete (F-333)
     if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : html`<span class="faint">Beitritt nur auf Einladung</span>`;
-    // Mitglieder: Stumm und Austreten stehen im Zahnrad-Menü (N6); stumm bleibt am Kopf erkennbar
+    // Mitglieder: Glocke mit Stufe (F-449, „Stumm“ = F-346), Austreten im Zahnrad-Menü (N6)
     if (m.role) {
-      return html`${m.muted ? html`<span class="faint" title="Neuigkeiten erscheinen nicht in deinem Stream und der Wochenmail">${icon('bell-off')} Stumm</span>` : ''}${m.role === 'owner'
+      return html`<sx-notify-bell kind="group" target-id=${g.id} label=${g.name} level=${d.social.notifyLevel ?? (m.muted ? 'muted' : 'important')}></sx-notify-bell>${m.role === 'owner'
         ? html`<span class="faint" title="Übergib die Gruppe in der Mitgliederliste an einen Admin – danach kannst du austreten.">Eigentümer · erst übergeben, dann austreten</span>`
         : ''}`;
     }
@@ -642,16 +669,26 @@ export class SxGroupPage extends LitElement {
     </div>`;
   }
 
+  /**
+   * Mitgliederliste (F-441): verborgen nur die Anzahl; sonst Namen mit öffentlichem Profil, alle anderen mit dem
+   * Spaßnamen dieser Gruppe (Schloss, kursiv); Eigner und Admins sehen alle Anzeigenamen.
+   */
   private members(d: GroupPageData) {
     const g = d.group;
     const owner = g.role === 'owner';
+    if (d.membersHidden) {
+      return html`<section aria-labelledby="mem-t">
+        <h2 class="eyebrow" id="mem-t">Mitglieder</h2>
+        <p class="faint">${icon('lock')} ${plural(d.stats.members, 'Mitglied', 'Mitglieder')} – die Liste sehen nur Mitglieder.</p>
+      </section>`;
+    }
     return html`<section aria-labelledby="mem-t">
       <h2 class="eyebrow" id="mem-t">Mitglieder</h2>
       <ul class="list">
         ${d.members.map(
           (m) => html`<li>
             <span class="avatar" aria-hidden="true">${m.displayName[0]}</span>
-            <span class="name">${m.handle ? html`<a href="/u/${m.handle}">${m.displayName}</a>` : m.displayName}${m.isSelf ? html` <span class="faint">(du)</span>` : ''}</span>
+            <span class="name">${m.handle ? html`<a href="/u/${m.handle}">${m.displayName}</a>` : m.alias ? html`<span class="pseudo" title="Spaßname – das Profil ist nicht öffentlich">${icon('lock')}${m.displayName}</span>` : m.displayName}${m.isSelf ? html` <span class="faint">(du)</span>` : ''}</span>
             ${m.role !== 'member' ? html`<span class="role">${GROUP_ROLE_LABEL[m.role]}</span>` : ''}
             ${owner && m.id && m.role !== 'owner'
               ? html`<button class="btn small ghost" @click=${() => emit(this, 'sx-group-role', { id: g.id, userId: m.id, role: m.role === 'admin' ? 'member' : 'admin' })}>${m.role === 'admin' ? 'Admin absetzen' : 'Zum Admin'}</button>`
@@ -665,7 +702,6 @@ export class SxGroupPage extends LitElement {
           </li>`,
         )}
       </ul>
-      ${d.others ? html`<p class="faint">+ ${plural(d.others, 'weiteres Mitglied', 'weitere Mitglieder')} ohne öffentliches Profil</p>` : ''}
     </section>`;
   }
 
@@ -721,7 +757,7 @@ export class SxGroupPage extends LitElement {
             ${canWriteInGroup(g.role, effectivePostBy(g.kind, g.postBy)) ? writePostButton(this) : ''}
           </span>
         </div>
-        <sx-stream scope="group" in-group .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
+        <sx-stream scope="group" in-group ?hide-auto=${this.hideAuto} .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
           .pins=${this.pins} ?manage=${this.manage}
           empty-text="Noch keine Neuigkeiten in dieser Gruppe."></sx-stream>
       </section>

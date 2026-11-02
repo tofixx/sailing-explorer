@@ -87,6 +87,9 @@ const paths = {
   // Großansicht (F-430)
   expand: svg`<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>`,
   bell: svg`<path class="f" d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 21h4"/>`,
+  // Stufen der Benachrichtigungen (F-449): Wichtiges (Glocke mit Punkt), nur Direktes (kleine Glocke)
+  'bell-dot': svg`<path d="M6 16.5V11a6 6 0 0 1 8.5-5.5M18 12v4.5l1.5 2h-15M10 21h4"/><circle class="f" cx="18.5" cy="6" r="2.5"/><circle cx="18.5" cy="6" r="2.5"/>`,
+  'bell-small': svg`<path d="M8.5 16V12.5a3.5 3.5 0 0 1 7 0V16l1 1.5h-9zM11 20h2"/>`,
   scale: svg`<path d="M12 4v16M7 20h10M5 7h14M5 7l-2.5 6a2.5 2.5 0 0 0 5 0zM19 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/>`,
 };
 

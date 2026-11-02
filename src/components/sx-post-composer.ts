@@ -1,4 +1,4 @@
-import { LitElement, css, html } from 'lit';
+import { LitElement, css, html, type PropertyValues } from 'lit';
 import { commentLength } from '../domain/comment-text';
 import { POST_LINK_MAX, POST_MAX } from '../domain/groups';
 import { POST_VISIBILITY_CHOICE, type AttachableShare, type PostVisibility, type Reach, type ReachOption } from '../domain/posts';
@@ -20,6 +20,8 @@ export class SxPostComposer extends LitElement {
     placeholder: { type: String },
     hint: { type: String },
     choices: { attribute: false },
+    /** vorgewählte Stufe des Verlaufs (`defaultPostVisibility`, F-445: in Gruppen „Nur Mitglieder“) */
+    preset: { type: String },
     /** Erklärung je Stufe (z. B. „Nur Mitglieder von …“) */
     choiceHints: { attribute: false },
     busy: { type: Boolean },
@@ -37,6 +39,7 @@ export class SxPostComposer extends LitElement {
   declare placeholder: string;
   declare hint: string;
   declare choices: PostVisibility[];
+  declare preset: PostVisibility;
   declare choiceHints: Partial<Record<PostVisibility, string>>;
   declare busy: boolean;
   declare reaches: ReachOption[];
@@ -45,7 +48,8 @@ export class SxPostComposer extends LitElement {
   declare shareId: string;
   declare body: string;
   declare link: string;
-  declare visibility: PostVisibility;
+  /** eigene Wahl; null = Vorwahl des Verlaufs */
+  declare visibility: PostVisibility | null;
 
   constructor() {
     super();
@@ -53,11 +57,12 @@ export class SxPostComposer extends LitElement {
     this.placeholder = '';
     this.hint = '';
     this.choices = ['public'];
+    this.preset = 'public';
     this.choiceHints = {};
     this.busy = false;
     this.body = '';
     this.link = '';
-    this.visibility = 'public';
+    this.visibility = null;
     this.reaches = [];
     this.shares = [];
     this.reach = 'all';
@@ -131,6 +136,17 @@ export class SxPostComposer extends LitElement {
     `,
   ];
 
+  /** Anderer Verlauf (andere Stufen bzw. Vorwahl): wieder dessen Vorwahl – „Öffentlich“ wählt man je Verlauf bewusst. */
+  willUpdate(changed: PropertyValues<this>) {
+    if (changed.has('preset') || changed.has('choices')) this.visibility = null;
+  }
+
+  /** Gewählte Stufe: eigene Wahl, sonst die Vorwahl des Verlaufs, sonst die erste. */
+  private current(): PostVisibility {
+    if (this.visibility && this.choices.includes(this.visibility)) return this.visibility;
+    return this.choices.includes(this.preset) ? this.preset : this.choices[0];
+  }
+
   /** Nach erfolgreichem Posten (vom Host aufgerufen). */
   clear() {
     this.body = '';
@@ -146,7 +162,7 @@ export class SxPostComposer extends LitElement {
 
   private submit(e: Event) {
     e.preventDefault();
-    const visibility = this.choices.includes(this.visibility) ? this.visibility : this.choices[0];
+    const visibility = this.current();
     const reach = visibility === 'public' ? this.currentReach() : undefined;
     emit(this, 'sx-post-submit', { body: this.body, link: this.link.trim(), visibility, ...(reach ? { reach } : {}), shareId: this.shareId || null });
   }
@@ -172,7 +188,7 @@ export class SxPostComposer extends LitElement {
 
   render() {
     const len = commentLength(this.body.trim());
-    const current = this.choices.includes(this.visibility) ? this.visibility : this.choices[0];
+    const current = this.current();
     return html`<form aria-label=${this.label} @submit=${(e: Event) => this.submit(e)}>
       <label><span class="label">${this.label}</span>
         <textarea maxlength=${POST_MAX + 200} .value=${this.body} placeholder=${this.placeholder}

@@ -9,6 +9,7 @@ import { createChannelPost, createPost, createProfilePost, deletePost, getCompos
 import { listPins, setPin } from './pins';
 import { boatStream, groupStream, markStreamSeen, personalStream, streamUnread } from './stream';
 import { follow, getSuggestions, unfollow } from './follows';
+import { listChannels, putDefaultLevel, putLevel } from './notify-levels';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { createHarbor, getHarbor, searchHarbors, updateHarbor } from './harbors';
 import { getMyHome, putMyHome } from './home';
@@ -58,6 +59,10 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['GET', /^\/api\/me\/suggestions$/, (r, env) => getSuggestions(r, env)],
   ['PUT', /^\/api\/follows\/(user|boat|group|harbor)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => follow(r, env, kind, id)],
   ['DELETE', /^\/api\/follows\/(user|boat|group|harbor)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => unfollow(r, env, kind, id)],
+  // Stufen der Benachrichtigungen je Verlauf (F-449)
+  ['PUT', /^\/api\/notify\/(user|boat|group|harbor)\/([A-Za-z0-9-]{3,32})$/, (r, env, [kind, id]) => putLevel(r, env, kind, id)],
+  ['GET', /^\/api\/me\/channels$/, (r, env) => listChannels(r, env)],
+  ['PUT', /^\/api\/me\/channels\/default$/, (r, env) => putDefaultLevel(r, env)],
   // ---- Konzept 12: öffentlicher Stream, Häfen, Heimat, Reaktionen ----
   ['GET', /^\/api\/stream\/public$/, (r, env) => publicStream(r, env)],
   ['GET', /^\/api\/stream\/near$/, (r, env) => nearStream(r, env)],

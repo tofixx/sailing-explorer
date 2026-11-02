@@ -2,7 +2,8 @@ import { LitElement, css, html } from 'lit';
 import type { MyGroup } from '../services/api';
 import { GROUP_KIND_LABEL, GROUP_ROLE_LABEL } from '../domain/groups';
 import { icon } from './icons';
-import { base, emit } from './shared';
+import './sx-notify-bell';
+import { base, emit, offerFollow } from './shared';
 
 export interface MyRequest {
   id?: string;
@@ -13,9 +14,9 @@ export interface MyRequest {
 }
 
 /**
- * „Meine Gruppen“ im Konto (F-348): Vereine und Teams mit Rolle, Glocke (stumm, F-346) und Austreten bzw. Hinweis zum
- * Übergeben für Eigentümer (F-347); offene Beitrittsanfragen mit „Zurückziehen“. Rein präsentational; meldet
- * \`sx-group-mute\` { id, muted }, \`sx-group-leave\` { id }, \`sx-group-withdraw\` { id }.
+ * „Meine Gruppen“ im Konto (F-348): Vereine und Teams mit Rolle, Glocke mit Stufe (`sx-notify-bell`, F-449) und
+ * Austreten bzw. Hinweis zum Übergeben für Eigentümer (F-347); offene Beitrittsanfragen mit „Zurückziehen“. Rein
+ * präsentational; meldet \`sx-notify-level\` (über die Glocke), \`sx-group-leave\` { id }, \`sx-group-withdraw\` { id }.
  */
 export class SxMyGroups extends LitElement {
   static properties = { groups: { attribute: false }, requests: { attribute: false }, busy: { type: Boolean } };
@@ -71,12 +72,10 @@ export class SxMyGroups extends LitElement {
     return html`<li>
       <span class="name"><a href="/g/${g.slug}">${g.name}</a>
         <span class="sub">${GROUP_KIND_LABEL[g.kind]} · ${g.role ? GROUP_ROLE_LABEL[g.role] : ''}${muted ? ' · stumm' : ''}</span></span>
-      <button class="btn ghost icon small" type="button" aria-pressed=${muted ? 'true' : 'false'} aria-label=${muted ? `Neuigkeiten von ${g.name} wieder anzeigen` : `Neuigkeiten von ${g.name} stumm schalten`}
-        title=${muted ? 'Stumm – tippen, um Neuigkeiten wieder zu sehen' : 'Neuigkeiten stumm schalten'} ?disabled=${this.busy}
-        @click=${() => emit(this, 'sx-group-mute', { id: g.id, muted: !muted })}>${icon(muted ? 'bell-off' : 'bell')}</button>
+      <sx-notify-bell kind="group" target-id=${g.id} label=${g.name} level=${g.notifyLevel ?? (muted ? 'muted' : 'important')}></sx-notify-bell>
       ${g.role === 'owner'
         ? html`<a class="btn small ghost" href="/g/${g.slug}" title="Übergib die Gruppe in der Mitgliederliste an einen Admin – danach kannst du austreten.">Übergeben …</a>`
-        : html`<button class="btn small ghost" type="button" ?disabled=${this.busy} @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id })}>${icon('logout')} Austreten</button>`}
+        : html`<button class="btn small ghost" type="button" ?disabled=${this.busy} @click=${() => confirm(`„${g.name}“ verlassen?`) && emit(this, 'sx-group-leave', { id: g.id, follow: offerFollow(g) })}>${icon('logout')} Austreten</button>`}
     </li>`;
   }
 

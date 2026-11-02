@@ -27,7 +27,7 @@ const seenAt = async (p: Person) =>
 const setSeen = async (p: Person, v: number) => (await s.db()).prepare('UPDATE users SET stream_seen_at = ? WHERE id = ?').bind(v, p.user.id).run();
 const tick = () => new Promise((r) => setTimeout(r, 5));
 const post = async (admin: Person, g: { id: string }, body: string) => {
-  const res = await s.send('POST', `/api/groups/${g.id}/posts`, admin.cookie, { body });
+  const res = await s.send('POST', `/api/groups/${g.id}/posts`, admin.cookie, { visibility: 'public', body });
   expect(res.status, await res.clone().text()).toBe(201);
   return ((await res.json()) as { post: { id: string } }).post;
 };

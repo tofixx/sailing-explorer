@@ -3055,3 +3055,131 @@ Festlegungen:
 Noch zu bestätigen bei der Umsetzung: Auslegung „Gewichtung nach Mitgliederzahl“ (21.6), genaue Kontingente (10/200
 Fotos je Monat, 25 MB kostenlos), Schwellen der Tageszusammenfassung (150 Mitglieder, 15 Einträge/Tag) und des
 Hinweises (100 Personen).
+
+## 24. Sichtbarkeit von Mitgliedschaften, Folgen und Benachrichtigungen
+
+Anlass (Betreiber): Inhalte und Mitgliedschaften in Gruppen sollen ohne Mitgliedschaft nicht sichtbar sein; Folgen,
+Mitgliedschaft und Benachrichtigen sind nicht sauber getrennt. Die Entscheidungen des Betreibers vom 02.11.2026
+(verbindlich) sind eingearbeitet. Anforderungen F-440 … F-449. (Die Abschnitte 22 und 23 gehören parallelen Branches.)
+
+### 24.1 Bestandsaufnahme: wo Mitgliedschaften und Gruppeninhalte nach außen sichtbar waren
+
+| Stelle | Datei | Was | Wer sah es bisher | Jetzt |
+|---|---|---|---|---|
+| Mitgliederliste | `worker/groups.ts` `getGroup` | Namen mit öffentlichem Profil, „+ n weitere“ | alle, die die Gruppe sehen | F-441: je Einstellung, Standard nur Mitglieder |
+| Boote der Gruppe | `worker/groups.ts` `getGroup` | öffentliche Boote (Boot → Eigner) | alle | F-442: wie Mitgliederliste |
+| Teams eines Vereins, Verein eines Teams | `worker/groups.ts` `getGroup` | öffentliche Teams bzw. Verein | alle | unverändert: Gruppen mit eigener Sichtbarkeit, keine Personen |
+| Kennzahlen, Titelbild, Galerie | `getGroup`, `groupStats`, `galleryPhotos` | Zahlen, öffentliche Fotos öffentlicher Törns | alle | unverändert (Betreiber: Zahlen bleiben) |
+| Beitritte im Stream | `worker/stream-shape.ts` `case 'member'`, `worker/activity.ts` `recordMember` | „X ist beigetreten“, Spaßname je Konto gleich | Gäste (öffentlicher Gruppen-Stream, „Alles“, „Umgebung“, `?club=`, 60 s gecacht), Follower | F-443: nur Mitglieder derselben Gruppe |
+| Boot in Gruppe im Stream | `stream-shape.ts` `case 'boat'` | „Neues Boot in …“ | wie Beitritte | F-442 |
+| RSS | `worker/feed.ts`, `feed-xml.ts` | Beitritte mit Name/Spaßname, 600 s gecacht | alle | F-443: keine Beitritte |
+| Community-Badge | `worker/stream.ts` `streamUnread` | zählte Beitritte gefolgter Gruppen | Follower | F-443, F-447 |
+| „Mitglied von“ (Mein Verein) | `worker/home.ts` `publicHome`, `worker/profiles.ts` | Verein bei öffentlichem Profil | alle | F-444: nur Mitglieder desselben Vereins |
+| Bootsseite „Verein des Boots“ | `worker/boats.ts` `getBoat` | öffentliche Vereine des Boots | alle | F-442 |
+| Gruppen-Beiträge auf dem Profil | `worker/posts.ts` `visitorPosts` | öffentliche Beiträge öffentlicher Gruppen; „Nur Mitglieder“ nur für Mitglieder | je Sichtbarkeit | unverändert (bewusst öffentlicher Inhalt, Betreiber 2) |
+| Törn „in Gruppe gezeigt“ | `worker/share-context.ts` | öffentliche Gruppen eines öffentlichen Törns | alle | unverändert (Eigentümer:in wählt es beim Teilen) – offen, 24.7 |
+| Vorschlag „im selben Verein“ | `worker/follows.ts` | Personen aus gemeinsamen Gruppen | nur Mitglieder selbst | unverändert |
+| Wochenmail | `worker/group-digest.ts`, `mail.ts` | Anzahl neuer Mitglieder | Mitglieder | F-448: keine automatischen Zahlen |
+| Benachrichtigungen | `worker/notifications.ts` | Beitrittsanfrage an Verwalter | Verwalter | unverändert, Stufen F-449 |
+| Einladungs-Vorschau | `worker/invites.ts` `peek` | Gruppenname, Einladende:r | wer den Token hat | unverändert (gezielt eingeladen) |
+| Link-Vorschau (OG) | `worker/index.ts` | Name, Beschreibung, Hafen | alle | unverändert, keine Mitglieder |
+| Admin, Zusammenführen | `worker/admin.ts`, `admin-merge.ts` | Zähler, Vorschau | Plattform-Admins | unverändert; Merge übernimmt Stufen, löscht Folgen bei Mitgliedschaft |
+| Spaßname | `src/domain/names.ts` | `funnyName(userId)` überall gleich | – | im Gruppen-Kontext `memberAlias(user, group)`: nicht über Gruppen und Crew (F-134) verknüpfbar |
+| Gesperrte Gruppe im Stream | `stream.ts` `LEFT JOIN group_members` | Rolle trotz Sperre | Ex-Verwalter | Rolle nur ohne `locked_at` (wie `roleIn`, Konzept 18.2) |
+
+### 24.2 Wer sieht was
+
+| Objekt | Gast | angemeldet ohne Mitgliedschaft (auch Folgende) | Mitglied | Admin/Eigner der Gruppe | Plattform-Admin |
+|---|---|---|---|---|---|
+| Mitgliederliste (`members_visible = members`, Standard) | nur Anzahl | nur Anzahl | alle; Name bei öffentlichem Profil, sonst Spaßname | alle Anzeigenamen + IDs, nie E-Mail | wie angemeldet; Einblick im Admin-Bereich |
+| Mitgliederliste (`public`) | Name bei öffentlichem Profil, sonst Spaßname | wie Gast | wie Gast | wie oben | wie angemeldet |
+| Mitgliedsanzahl, Zahlen (Boote, Törns, Seemeilen) | ja | ja | ja | ja | ja |
+| „Mitglied von“ im Profil, Beitritt im Stream | nie | nie | nur für dieselbe Gruppe | wie Mitglied | wie angemeldet |
+| Beitrag öffentlich | ja (bei sichtbarer Gruppe), Ausbreitung je „Sichtbar bis“ | ja | ja | ja | ja |
+| Beitrag „Nur Mitglieder“ | nie | nie | ja | ja | Moderation über Meldungen |
+| Boote der Gruppe (Liste, „Verein des Boots“, Stream) | wie Mitgliederliste | wie Mitgliederliste | ja | ja (+ eigene Boote immer) | wie angemeldet |
+| Teams eines Vereins | öffentliche | öffentliche + eigene | öffentliche + eigene | wie Mitglied | wie angemeldet |
+
+Plattform-Admins bekommen auf normalen Seiten keine zusätzlichen Namen (least privilege); was die Moderation braucht,
+steht im Admin-Bereich (18.5) und in Meldungen.
+
+### 24.3 Drei getrennte Achsen: Beziehung, Stream, Benachrichtigung
+
+| Achse | Werte | Gespeichert | Regel |
+|---|---|---|---|
+| Beziehung | keine · Folgen · Beitritt angefragt · Mitglied | `follows`, `group_requests`, `group_members` | Folgen und Mitglied schließen sich aus; Anfrage ist ein eigener Zustand |
+| Im persönlichen Stream | ja bei Folgen oder Mitgliedschaft – außer „Stumm“ | abgeleitet | `TARGET_SQL` (`notify_level IS NOT 'muted'`) |
+| Benachrichtigung | Alle Beiträge · Wichtiges · Nur Direktes · Stumm | `group_members.notify_level` bzw. `follows.notify_level` | `shouldNotify` / `notifyLevelSql` |
+
+Folgen ist keine Vorstufe: Folgende sehen nur Öffentliches (Interesse von außen), Mitglieder gehören dazu (Rechte,
+„Nur Mitglieder“, Mitgliederliste). Beim Beitritt (`addMember`, Übergabe, Zusammenführen) fällt das Folgen weg, die
+gewählte Stufe geht auf die Mitgliedschaft über. Beim Austreten fragt die Oberfläche bei öffentlichen Gruppen „Weiter
+folgen?“ (Ja → Folgen mit „Nur Direktes“). Wer folgt und anfragt, folgt bis zur Aufnahme weiter.
+
+Kopf je Seite (N5), Bausteine `sx-follow` + `sx-notify-bell`: Nicht-Mitglied [Folgen] [Beitreten/Anfragen] · Folgend
+[✓ Folgst du ▾ Stufen, Entfolgen] [Beitreten] · Angefragt [Anfrage gestellt] [Zurückziehen] · Mitglied [Glocke ▾];
+Austreten im Zahnrad (nicht doppelt).
+
+### 24.4 Datenmodell (Migration `0032_members_visible.sql`, eine für alles)
+
+| Spalte | Werte | Standard | Bestand |
+|---|---|---|---|
+| `groups.members_visible` | `members` · `public` | `members` | alle bestehenden Gruppen „nur Mitglieder“ (Betreiber 1) |
+| `group_members.notify_level` | `all` · `important` · `direct` · `muted` · NULL | NULL = Voreinstellung des Kontos (`users.notify_prefs.level`, sonst `important`) | `muted_at` gesetzt → `muted`; `muted_at` wird danach nicht mehr gelesen |
+| `follows.notify_level` | wie oben | NULL = `direct` (Folgende) | – |
+| `users.notify_prefs.level` (JSON) | `all` · `important` · `direct` | `important` | wer „Neue Beiträge“ eingeschaltet hatte → `all` (nichts ändert sich still) |
+
+Werte prüft der Worker (`isMembersVisible`, `isNotifyLevel`), kein `CHECK`. Der Kanal „Neue Beiträge“ (Glocke, Mail,
+Push) bleibt; sein „Aus“ entfällt – ob überhaupt benachrichtigt wird, entscheidet die Stufe je Verlauf.
+
+### 24.5 Querschnitte, Caches, Löschpfade
+
+- **Eine Regel, ein Modul:** `canSeeMembers`, `canSeeMembership` (`src/domain/groups.ts`) = `membersVisibleSql`,
+  `isMemberSql` (`worker/member-sql.ts`); `shouldNotify` (`src/domain/notifications.ts`) = `notifyLevelSql`,
+  `followLevelSql` (`worker/notify-sql.ts`); `STREAM_KIND_CLASS`/`isAutomaticKind` für Beitrag oder automatisch. Tests
+  halten Domain und SQL gleich (`test/functional/member-visibility.test.ts`, `test/notify-levels.test.ts`).
+- **Prüfen beim Lesen, fail closed:** `shapeItem` (Beitritt nur mit Rolle in derselben Gruppe, Boot nur mit
+  `canSeeMembers`), `getGroup`, `getProfile` (`isMemberSql`), `getBoat` (`membersVisibleSql`). Unbekannte Einstellung =
+  „nur Mitglieder“, unbekannte Art = automatisch, unbekannte Stufe = Standard.
+- **Caches (F-415):** Mitglieder-abhängige Antworten kommen nie aus dem öffentlichen 60-s-Cache. Gruppenseite, Profil und
+  Bootsseite sind `no-store`; Gruppen-Streams für Mitglieder ungecacht; der öffentliche Cache (Gruppen-, Hafen-,
+  Community-Stream, RSS) wird ohne Betrachter berechnet und enthält daher nie Beitritte. Boots-Einträge hängen dort nur
+  an der (für alle gleichen) Einstellung der Gruppe; nach dem Umschalten wirkt der Cache nach höchstens 60 s (RSS 600 s).
+- **Benachrichtigungen:** `notifyPost` (Text-Beitrag ab „Alle Beiträge“; Pin, Umfrage, Veranstaltung ab „Wichtiges“; an
+  Mitglieder und – nur bei öffentlichen Beiträgen – Follower), `notifyRequest` (direkt, nicht bei „Stumm“). Automatische
+  Einträge rufen nie eine Benachrichtigung auf; die Wochenmail zählt keine Beitritte mehr.
+- **Löschpfade:** alle neuen Werte hängen an bestehenden Zeilen und fallen mit ihnen: Austritt/Entfernen
+  (`group_members`), Entfolgen (`follows`), Gruppe gelöscht (`removeGroup`), Konto gelöscht (Cascade/`purgeUserGroups`),
+  Konten zusammengeführt (Stufen wandern mit, Folgen einer Gruppe, in der man Mitglied ist, fällt weg), Häfen
+  zusammengeführt (Follows samt Stufe). Keine neuen Tabellen, keine R2-Daten, keine Zähler.
+- **Parallele Arbeit:** Startseite (Slider) und Törn-Arbeitsbereich berühren diese Dateien nicht; `app.ts` nur zwei
+  Event-Zeilen.
+
+### 24.6 Beitrag oder automatisch, Glocke
+
+| Art (`activity.kind`) | Klasse | Darstellung | Benachrichtigt |
+|---|---|---|---|
+| `voyage`, `photos`, `logbook`, `post` | Beitrag | Karte | je Stufe (F-416, F-449) |
+| `member`, `boat`, `harbor`, `milestone` | automatisch | graue Systemzeile, ausblendbar | nie (F-448) |
+
+Austritt, Team angelegt und Rollenwechsel erzeugen keine Stream-Einträge (Austritt löscht den Beitritt); kämen sie
+dazu, wären sie „automatisch“ (Typprüfung über `STREAM_KIND_CLASS`). Der Schalter „Automatische Einträge“ (vorher
+„Beitritte“, F-350) wirkt auf dem Gerät in allen Streams und im Badge (`?joins=0`).
+
+`shouldNotify(level, event, isDirect)`: Stumm nie; automatisch nie; Direktes ab „Nur Direktes“; Wichtiges ab
+„Wichtiges“; jeder Beitrag nur bei „Alle Beiträge“. Die Glocke (`sx-notify-bell` mit `MenuController`/`menuStyles`,
+mobil als Sheet; Symbole Glocke, Glocke mit Punkt, kleine Glocke, durchgestrichen) steht für Mitglieder im Kopf der
+Gruppenseite, für Folgende im Knopf „Folgst du ▾“, in „Meine Gruppen“ und in der Übersicht unter Konto →
+Einstellungen (Mitgliedschaften und Folgen getrennt, mit Voreinstellung). Häfen und Boote ohne Folgen (eigenes Boot,
+Heimathafen) nutzen die Voreinstellung des Kontos.
+
+### 24.7 Offen für den Betreiber
+
+1. Plattform-Admins sehen auf normalen Seiten keine verborgenen Mitgliederlisten (Vorschlag) – oder wie Gruppen-Admins?
+2. Titelbilder im Stream hingen nur an automatischen Einträgen und entfallen mit der grauen Systemzeile (F-213). So
+   lassen oder ein kleines Vorschaubild in der Systemzeile?
+3. „Austreten“ steht im Zahnrad, nicht als eigener „Mitglied ▾“-Knopf im Kopf – reicht das?
+4. Öffentliche Törns, die in einer Gruppe gezeigt werden, und öffentliche Gruppen-Beiträge auf dem Profil verraten weiter
+   die Zugehörigkeit (bewusst öffentliche Inhalte, Betreiber 2). Soll „In Gruppe gezeigt“ bei „Nur Mitglieder“-Listen nur
+   Mitgliedern genannt werden?
+5. Umfragen und Veranstaltungen gibt es noch nicht; die Regel stuft sie als „wichtig“ ein, sobald sie kommen.

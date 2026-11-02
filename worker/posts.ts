@@ -23,7 +23,7 @@ import { GROUP_LIMITS } from '../src/domain/limits';
 import { cleanComment, commentLength, countLinks } from '../src/domain/comment-text';
 import { POST_MAX, POST_MAX_LINKS, STREAM_PAGE, canManageGroup, decodeCursor, encodeCursor, parsePostLink, type GroupKind, type GroupRole } from '../src/domain/groups';
 import {
-  canChoosePostVisibility, canManageChannel, canSeePost, widensAudience, canWriteInGroup, channelKey, channelPath, effectivePostBy, effectivePostVisibility, isChannelKind, isMyPostArea,
+  canChoosePostVisibility, canManageChannel, canSeePost, defaultPostVisibility, widensAudience, canWriteInGroup, channelKey, channelPath, effectivePostBy, effectivePostVisibility, isChannelKind, isMyPostArea,
   isPostVisibility, isReach, postVisibilityChoices, reachChoices, reachFor, reachTargets, shareKindOf,
   type AttachableShare, type ChannelKind, type ChannelRef, type MyPost, type PostKind, type PostLink, type PostVisibility, type ProfilePost, type Reach, type ReachChain,
 } from '../src/domain/posts';
@@ -75,7 +75,8 @@ async function readPostInput(env: Env, userId: string, input: RawPostInput, c: W
   if (countLinks(body) > POST_MAX_LINKS) throw new HttpError(400, 'too_many_links', `Höchstens ${POST_MAX_LINKS} Links pro Beitrag.`);
   const link = parsePostLink(input.link);
   if (link === null) throw new HttpError(400, 'invalid_link', 'Der Link muss mit http:// oder https:// beginnen.');
-  const audience = readAudience(input, c, 'public');
+  // ohne Angabe: in Gruppen „Nur Mitglieder“, sonst öffentlich (F-445)
+  const audience = readAudience(input, c, defaultPostVisibility(c.kind));
   return { body, link: link || null, ...audience, shareId: await readShareId(env, userId, input.shareId) };
 }
 
@@ -111,7 +112,7 @@ async function insertTextPost(env: Env, authorId: string, c: WritableChannel, p:
   const act = forActivity(id, authorId, c, c.chain, p.visibility, p.reach);
   if (act) await recordPost(env, act, now);
   // nur der Heimatverlauf benachrichtigt (F-416)
-  await notifyPost(env, { id, authorId, channel: { kind: c.kind, id: c.id }, visibility: p.visibility });
+  await notifyPost(env, { id, authorId, kind: 'text', channel: { kind: c.kind, id: c.kind === 'user' ? authorId : c.id }, visibility: p.visibility });
   return { id, createdAt: now, path: postPath(id, p.visibility, linkKey) };
 }
 

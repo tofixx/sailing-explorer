@@ -18,12 +18,12 @@ afterAll(async () => {
 });
 
 interface PageOut {
-  group: GroupOut & { hiddenAt: number | null };
+  group: GroupOut & { hiddenAt: number | null; membersVisible?: string };
   parent: { slug: string } | null;
   teams: Array<{ slug: string }>;
   stats: { members: number; boats: number; voyages: number; distNm: number; seasonNm: number };
-  members: Array<{ id: string | null; handle: string | null; displayName: string; role: string }>;
-  others: number;
+  members: Array<{ id: string | null; handle: string | null; displayName: string; role: string; alias?: boolean }>;
+  membersHidden?: boolean;
   boats: Array<{ id: string; name: string; mine: boolean; canRemove: boolean }>;
   social: { followers: number; isFollowing: boolean };
   membership: { role: string | null; requested: boolean; canRequest: boolean };
@@ -54,7 +54,10 @@ describe('F-150 Gruppen anlegen', () => {
     const d = (await bySlug.json()) as PageOut;
     expect(d.group.id).toBe(g.id);
     expect(d.stats.members).toBe(1);
-    expect(d.members).toEqual([expect.objectContaining({ handle: owner.handle, role: 'owner', id: null })]);
+    // Gäste sehen nur die Anzahl (F-441, Standard „Nur Mitglieder“ F-440)
+    expect(d.members).toEqual([]);
+    expect(d.membersHidden).toBe(true);
+    expect(d.group.membersVisible).toBe('members');
     const mine = (await (await s.send('GET', '/api/groups', owner.cookie)).json()) as { groups: Array<{ id: string; role: string; members: number }> };
     expect(mine.groups).toEqual([expect.objectContaining({ id: g.id, role: 'owner', members: 1 })]);
   });
@@ -195,17 +198,20 @@ describe('F-151 Rollen und Rechte', () => {
     expect((await s.send('DELETE', `/api/groups/${g.id}`, (await s.person()).cookie)).status).toBe(403);
   });
 
-  it('[F-156] Mitglieder: namentlich nur mit öffentlichem Profil, sonst gezählt; Verwalter sehen alle Anzeigenamen und IDs, nie E-Mails', async () => {
+  it('[F-156] [F-441] Mitglieder: öffentliche Liste namentlich nur mit öffentlichem Profil, sonst Spaßname; Verwalter sehen alle Anzeigenamen und IDs, nie E-Mails', async () => {
     const owner = await s.person({ profile: 'public' });
     const g = await s.group(owner);
     const pub = await s.person({ profile: 'public' });
     const priv = await s.person({ profile: 'private' });
     const none = await s.person();
     for (const p of [pub, priv, none]) await s.join(owner, g, p);
+    expect((await s.send('PATCH', `/api/groups/${g.id}`, owner.cookie, { membersVisible: 'public' })).status).toBe(200);
     const visitor = await pageJson(g);
-    expect(visitor.members.map((m) => m.handle).sort()).toEqual([owner.handle, pub.handle].sort());
+    expect(visitor.members).toHaveLength(4);
+    expect(visitor.members.filter((m) => m.handle).map((m) => m.handle).sort()).toEqual([owner.handle, pub.handle].sort());
     expect(visitor.members.every((m) => m.id === null)).toBe(true);
-    expect(visitor.others).toBe(2);
+    expect(visitor.members.filter((m) => m.alias)).toHaveLength(2);
+    expect(JSON.stringify(visitor)).not.toContain(`Name ${priv.handle}`);
     expect(visitor.requests).toBeUndefined();
     const managed = await pageJson(g, owner);
     expect(managed.members).toHaveLength(4);
@@ -359,7 +365,9 @@ describe('F-155 Boote in Gruppen', () => {
     expect((await s.send('POST', `/api/groups/${g2.id}/boats`, sailor.cookie, { boatId: boat.id })).status).toBe(201);
     expect((await s.send('POST', `/api/groups/${g1.id}/boats`, sailor.cookie, { boatId: foreign.id })).status).toBe(400);
     expect((await s.send('POST', `/api/groups/${g2.id}/boats`, owner.cookie, { boatId: foreign.id })).status).toBe(403);
-    const d = await pageJson(g1);
+    // Boote der Gruppe sehen Mitglieder (F-442); Gäste nur die Zahl
+    expect((await pageJson(g1)).boats).toEqual([]);
+    const d = await pageJson(g1, owner);
     expect(d.boats.map((b) => b.name)).toEqual(['Albatros']);
     expect(d.stats.boats).toBe(1);
     // Ein Mitglied ohne Bootsrechte entfernt nicht; Gruppen-Eigner schon

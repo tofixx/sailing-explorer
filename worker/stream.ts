@@ -17,7 +17,7 @@ import type { Reach } from '../src/domain/posts';
 import { logbookIds, shapeItem, type ActivityRow, type LogShare, type ReadAt, type Viewer } from './stream-shape';
 import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
 import {
-  STREAM_PAGE, STREAM_SCAN, canManageGroup, decodeCursor, encodeCursor, reactionSubjectOf,
+  STREAM_PAGE, STREAM_SCAN, canManageGroup, decodeCursor, encodeCursor, isAutomaticKind, reactionSubjectOf,
   type StreamCursor, type StreamItem,
 } from '../src/domain/groups';
 import { emptyReactions, summarizeReactions, type ReactionKind } from '../src/domain/reactions';
@@ -32,7 +32,7 @@ const ROW_COLS_JOINS = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subje
     (SELECT sp.reach FROM posts sp WHERE sp.id = s.id) AS s_reach,
     b.id AS b_id, b.name AS b_name, b.visibility AS b_vis, b.hidden_at AS b_hidden,
     EXISTS (SELECT 1 FROM users bu WHERE bu.id = b.owner_id AND bu.suspended_at IS NOT NULL) AS b_owner_suspended,
-    g.id AS g_id, g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.hidden_at AS g_hidden, gm.role AS g_role,
+    g.id AS g_id, g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.hidden_at AS g_hidden, gm.role AS g_role, g.members_visible AS g_members,
     EXISTS (SELECT 1 FROM users gu WHERE gu.id = g.owner_id AND gu.suspended_at IS NOT NULL) AS g_owner_suspended,
     p.id AS p_id, p.body AS p_body, p.link AS p_link, p.hidden_at AS p_hidden, p.author_id AS p_author, p.visibility AS p_vis, p.reach AS p_reach,
     p.channel_kind AS p_ck, p.channel_id AS p_cid, p.link_key AS p_key,
@@ -48,7 +48,7 @@ const ROW_COLS_JOINS = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subje
   LEFT JOIN shares s ON a.subject_kind = 'share' AND s.id = a.subject_id
   LEFT JOIN boats b ON b.id = CASE WHEN a.subject_kind = 'boat' THEN a.subject_id ELSE s.boat_id END
   LEFT JOIN groups g ON g.id = COALESCE(a.group_id, CASE WHEN a.subject_kind = 'group' THEN a.subject_id END)
-  LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = ?1
+  LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = ?1 AND g.locked_at IS NULL
   LEFT JOIN posts p ON a.subject_kind = 'post' AND p.id = a.subject_id
   LEFT JOIN harbors ph ON p.channel_kind = 'harbor' AND ph.id = p.channel_id
   LEFT JOIN boats pb ON p.channel_kind = 'boat' AND pb.id = p.channel_id
@@ -260,8 +260,9 @@ export async function personalStream(request: Request, env: Env): Promise<Respon
  */
 export async function streamUnread(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  // ?joins=0: Beitritte sind auf dem Gerät ausgeblendet – dann zählen sie auch nicht (F-350)
-  const joins = new URL(request.url).searchParams.get('joins') !== '0';
+  // ?joins=0: automatische Einträge (Beitritte, Boote, Meilensteine …) sind auf dem Gerät ausgeblendet – dann zählen
+  // sie auch nicht (F-350, F-447)
+  const auto = new URL(request.url).searchParams.get('joins') !== '0';
   const headers = { 'Cache-Control': 'private, no-store' };
   const row = await env.DB.prepare('SELECT stream_seen_at AS seen FROM users WHERE id = ?').bind(user.id).first<{ seen: number | null }>();
   if (row?.seen == null) {
@@ -274,7 +275,7 @@ export async function streamUnread(request: Request, env: Env): Promise<Response
   if (candidates.length) {
     const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(user.id, JSON.stringify(candidates.map((c) => c.id))).all<ActivityRow>();
     const thumbs = await photoThumbs(env, rows);
-    for (const r of rows) if (r.actor_id !== user.id && (joins || r.kind !== 'member') && shapeItem(r, { id: user.id }, thumbs.get(r.s_id ?? '') ?? [])) count++;
+    for (const r of rows) if (r.actor_id !== user.id && (auto || !isAutomaticKind(r.kind)) && shapeItem(r, { id: user.id }, thumbs.get(r.s_id ?? '') ?? [])) count++;
   }
   return json({ count: Math.min(count, UNREAD_MAX), more: count > UNREAD_MAX }, { headers });
 }

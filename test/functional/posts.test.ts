@@ -41,7 +41,7 @@ async function myPosts(p: Person, area = 'all') {
   return json<{ items: MyPostOut[]; cursor: string | null }>(await s.send('GET', `/api/me/posts?area=${area}`, p.cookie));
 }
 async function groupPost(p: Person, groupId: string, body: Record<string, unknown>, status = 201) {
-  const res = await s.send('POST', `/api/groups/${groupId}/posts`, p.cookie, body);
+  const res = await s.send('POST', `/api/groups/${groupId}/posts`, p.cookie, { visibility: 'public', ...body });
   expect(res.status, await res.clone().text()).toBe(status);
   return status === 201 ? ((await res.json()) as { post: { id: string } }).post : null;
 }

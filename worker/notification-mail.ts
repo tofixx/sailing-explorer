@@ -36,7 +36,8 @@ export async function savePrefs(env: Env, userId: string, patch: unknown): Promi
   const after = { ...before, ...Object.fromEntries(entries) } as NotifyPrefs;
   const digested = (p: NotifyPrefs) => DIGEST_KINDS.some((k) => p[k] === 'mail');
   await env.DB.prepare(
-    `UPDATE users SET notify_prefs = ?1, comments_mailed_at = CASE WHEN ?2 THEN ?3 ELSE comments_mailed_at END WHERE id = ?4`,
+    // json_patch erhält Schlüssel außerhalb der Kanäle (Voreinstellung `level`, F-449)
+    `UPDATE users SET notify_prefs = json_patch(CASE WHEN json_valid(notify_prefs) THEN notify_prefs ELSE '{}' END, ?1), comments_mailed_at = CASE WHEN ?2 THEN ?3 ELSE comments_mailed_at END WHERE id = ?4`,
   )
     .bind(JSON.stringify(after), !digested(before) && digested(after) ? 1 : 0, Date.now(), userId)
     .run();

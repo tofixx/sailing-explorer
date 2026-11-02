@@ -1,5 +1,5 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
-import { POST_VISIBILITY_CHOICE, channelKey, channelName, type AttachableShare, type ComposeTarget, type PostVisibility } from '../domain/posts';
+import { POST_VISIBILITY_CHOICE, channelKey, channelName, type AttachableShare, type ComposeTarget, type PostVisibility, defaultPostVisibility } from '../domain/posts';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import './sx-post-composer';
@@ -99,7 +99,7 @@ export class SxComposeDialog extends LitElement {
                   ${this.targets.map((x) => html`<option value=${channelKey(x.ref)} ?selected=${t === x}>${x.ref.kind === 'user' ? 'Mein Profil' : channelName(x.ref)}</option>`)}
                 </select></label>
               ${t
-                ? html`<sx-post-composer label="Text" placeholder="Was gibt es Neues?" ?busy=${this.busy} .choices=${t.choices} .reaches=${t.reaches} .shares=${this.shares}
+                ? html`<sx-post-composer label="Text" placeholder="Was gibt es Neues?" ?busy=${this.busy} .choices=${t.choices} preset=${defaultPostVisibility(t.ref.kind)} .reaches=${t.reaches} .shares=${this.shares}
                     hint="Höchstens 5 Beiträge pro Tag und Verlauf. Reiner Text, Links werden klickbar."
                     .choiceHints=${Object.fromEntries(t.choices.map((v) => [v, `${POST_VISIBILITY_CHOICE[v]}: ${HINT[v]}`]))}
                     @sx-post-submit=${(e: CustomEvent) => this.submit(e)}></sx-post-composer>`

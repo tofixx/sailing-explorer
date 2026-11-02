@@ -200,10 +200,10 @@ describe('sx-account-dialog – Einstellungen und Meldungen', () => {
     const selects = [...el.shadowRoot.querySelectorAll<HTMLSelectElement>('.channels select')];
     expect(selects).toHaveLength(6);
     expect(text(el)).toContain('Kommentare auf deinen Törns');
-    // „Aus“ gibt es nur für neue Beiträge (F-416, Standard aus)
+    // „Aus“ gibt es nicht mehr – ob ein Beitrag benachrichtigt, entscheidet die Stufe je Verlauf (F-449)
     expect([...selects[0].options].map((o) => o.value)).toEqual(['none', 'mail', 'push']);
-    expect([...selects[5].options].map((o) => o.value)).toEqual(['off', 'none', 'mail', 'push']);
-    expect(selects[5].value).toBe('off');
+    expect([...selects[5].options].map((o) => o.value)).toEqual(['none', 'mail', 'push']);
+    expect(selects[5].value).toBe('none');
     expect(selects[0].value).toBe('none');
     expect(selects[3].value).toBe('mail');
     // Push hier nicht möglich: Option gesperrt, Hinweis sichtbar

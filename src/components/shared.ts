@@ -483,6 +483,13 @@ export const menuStyles = css`
   }
 `;
 
+/**
+ * Nach dem Austreten (F-446): „Weiter folgen?“ – nur bei öffentlichen Gruppen (nur denen kann man folgen). Ja → Folgen
+ * mit „Nur Direktes“, Nein → nichts.
+ */
+export const offerFollow = (g: { visibility: string; name: string }): boolean =>
+  g.visibility === 'public' && confirm(`„${g.name}“ weiter folgen? Du siehst dann ihre öffentlichen Neuigkeiten – Benachrichtigungen nur für Direktes.`);
+
 /** Karten der Beitragslisten (eigene Seite „Mein Verlauf“, Beiträge für Besucher). */
 export const postCardStyles = css`
   ol.posts {
