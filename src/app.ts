@@ -310,7 +310,7 @@ export class App {
       toast: (msg, ms) => this.toast(msg, ms),
       refreshOwn: () => this.posts.load(),
     });
-    new GuestSliderController(this.store, { slider: $<SxGuestSlider>('sx-guest-slider'), feed: this.ui.homeFeed, ready: () => this.session.backendReady });
+    new GuestSliderController(this.store, { slider: $<SxGuestSlider>('sx-guest-slider'), feed: this.ui.homeFeed, samples: SAMPLES, ready: () => this.session.backendReady });
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
     this.store.subscribe((s, prev) => this.render(s, prev));

@@ -13,7 +13,7 @@ import { reachAtLeastSql } from './reach-sql';
 import { writableChannel } from './post-chain';
 import { LIMITS, SHARE_ID_RE, cleanText } from './validate';
 import { HARBOR_LIMITS, harborKey, harborSlugBase, isHarborSlug, mayPlaceHarbor, parseHarborPosition, type HarborRef } from '../src/domain/harbors';
-import { canManageGroup } from '../src/domain/groups';
+import { canManageGroup, seasonStart } from '../src/domain/groups';
 import { claimTargetCleanup, mayAdoptHarbor } from './claim-cleanup';
 
 const DAY = 86_400_000;
@@ -206,7 +206,7 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
   )
     .bind(h.id)
     .all<ShareRow>();
-  const yearStart = Date.UTC(new Date().getUTCFullYear(), 0, 1);
+  const yearStart = seasonStart(Date.now());
   const stats = await env.DB.prepare(
     `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec,
        COALESCE(SUM(CASE WHEN COALESCE(s.started_at, s.created_at) >= ?2 THEN s.dist_nm END), 0) AS season

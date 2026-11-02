@@ -6,6 +6,7 @@ import { api } from '../services/api';
 import type { Store } from '../services/store';
 import { nearCenter, readNearPrefs } from '../services/near-prefs';
 import type { SxGuestSlider } from '../components/sx-guest-slider';
+import type { Sample } from '../components/sx-empty-state';
 
 export const GUEST_SLIDER_KEY = 'sx-guest-slider-dismissed';
 
@@ -27,6 +28,8 @@ export class GuestSliderController {
       slider: SxGuestSlider;
       /** Stream der Startseite (Ziel von „Community ansehen“; sichtbar = Startseite mit Community) */
       feed: HTMLElement;
+      /** Beispiel-Törns (Folie 1, „Beispiel ansehen“) */
+      samples: Sample[];
       /** Anmeldestatus bekannt – sonst blitzt der Slider bei Angemeldeten kurz auf */
       ready: () => Promise<void>;
     },
@@ -36,6 +39,7 @@ export class GuestSliderController {
     });
     // Daten erst, wenn der Stream der Startseite steht – auf anderen Seiten (z. B. /entdecken) nichts laden
     new MutationObserver(() => void this.sync()).observe(ui.feed, { attributes: true, attributeFilter: ['hidden'] });
+    ui.slider.samples = ui.samples;
     ui.slider.addEventListener('sx-guest-dismiss', () => this.dismiss());
     ui.slider.addEventListener('sx-guest-stream', () => this.toStream());
   }

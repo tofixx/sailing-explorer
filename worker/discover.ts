@@ -8,7 +8,8 @@ import { SEARCH_LIMITS, searchKey, searchLike, sqlSearchFold } from '../src/doma
 import { DEFAULT_RADIUS, isNearRadius, parseCenter, type LatLon } from '../src/domain/near';
 import { harborVisible, loadHarborBySlug } from './harbors';
 import { placesNear } from './stream';
-import { seasonStart, type SeasonStats } from '../src/domain/season-stats';
+import type { SeasonStats } from '../src/domain/season-stats';
+import { seasonOf, seasonStart } from '../src/domain/groups';
 
 /**
  * Entdecken (F-70 … F-74): zuletzt gesegelte Törns, neue Boote und Segler.
@@ -278,7 +279,7 @@ export async function getDiscoverStats(request: Request, env: Env, now = Date.no
   let stats = hit ? ((await hit.json()) as SeasonStats) : null;
   if (!stats) {
     const row = await env.DB.prepare(SEASON).bind(seasonStart(now)).first<{ voyages: number; nm: number; boats: number }>();
-    stats = { season: new Date(now).getUTCFullYear(), voyages: row?.voyages ?? 0, nm: Math.round(row?.nm ?? 0), boats: row?.boats ?? 0 };
+    stats = { season: seasonOf(now), voyages: row?.voyages ?? 0, nm: Math.round(row?.nm ?? 0), boats: row?.boats ?? 0 };
     await cache?.put(key, new Response(JSON.stringify(stats), { headers: { 'Cache-Control': `max-age=${STATS_TTL}` } })).catch(() => undefined);
   }
   return json(stats, { headers: { 'Cache-Control': `public, max-age=${STATS_TTL}` } });

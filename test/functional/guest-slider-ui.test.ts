@@ -4,6 +4,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-guest-slider';
 import '../../src/components/sx-empty-state';
+import { SxGuestSlider } from '../../src/components/sx-guest-slider';
+import { RECORDING_GUIDE_PATH } from '../../src/content/recording-guide';
 
 type LitEl = HTMLElement & { updateComplete: Promise<boolean>; shadowRoot: ShadowRoot } & Record<string, unknown>;
 
@@ -45,9 +47,33 @@ describe('sx-guest-slider (F-431)', () => {
     for (const [i, slide] of s.entries()) {
       expect(slide.getAttribute('role')).toBe('group');
       expect(slide.getAttribute('aria-label')).toMatch(new RegExp(`^${i + 1} von 4: `));
-      expect(slide.querySelectorAll('button, a')).toHaveLength(1);
+      expect(slide.querySelectorAll('.btn')).toHaveLength(1);
     }
     expect(s.map((x) => x.querySelector('.btn')!.textContent!.trim())).toEqual(['GPX ausprobieren', 'Vereine & Häfen entdecken', 'Kostenlos anmelden', 'Community ansehen']);
+    // aria-live am Scroll-Container hätte keine Wirkung – Blättern geschieht durch die Person selbst
+    expect(el.shadowRoot.querySelector('[aria-live]')).toBeNull();
+  });
+
+  it('[F-431] Punkte und × haben mindestens 44 px Tippfläche', () => {
+    const css = ([SxGuestSlider.styles].flat(Infinity) as Array<{ cssText: string }>).map((c) => c.cssText).join(' ').replace(/\s+/g, ' ');
+    expect(css).toMatch(/\.close \{[^}]*width: 44px;[^}]*height: 44px/);
+    expect(css).toMatch(/\.dot \{[^}]*width: 44px;[^}]*height: 44px/);
+  });
+
+  it('[F-431] Folie 1: Nebenlinks zur Anleitung und zum Beispiel-Törn, kein zweiter Knopf', async () => {
+    const samples = listen('sx-sample');
+    const el = await mount('sx-guest-slider', { samples: [{ file: 'a', label: 'A' }, { file: 'b', label: 'B' }] });
+    const one = slides(el)[0];
+    expect(one.querySelector<HTMLAnchorElement>('.more a')!.getAttribute('href')).toBe(RECORDING_GUIDE_PATH);
+    expect(one.querySelector('.more a')!.textContent).toBe('Wie zeichne ich auf?');
+    const sample = [...one.querySelectorAll<HTMLButtonElement>('.more button')];
+    expect(sample.map((b) => b.textContent)).toEqual(['Beispiel ansehen']);
+    expect(sample[0].classList.contains('btn')).toBe(false);
+    sample[0].click();
+    expect(samples).toEqual(['a']);
+    const none = await mount('sx-guest-slider', {});
+    expect(slides(none)[0].querySelector('.more button')).toBeNull();
+    expect(slides(none)[0].querySelector('.more a')).not.toBeNull();
   });
 
   it('[F-431] Knöpfe melden den vorhandenen Weg: GPX wie „+ Neu“, Anmelden, Stream, Entdecken als Link, × blendet aus', async () => {
@@ -63,7 +89,7 @@ describe('sx-guest-slider (F-431)', () => {
     expect(compose).toEqual([{ kind: 'gpx' }]);
     expect(stream).toHaveLength(1);
     expect(login).toHaveLength(1);
-    expect(s[1].querySelector('a')!.getAttribute('href')).toBe('/entdecken');
+    expect(s[1].querySelector('a.btn')!.getAttribute('href')).toBe('/entdecken');
     button(el, /Einführung ausblenden/)!.click();
     expect(dismiss).toHaveLength(1);
   });
@@ -101,11 +127,17 @@ describe('sx-guest-slider (F-431)', () => {
     const two = slides(el)[1];
     expect(two.textContent).toContain('Zum Beispiel Potsdamer Yacht Club, Crew Havel und Hafen Templin.');
     expect([...two.querySelectorAll('img')].map((i) => i.getAttribute('src'))).toEqual(['/api/covers/g/pyc/v1']);
+    // Nennungen sind Links (N3): Text und Titelbild
+    expect([...two.querySelectorAll('p a')].map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['Potsdamer Yacht Club', '/g/pyc'], ['Crew Havel', '/g/crew'], ['Hafen Templin', '/h/templin'],
+    ]);
+    expect(two.querySelector('img')!.closest('a')!.getAttribute('href')).toBe('/g/pyc');
     const none = await mount('sx-guest-slider', {});
     expect(slides(none)[1].querySelector('img')).toBeNull();
     expect(slides(none)[1].textContent).not.toContain('Zum Beispiel');
     expect([...slides(none)[3].querySelectorAll('.levels li')].map((li) => li.textContent!.trim())).toEqual(['Öffentlich', 'Nur Mitglieder']);
-    expect(slides(none)[3].textContent).not.toMatch(/Link|Nur ich/);
+    expect(slides(none)[3].textContent).not.toMatch(/Link|Nur ich|[Pp]rivat/);
+    expect(slides(none)[3].textContent).toContain('Nichts verlässt dein Gerät, bis du speicherst');
   });
 
   it('[F-431] Seitenleiste der Startseite: mit sichtbarem Slider keine kompakte Karte, ausgeblendet kommt sie zurück', async () => {
