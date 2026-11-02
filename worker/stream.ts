@@ -13,6 +13,7 @@ import { canView, requestKey } from './access';
 import { BOAT_ID_RE } from './validate';
 import { reachAtLeastSql } from './reach-sql';
 import type { Visibility } from '../src/domain/visibility';
+import type { Reach } from '../src/domain/posts';
 import { logbookIds, shapeItem, type ActivityRow, type LogShare, type Viewer } from './stream-shape';
 import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
 import {
@@ -140,16 +141,16 @@ async function photoThumbs(env: Env, rows: ActivityRow[]): Promise<Map<string, s
  * neueste zuerst. Eine Abfrage für die ganze Seite. Im Gruppen-Stream (`groupId`) nur die Einträge, die in dieser
  * Gruppe gezeigt werden (F-374) – ein Bündel ohne solche fällt beim Lesen weg.
  */
-async function logbookShares(env: Env, rows: ActivityRow[], groupId?: string, community = false): Promise<Map<string, LogShare[]>> {
+async function logbookShares(env: Env, rows: ActivityRow[], groupId?: string, level: Reach | null = null): Promise<Map<string, LogShare[]>> {
   const bundles = rows.filter((r) => r.kind === 'logbook').map((r) => ({ id: r.id, ids: logbookIds(r.data) }));
   const out = new Map<string, LogShare[]>();
   const all = [...new Set(bundles.flatMap((b) => b.ids))];
   if (!all.length) return out;
-  // Community („Alles“, „Umgebung“): nur Einträge mit „Sichtbar bis: überall“ (F-427)
+  // Hafen bzw. Community („Alles“, „Umgebung“): nur Einträge, deren „Sichtbar bis“ die Stufe abdeckt (F-427)
   const { results } = await env.DB.prepare(
     `SELECT id, title, dist_nm FROM shares WHERE id IN (SELECT value FROM json_each(?1)) AND visibility = 'public' AND hidden_at IS NULL AND locked_at IS NULL
        ${groupId ? 'AND id IN (SELECT share_id FROM share_groups WHERE group_id = ?2)' : ''}
-       ${community ? `AND ${reachAtLeastSql('shares.id', 'all')}` : ''}`,
+       ${level ? `AND ${reachAtLeastSql('shares.id', level)}` : ''}`,
   )
     .bind(...(groupId ? [JSON.stringify(all), groupId] : [JSON.stringify(all)]))
     .all<{ id: string; title: string; dist_nm: number }>();
@@ -169,7 +170,8 @@ async function resolve(env: Env, viewer: Viewer, candidates: Candidate[], scanne
   const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(viewer.id ?? '', JSON.stringify(ids)).all<ActivityRow>();
   const byId = new Map(rows.map((r) => [r.id, r]));
   const thumbs = await photoThumbs(env, rows);
-  const logs = await logbookShares(env, rows, groupId, viewer.at?.kind === 'community');
+  const at = viewer.at?.kind;
+  const logs = await logbookShares(env, rows, groupId, at === 'community' ? 'all' : at === 'harbor' ? 'harbor' : null);
   const items: StreamItem[] = [];
   let last: Candidate | null = null;
   for (const c of candidates) {

@@ -282,6 +282,38 @@ describe('F-427 „Sichtbar bis“ für Törns', () => {
   });
 });
 
+describe('F-427 Fahrtenbuch-Bündel und Austritt nutzen dieselbe Ziel-Funktion', () => {
+  const bundleTargets = async (userId: string) =>
+    (await all<{ k: string; t: string }>(`SELECT DISTINCT target_kind AS k, target_id AS t FROM activity_target WHERE activity_id IN (SELECT id FROM activity WHERE kind = 'logbook' AND actor_id = ?) ORDER BY k, t`, userId)).map((r) => `${r.k}:${r.t}`);
+
+  it('[F-427] [F-308] Nachtrag: Bündel-Ziele wie beim Törn je „Sichtbar bis“; Ändern und Austritt bauen sie gleich neu', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const club = await s.group(owner);
+    const team = await s.group(owner, { kind: 'team', parentId: club.id });
+    const h1 = await harbor(owner);
+    const boat = await s.boat(owner, { harborId: h1.id });
+    const res = await s.send('POST', '/api/shares/manual', owner.cookie, {
+      startedAt: Date.now() - 30 * DAY, fromHarbor: { harborId: h1.id }, toHarbor: { harborId: h1.id }, distNm: 8, boatId: boat.id, groupIds: [team.id], reach: 'here',
+    });
+    const entry = (await ok<{ share: { id: string } }>(res, 201)).share;
+    expect(await bundleTargets(owner.user.id)).toEqual([`group:${team.id}`, `user:${owner.user.id}`]);
+    await ok(await s.send('PATCH', `/api/shares/${entry.id}`, owner.cookie, { reach: 'harbor' }));
+    expect(await bundleTargets(owner.user.id)).toEqual([`boat:${boat.id}`, `group:${club.id}`, `group:${team.id}`, `harbor:${h1.id}`, `user:${owner.user.id}`].sort());
+    await ok(await s.send('PATCH', `/api/shares/${entry.id}`, owner.cookie, { reach: 'club' }));
+    expect(await bundleTargets(owner.user.id)).toEqual([`group:${club.id}`, `group:${team.id}`, `user:${owner.user.id}`].sort());
+    // Austritt aus dem Team (Eigner überträgt nicht – ein Mitglied tritt aus): eigener Fall mit Mitglied
+    const member = await s.person({ profile: 'public' });
+    await s.join(owner, team, member);
+    const m = await ok<{ share: { id: string } }>(await s.send('POST', '/api/shares/manual', member.cookie, {
+      startedAt: Date.now() - 30 * DAY, fromHarbor: { harborId: h1.id }, toHarbor: { harborId: h1.id }, distNm: 3, groupIds: [team.id], reach: 'club',
+    }), 201);
+    expect(await bundleTargets(member.user.id)).toEqual([`group:${club.id}`, `group:${team.id}`, `user:${member.user.id}`].sort());
+    expect((await s.send('DELETE', `/api/groups/${team.id}/members/${member.user.id}`, member.cookie)).status).toBe(204);
+    expect(await bundleTargets(member.user.id)).toEqual([`user:${member.user.id}`]);
+    void m;
+  });
+});
+
 describe('F-428 Konto-Menü und Reiter „Fahrtenbuch“', () => {
   it('[F-428] /api/auth/me nennt Profilname und Anzeigename (ohne Profil null); „Fahrtenbuch“ = Törns im Fahrtenbuch', async () => {
     const p = await s.person({ profile: 'private', supporter: true });
@@ -405,5 +437,54 @@ describe('F-427 /entdecken beachtet „Sichtbar bis“', () => {
     expect(await page(other)).toBe(true);
     expect(await page(third)).toBe(false);
     expect(await page()).toBe(false);
+  });
+});
+
+describe('F-416 Benachrichtigung bei neuen Beiträgen', () => {
+  const bell = async (p: Person) => (await ok<{ items: Array<{ kind: string; href: string; text: string }> }>(await s.send('GET', '/api/notifications', p.cookie))).items.filter((n) => n.kind === 'post');
+  const optIn = async (p: Person, channel = 'none') => expect((await s.send('PATCH', '/api/me/settings', p.cookie, { notify: { post: channel } })).status).toBe(200);
+
+  it('[F-416] Standard aus; eingeschaltet: Mitglieder der Heimatgruppe, nicht stumm, nie die Autor:in, Link /p/<id>; Ausbreitung benachrichtigt nie', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const member = await s.person({ profile: 'public' });
+    const silent = await s.person({ profile: 'public' });
+    const muted = await s.person({ profile: 'public' });
+    const clubOnly = await s.person({ profile: 'public' });
+    const club = await s.group(owner, { name: 'Glockenclub' });
+    const team = await s.group(owner, { kind: 'team', name: 'Glockenteam', parentId: club.id });
+    for (const p of [member, silent, muted]) await s.join(owner, team, p);
+    await s.join(owner, club, clubOnly);
+    for (const p of [member, muted, clubOnly, owner]) await optIn(p);
+    expect((await s.send('PUT', `/api/groups/${team.id}/mute`, muted.cookie, { muted: true })).status).toBeLessThan(300);
+    const post = await write(owner, { kind: 'group', id: team.id }, { body: 'Training', reach: 'all' });
+    expect(await bell(member)).toEqual([expect.objectContaining({ href: `/p/${post!.id}` })]);
+    expect((await bell(member))[0].text).toContain('Glockenteam');
+    expect(await bell(silent)).toEqual([]);
+    expect(await bell(muted)).toEqual([]);
+    expect(await bell(owner)).toEqual([]);
+    // im Verein nur ausgebreitet – keine Glocke
+    expect(await bell(clubOnly)).toEqual([]);
+    // „Nur mit Link“ benachrichtigt nicht; „Aus“ nur für neue Beiträge wählbar
+    await write(owner, { kind: 'group', id: team.id }, { body: 'Link', visibility: 'unlisted' });
+    expect(await bell(member)).toHaveLength(1);
+    expect((await s.send('PATCH', '/api/me/settings', member.cookie, { notify: { comment: 'off' } })).status).toBe(400);
+  });
+
+  it('[F-416] Hafen: Konten mit Boot oder Heimathafen dort; Boot: Eigner und Boots-Admins', async () => {
+    const skipper = await s.person({ profile: 'public' });
+    const local = await s.person({ profile: 'public' });
+    const h1 = await harbor(skipper);
+    const boat = await s.boat(skipper, { harborId: h1.id });
+    await ok(await s.send('PUT', '/api/me/home', local.cookie, { harborId: h1.id }));
+    for (const p of [skipper, local]) await optIn(p);
+    const hp = await write(local, { kind: 'harbor', id: h1.id }, { body: 'Kran' }, 403);
+    void hp;
+    const other = await s.person({ profile: 'public' });
+    await s.boat(other, { harborId: h1.id });
+    const p1 = await write(other, { kind: 'harbor', id: h1.id }, { body: 'Kran defekt' });
+    expect((await bell(skipper)).map((n) => n.href)).toEqual([`/p/${p1!.id}`]);
+    expect((await bell(local)).map((n) => n.href)).toEqual([`/p/${p1!.id}`]);
+    await write(skipper, { kind: 'boat', id: boat.id }, { body: 'Neue Segel' });
+    expect(await bell(local)).toHaveLength(1);
   });
 });

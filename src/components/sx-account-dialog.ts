@@ -13,7 +13,7 @@ import { boatLimitText, usageText } from '../domain/limits';
 import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { CHANNELS, CHANNEL_LABEL, CHOOSABLE, CHOOSABLE_LABEL, DEFAULT_CHANNELS, MANDATORY_HINT, type Channel } from '../domain/notifications';
+import { CHANNEL_LABEL, CHOOSABLE, CHOOSABLE_LABEL, DEFAULT_CHANNELS, MANDATORY_HINT, channelsFor, type Channel } from '../domain/notifications';
 import { base, dialogStyles, emit, inviteTarget, pendingLabel, logbookTag } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
@@ -1000,7 +1000,7 @@ export class SxAccountDialog extends LitElement {
             (k) => html`<label class="channel">
               <span>${CHOOSABLE_LABEL[k]}</span>
               <select .value=${live(st.notify?.[k] ?? DEFAULT_CHANNELS[k])} ?disabled=${this.busy} @change=${(e: Event) => emit(this, 'sx-notify-channel', { kind: k, channel: (e.target as HTMLSelectElement).value as Channel })}>
-                ${CHANNELS.map(
+                ${channelsFor(k).map(
                   (c) => html`<option value=${c} ?disabled=${c === 'push' && !this.pushAvailable} ?selected=${(st.notify?.[k] ?? DEFAULT_CHANNELS[k]) === c}>${CHANNEL_LABEL[c]}</option>`,
                 )}
               </select>

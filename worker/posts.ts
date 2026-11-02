@@ -18,6 +18,7 @@ import { canView, newShareKey, requestKey } from './access';
 import { chainOf, composeTarget, writableChannel, writableChannels, type WritableChannel } from './post-chain';
 import { postCard } from './stream';
 import { postLogKey } from './post-sql';
+import { notifyPost } from './notifications';
 import { GROUP_LIMITS } from '../src/domain/limits';
 import { cleanComment, commentLength, countLinks } from '../src/domain/comment-text';
 import { POST_MAX, POST_MAX_LINKS, STREAM_PAGE, canManageGroup, decodeCursor, encodeCursor, parsePostLink, type GroupKind, type GroupRole } from '../src/domain/groups';
@@ -109,6 +110,8 @@ async function insertTextPost(env: Env, authorId: string, c: WritableChannel, p:
   ]);
   const act = forActivity(id, authorId, c, c.chain, p.visibility, p.reach);
   if (act) await recordPost(env, act, now);
+  // nur der Heimatverlauf benachrichtigt (F-416)
+  await notifyPost(env, { id, authorId, channel: { kind: c.kind, id: c.id }, visibility: p.visibility });
   return { id, createdAt: now, path: postPath(id, p.visibility, linkKey) };
 }
 

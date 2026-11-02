@@ -8,6 +8,7 @@ import { base, emit } from './shared';
 const KIND_ICON: Record<NotificationKind, IconName> = {
   comment: 'comment', reaction: 'heart', follow: 'user', invite: 'mail', request: 'flag', expiry: 'info', passkey: 'lock',
   claim: 'check', claim_result: 'check', claim_transfer: 'anchor',
+  post: 'pencil',
 };
 
 /**

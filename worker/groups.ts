@@ -637,7 +637,7 @@ export const leaveGroupStmts = (env: Env, groupId: string, userId: string): D1Pr
   env.DB.prepare('DELETE FROM activity WHERE bucket = ?').bind(`member:${groupId}:${userId}`),
   // Törns in Gruppen (F-377): nur Mitglieder zeigen Törns in der Gruppe – ihre Törns verlassen sie mit ihnen.
   env.DB.prepare('DELETE FROM share_groups WHERE group_id = ? AND share_id IN (SELECT id FROM shares WHERE user_id = ?)').bind(groupId, userId),
-  memberShareTargetsCleanup(env, groupId, userId),
+  ...memberShareTargetsCleanup(env, userId),
 ];
 
 // ---------------------------------------------------------------- Beitrittsanfragen

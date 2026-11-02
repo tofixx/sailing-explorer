@@ -37,56 +37,69 @@ const targetStmt = (env: Env, id: string, kind: TargetKind, targetId: string, no
      SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM activity WHERE id = ?1)`,
   ).bind(id, kind, targetId, now);
 
-/** Törn- und Foto-Aktivitäten eines Törns (Teilabfrage, ?1 = Törn). */
-const SHARE_ACTS = `SELECT id FROM activity WHERE subject_kind = 'share' AND subject_id = ?1 AND kind IN ('voyage', 'photos')`;
+/**
+ * Aktivitäten eines Törns als Paare (aid = Aktivität, sid = Törn, at = Zeit der Aktivität) – Teilabfragen für
+ * `shareTargetStmts`: Törn- und Foto-Aktivitäten eines Törns (?1 = Törn), Fahrtenbuch-Bündel mit diesem Törn samt
+ * aller Einträge darin (?1 = Törn) und alle Törn-Aktivitäten bzw. Bündel eines Kontos (?1 = Konto).
+ */
+const ACTS = {
+  share: `SELECT id AS aid, subject_id AS sid, created_at AS at FROM activity WHERE subject_kind = 'share' AND subject_id = ?1 AND kind IN ('voyage', 'photos')`,
+  bundlesOf: `SELECT a.id AS aid, j.value AS sid, a.created_at AS at FROM activity a, json_each(a.data, '$.ids') j
+    WHERE a.kind = 'logbook' AND a.id IN (SELECT a2.id FROM activity a2, json_each(a2.data, '$.ids') j2
+      WHERE a2.kind = 'logbook' AND a2.actor_id = (SELECT user_id FROM shares WHERE id = ?1) AND j2.value = ?1)`,
+  user: `SELECT id AS aid, subject_id AS sid, created_at AS at FROM activity WHERE subject_kind = 'share' AND kind IN ('voyage', 'photos')
+      AND subject_id IN (SELECT id FROM shares WHERE user_id = ?1)
+    UNION ALL SELECT a.id, j.value, a.created_at FROM activity a, json_each(a.data, '$.ids') j WHERE a.kind = 'logbook' AND a.actor_id = ?1`,
+} as const;
 
 /**
- * Publikum eines Törns (Konzept 11.12, 12.4, 21.2) – die eine Funktion für Anlegen und Neuberechnen: Segler, die
- * ausgewählten Gruppen (share_groups); je nach „Sichtbar bis“ (F-427) ab „bis Verein“ die Vereine gewählter Teams, ab
- * „bis Hafen“ Boot und Hafen des Boots (nur öffentliches, nicht ausgeblendetes Boot – sonst verriete der Hafen-Stream
- * den Hafen eines nicht öffentlichen Boots). `acts`: Teilabfrage der Aktivitäten (?1 = Törn, ?2 = neue Aktivität);
- * jedes Ziel bekommt die Zeit seiner Aktivität – nichts springt nach oben.
+ * Publikum von Törns (Konzept 11.12, 12.4, 21.2) – die eine Funktion für Anlegen, Fahrtenbuch-Bündel und Neuberechnen:
+ * Segler, die ausgewählten Gruppen (share_groups); je nach „Sichtbar bis“ (F-427) ab „bis Verein“ die Vereine gewählter
+ * Teams, ab „bis Hafen“ Boot und Hafen des Boots (nur öffentliches, nicht ausgeblendetes Boot – sonst verriete der
+ * Hafen-Stream den Hafen eines nicht öffentlichen Boots). `acts` liefert (aid, sid, at); jedes Ziel bekommt die Zeit
+ * seiner Aktivität – nichts springt nach oben. Ein Bündel hat die Ziele aller seiner Einträge.
  */
-function shareTargetStmts(env: Env, shareId: string, acts: string, activityId = ''): D1PreparedStatement[] {
-  const ins = (targets: string) =>
+function shareTargetStmts(env: Env, acts: string, ...binds: unknown[]): D1PreparedStatement[] {
+  const ins = (join: string, kind: string, id: string, where = '') =>
     env.DB.prepare(
       `INSERT OR IGNORE INTO activity_target (activity_id, target_kind, target_id, created_at)
-       SELECT a.id, t.kind, t.id, a.created_at FROM activity a, (${targets}) t WHERE a.id IN (${acts})`,
-    ).bind(...(activityId ? [shareId, activityId] : [shareId]));
+       SELECT x.aid, '${kind}', ${id}, x.at FROM (${acts}) x ${join} ${where}`,
+    ).bind(...binds);
   return [
-    ins(`SELECT 'user' AS kind, user_id AS id FROM shares WHERE id = ?1`),
-    ins(`SELECT 'group' AS kind, group_id AS id FROM share_groups WHERE share_id = ?1`),
+    ins('JOIN shares s ON s.id = x.sid', 'user', 's.user_id'),
+    ins('JOIN share_groups sg ON sg.share_id = x.sid', 'group', 'sg.group_id'),
+    ins('JOIN share_groups sg ON sg.share_id = x.sid JOIN groups g ON g.id = sg.group_id', 'group', 'g.parent_id', `WHERE g.parent_id IS NOT NULL AND ${reachAtLeastSql('x.sid', 'club')}`),
+    ins('JOIN shares s ON s.id = x.sid', 'boat', 's.boat_id', `WHERE s.boat_id IS NOT NULL AND ${reachAtLeastSql('x.sid', 'harbor')}`),
     ins(
-      `SELECT 'group' AS kind, g.parent_id AS id FROM share_groups sg JOIN groups g ON g.id = sg.group_id
-       WHERE sg.share_id = ?1 AND g.parent_id IS NOT NULL AND ${reachAtLeastSql('?1', 'club')}`,
-    ),
-    ins(`SELECT 'boat' AS kind, boat_id AS id FROM shares WHERE id = ?1 AND boat_id IS NOT NULL AND ${reachAtLeastSql('?1', 'harbor')}`),
-    ins(
-      `SELECT 'harbor' AS kind, b.harbor_id AS id FROM shares s JOIN boats b ON b.id = s.boat_id
-       WHERE s.id = ?1 AND b.harbor_id IS NOT NULL AND b.visibility = 'public' AND b.hidden_at IS NULL AND ${reachAtLeastSql('?1', 'harbor')}`,
+      'JOIN shares s ON s.id = x.sid JOIN boats b ON b.id = s.boat_id', 'harbor', 'b.harbor_id',
+      `WHERE b.harbor_id IS NOT NULL AND b.visibility = 'public' AND b.hidden_at IS NULL AND ${reachAtLeastSql('x.sid', 'harbor')}`,
     ),
   ];
 }
 
 /** Ziele einer eben angelegten Aktivität eines Törns (gab es sie schon – doppelter bucket –, entsteht nichts). */
-const shareTargets = (env: Env, id: string, s: Pick<ShareForActivity, 'id'>): D1PreparedStatement[] => shareTargetStmts(env, s.id, 'SELECT ?2', id);
+const shareTargets = (env: Env, id: string, s: Pick<ShareForActivity, 'id'>): D1PreparedStatement[] =>
+  shareTargetStmts(env, `SELECT id AS aid, ?2 AS sid, created_at AS at FROM activity WHERE id = ?1`, id, s.id);
 
-/**
- * Auswahl, „Sichtbar bis“ oder Boot eines Törns geändert (F-375, F-427): alle Ziele seiner Törn- und Foto-Aktivitäten
- * verwerfen und aus derselben Funktion wie beim Anlegen neu aufbauen (wie `syncPostActivity`). Für einen Batch.
- */
-export const syncShareActivity = (env: Env, shareId: string): D1PreparedStatement[] => [
-  env.DB.prepare(`DELETE FROM activity_target WHERE activity_id IN (${SHARE_ACTS})`).bind(shareId),
-  ...shareTargetStmts(env, shareId, SHARE_ACTS),
+/** Alle Ziele der Aktivitäten in `acts` verwerfen und neu aufbauen (für einen Batch). */
+const rebuild = (env: Env, acts: string, ...binds: unknown[]): D1PreparedStatement[] => [
+  env.DB.prepare(`DELETE FROM activity_target WHERE activity_id IN (SELECT aid FROM (${acts}))`).bind(...binds),
+  ...shareTargetStmts(env, acts, ...binds),
 ];
 
-/** Mitglied verlässt eine Gruppe (Austreten, Entfernen): Gruppen-Ziele seiner Törns in dieser Gruppe entfernen. */
-export const memberShareTargetsCleanup = (env: Env, groupId: string, userId: string) =>
-  env.DB.prepare(
-    `DELETE FROM activity_target WHERE target_kind = 'group' AND target_id = ?1 AND activity_id IN (
-       SELECT id FROM activity WHERE subject_kind = 'share' AND kind IN ('voyage', 'photos')
-         AND subject_id IN (SELECT id FROM shares WHERE user_id = ?2))`,
-  ).bind(groupId, userId);
+/**
+ * Auswahl, „Sichtbar bis“, Boot oder Sichtbarkeit eines Törns geändert (F-375, F-427): alle Ziele seiner Törn- und
+ * Foto-Aktivitäten und der Fahrtenbuch-Bündel mit ihm aus derselben Funktion wie beim Anlegen neu (wie
+ * `syncPostActivity`). Für einen Batch.
+ */
+export const syncShareActivity = (env: Env, shareId: string): D1PreparedStatement[] => [...rebuild(env, ACTS.share, shareId), ...rebuild(env, ACTS.bundlesOf, shareId)];
+
+/**
+ * Mitglied verlässt eine Gruppe (Austreten, Entfernen, F-377): nach dem Löschen seiner Auswahl in dieser Gruppe die Ziele
+ * aller seiner Törns und Bündel neu aufbauen – dieselbe Funktion, keine eigene Ziel-Anweisung. Für einen Batch.
+ */
+export const memberShareTargetsCleanup = (env: Env, userId: string): D1PreparedStatement[] => rebuild(env, ACTS.user, userId);
+
 /** Vereinsbeiträge erscheinen auch in den Teams des Vereins. */
 const teamsStmt = (env: Env, id: string, groupId: string, now: number) =>
   env.DB.prepare(
@@ -155,23 +168,15 @@ export async function recordLogbook(env: Env, s: ShareForActivity, now = Date.no
     if (listed) return;
     const id = randomId();
     const bucket = `logbook:${s.user_id}:${dayKey(now)}`;
-    // Ziele hängen am Bündel, das es (nach diesem Batch) gibt – auch wenn es schon bestand
-    const bundleTarget = (kind: TargetKind, targetSql: string, ...args: unknown[]) =>
-      env.DB.prepare(
-        `INSERT OR IGNORE INTO activity_target (activity_id, target_kind, target_id, created_at)
-         SELECT a.id, '${kind}', x.id, ?2 FROM activity a, (${targetSql}) x WHERE a.bucket = ?1`,
-      ).bind(bucket, now, ...args);
     await env.DB.batch([
       env.DB.prepare(
         `UPDATE activity SET data = json_set(data, '$.ids', json(CASE WHEN json_array_length(data, '$.ids') < ${LOGBOOK_IDS_MAX}
            THEN json_insert(json_extract(data, '$.ids'), '$[#]', ?1) ELSE json_extract(data, '$.ids') END)), updated_at = ?2 WHERE bucket = ?3`,
       ).bind(s.id, now, bucket),
       insertStmt(env, id, { kind: 'logbook', actorId: s.user_id, subjectKind: 'user', subjectId: s.user_id, data: { ids: [s.id] }, bucket }, now),
-      bundleTarget('user', 'SELECT ?3 AS id', s.user_id),
-      // Gruppen nur aus der Auswahl „In Gruppen zeigen“ des Eintrags (F-374) – wie bei Törns mit GPX
-      bundleTarget('group', 'SELECT group_id AS id FROM share_groups WHERE share_id = ?3', s.id),
-      // Boot erst ab „Sichtbar bis: Hafen“ (F-427)
-      ...(s.boat_id ? [bundleTarget('boat', `SELECT ?3 AS id WHERE ${reachAtLeastSql('?4', 'harbor')}`, s.boat_id, s.id)] : []),
+      // Ziele hängen am Bündel, das es (nach diesem Batch) gibt – auch wenn es schon bestand; dieselbe Funktion wie bei
+      // Törns mit GPX (Gruppen nur aus der Auswahl, F-374; Boot und Hafen erst ab „Sichtbar bis: Hafen“, F-427)
+      ...shareTargetStmts(env, `SELECT id AS aid, ?2 AS sid, created_at AS at FROM activity WHERE bucket = ?1`, bucket, s.id),
     ]);
     await recordMilestones(env, s, now);
   });

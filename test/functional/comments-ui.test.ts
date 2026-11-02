@@ -187,13 +187,17 @@ describe('sx-account-dialog – Einstellungen und Meldungen', () => {
   const settings = (over: Record<string, unknown> = {}) => ({ notifyComments: 'off', suspended: false, hasProfile: true, isAdmin: false, ...over });
   const user = { id: 'U1', email: 'anna@example.org' };
 
-  it('[F-113] [F-256] Einstellungen: Kanal je Art (Keine/Mail/Push), Push nur wenn möglich; Pflicht-Mails als Hinweis', async () => {
+  it('[F-113] [F-256] [F-416] Einstellungen: Kanal je Art (Keine/Mail/Push), Push nur wenn möglich; Pflicht-Mails als Hinweis', async () => {
     const saved = listen('sx-notify-channel');
     const notify = { comment: 'none', reaction: 'none', follow: 'push', invite: 'mail', request: 'none' };
     const el = await mount('sx-account-dialog', { open: true, user, tab: 'settings', settings: settings({ notify }), pushAvailable: false });
     const selects = [...el.shadowRoot.querySelectorAll<HTMLSelectElement>('.channels select')];
-    expect(selects).toHaveLength(5);
+    expect(selects).toHaveLength(6);
     expect(text(el)).toContain('Kommentare auf deinen Törns');
+    // „Aus“ gibt es nur für neue Beiträge (F-416, Standard aus)
+    expect([...selects[0].options].map((o) => o.value)).toEqual(['none', 'mail', 'push']);
+    expect([...selects[5].options].map((o) => o.value)).toEqual(['off', 'none', 'mail', 'push']);
+    expect(selects[5].value).toBe('off');
     expect(selects[0].value).toBe('none');
     expect(selects[3].value).toBe('mail');
     // Push hier nicht möglich: Option gesperrt, Hinweis sichtbar

@@ -135,6 +135,26 @@ export const notifyClaimResult = (env: Env, claimId: string) =>
 export const notifyClaimTransfer = (env: Env, claimId: string) =>
   safely('claim transfer', () => deliver(env, 'claim_transfer', 'claim', claimId, null, 'SELECT previous_user_id AS uid FROM claims WHERE id = ?3'));
 
+/**
+ * Neuer Beitrag (F-416, Konzept 21.7): nur aus dem Heimatverlauf – die Ausbreitung nach oben benachrichtigt nie. An
+ * Mitglieder der Gruppe (nicht stumm, F-346), an Konten mit Boot (Eigner, Boots-Admin) oder Heimathafen im Hafen bzw. an
+ * Eigner und Boots-Admins des Boots – nur wer „Neue Beiträge“ eingeschaltet hat (Standard aus), nie die Autor:in, nie
+ * gesperrte Konten, höchstens NOTIFICATION_LIMITS.postFanOut. „Nur mit Link“ und „Nur ich“ benachrichtigen nicht.
+ */
+export const notifyPost = (env: Env, post: { id: string; authorId: string; channel: { kind: string; id: string }; visibility: string }) =>
+  safely('post', async () => {
+    if (post.visibility !== 'public' && post.visibility !== 'members') return;
+    const wanted = `u.suspended_at IS NULL AND COALESCE(json_extract(u.notify_prefs, '$.post'), 'off') IN ('none', 'mail', 'push')`;
+    const recipients: Record<string, string> = {
+      group: `SELECT m.user_id AS uid FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = ?6 AND m.muted_at IS NULL AND ${wanted} LIMIT ?7`,
+      harbor: `SELECT DISTINCT u.id AS uid FROM users u WHERE ${wanted} AND (u.home_harbor_id = ?6 OR u.id IN (
+          SELECT b.owner_id FROM boats b WHERE b.harbor_id = ?6 UNION SELECT a.user_id FROM boat_admins a JOIN boats b ON b.id = a.boat_id WHERE b.harbor_id = ?6)) LIMIT ?7`,
+      boat: `SELECT DISTINCT u.id AS uid FROM users u WHERE ${wanted} AND u.id IN (SELECT owner_id FROM boats WHERE id = ?6 UNION SELECT user_id FROM boat_admins WHERE boat_id = ?6) LIMIT ?7`,
+    };
+    const sql = recipients[post.channel.kind];
+    if (sql) await deliver(env, 'post', 'post', post.id, post.authorId, sql, post.channel.id, NOTIFICATION_LIMITS.postFanOut);
+  });
+
 /** Hinweis des Betreibers (nicht abschaltbar, zusätzlich zur Mail): Törn wird bald gelöscht – an die Eigentümer:in. */
 export const notifyExpiry = (env: Env, shareId: string) =>
   safely('expiry', () => deliver(env, 'expiry', 'share', shareId, null, 'SELECT user_id AS uid FROM shares WHERE id = ?3'));
@@ -230,6 +250,9 @@ interface Row {
   p_hidden: number | null;
   p_group: string | null;
   p_handle: string | null;
+  p_ck: string | null;
+  ph_name: string | null;
+  pb_name: string | null;
   a_actor: string | null;
   g_slug: string | null;
   g_name: string | null;
@@ -263,6 +286,7 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
     s.user_id AS s_owner, s.title AS s_title, s.visibility AS s_vis, s.share_key AS s_key,
     s.hidden_at AS s_hidden, s.locked_at AS s_locked, s.comments_mode AS s_cmode,
     p.author_id AS p_author, p.hidden_at AS p_hidden, p.group_id AS p_group, pp.handle AS p_handle, a.actor_id AS a_actor,
+    p.channel_kind AS p_ck, ph.name AS ph_name, pb.name AS pb_name,
     g.slug AS g_slug, g.name AS g_name, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden,
     g.locked_at AS g_locked, g.approve_by AS g_approve, gm.role AS g_role,
     EXISTS (SELECT 1 FROM group_requests r WHERE r.group_id = g.id) AS g_open,
@@ -278,6 +302,8 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
   LEFT JOIN shares s ON n.subject_kind = 'share' AND s.id = n.subject_id
   LEFT JOIN posts p ON n.subject_kind = 'post' AND p.id = n.subject_id
   LEFT JOIN profiles pp ON pp.user_id = p.author_id
+  LEFT JOIN harbors ph ON p.channel_kind = 'harbor' AND ph.id = p.channel_id AND ph.hidden_at IS NULL
+  LEFT JOIN boats pb ON p.channel_kind = 'boat' AND pb.id = p.channel_id AND pb.hidden_at IS NULL AND pb.locked_at IS NULL
   LEFT JOIN activity a ON n.subject_kind = 'activity' AND a.id = n.subject_id
   LEFT JOIN groups g ON g.id = CASE n.subject_kind WHEN 'group' THEN n.subject_id WHEN 'post' THEN p.group_id END
   LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = n.user_id
@@ -315,6 +341,13 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
       if (r.kind === 'expiry') return { ...base, title: r.s_title, what: 'bald', href: '/?support=open' };
       return { ...base, title: r.s_title, what: 'deinen Törn', href: sharePath('s', r.subject_id, r.s_vis ?? 'private', r.s_key) };
     case 'post':
+      // Neuer Beitrag (F-416): Gruppe nur, solange man Mitglied ist; Hafen bzw. Boot solange sichtbar
+      if (r.kind === 'post') {
+        if (r.p_hidden) return null;
+        if (r.p_ck === 'group') return r.g_slug && !r.g_hidden && !r.g_locked && r.g_role ? { ...base, title: r.g_name ?? '', what: '', href: `/p/${r.subject_id}` } : null;
+        const where = r.p_ck === 'harbor' ? r.ph_name : r.p_ck === 'boat' ? r.pb_name : null;
+        return where ? { ...base, title: where, what: '', href: `/p/${r.subject_id}` } : null;
+      }
       if (r.p_author !== userId || r.p_hidden) return null;
       // Beiträge haben keine eigene Seite: `/p/<id>` führt zum Anker im Heimatverlauf (F-406)
       if (!r.p_group) return { ...base, title: '', what: 'deinen Beitrag', href: `/p/${r.subject_id}` };

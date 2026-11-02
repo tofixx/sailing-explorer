@@ -316,7 +316,7 @@ describe('F-113 Tägliche Sammelmail (opt-in)', () => {
     const p = await person();
     const get = await send('GET', '/api/me/settings', p.cookie);
     expect(await get.json()).toEqual({
-      notify: { comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none' },
+      notify: { comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none', post: 'off' },
       notifyComments: 'off', notifyGroups: 'off', mapStyle: null, suspended: false, hasProfile: true, isAdmin: false,
     });
     const on = await send('PATCH', '/api/me/settings', p.cookie, { notifyComments: 'daily' });

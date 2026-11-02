@@ -5,7 +5,7 @@ import type { Env } from './env';
 import { HttpError } from './http';
 import { notificationDigestMail, sendMail } from './mail';
 import { loadNotifications } from './notifications';
-import { CHOOSABLE, isChannel, isChoosable, mailLine, parsePrefs, type NotifyPrefs } from '../src/domain/notifications';
+import { CHOOSABLE, channelsFor, isChannel, isChoosable, mailLine, parsePrefs, type NotifyPrefs } from '../src/domain/notifications';
 
 const HOUR = 3_600_000;
 /** höchstens so viele Sammelmails je nächtlichem Lauf (Resend Free: 100/Tag für alles), der Rest in der nächsten Nacht */
@@ -26,7 +26,7 @@ export async function prefsOf(env: Env, userId: string): Promise<NotifyPrefs> {
 export function validPrefsPatch(patch: unknown): boolean {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return false;
   const entries = Object.entries(patch as Record<string, unknown>);
-  return entries.length > 0 && entries.every(([k, v]) => isChoosable(k) && isChannel(v));
+  return entries.length > 0 && entries.every(([k, v]) => isChoosable(k) && isChannel(v) && channelsFor(k).includes(v));
 }
 
 export async function savePrefs(env: Env, userId: string, patch: unknown): Promise<void> {

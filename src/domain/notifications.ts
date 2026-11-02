@@ -10,7 +10,7 @@ import { claimResultText, isClaimStatus } from './claims';
  * Antrag an die Admins (`claim`), Entscheidung an die Antragsteller:in (`claim_result`), Übertragung an die verdrängte
  * Person (`claim_transfer`) – alle → claim.
  */
-export const NOTIFICATION_KINDS = ['comment', 'reaction', 'follow', 'invite', 'request', 'expiry', 'passkey', 'claim', 'claim_result', 'claim_transfer'] as const;
+export const NOTIFICATION_KINDS = ['comment', 'reaction', 'follow', 'invite', 'request', 'expiry', 'passkey', 'claim', 'claim_result', 'claim_transfer', 'post'] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 export const NOTIFICATION_SUBJECTS = ['share', 'post', 'activity', 'user', 'invite', 'group', 'claim'] as const;
@@ -33,13 +33,14 @@ export const INFORMATIONAL: ReadonlySet<NotificationKind> = new Set(['reaction',
 // ---------------------------------------------------------------- Kanäle (Konzept 17.6)
 
 /** Zusätzlich zur Glocke (die immer alles zeigt): nichts, Mail oder Push aufs Gerät. */
-export const CHANNELS = ['none', 'mail', 'push'] as const;
+/** `off`: gar nicht, auch nicht in der Glocke – nur für Arten, die standardmäßig aus sind (neue Beiträge, F-416). */
+export const CHANNELS = ['off', 'none', 'mail', 'push'] as const;
 export type Channel = (typeof CHANNELS)[number];
 export const isChannel = oneOf(CHANNELS);
-export const CHANNEL_LABEL: Record<Channel, string> = { none: 'Keine', mail: 'Mail', push: 'Push' };
+export const CHANNEL_LABEL: Record<Channel, string> = { off: 'Aus', none: 'Nur Glocke', mail: 'Mail', push: 'Push' };
 
 /** Wählbare Arten mit Standard. Mail heißt: tägliche Sammelmail – außer Einladungen, die kommen sofort. */
-export const CHOOSABLE = ['comment', 'reaction', 'follow', 'invite', 'request'] as const;
+export const CHOOSABLE = ['comment', 'reaction', 'follow', 'invite', 'request', 'post'] as const;
 export type ChoosableKind = (typeof CHOOSABLE)[number];
 export const isChoosable = oneOf(CHOOSABLE);
 export const CHOOSABLE_LABEL: Record<ChoosableKind, string> = {
@@ -48,8 +49,12 @@ export const CHOOSABLE_LABEL: Record<ChoosableKind, string> = {
   follow: 'Neue Follower',
   invite: 'Einladungen an dich',
   request: 'Beitrittsanfragen in deinen Gruppen',
+  post: 'Neue Beiträge in deinen Gruppen, deinem Hafen und an deinen Booten',
 };
-export const DEFAULT_CHANNELS: Record<ChoosableKind, Channel> = { comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none' };
+
+/** Wählbare Kanäle je Art: „Aus“ nur, wo es den Standard bildet (neue Beiträge, F-416) – sonst immer mindestens die Glocke. */
+export const channelsFor = (kind: ChoosableKind): readonly Channel[] => (kind === 'post' ? CHANNELS : CHANNELS.filter((c) => c !== 'off'));
+export const DEFAULT_CHANNELS: Record<ChoosableKind, Channel> = { comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none', post: 'off' };
 export type NotifyPrefs = Record<ChoosableKind, Channel>;
 
 /** Gespeicherte Auswahl (JSON in `users.notify_prefs`) lesen – Unbekanntes fällt auf den Standard zurück. */
@@ -60,7 +65,7 @@ export function parsePrefs(raw: unknown): NotifyPrefs {
   } catch {
     obj = {};
   }
-  return Object.fromEntries(CHOOSABLE.map((k) => [k, isChannel(obj?.[k]) ? obj[k] : DEFAULT_CHANNELS[k]])) as NotifyPrefs;
+  return Object.fromEntries(CHOOSABLE.map((k) => [k, isChannel(obj?.[k]) && channelsFor(k).includes(obj[k] as Channel) ? obj[k] : DEFAULT_CHANNELS[k]])) as NotifyPrefs;
 }
 
 /** Hinweise des Betreibers zum Konto: immer in der Glocke und immer per Mail, nicht abschaltbar. */
@@ -76,6 +81,8 @@ export const NOTIFICATION_LIMITS = {
   refreshMs: 2 * 60_000,
   /** höchstens so viele Bestätigende einer Gruppe bekommen eine Anfrage gemeldet (Fan-out-Deckel) */
   requestFanOut: 20,
+  /** höchstens so viele Empfänger je neuem Beitrag (F-416) */
+  postFanOut: 200,
   /** höchstens so viele Empfänger je Kommentar: Eigentümer:in und die zuletzt Mitkommentierenden (Konzept 17.9.1) */
   commentFanOut: 50,
   /** gelesene Einträge werden nach so vielen Tagen gelöscht */
@@ -137,6 +144,8 @@ export function mailLine(n: Pick<NotificationItem, 'kind' | 'count' | 'title'>):
       return 'Eine Einladung an dich';
     case 'request':
       return `${quoted(n.title)}: ${many('1 Beitrittsanfrage', 'Beitrittsanfragen')}`;
+    case 'post':
+      return `${quoted(n.title)}: neuer Beitrag`;
     default:
       return '';
   }
@@ -165,6 +174,8 @@ export function notificationText(n: Pick<NotificationItem, 'kind' | 'count' | 'a
       return `${who} lädt dich ${about(n.what, n.title)} ein`;
     case 'request':
       return n.count > 1 ? `${n.count} neue Beitrittsanfragen für ${quoted(n.title)}` : `${who} möchte ${quoted(n.title)} beitreten`;
+    case 'post':
+      return `${who} hat in ${quoted(n.title)} geschrieben`;
     case 'expiry':
       return `${quoted(n.title)} wird ${n.what} gelöscht – unterstützen, um ihn zu behalten`;
     case 'passkey':
