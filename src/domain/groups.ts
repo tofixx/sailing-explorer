@@ -198,7 +198,8 @@ export interface StreamItem {
   /** gebündelte Nachträge (F-308): sichtbare Einträge (höchstens 5) und Anzahl/Summe aller sichtbaren */
   logbook?: { count: number; distNm: number; voyages: Array<{ id: string; title: string }> };
   photos?: { count: number; thumbs: string[] };
-  post?: { id: string; body: string; link: string | null; canDelete: boolean };
+  /** Beitrag: Gruppe (`group` gesetzt) oder Profil der handelnden Person (F-420); Sichtbarkeit und Reichweite (Konzept 21) */
+  post?: { id: string; body: string; link: string | null; canDelete: boolean; visibility?: 'public' | 'members' | 'unlisted' | 'private'; reach?: 'here' | 'club' | 'harbor' | 'all' };
   boat?: { id: string; name: string };
   milestone?: { nm: number; year: number; subject: 'user' | 'boat' | 'group'; name: string; path: string };
   /** Hafen als Kontext (`harbor`: neues Boot im Hafen) */
@@ -244,7 +245,7 @@ export function streamHeadline(i: StreamItem): string {
     case 'boat':
       return i.group ? `Neues Boot in ${i.group.name}: ${i.boat?.name ?? 'Boot'}` : `Neues Boot: ${i.boat?.name ?? 'Boot'}`;
     case 'post':
-      return `Neuigkeit von ${i.group?.name ?? 'der Gruppe'}`;
+      return i.group ? `Neuigkeit von ${i.group.name}` : `Beitrag von ${who(i, 'Ein:e Segler:in')}`;
     case 'milestone':
       return i.milestone ? `${i.milestone.name} hat ${fmtNum(i.milestone.nm, 0)} Seemeilen in der Saison ${i.milestone.year} erreicht` : 'Meilenstein';
     case 'harbor':
@@ -256,6 +257,7 @@ export function streamHeadline(i: StreamItem): string {
 export function streamPath(i: StreamItem): string {
   if (i.voyage) return `/s/${i.voyage.id}`;
   if (i.kind === 'milestone' && i.milestone) return i.milestone.path;
+  if (i.kind === 'post' && !i.group && i.actor) return `/u/${i.actor.handle}`;
   if (i.kind === 'logbook') return i.logbook?.voyages.length === 1 ? `/s/${i.logbook.voyages[0].id}` : i.actor ? `/u/${i.actor.handle}` : '/';
   if (i.kind === 'harbor' && i.boat) return `/b/${i.boat.id}`;
   if (i.group) return `/g/${i.group.slug}`;

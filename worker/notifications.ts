@@ -228,6 +228,8 @@ interface Row {
   s_cmode: string | null;
   p_author: string | null;
   p_hidden: number | null;
+  p_group: string | null;
+  p_handle: string | null;
   a_actor: string | null;
   g_slug: string | null;
   g_name: string | null;
@@ -260,7 +262,7 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
     ap.display_name AS actor_name, ap.handle AS actor_handle,
     s.user_id AS s_owner, s.title AS s_title, s.visibility AS s_vis, s.share_key AS s_key,
     s.hidden_at AS s_hidden, s.locked_at AS s_locked, s.comments_mode AS s_cmode,
-    p.author_id AS p_author, p.hidden_at AS p_hidden, a.actor_id AS a_actor,
+    p.author_id AS p_author, p.hidden_at AS p_hidden, p.group_id AS p_group, pp.handle AS p_handle, a.actor_id AS a_actor,
     g.slug AS g_slug, g.name AS g_name, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden,
     g.locked_at AS g_locked, g.approve_by AS g_approve, gm.role AS g_role,
     EXISTS (SELECT 1 FROM group_requests r WHERE r.group_id = g.id) AS g_open,
@@ -275,6 +277,7 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
   LEFT JOIN profiles ap ON ap.user_id = au.id AND ap.visibility = 'public' AND ap.hidden_at IS NULL
   LEFT JOIN shares s ON n.subject_kind = 'share' AND s.id = n.subject_id
   LEFT JOIN posts p ON n.subject_kind = 'post' AND p.id = n.subject_id
+  LEFT JOIN profiles pp ON pp.user_id = p.author_id
   LEFT JOIN activity a ON n.subject_kind = 'activity' AND a.id = n.subject_id
   LEFT JOIN groups g ON g.id = CASE n.subject_kind WHEN 'group' THEN n.subject_id WHEN 'post' THEN p.group_id END
   LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = n.user_id
@@ -312,7 +315,10 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
       if (r.kind === 'expiry') return { ...base, title: r.s_title, what: 'bald', href: '/?support=open' };
       return { ...base, title: r.s_title, what: 'deinen Törn', href: sharePath('s', r.subject_id, r.s_vis ?? 'private', r.s_key) };
     case 'post':
-      if (r.p_author !== userId || r.p_hidden || !r.g_slug || r.g_hidden || r.g_locked || !r.g_role) return null;
+      if (r.p_author !== userId || r.p_hidden) return null;
+      // Beitrag im eigenen Profil (F-420): zum eigenen Profil
+      if (!r.p_group) return { ...base, title: '', what: 'deinen Beitrag', href: r.p_handle ? `/u/${r.p_handle}` : '/' };
+      if (!r.g_slug || r.g_hidden || r.g_locked || !r.g_role) return null;
       return { ...base, title: r.g_name ?? '', what: 'deinen Beitrag in', href: groupHref() };
     case 'activity':
       if (r.a_actor !== userId) return null;

@@ -2,15 +2,13 @@
 // Beiträge, Fotos und Aktivitäten – eine pro Person und Gegenstand, nur auf Sichtbares, mit Tagesgrenze.
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
-import { HttpError, countKeyFailure, json, readJson } from './http';
-import { assertActive, isAdmin } from './moderation';
-import { requestKey } from './access';
+import { HttpError, json, readJson } from './http';
+import { assertActive } from './moderation';
 import { visibleShare } from './shares';
 import { visiblePhoto } from './photos';
-import { canViewGroup, loadGroup, roleIn } from './groups';
+import { visiblePost } from './posts';
 import { visibleActivity } from './stream';
 import { SHARE_ID_RE } from './validate';
-import { canManageGroup } from '../src/domain/groups';
 import { REACTION_LIMITS, isReactionKind, isReactionSubject, summarizeReactions, type ReactionSubject } from '../src/domain/reactions';
 import { notifyReaction } from './notifications';
 
@@ -36,21 +34,8 @@ async function assertVisible(request: Request, env: Env, subject: ReactionSubjec
     if (!(await visibleActivity(env, user?.id ?? null, id))) throw NOT_FOUND();
     return;
   }
-  // Beitrag: sichtbar wie die Gruppe, ausgeblendet nur für Autor:in, Verwalter und Moderation, Autor nicht gesperrt.
-  const key = requestKey(request);
-  const admin = isAdmin(env, user?.id);
-  const p = await env.DB.prepare(
-    `SELECT p.id, p.author_id, p.group_id, p.hidden_at, (u.suspended_at IS NOT NULL) AS suspended FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id = ?`,
-  )
-    .bind(id)
-    .first<{ id: string; author_id: string; group_id: string | null; hidden_at: number | null; suspended: number }>();
-  const g = p?.group_id ? await loadGroup(env, p.group_id) : null;
-  const role = g ? await roleIn(env, user?.id, g.id) : null;
-  const ok = !!p && !!g && canViewGroup(g, role, key, admin) && (!p.hidden_at || p.author_id === user?.id || canManageGroup(role) || admin) && (!p.suspended || admin);
-  if (!ok) {
-    await countKeyFailure(env, request, key);
-    throw NOT_FOUND();
-  }
+  // Beitrag: dieselbe Prüfung wie überall (F-402) – Gruppe, „Nur Mitglieder“, Profil, ausgeblendet, gesperrt
+  await visiblePost(request, env, id);
 }
 
 function parseSubject(raw: string): ReactionSubject {

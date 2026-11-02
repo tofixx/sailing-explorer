@@ -83,6 +83,10 @@ import { disablePush, enablePush, pushKey } from './services/push';
 import { ClaimController } from './controllers/claims';
 import type { SxClaim } from './components/sx-claim';
 import type { ClaimRequest } from './services/api';
+import { PostsController } from './controllers/posts';
+import type { PostInput } from './services/api';
+import type { MyPostArea, PostKind, ProfilePreview } from './domain/posts';
+import type { LogState } from './domain/logbook';
 import type { ClaimKind } from './domain/claims';
 
 /** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
@@ -168,6 +172,7 @@ export class App {
   private discover: DiscoverController;
   private social: SocialController;
   private claims = new ClaimController((msg, ms) => this.toast(msg, ms));
+  private posts = new PostsController({ page: this.ui.page, toast: (msg, ms) => this.toast(msg, ms) });
   private unread: UnreadController;
   /** angezeigte Seite statt Karte (Entdecken bzw. Profil, Gruppe …) – für die Bereiche in der Kopfzeile */
   private pageSection: 'discover' | 'page' | null = null;
@@ -745,8 +750,16 @@ export class App {
     on<{ id: string }>('sx-group-invite-revoke', (d) => g.revokeInvite(d.id));
     on<{ id: string; boatId: string }>('sx-group-boat-add', (d) => g.addBoat(d));
     on<{ id: string; boatId: string }>('sx-group-boat-remove', (d) => g.removeBoat(d));
-    on<{ groupId: string; body: string; link: string }>('sx-post-create', (d) => g.createPost(d));
+    on<{ groupId: string } & PostInput>('sx-post-create', (d) => g.createPost(d));
     on<{ id: string }>('sx-post-delete', (d) => g.deletePost(d.id));
+    // ---- Beiträge als Grundtyp (Konzept 21): „Mein Verlauf“, Profil-Beiträge, Fahrtenbuch, „Ansehen als …“ ----
+    const po = this.posts;
+    on<{ area: MyPostArea }>('sx-my-posts-area', (d) => po.setArea(d.area));
+    on('sx-my-posts-more', () => po.load(true));
+    on<PostInput>('sx-my-post-create', (d) => po.create(d));
+    on<{ id: string; kind: PostKind }>('sx-my-post-delete', (d) => po.remove(d.id, d.kind));
+    on<{ id: string; logState: LogState }>('sx-log-state', (d) => po.setLogState(d.id, d.logState));
+    on<{ preview: ProfilePreview | null }>('sx-profile-preview', (d) => po.preview(d.preview));
     on<{ scope: 'home' | 'group' | 'harbor' | 'public' }>('sx-stream-more', (d) => (d.scope === 'harbor' ? this.social.moreHarbor() : g.more(d.scope)));
     on<{ kind: FollowKind; id: string; follow: boolean }>('sx-follow', (d) => g.follow(d));
 
@@ -1011,6 +1024,9 @@ export class App {
         const d = await api.profile(route.handle, route.key);
         page.data = { kind: 'profile', ...d };
         document.title = `${d.profile.displayName} · Sail Explorer`;
+        // eigene Seite: „Mein Verlauf“ mit allem, auch Privatem (F-401)
+        page.myPosts = null;
+        if (d.profile.isSelf) void this.posts.openOwn();
       } else {
         const d = await api.boat(route.id, route.key);
         page.data = { kind: 'boat', ...d };

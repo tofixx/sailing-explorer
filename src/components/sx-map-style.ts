@@ -2,7 +2,7 @@ import { LitElement, css, html, type PropertyValues } from 'lit';
 import { MAP_STYLES, MAP_STYLE_IDS, type MapStyleId } from '../domain/map-style';
 import { rampCss } from '../domain/metrics';
 import { icon } from './icons';
-import { base, emit } from './shared';
+import { base, emit, menuStyles } from './shared';
 
 /** now: für diese Ansicht (weg nach dem Neuladen), profile: als Standard im Profil, reset: Profil-Standard entfernen */
 export type MapStyleScope = 'now' | 'profile' | 'reset';
@@ -43,6 +43,7 @@ export class SxMapStyle extends LitElement {
 
   static styles = [
     base,
+    menuStyles,
     css`
       :host {
         display: block;
@@ -51,88 +52,17 @@ export class SxMapStyle extends LitElement {
       .toggle {
         box-shadow: var(--shadow-1);
       }
-      .menu {
-        position: absolute;
-        right: 0;
-        bottom: calc(100% + var(--s-2));
-        width: min(280px, calc(100vw - 24px));
-        padding: var(--s-1);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-l);
-        background: var(--surface);
-        box-shadow: var(--shadow-2);
-        display: grid;
-        gap: 2px;
-      }
-      /* Mobil ist die Karte über dem Bottom-Sheet niedrig: das Menü kommt als Sheet vom unteren Rand. */
-      @media (max-width: 760px) {
+      /* über dem Zahnrad (unten rechts auf der Karte); mobil als Sheet (menuStyles) */
+      @media (min-width: 761px) {
         .menu {
-          position: fixed;
-          inset: auto 0 0 0;
-          width: 100%;
-          border-radius: var(--radius-l) var(--radius-l) 0 0;
-          padding-bottom: var(--s-3);
+          bottom: calc(100% + var(--s-2));
+          width: min(280px, calc(100vw - 24px));
         }
-      }
-      .title {
-        margin: var(--s-2) var(--s-2) var(--s-1);
-        font-size: var(--fs-s);
-        color: var(--text-2);
-        font-weight: 600;
-      }
-      .item {
-        display: grid;
-        grid-template-columns: 18px 1fr;
-        gap: 2px var(--s-2);
-        align-items: center;
-        width: 100%;
-        min-height: 44px;
-        padding: var(--s-1) var(--s-2);
-        border: 0;
-        border-radius: var(--radius);
-        background: none;
-        color: var(--text);
-        font: 500 var(--fs-m) / 1.3 var(--font);
-        text-align: left;
-        cursor: pointer;
-      }
-      .item:hover:not([disabled]) {
-        background: var(--surface-hover);
-      }
-      .item[aria-pressed='true'] {
-        background: var(--surface-2);
-        font-weight: 650;
-      }
-      .item .mark {
-        color: var(--accent);
-        display: flex;
-      }
-      .item small {
-        font-weight: 500;
-        color: var(--text-2);
-        margin-left: var(--s-1);
       }
       .bar {
         grid-column: 2;
         height: 6px;
         border-radius: 999px;
-      }
-      hr {
-        border: 0;
-        border-top: 1px solid var(--border-soft);
-        margin: var(--s-1) 0;
-      }
-      .hint,
-      .error {
-        margin: var(--s-1) var(--s-2);
-        font-size: var(--fs-s);
-        line-height: 1.4;
-      }
-      .hint {
-        color: var(--text-2);
-      }
-      .error {
-        color: var(--err);
       }
       .action {
         justify-content: flex-start;

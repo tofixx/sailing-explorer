@@ -1,10 +1,9 @@
 import { LitElement, css, html } from 'lit';
 import { photoImageUrl, shareImageUrl, type StreamItem } from '../services/api';
-import { linkify } from '../domain/comment-text';
 import { GROUP_KIND_LABEL, streamHeadline } from '../domain/groups';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
-import { base, coverBanner, coverBannerStyles, emit, logbookTag } from './shared';
+import { base, coverBanner, coverBannerStyles, emit, linkedText, logbookTag } from './shared';
 import './sx-reactions';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
@@ -185,11 +184,6 @@ export class SxStream extends LitElement {
     `,
   ];
 
-  /** Text mit klickbaren http(s)-Links – Lit escaped alle Textstücke. */
-  private text(t: string) {
-    return linkify(t).map((p) => (p.href ? html`<a href=${p.href} rel="nofollow ugc noopener noreferrer" target="_blank">${p.text}</a>` : p.text));
-  }
-
   private who(i: StreamItem) {
     return i.actor ? html`<a href="/u/${i.actor.handle}">${i.actor.displayName}</a>` : '';
   }
@@ -226,7 +220,7 @@ export class SxStream extends LitElement {
               ? html`<span class="tools"><button class="btn small ghost danger" aria-label="Beitrag löschen" @click=${() => emit(this, 'sx-post-delete', { id: p.id })}>${icon('trash')}</button></span>`
               : html`<span class="tools"><button class="btn small ghost" aria-label="Beitrag melden" @click=${() => emit(this, 'sx-report', { kind: 'post', id: p.id, label: 'diesen Beitrag' })}>${icon('flag')}</button></span>`}
           </div>
-          <p class="body">${this.text(p.body)}</p>
+          <p class="body">${linkedText(p.body)}</p>
           ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}`;
       }
       case 'logbook': {

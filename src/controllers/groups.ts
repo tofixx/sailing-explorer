@@ -1,4 +1,4 @@
-import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamFilter, type StreamPage } from '../services/api';
+import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type PostInput, type StreamFilter, type StreamPage } from '../services/api';
 import { locate, nearCenter, readNearPrefs, writeNearPrefs, type NearPrefs } from '../services/near-prefs';
 import { roundCoord, type NearRadius, type StreamMode } from '../domain/near';
 import type { NearInfo } from '../components/sx-home-feed';
@@ -228,8 +228,8 @@ export class GroupsController {
     return this.act(() => groupApi.removeBoat(d.id, d.boatId), 'Boot entfernt');
   }
 
-  async createPost(d: { groupId: string; body: string; link: string }) {
-    if (await this.act(() => groupApi.post(d.groupId, d.body, d.link), 'Veröffentlicht')) this.ui.page.clearComposer?.();
+  async createPost(d: { groupId: string } & PostInput) {
+    if (await this.act(() => groupApi.post(d.groupId, { body: d.body, link: d.link, visibility: d.visibility }), 'Veröffentlicht')) this.ui.page.clearComposer?.();
   }
 
   async deletePost(id: string) {

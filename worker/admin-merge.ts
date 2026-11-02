@@ -105,7 +105,7 @@ const label = (a: Account) => `${a.display_name || funnyName(a.id)}${a.handle ? 
 async function mergeCounts(env: Env, from: string, into: string) {
   const row = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM shares WHERE user_id = ?1) AS shares, (SELECT COUNT(*) FROM photos WHERE user_id = ?1) AS photos,
-       (SELECT COUNT(*) FROM comments WHERE user_id = ?1) AS comments, (SELECT COUNT(*) FROM posts WHERE author_id = ?1) AS posts,
+       (SELECT COUNT(*) FROM comments WHERE user_id = ?1) AS comments, (SELECT COUNT(*) FROM posts WHERE author_id = ?1 AND share_id IS NULL) AS posts,
        (SELECT COUNT(*) FROM boats WHERE owner_id = ?1) AS boats, (SELECT COUNT(*) FROM boat_admins WHERE user_id = ?1) AS boatAdmin,
        (SELECT COUNT(*) FROM group_members WHERE user_id = ?1) AS groups,
        (SELECT COUNT(*) FROM group_members a JOIN group_members b ON b.group_id = a.group_id AND b.user_id = ?2 WHERE a.user_id = ?1) AS bothGroups,
@@ -153,7 +153,8 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     db.prepare('UPDATE shares SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('UPDATE photos SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('UPDATE comments SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
-    db.prepare('UPDATE posts SET author_id = ?1 WHERE author_id = ?2').bind(A, B),
+    // Beiträge samt Profil-Verlauf (Konzept 21.3): auch die Post-Zeilen der Törns wandern mit
+    db.prepare(`UPDATE posts SET author_id = ?1, channel_id = CASE WHEN channel_kind = 'user' AND channel_id = ?2 THEN ?1 ELSE channel_id END WHERE author_id = ?2`).bind(A, B),
     db.prepare('UPDATE activity SET actor_id = ?1 WHERE actor_id = ?2').bind(A, B),
     db.prepare(`UPDATE activity SET subject_id = ?1 WHERE subject_kind = 'user' AND subject_id = ?2`).bind(A, B),
     // Bündel-Schlüssel mit der Konto-ID (Beitritt, Meilensteine): ans Ziel; gab es ihn dort schon, bleibt der des Ziels

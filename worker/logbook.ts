@@ -3,6 +3,7 @@
 // Die Route (Hafenpositionen) liegt wie jeder Track als gzip-Payload in R2 (`{"v":1,"tracks":[],"route":[…]}`).
 import { checkGroupIds, insertShareGroupsStmt, presetShareGroupsStmt } from './share-groups';
 import type { Env } from './env';
+import { sharePostStmt } from './post-sql';
 import type { User } from './auth';
 import { requireUser } from './auth';
 import { randomId } from './crypto';
@@ -25,6 +26,7 @@ import { seasonOf } from '../src/domain/support';
 import {
   LOG_LIMITS, departureError, isBackfill, logQuotaMessage, logTitle, parseLog, plausibleDistance, readLog, routeNm, seasonRange,
   type DistSource, type LatLon, type Logbook,
+  initialLogState,
 } from '../src/domain/logbook';
 
 const DAY = 86_400_000;
@@ -145,6 +147,8 @@ interface ManualBody {
   visibility?: unknown;
   ownerRole?: unknown;
   log?: unknown;
+  /** „Ins Fahrtenbuch“ (F-422): nur 'excluded' weicht vom Standard (bestätigt) ab */
+  logState?: unknown;
 }
 
 /**
@@ -214,6 +218,7 @@ export async function createManualShare(request: Request, env: Env): Promise<Res
     to_harbor_id: to.id,
     log: JSON.stringify(log),
     owner_role: isVoyageRole(body.ownerRole) ? body.ownerRole : null,
+    log_state: initialLogState('manual', body.logState === 'excluded'),
   };
 
   await env.TRACKS.put(shareKey(row.id), bytes, {
@@ -223,14 +228,16 @@ export async function createManualShare(request: Request, env: Env): Promise<Res
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO shares (id, user_id, title, summary, visibility, share_key, view, size_bytes, track_count, created_at, updated_at, boat_id, listed,
-         dist_nm, started_at, ended_at, source, dist_source, from_harbor_id, to_harbor_id, log, owner_role)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         dist_nm, started_at, ended_at, source, dist_source, from_harbor_id, to_harbor_id, log, owner_role, log_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       row.id, row.user_id, row.title, row.summary, row.visibility, row.share_key, row.view, row.size_bytes, row.track_count, now, now, row.boat_id,
       row.visibility === 'public' ? 1 : 0, row.dist_nm, row.started_at, row.ended_at, row.source, row.dist_source, row.from_harbor_id, row.to_harbor_id,
-      row.log, row.owner_role,
+      row.log, row.owner_role, row.log_state,
     ),
     addStorageStmt(env, row.size_bytes),
+    // Post-Zeile mit derselben ID (Konzept 21.3, F-400)
+    sharePostStmt(env, row.id, row.user_id, 'manual', now),
     // „In Gruppen zeigen“ (F-373): gewählte Gruppen, sonst die Gruppen des Boots, in denen man Mitglied ist
     ...(groupIds ? [insertShareGroupsStmt(env, row.id, groupIds, now)] : row.boat_id ? [presetShareGroupsStmt(env, row.id, row.user_id, row.boat_id, now)] : []),
   ]).catch(async (err: unknown) => {

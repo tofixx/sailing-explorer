@@ -1,7 +1,7 @@
 // Vereine und Teams (Konzept 11.1, F-150 … F-157): anlegen, Rollen, Sichtbarkeit, Beitrittsanfragen, Boote,
 // Gruppenseite. Einladungen laufen über worker/invites.ts, Beiträge über worker/posts.ts, Neuigkeiten über stream.ts.
 import type { Env } from './env';
-import { RECORDED_NM_SQL } from './logbook-sql';
+import { IN_LOGBOOK_SQL, RECORDED_NM_SQL } from './logbook-sql';
 import { currentUser, requireUser, type User } from './auth';
 import { roleFor } from './boats';
 import { randomId } from './crypto';
@@ -23,6 +23,7 @@ import {
   type Approvers, type GroupKind, type GroupRole, type JoinMode,
 } from '../src/domain/groups';
 import { funnyName } from '../src/domain/names';
+import { effectivePostBy, isPostBy } from '../src/domain/posts';
 import { coverRef } from '../src/domain/cover';
 import { notifyRequest } from './notifications';
 import { claimTargetCleanup, displacedSql } from './claim-cleanup';
@@ -48,6 +49,8 @@ export interface GroupRow {
   join_mode: JoinMode;
   /** wer Anfragen bestätigt (0015) */
   approve_by: Approvers;
+  /** wer Beiträge schreibt (0029, B3): admins | members, NULL = Standard je Art */
+  post_by?: string | null;
   owner_id: string;
   hidden_at: number | null;
   /** gesperrt (0023, Konzept 18.2): niemand hat dann eine Rolle */
@@ -139,6 +142,8 @@ export function groupShape(g: GroupRow, role: GroupRole | null) {
     visibility: g.visibility,
     joinMode: g.join_mode,
     approveBy: g.approve_by,
+    // wer Beiträge schreibt (F-421): gespeichert oder Standard je Art
+    postBy: effectivePostBy(g.kind, g.post_by),
     // Schlüssel und Link nur für Eigner und Admins (Konzept 2.4).
     shareKey: manager ? g.share_key : null,
     link: manager ? sharePath('g', g.slug, g.visibility, g.share_key) : null,
@@ -168,6 +173,8 @@ interface GroupInput {
   joinMode?: unknown;
   /** wer Anfragen bestätigt – nur der Eigner */
   approveBy?: unknown;
+  /** wer Beiträge schreibt (F-421) – nur der Eigner */
+  postBy?: unknown;
   parentId?: unknown;
   rotateKey?: unknown;
 }
@@ -187,6 +194,10 @@ function applyInput(g: GroupRow, input: GroupInput): Visibility | null {
   if (input.approveBy !== undefined) {
     if (!isApprovers(input.approveBy)) throw new HttpError(400, 'invalid_approvers', 'Unbekannte Regel, wer Anfragen bestätigt.');
     g.approve_by = input.approveBy;
+  }
+  if (input.postBy !== undefined) {
+    if (!isPostBy(input.postBy)) throw new HttpError(400, 'invalid_post_by', 'Unbekannte Regel, wer Beiträge schreibt.');
+    g.post_by = input.postBy;
   }
   if (input.joinMode !== undefined) {
     if (!isJoinMode(input.joinMode)) throw new HttpError(400, 'invalid_join_mode', 'Unbekannte Beitrittsregel.');
@@ -244,9 +255,9 @@ export async function createGroup(request: Request, env: Env): Promise<Response>
   try {
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO groups (id, kind, parent_id, slug, name, description, home_port, harbor_id, visibility, share_key, join_mode, approve_by, owner_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(g.id, g.kind, g.parent_id, g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.owner_id, now, now),
+        `INSERT INTO groups (id, kind, parent_id, slug, name, description, home_port, harbor_id, visibility, share_key, join_mode, approve_by, post_by, owner_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(g.id, g.kind, g.parent_id, g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.owner_id, now, now),
       env.DB.prepare(`INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)`).bind(g.id, user.id, now),
     ]);
   } catch (err) {
@@ -265,10 +276,10 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   const { user, group: g, role } = await memberGroup(request, env, id, 'manager');
   const input = await readJson<GroupInput>(request);
   const previous = g.visibility;
-  const before = { approveBy: g.approve_by, joinMode: g.join_mode };
+  const before = { approveBy: g.approve_by, joinMode: g.join_mode, postBy: effectivePostBy(g.kind, g.post_by) };
   const next = applyInput(g, input);
-  if ((g.approve_by !== before.approveBy || g.join_mode !== before.joinMode) && role !== 'owner') {
-    throw FORBIDDEN('Beitritt und wer Anfragen bestätigt, legt der Eigentümer fest.');
+  if ((g.approve_by !== before.approveBy || g.join_mode !== before.joinMode || effectivePostBy(g.kind, g.post_by) !== before.postBy) && role !== 'owner') {
+    throw FORBIDDEN('Beitritt, wer Anfragen bestätigt und wer Beiträge schreibt, legt der Eigentümer fest.');
   }
   await applyHarbor(env, user, g, input);
   // Bestehende Vereine ohne Hafen dürfen weiter bearbeitet werden – nur ausdrücklich entfernen geht nicht (F-354)
@@ -282,9 +293,9 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   if (await slugTaken(env, g.slug, g.id)) throw SLUG_TAKEN();
   g.updated_at = Date.now();
   await env.DB.prepare(
-    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, approve_by = ?, updated_at = ? WHERE id = ?',
+    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, approve_by = ?, post_by = ?, updated_at = ? WHERE id = ?',
   )
-    .bind(g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.updated_at, g.id)
+    .bind(g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.updated_at, g.id)
     .run();
   return json({ group: groupShape(g, role) });
 }
@@ -360,6 +371,8 @@ export async function purgeUserGroups(env: Env, userId: string): Promise<D1Prepa
   return [
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'post' AND target_id IN (SELECT id FROM posts WHERE author_id = ?)`).bind(userId),
     env.DB.prepare('DELETE FROM posts WHERE author_id = ?').bind(userId),
+    // Tageszähler des Profil-Verlaufs (F-420) – Gruppen-Zähler tragen keine Konto-ID
+    env.DB.prepare('DELETE FROM post_log WHERE group_id = ?').bind(`user:${userId}`),
     env.DB.prepare('DELETE FROM group_requests WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM group_members WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM share_groups WHERE share_id IN (SELECT id FROM shares WHERE user_id = ?)').bind(userId),
@@ -402,7 +415,7 @@ async function groupStats(env: Env, groupId: string, now = Date.now()) {
        (SELECT COUNT(*) FROM group_boats gb JOIN boats b ON b.id = gb.boat_id WHERE gb.group_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats,
        COUNT(s.id) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec,
        COALESCE(SUM(CASE WHEN COALESCE(s.started_at, s.created_at) >= ?2 THEN s.dist_nm END), 0) AS season
-     FROM shares s WHERE ${PUBLIC_SHARE} AND ${GROUP_SHARES}`,
+     FROM shares s WHERE ${PUBLIC_SHARE} AND ${GROUP_SHARES} AND ${IN_LOGBOOK_SQL}`,
   )
     .bind(groupId, yearStart)
     .first<{ members: number; boats: number; voyages: number; dist: number; rec: number; season: number }>();

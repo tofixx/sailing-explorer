@@ -2,6 +2,7 @@
 import { funnyName } from '../src/domain/names';
 import { canManageGroup, isActivityKind, type GroupKind, type GroupRole, type StreamItem } from '../src/domain/groups';
 import { coverRef } from '../src/domain/cover';
+import { canSeePost, isPostVisibility, isReach, type PostVisibility } from '../src/domain/posts';
 
 /** Eine Aktivität samt allem, was die Prüfung braucht (ein Batch, LEFT JOINs). */
 export interface ActivityRow {
@@ -47,6 +48,9 @@ export interface ActivityRow {
   p_link: string | null;
   p_hidden: number | null;
   p_author: string | null;
+  /** Sichtbarkeit und Reichweite des Beitrags (0029, Konzept 21) */
+  p_vis?: string | null;
+  p_reach?: string | null;
   /** Hafen bei `harbor` (Konzept 12.4) */
   h_slug?: string | null;
   h_name?: string | null;
@@ -139,10 +143,20 @@ export function shapeItem(r: ActivityRow, viewer: Viewer, thumbs: string[] = [],
       return withCover({ ...base, group, boat }, boatCover(r));
     }
     case 'post': {
-      if (!group || !r.p_id || r.p_hidden) return null;
+      // Gruppen- oder Profil-Beitrag (F-402, F-420): Sichtbarkeit wie überall, ausgeblendete nie im Stream
+      if (!r.p_id || r.p_hidden || !isPostVisibility(r.p_vis ?? 'public')) return null;
+      const visibility = (r.p_vis ?? 'public') as PostVisibility;
       const role = (r.g_role as GroupRole | null) ?? null;
-      const canDelete = !!viewer.id && (viewer.id === r.p_author || canManageGroup(role));
-      return { ...base, group, post: { id: r.p_id, body: r.p_body ?? '', link: r.p_link, canDelete } };
+      const inGroup = !!r.group_id;
+      const isAuthor = !!viewer.id && viewer.id === r.p_author;
+      const visible = canSeePost(
+        { visibility, channel: inGroup ? 'group' : 'user', hidden: false, authorSuspended: false, authorPublic: !!actor },
+        { isAuthor: isAuthor && !inGroup, groupVisible: !!group, isMember: role !== null },
+      );
+      if (!visible || (inGroup && !group)) return null;
+      const canDelete = isAuthor || (inGroup && canManageGroup(role));
+      const reach = isReach(r.p_reach) ? r.p_reach : 'here';
+      return { ...base, group, post: { id: r.p_id, body: r.p_body ?? '', link: r.p_link, canDelete, visibility, reach } };
     }
     case 'milestone': {
       const nm = Number(data.nm) || 0;

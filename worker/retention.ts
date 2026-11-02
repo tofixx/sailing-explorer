@@ -2,6 +2,7 @@
 // Regeln stehen in src/domain/support.ts; der Ablauf eines Törns wird per EXPIRES_SQL in der DB berechnet.
 import type { Env } from './env';
 import { purgeUser } from './auth';
+import { repairSharePostsStmt } from './post-sql';
 import { expiryWarningMail, seasonReminderMail, sendMail } from './mail';
 import { EXPIRES_SQL } from './shares';
 import { recomputeStorage, storageTotal, subtractShareStmt } from './storage';
@@ -232,6 +233,8 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   const claimsExpired = await step('claims_expire', expireClaims(env, now), 0);
   await step('claims', env.DB.batch(nightlyClaimCleanup(env, now)), []);
   await step('notifications', env.DB.batch(nightlyNotificationCleanup(env, now)), []);
+  // Beiträge (Konzept 21.3): Törns ohne Post-Zeile nachtragen
+  await step('posts', repairSharePostsStmt(env).run(), null);
   // Datenschutz-Fristen als eigener Batch (scheitert einer, läuft der andere trotzdem)
   await step('privacy', env.DB.batch([
     // Offene Meldungen nach 180 Tagen ohne Entscheidung: ohne Meldende und Anmerkung (Datenschutz, Abschnitt 9)

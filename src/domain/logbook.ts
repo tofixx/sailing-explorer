@@ -260,3 +260,28 @@ export function routeTrack(route: LatLon[], o: { id: string; name: string; color
     estimated: true,
   };
 }
+
+// ---------------------------------------------------------------- „Ins Fahrtenbuch“ (Konzept 21, F-422)
+
+/**
+ * Stand eines Törns im Fahrtenbuch: selbst angelegte Einträge sind bestätigt, Törns mit GPX zunächst ein Vorschlag
+ * (zählt mit), vom Nutzer abgeschaltete ausgeschlossen (zählen nie, bleiben aber als Beitrag bestehen).
+ */
+export const LOG_STATES = ['confirmed', 'suggested', 'excluded'] as const;
+export type LogState = (typeof LOG_STATES)[number];
+export const isLogState = (v: unknown): v is LogState => typeof v === 'string' && (LOG_STATES as readonly string[]).includes(v);
+
+/** Stand beim Anlegen: Fahrtenbuch-Eintrag bestätigt, GPX-Törn Vorschlag – außer ausdrücklich ausgeschlossen. */
+export const initialLogState = (source: ShareSource, excluded = false): LogState => (excluded ? 'excluded' : source === 'manual' ? 'confirmed' : 'suggested');
+
+/** Zählt der Törn in Seemeilen, Törn-Zahlen, Saison und Meilensteinen? */
+export const countsInLogbook = (s: LogState): boolean => s !== 'excluded';
+
+/** Schalter „Ins Fahrtenbuch“ wieder an: GPX-Törns werden wieder Vorschlag, eigene Einträge wieder bestätigt. */
+export const logStateOn = (source: ShareSource): LogState => (source === 'manual' ? 'confirmed' : 'suggested');
+
+export const LOG_STATE_LABEL: Record<LogState, string> = {
+  confirmed: 'Im Fahrtenbuch (bestätigt)',
+  suggested: 'Im Fahrtenbuch (Vorschlag)',
+  excluded: 'Nicht im Fahrtenbuch',
+};

@@ -1,7 +1,7 @@
 // Häfen (Konzept 12.2, F-171 … F-175): Autovervollständigung, Anlegen mit Dubletten-Erkennung, Bearbeiten,
 // Hafenseite. Häfen sind immer öffentlich (nur Name und Ort); gelistet werden darin nur öffentliche Boote und Törns.
 import type { Env } from './env';
-import { RECORDED_NM_SQL } from './logbook-sql';
+import { IN_LOGBOOK_SQL, RECORDED_NM_SQL } from './logbook-sql';
 import { currentUser, requireUser, type User } from './auth';
 import { randomId } from './crypto';
 import { HttpError, json, readJson } from './http';
@@ -206,7 +206,7 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec,
        COALESCE(SUM(CASE WHEN COALESCE(s.started_at, s.created_at) >= ?2 THEN s.dist_nm END), 0) AS season
      FROM shares s JOIN boats b ON b.id = s.boat_id
-     WHERE b.harbor_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL AND s.visibility = 'public' AND s.hidden_at IS NULL`,
+     WHERE b.harbor_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL AND s.visibility = 'public' AND s.hidden_at IS NULL AND ${IN_LOGBOOK_SQL}`,
   )
     .bind(h.id, yearStart)
     .first<{ voyages: number; dist: number; rec: number; season: number }>();

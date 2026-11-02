@@ -2539,8 +2539,9 @@ Anleger:in“ prüft vorher `mayAdoptHarbor` (`worker/claim-cleanup.ts`) – je 
 
 ## 21. Beiträge als Grundtyp
 
-Stand: 02.11.2026, **Entscheidungen des Betreibers eingearbeitet (21.0), noch nichts umgesetzt.** Anforderungs-IDs hier
-sind Platzhalter (**F-400 ff.**) und werden erst bei der Umsetzung nach `docs/REQUIREMENTS.md` übernommen.
+Stand: 02.11.2026, **Entscheidungen des Betreibers eingearbeitet (21.0), Phase 1 umgesetzt (21.11).** Anforderungs-IDs
+hier sind Platzhalter (**F-400 ff.**) und werden erst bei der Umsetzung nach `docs/REQUIREMENTS.md` übernommen – vergeben
+sind F-400, F-401, F-402, F-404, F-415 (Bedeutung wie unten) und neu F-420 … F-423 (21.11).
 
 Anlass (Betreiber): *„Ich denke es macht Sinn, Posts als solche zu definieren und diese können dann ein GPX-Törn sein,
 oder Umfrage, Veranstaltung mit Check-in, Fotos oder nur ein Fahrtenbuch-Eintrag. Alle Typen sollten über den
@@ -2568,6 +2569,8 @@ Diese Entscheidungen gehen allen Vorschlägen unten vor; die Abschnitte sind ang
 | B9 | **Umfragen** Standard anonym, „namentlich“ wählbar, vorher angekündigt, nicht umstellbar | 21.5 |
 | B10 | **Fahrtenbuch-Zusatzangaben:** Binnen/Küste umschaltbar (passende Felder), Motor-/Segelzeit auch bei GPX nur Vorschlag und änderbar, zusätzliche Posten (Brücken, Mast legen, Training …); alles Vorschläge, änderbar | 21.6 |
 | B11 | **Wertung:** Plattform-Admins schlagen Vorlagen vor; Vereine übernehmen, erweitern oder nutzen nur eigene; Mitglieder wählen **je Eintrag eine Vorlage (Pflicht)**; Vereine listen Punktesummen ihrer Mitglieder (Gewichtung einstellbar); Mitglieder erstellen ihren **Jahresbericht** (Excel/CSV, druckbar) zur Abgabe im Verein; dafür ein **Verwaltungsbereich im Konto** | 21.6 |
+| B13 | **„Ansehen als …“** auf der eigenen Seite hinter einem Zahnrad (wie der Kartenstil): Vorschau „Öffentlich“, „jemand aus meinem Hafen“, „Mitglied von …“ (eigene Gruppen) – der Server rechnet mit einem simulierten Betrachter, nie mehr als ein echter dürfte; deutlich als Vorschau markiert, „Vorschau beenden“ | 21.11, F-423 |
+| B14 | **„Ins Fahrtenbuch“** je Beitrag mit Strecke, Standard an, je Eintrag abschaltbar; dreistufig `shares.log_state`: `confirmed` (eigener Fahrtenbuch-Eintrag), `suggested` (GPX, zählt mit, solange kein Filter „nur bestätigte“), `excluded` (zählt nie, bleibt Beitrag). Bestand: manuell bestätigt, GPX Vorschlag. Phase 1: Schalter am Eintrag + „Bestätigen“; Filter im Fahrtenbuch erst Phase 8 | 21.6, 21.11, F-422 |
 | B12 | **Eigene Seite** zeigt einem selbst immer alles (Törns, Beiträge, Fahrtenbuch, auch Privates); „wer sieht es“ (Sichtbarkeit) und „wo steht es“ (Verlauf) werden klar getrennt; Privates steht in einem privaten Bereich und ist gekennzeichnet | 21.2 |
 
 ### 21.1 Ausgangslage: fünf Dinge, die für Nutzer:innen „ein Beitrag“ sind
@@ -2876,7 +2879,7 @@ Jede Phase ist für sich auslieferbar; Review-Agent und `npm run check` vor jede
 | **5 – Veranstaltungen** | `post_events`, `event_rsvps`, Kapazität, Erinnerungen im Cron, `.ics`, „Ins Fahrtenbuch übernehmen“ | M | Mail-Budget (100/Tag, geteilt) |
 | **6 – Große Gruppen** | Publikums-Hinweis, Tageszusammenfassung beim Lesen | M | Cursor über zusammengefasste Tage |
 | **7 – Galerie-Beiträge** | Neubau `photos` (`post_id`), Kontingent kostenlos/Unterstützer, R2-Pfad, Löschpfade inkl. Gruppe/Hafen/Boot/Konto, Törn-Anhang | L | **größtes Migrationsrisiko** (Tabellen-Neubau, Speicherzähler, Waisen in R2) |
-| **8 – Verwaltungsbereich und Fahrtenbuch** | `/konto/…` mit Fahrtenbuch nach Jahren, Zusatzangaben mit Binnen/Küste, Vorschläge aus GPX, Posten | M–L | Abgleich mit Crew-Ausnahme M1, Konto-Dialog ablösen ohne Funktionsverlust |
+| **8 – Verwaltungsbereich und Fahrtenbuch** | `/konto/…` mit Fahrtenbuch nach Jahren, Zusatzangaben mit Binnen/Küste, Vorschläge aus GPX, Posten; Filteransicht nach `log_state` (Bestätigte / mit Vorschlägen / Ausgeschlossene, Mehrfachauswahl, B14) und Summen „nur bestätigte“ | M–L | Abgleich mit Crew-Ausnahme M1, Konto-Dialog ablösen ohne Funktionsverlust |
 | **9 – Wertung und Jahresbericht** | `scoring.ts`, globale Vorlagen (Admin), Vereinsvorlagen, Pflicht-Vorlage je Eintrag, Vereinsliste mit Opt-in, Jahresbericht CSV/Druck | L | Erwartung „offizielle“ Wertung – als Vereinshilfe kennzeichnen |
 
 Migrationsrisiken allgemein: Nummernkollision mit parallelen Branches (vor Vergabe prüfen); Konsistenz Törn/Post
@@ -2905,6 +2908,41 @@ lesbaren `body` als Rückfall mitbringt.
 - **F-417** Publikums-Hinweis ab 100 Personen und Tageszusammenfassung großer Verläufe.
 - **F-418** Verwaltungsbereich im Konto mit Jahresbericht (CSV/Excel, druckbar).
 - **F-419** Galerie-Kontingent: kostenlos 10 Fotos je Monat, Unterstützer mehr, Speicher gemeinsam mit Törn-Fotos.
+
+### 21.11 Umsetzung Phase 1 (02.11.2026)
+
+Migration `0029_posts.sql`, Regeln `src/domain/posts.ts`, Worker `worker/posts.ts` (+ `post-sql.ts`), Oberfläche
+`sx-my-posts`, `sx-post-composer`, `sx-profile-posts`, `sx-preview-menu`, Ablauf `controllers/posts.ts`.
+
+| Anforderung | Inhalt |
+|---|---|
+| F-400 | Dach `posts`, Törn-Zeile mit gleicher ID im selben Batch, Rückfüllung, nächtlicher Waisen-Check |
+| F-401 | „Mein Verlauf“ mit „Wer sieht es“ / „Wo steht es“ und Reiter „Privat“ (auch „Nur mit Link“ und „Nur ich“) |
+| F-402 | Sichtbarkeit beim Lesen mit einer Regel (`canSeePost`); „Nur Mitglieder“ kostenlos |
+| F-404 | `removePost` als ein Einstieg; alle Wege aus Prüfpunkt 6 getestet |
+| F-415 | „Nur Mitglieder“ nie in Teams, RSS, Community oder aus dem Gruppen-Cache |
+| F-420 | Text-Beiträge im eigenen Profil (öffentlich / „Nur ich“); Besucher sehen Profil- und sichtbare Gruppen-Beiträge |
+| F-421 | Schreibrecht je Gruppe `groups.post_by` (B3) |
+| F-422 | „Ins Fahrtenbuch“ (B14) |
+| F-423 | „Ansehen als …“ (B13) |
+
+Abweichungen bzw. Festlegungen gegenüber 21.2–21.7:
+
+- **Keine Ausbreitung in Phase 1:** neue Text-Beiträge stehen mit `reach = 'here'`; „Alles“ zeigt Profil-Beiträge erst mit
+  `reach = 'all'` (Phase 2). Öffentliche Gruppen-Beiträge erscheinen in „Alles“ und „Umgebung“ wie bisher – die Annahme
+  in 21.3.2, sie hätten nur in der Gruppe gestanden, stimmte nicht; ob `reach = 'here'` des Bestands sie dort künftig
+  ausblendet, entscheidet Phase 2.
+- **„Nur ich“ für Text-Beiträge** bleibt wie überall Unterstützern vorbehalten (E1); B4 macht nur „Nur Mitglieder“ frei.
+  „Nur mit Link“ kommt mit `/p/<id>` (Phase 2); `link_key` ist schon angelegt.
+- **Profil für Besucher** zeigt neben Profil-Beiträgen auch die Gruppen-Beiträge der Person, soweit der Betrachter die
+  Gruppe sehen darf (mit „Wo steht es“) – damit „Mitglied von …“ in der Vorschau einen Unterschied zeigt. Die Vorschau
+  „jemand aus meinem Hafen“ zeigt in Phase 1 dasselbe wie „Öffentlich“ (Häfen haben noch keine eigenen Stufen).
+- **Kennzahlen und „Ins Fahrtenbuch“:** ausgeschlossene Törns zählen nirgends in Seemeilen, Törn-Zahlen, Saison und
+  Meilensteinen (Profil, Boot, Gruppe, Hafen, Entdecken), bleiben aber in Listen und Streams. Der Schalter liegt in Phase 1
+  nur in „Mein Verlauf“ (und beim Speichern per API), noch nicht im Teilen-Dialog und im Fahrtenbuch-Formular.
+- **Keine Ablauffrist** für Text-Beiträge in Phase 1 (Vorschlag 24 Monate, 21.3.3) – sie verschwinden mit Gruppe, Konto,
+  Moderation oder einzeln; das Aktivitäts-Log läuft wie bisher nach 12 Monaten ab.
+- Tageszähler des Profil-Verlaufs: `post_log.group_id = 'user:<id>'`, gelöscht mit dem Konto bzw. nach 24 h.
 
 ### 21.10 Fragen an den Betreiber – entschieden 02.11.2026
 

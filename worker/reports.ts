@@ -15,7 +15,7 @@ import { LOCKED, adminLogStmt, assertActive, isAdmin, isLockedTarget, requireAdm
 import { removeShare, visibleShare } from './shares';
 import { removePhotoById, visiblePhoto } from './photos';
 import { canViewGroup, loadGroup, removeGroup, roleIn } from './groups';
-import { removePost } from './posts';
+import { removePost, visiblePost } from './posts';
 import { harborVisible, loadHarbor, removeHarbor } from './harbors';
 import { canManageGroup } from '../src/domain/groups';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, normalizeHandle, parseReportKind, parseReportReason } from './validate';
@@ -76,19 +76,19 @@ async function resolveTarget(request: Request, env: Env, kind: ReportKind, rawId
   const key = requestKey(request);
   const user = await currentUser(request, env);
   const admin = isAdmin(env, user?.id);
-  if (kind === 'group' || kind === 'post') {
-    // Gruppe bzw. Beitrag: sichtbar wie die Gruppe (Konzept 11.1); Verwalter melden ihre eigene Gruppe nicht.
-    const post =
-      kind === 'post' && SHARE_ID_RE.test(rawId)
-        ? await env.DB.prepare('SELECT id, author_id, group_id, hidden_at FROM posts WHERE id = ?').bind(rawId).first<{ id: string; author_id: string; group_id: string | null; hidden_at: number | null }>()
-        : null;
-    const g = kind === 'group' ? await loadGroup(env, rawId) : post?.group_id ? await loadGroup(env, post.group_id) : null;
+  if (kind === 'post') {
+    // Beitrag (Gruppe oder Profil): dieselbe Prüfung wie beim Lesen (F-402)
+    const post = await visiblePost(request, env, rawId);
+    return { kind, id: post.id, ownerId: post.authorId };
+  }
+  if (kind === 'group') {
+    // Gruppe: sichtbar wie überall (Konzept 11.1); Verwalter melden ihre eigene Gruppe nicht.
+    const g = await loadGroup(env, rawId);
     const role = g ? await roleIn(env, user?.id, g.id) : null;
-    if (!g || !canViewGroup(g, role, key, admin) || (post?.hidden_at && post.author_id !== user?.id && !canManageGroup(role) && !admin) || (kind === 'post' && !post)) {
+    if (!g || !canViewGroup(g, role, key, admin)) {
       await countKeyFailure(env, request, key);
       throw NOT_FOUND();
     }
-    if (post) return { kind, id: post.id, ownerId: post.author_id };
     return { kind, id: g.id, ownerId: canManageGroup(role) ? (user?.id ?? g.owner_id) : g.owner_id };
   }
   if (kind === 'harbor') {
@@ -239,12 +239,18 @@ async function preview(env: Env, kind: ReportKind, id: string) {
     return g && { title: `Gruppe ${g.name} (/g/${g.slug})`, text: g.description, path: sharePath('g', g.slug, g.visibility, g.share_key), visibility: g.visibility, hiddenAt: g.hidden_at, owner: await owner(g.owner_id) };
   }
   if (kind === 'post') {
+    // Gruppen-Beitrag: Pfad der Gruppe; Profil-Beitrag (F-420): Pfad des Profils
     const p = await env.DB.prepare(
-      'SELECT p.id, p.author_id, p.body, p.hidden_at, g.slug, g.name, g.visibility, g.share_key FROM posts p JOIN groups g ON g.id = p.group_id WHERE p.id = ?',
+      `SELECT p.id, p.author_id, p.body, p.hidden_at, p.visibility AS p_vis, g.slug, g.name, g.visibility, g.share_key, pr.handle
+       FROM posts p LEFT JOIN groups g ON g.id = p.group_id LEFT JOIN profiles pr ON pr.user_id = p.author_id WHERE p.id = ? AND p.share_id IS NULL`,
     )
       .bind(id)
-      .first<{ id: string; author_id: string; body: string; hidden_at: number | null; slug: string; name: string; visibility: Visibility; share_key: string | null }>();
-    return p && { title: `Beitrag in „${p.name}“`, text: p.body, path: sharePath('g', p.slug, p.visibility, p.share_key), visibility: p.visibility, hiddenAt: p.hidden_at, owner: await owner(p.author_id) };
+      .first<{ id: string; author_id: string; body: string; hidden_at: number | null; p_vis: string; slug: string | null; name: string | null; visibility: Visibility | null; share_key: string | null; handle: string | null }>();
+    if (!p) return null;
+    if (p.slug && p.name && p.visibility) {
+      return { title: `Beitrag in „${p.name}“`, text: p.body, path: sharePath('g', p.slug, p.visibility, p.share_key), visibility: p.visibility, hiddenAt: p.hidden_at, owner: await owner(p.author_id) };
+    }
+    return { title: 'Beitrag im Profil', text: p.body, path: p.handle ? `/u/${p.handle}` : '/', visibility: (p.p_vis === 'public' ? 'public' : 'private') as Visibility, hiddenAt: p.hidden_at, owner: await owner(p.author_id) };
   }
   if (kind === 'harbor') {
     const h = await env.DB.prepare('SELECT id, slug, name, created_by, hidden_at FROM harbors WHERE id = ?')

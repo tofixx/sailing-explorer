@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { RECORDED_NM_SQL } from './logbook-sql';
+import { IN_LOGBOOK_SQL, RECORDED_NM_SQL } from './logbook-sql';
 import { json } from './http';
 import { nearRank, publicGroups } from './groups';
 import { coverRef } from '../src/domain/cover';
@@ -53,9 +53,9 @@ const VOYAGES = (m: string) => `SELECT s.id, s.title, s.summary, s.dist_nm, s.so
   LIMIT ?1`;
 
 const BOATS = (m: string) => `SELECT b.id, b.name, b.boat_type, b.length_m, b.home_port, b.created_at, p.handle, p.display_name, c.ver AS cover_ver, c.focus_y AS cover_y,
-    (SELECT COUNT(*) FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS voyages,
-    (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS dist_nm,
-    (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.boat_id = b.id AND ${LISTED}) AS dist_rec
+    (SELECT COUNT(*) FROM shares s WHERE s.boat_id = b.id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS voyages,
+    (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.boat_id = b.id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_nm,
+    (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.boat_id = b.id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_rec
   FROM boats b
   JOIN profiles p ON p.user_id = b.owner_id AND p.visibility = 'public' AND p.hidden_at IS NULL
   LEFT JOIN covers c ON c.kind = 'b' AND c.object_id = b.id
@@ -65,9 +65,9 @@ const BOATS = (m: string) => `SELECT b.id, b.name, b.boat_type, b.length_m, b.ho
 
 const PEOPLE = (m: string) => `SELECT * FROM (
     SELECT p.handle, p.display_name, p.bio, p.created_at, c.ver AS cover_ver, c.focus_y AS cover_y,
-      (SELECT COUNT(*) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED}) AS voyages,
-      (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED}) AS dist_nm,
-      (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.user_id = p.user_id AND ${LISTED}) AS dist_rec,
+      (SELECT COUNT(*) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS voyages,
+      (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_nm,
+      (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.user_id = p.user_id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_rec,
       (SELECT COUNT(*) FROM boats b WHERE b.owner_id = p.user_id AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats
     FROM profiles p
     LEFT JOIN covers c ON c.kind = 'u' AND c.object_id = p.user_id

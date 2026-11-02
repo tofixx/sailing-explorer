@@ -175,7 +175,7 @@ describe('[F-160] shapeItem – Sichtbarkeit beim Lesen', () => {
   });
 
   it('Beiträge: Gruppe öffentlich oder Mitglied; geschlossen ohne Mitgliedschaft, ausgeblendet → null; Löschen nur Autor/Verwalter', () => {
-    expect(shapeItem(groupRow(), viewer)!.post).toEqual({ id: 'Post00000000000001', body: 'Hallo', link: null, canDelete: false });
+    expect(shapeItem(groupRow(), viewer)!.post).toEqual({ id: 'Post00000000000001', body: 'Hallo', link: null, canDelete: false, visibility: 'public', reach: 'here' });
     expect(shapeItem(groupRow({ g_vis: 'private' }), viewer)).toBeNull();
     expect(shapeItem(groupRow({ g_vis: 'unlisted' }), viewer)).toBeNull();
     expect(shapeItem(groupRow({ g_vis: 'private', g_role: 'member' }), viewer)).not.toBeNull();

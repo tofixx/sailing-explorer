@@ -1,6 +1,8 @@
 import { css, html } from 'lit';
-import { icon } from './icons';
+import { icon, type IconName } from './icons';
 import type { CoverRef } from '../domain/cover';
+import { linkify } from '../domain/comment-text';
+import type { PostVisibility } from '../domain/posts';
 
 /** Gemeinsame Grundstile aller Komponenten – nutzt ausschließlich Tokens. */
 export const base = css`
@@ -353,3 +355,181 @@ export function pickGpx(host: HTMLElement): void {
 export function emit<T>(el: HTMLElement, name: string, detail?: T): void {
   el.dispatchEvent(new CustomEvent(name, { detail, bubbles: true, composed: true }));
 }
+
+/** Beitragstext mit klickbaren http(s)-Links – Lit escaped alle Textstücke, nie `innerHTML` (Sicherheit 2). */
+export function linkedText(t: string) {
+  return linkify(t).map((p) => (p.href ? html`<a href=${p.href} rel="nofollow ugc noopener noreferrer" target="_blank">${p.text}</a>` : p.text));
+}
+
+/** Symbol je Beitrags-Sichtbarkeit („Wer sieht es“, Konzept 21). */
+export const POST_VISIBILITY_ICON: Record<PostVisibility, IconName> = { public: 'globe', members: 'community', unlisted: 'link', private: 'lock' };
+
+/**
+ * Aufklapp-Menü am Zahnrad (Kartenstil, „Ansehen als …“): Tafel, Überschrift, Einträge mit `aria-pressed`. Die Lage
+ * der Tafel (über bzw. unter dem Knopf) setzt jede Komponente selbst; mobil kommt sie als Sheet vom unteren Rand.
+ */
+export const menuStyles = css`
+  .menu {
+    position: absolute;
+    right: 0;
+    width: min(300px, calc(100vw - 24px));
+    padding: var(--s-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    background: var(--surface);
+    box-shadow: var(--shadow-2);
+    display: grid;
+    gap: 2px;
+    z-index: 20;
+  }
+  @media (max-width: 760px) {
+    .menu {
+      position: fixed;
+      inset: auto 0 0 0;
+      width: 100%;
+      border-radius: var(--radius-l) var(--radius-l) 0 0;
+      padding-bottom: var(--s-3);
+    }
+  }
+  .title {
+    margin: var(--s-2) var(--s-2) var(--s-1);
+    font-size: var(--fs-s);
+    color: var(--text-2);
+    font-weight: 600;
+  }
+  .item {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: 2px var(--s-2);
+    align-items: center;
+    width: 100%;
+    min-height: 44px;
+    padding: var(--s-1) var(--s-2);
+    border: 0;
+    border-radius: var(--radius);
+    background: none;
+    color: var(--text);
+    font: 500 var(--fs-m) / 1.3 var(--font);
+    text-align: left;
+    cursor: pointer;
+  }
+  .item:hover:not([disabled]) {
+    background: var(--surface-hover);
+  }
+  .item[aria-pressed='true'] {
+    background: var(--surface-2);
+    font-weight: 650;
+  }
+  .item .mark {
+    color: var(--accent);
+    display: flex;
+  }
+  .item small {
+    font-weight: 500;
+    color: var(--text-2);
+    margin-left: var(--s-1);
+  }
+  hr {
+    border: 0;
+    border-top: 1px solid var(--border-soft);
+    margin: var(--s-1) 0;
+  }
+  .hint,
+  .error {
+    margin: var(--s-1) var(--s-2);
+    font-size: var(--fs-s);
+    line-height: 1.4;
+  }
+  .hint {
+    color: var(--text-2);
+  }
+  .error {
+    color: var(--err);
+  }
+`;
+
+/** Karten der Beitragslisten (eigene Seite „Mein Verlauf“, Beiträge für Besucher). */
+export const postCardStyles = css`
+  ol.posts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--s-3);
+  }
+  .post {
+    display: grid;
+    gap: var(--s-2);
+    padding: var(--s-3) var(--s-4);
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    min-width: 0;
+  }
+  .post.private {
+    border-style: dashed;
+  }
+  .post .head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--s-2);
+  }
+  .post .head .t {
+    font-weight: 650;
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .post .head .t a {
+    color: inherit;
+  }
+  .post .body {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+  }
+  .post .body a,
+  .post .link {
+    color: var(--accent);
+    overflow-wrap: anywhere;
+  }
+  .post .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-1) var(--s-3);
+    font-size: var(--fs-s);
+    color: var(--text-2);
+  }
+  .post .meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .post .meta svg {
+    width: 14px;
+    height: 14px;
+  }
+  .post .meta b {
+    font-weight: 600;
+    color: var(--text);
+  }
+  .post .tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    align-items: center;
+  }
+  .more {
+    display: flex;
+    justify-content: center;
+    margin-top: var(--s-3);
+  }
+  .empty {
+    padding: var(--s-4);
+    text-align: center;
+    color: var(--text-2);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+  }
+`;

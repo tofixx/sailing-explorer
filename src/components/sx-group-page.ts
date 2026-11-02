@@ -1,12 +1,12 @@
 import { LitElement, css, html } from 'lit';
 import type { Boat, GroupInfo, GroupInput, GroupPageData, MyGroup, PendingInvite, StreamPage } from '../services/api';
 import {
-  APPROVERS, APPROVERS_LABEL, GROUP_KIND_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODES, JOIN_MODE_LABEL, JOIN_MODE_SHORT, POST_LINK_MAX, POST_MAX,
+  APPROVERS, APPROVERS_LABEL, GROUP_KIND_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODES, JOIN_MODE_LABEL, JOIN_MODE_SHORT,
   canApprove, canManageGroup, slugFromName, type Approvers, type GroupKind, type JoinMode,
 } from '../domain/groups';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import './sx-filter-select';
-import { commentLength } from '../domain/comment-text';
+import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy, postVisibilityChoices, type PostBy } from '../domain/posts';
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
@@ -20,6 +20,8 @@ import './sx-harbor-picker';
 import './sx-page-media';
 import './sx-claim';
 import './sx-verified-badge';
+import './sx-post-composer';
+import type { SxPostComposer } from './sx-post-composer';
 
 /**
  * Gruppenseite `/g/<slug>` und Anlegen `/g/neu` (Konzept 11.1, 11.5, F-163). Rein präsentational: Daten kommen als
@@ -42,8 +44,6 @@ export class SxGroupPage extends LitElement {
     formError: { type: String },
     editing: { state: true },
     draft: { state: true },
-    post: { state: true },
-    postLink: { state: true },
   };
   declare mode: 'view' | 'create';
   declare data: GroupPageData | null;
@@ -63,8 +63,6 @@ export class SxGroupPage extends LitElement {
   declare formError: string;
   declare editing: boolean;
   declare draft: GroupInput;
-  declare post: string;
-  declare postLink: string;
 
   constructor() {
     super();
@@ -83,8 +81,6 @@ export class SxGroupPage extends LitElement {
     this.formError = '';
     this.editing = false;
     this.draft = { kind: 'club', name: '', slug: '', description: '', homePort: '', visibility: 'public', joinMode: 'request', parentId: null };
-    this.post = '';
-    this.postLink = '';
   }
 
   static styles = [
@@ -412,8 +408,20 @@ export class SxGroupPage extends LitElement {
             <p class="hint">Wer bestätigen darf, nimmt mit eigenen Einladungen auch direkt auf. „Offen“ gilt nur für öffentliche Gruppen – sonst wird jeder Beitritt zur Anfrage.</p>
           </fieldset>`
         : ''}
+      ${!create && owner && g ? this.postByOptions(g.kind, d.postBy ?? effectivePostBy(g.kind, g.postBy)) : ''}
       ${this.formError ? html`<p class="error" role="alert">${this.formError}</p>` : ''}
     `;
+  }
+
+  /** Wer schreibt Beiträge (F-421) – nur der Eigner; Standard je Art ist markiert. */
+  private postByOptions(kind: GroupKind, current: PostBy) {
+    return html`<fieldset class="opts" style="border:0;padding:0;margin:0">
+      <legend class="label">Wer darf Beiträge schreiben?</legend>
+      ${(POST_BY as readonly PostBy[]).map(
+        (b) => html`<label class="opt"><input type="radio" name="postby" .checked=${current === b} @change=${() => this.set({ postBy: b })} />
+          <span><b>${POST_BY_LABEL[b]}</b>${b === defaultPostBy(kind) ? html` <span class="faint">(Standard für ${kind === 'club' ? 'Vereine' : 'Teams'})</span>` : ''}</span></label>`,
+      )}
+    </fieldset>`;
   }
 
   private createForm() {
@@ -452,7 +460,7 @@ export class SxGroupPage extends LitElement {
 
   /** Bearbeiten öffnen: Entwurf aus der aktuellen Gruppe. */
   private startEdit(g: GroupInfo) {
-    this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode, approveBy: g.approveBy ?? 'admins' };
+    this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode, approveBy: g.approveBy ?? 'admins', postBy: effectivePostBy(g.kind, g.postBy) };
     this.editing = true;
   }
 
@@ -464,7 +472,10 @@ export class SxGroupPage extends LitElement {
         if (problem) return void (this.formError = problem);
         const patch: GroupInput = { ...this.draft, ...this.harborInput() };
         if (g.role !== 'owner' || patch.visibility === g.visibility) delete patch.visibility;
-        if (g.role !== 'owner') delete patch.approveBy;
+        if (g.role !== 'owner') {
+          delete patch.approveBy;
+          delete patch.postBy;
+        }
         emit(this, 'sx-group-save', { id: g.id, patch });
       }}>
       ${this.fields(false, g)}
@@ -549,27 +560,22 @@ export class SxGroupPage extends LitElement {
     </header>`;
   }
 
+  /** Beitrag schreiben (F-421): wer laut Einstellung der Gruppe darf; „Nur Mitglieder“ kostenlos (F-402). */
   private composer(g: GroupInfo) {
-    const len = commentLength(this.post.trim());
-    return html`<form class="box" aria-label="Neuigkeit schreiben" @submit=${(e: Event) => {
-        e.preventDefault();
-        emit(this, 'sx-post-create', { groupId: g.id, body: this.post, link: this.postLink.trim() });
-      }}>
-      <label><span class="label">Neuigkeit für alle${g.kind === 'club' ? ' (erscheint auch in den Teams)' : ''}</span>
-        <textarea maxlength=${POST_MAX + 200} .value=${this.post} @input=${(e: Event) => (this.post = (e.target as HTMLTextAreaElement).value)}
-          placeholder="Absegeln am Samstag, Treffpunkt 10 Uhr am Steg …"></textarea></label>
-      <div class="counter" aria-live="polite">${len} / ${POST_MAX}</div>
-      <label><span class="label">Link (optional)</span>
-        <input type="text" inputmode="url" maxlength=${POST_LINK_MAX} placeholder="https://…" .value=${this.postLink} @input=${(e: Event) => (this.postLink = (e.target as HTMLInputElement).value)} /></label>
-      <div class="row"><button class="btn primary" type="submit" ?disabled=${this.busy || !len || len > POST_MAX}>${icon('comment')} Veröffentlichen</button>
-        <span class="hint">Höchstens 5 Beiträge pro Tag. Reiner Text, Links werden klickbar.</span></div>
-    </form>`;
+    const club = g.kind === 'club';
+    return html`<sx-post-composer label=${`Neuigkeit${club ? ' (öffentliche erscheinen auch in den Teams)' : ''}`}
+      placeholder="Absegeln am Samstag, Treffpunkt 10 Uhr am Steg …" hint="Höchstens 5 Beiträge pro Tag. Reiner Text, Links werden klickbar."
+      .choices=${postVisibilityChoices('group')} ?busy=${this.busy}
+      .choiceHints=${{ public: g.visibility === 'public' ? 'Alle, die die Gruppe sehen.' : 'Alle, die die Gruppe sehen dürfen.', members: `Nur Mitglieder von ${g.name} – nicht in Teams, RSS oder der Community.` }}
+      @sx-post-submit=${(e: CustomEvent<{ body: string; link: string; visibility: string }>) => {
+        e.stopPropagation();
+        emit(this, 'sx-post-create', { groupId: g.id, ...e.detail });
+      }}></sx-post-composer>`;
   }
 
   /** Nach erfolgreichem Posten leert der Controller das Formular. */
   clearComposer() {
-    this.post = '';
-    this.postLink = '';
+    this.renderRoot.querySelector<SxPostComposer>('sx-post-composer')?.clear();
   }
 
   private invites(g: GroupInfo, list: PendingInvite[]) {
@@ -697,7 +703,7 @@ export class SxGroupPage extends LitElement {
           <h2 class="eyebrow" id="news-t">Neuigkeiten</h2>
           ${g.visibility === 'public' ? html`<a class="btn small ghost" href="/g/${g.slug}/feed.xml" type="application/atom+xml">${icon('link')} RSS</a>` : ''}
         </div>
-        ${manager ? this.composer(g) : ''}
+        ${canWriteInGroup(g.role, effectivePostBy(g.kind, g.postBy)) ? this.composer(g) : ''}
         <sx-stream scope="group" in-group .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.streamLoading}
           empty-text="Noch keine Neuigkeiten in dieser Gruppe."></sx-stream>
       </section>

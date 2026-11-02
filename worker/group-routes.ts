@@ -5,7 +5,7 @@ import {
   setMemberRole, transferGroup, muteGroup, updateGroup, withdrawRequest,
 } from './groups';
 import { inviteGroup } from './invites';
-import { createPost, deletePost } from './posts';
+import { createPost, createProfilePost, deletePost, listMyPosts } from './posts';
 import { groupStream, markStreamSeen, personalStream, streamUnread } from './stream';
 import { follow, getSuggestions, unfollow } from './follows';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
@@ -39,6 +39,9 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['POST', new RegExp(`^/api/groups/${ID}/posts$`), (r, env, [id]) => createPost(r, env, id)],
   ['GET', new RegExp(`^/api/groups/${ID}/stream$`), (r, env, [id]) => groupStream(r, env, id)],
   ['DELETE', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => deletePost(r, env, id)],
+  // Beiträge als Grundtyp (Konzept 21): „Mein Verlauf“ und Text-Beiträge im eigenen Profil
+  ['GET', /^\/api\/me\/posts$/, (r, env) => listMyPosts(r, env)],
+  ['POST', /^\/api\/me\/posts$/, (r, env) => createProfilePost(r, env)],
   ['GET', /^\/api\/stream$/, (r, env) => personalStream(r, env)],
   ['GET', /^\/api\/stream\/unread$/, (r, env) => streamUnread(r, env)],
   ['POST', /^\/api\/stream\/seen$/, (r, env) => markStreamSeen(r, env)],

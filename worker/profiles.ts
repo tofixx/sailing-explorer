@@ -9,11 +9,15 @@ import { checkVisibilityChoice } from './supporter';
 import { LIMITS, cleanText, normalizeHandle, parseVisibility } from './validate';
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 import { funnyName } from '../src/domain/names';
+import { countsInLogbook } from '../src/domain/logbook';
 import { followStats } from './follows';
-import { homeOf, publicHome } from './home';
+import { homeOf, publicHome, type HomeRow } from './home';
 import { BOAT_HARBOR_COLS } from './boats';
 import { loadCover, pageCover } from './covers';
 import { galleryPhotos } from './gallery';
+import { visitorPosts } from './posts';
+import { parseProfilePreview, type PreviewOptions } from '../src/domain/posts';
+import type { GroupKind } from '../src/domain/groups';
 
 interface ProfileRow {
   user_id: string;
@@ -108,20 +112,48 @@ export async function putMyProfile(request: Request, env: Env): Promise<Response
   return json({ profile: profileShape(p!, true) });
 }
 
+/** Wählbare Vorschauen der eigenen Seite (F-423): Heimathafen und eigene, nicht gesperrte Gruppen. */
+async function previewOptions(env: Env, userId: string, home: HomeRow | null): Promise<PreviewOptions> {
+  const { results } = await env.DB.prepare(
+    `SELECT g.id, g.name, g.kind FROM group_members m JOIN groups g ON g.id = m.group_id
+     WHERE m.user_id = ? AND g.locked_at IS NULL ORDER BY g.kind = 'club' DESC, g.name LIMIT 50`,
+  )
+    .bind(userId)
+    .all<{ id: string; name: string; kind: GroupKind }>();
+  // Heimatverein zuerst („jemand aus meinem Verein“)
+  const groups = home?.club_id ? [...results.filter((g) => g.id === home.club_id), ...results.filter((g) => g.id !== home.club_id)] : results;
+  return { harbor: home?.harbor_id ? { name: home.harbor_name ?? '' } : null, groups };
+}
+
 /**
- * GET /api/profiles/:handle – Profilseite mit Booten, Statistik und Törns: öffentlich für alle, „Nur mit Link“ mit
- * X-Share-Key, sonst nur für sich selbst. Gelistet werden nur öffentliche Törns und öffentliche Boote (F-83).
+ * GET /api/profiles/:handle[?as=public|harbor|group:<id>] – Profilseite mit Booten, Statistik und Törns: öffentlich für
+ * alle, „Nur mit Link“ mit X-Share-Key, sonst nur für sich selbst. Gelistet werden nur öffentliche Törns und öffentliche
+ * Boote (F-83). `as` (nur für die eigene Seite, F-423): die Seite, wie ein simulierter Betrachter sie sieht – ohne
+ * Anmeldung und Schlüssel, höchstens mit der Mitgliedschaft in einer eigenen Gruppe; nie mehr als ein echter.
  */
 export async function getProfile(request: Request, env: Env, rawHandle: string): Promise<Response> {
   const key = requestKey(request);
   const handle = normalizeHandle(rawHandle);
   const p = handle ? await env.DB.prepare('SELECT * FROM profiles WHERE handle = ?').bind(handle).first<ProfileRow>() : null;
   const user = await currentUser(request, env);
-  const isSelf = !!p && user?.id === p.user_id;
-  if (!p || !canView({ visibility: p.visibility, shareKey: p.share_key, hiddenAt: p.hidden_at ?? null }, { manager: isSelf, key, admin: isAdmin(env, user?.id) })) {
+  const owner = !!p && user?.id === p.user_id;
+  if (!p || !canView({ visibility: p.visibility, shareKey: p.share_key, hiddenAt: p.hidden_at ?? null }, { manager: owner, key, admin: isAdmin(env, user?.id) })) {
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }
+  const rawAs = new URL(request.url).searchParams.get('as');
+  const preview = rawAs === null ? null : parseProfilePreview(rawAs);
+  if (rawAs !== null && (!preview || !owner)) throw new HttpError(400, 'invalid_preview', 'Diese Vorschau gibt es nicht.');
+  const home = await homeOf(env, p.user_id);
+  if (preview?.as === 'group' && !(await env.DB.prepare('SELECT 1 AS x FROM group_members WHERE group_id = ? AND user_id = ?').bind(preview.groupId, p.user_id).first())) {
+    throw new HttpError(400, 'invalid_preview', 'Vorschau nur für eigene Gruppen.');
+  }
+  // In der Vorschau wie ein Fremder ohne Schlüssel: sieht er die Seite überhaupt?
+  if (preview && !canView({ visibility: p.visibility, shareKey: p.share_key, hiddenAt: p.hidden_at ?? null }, { manager: false, key: null })) {
+    return json({ profile: profileShape(p, false), preview: { ...preview, visible: false }, previewOptions: await previewOptions(env, p.user_id, home) }, { headers: { 'Cache-Control': 'private, no-store' } });
+  }
+  const isSelf = owner && !preview;
+  const viewerId = preview ? null : (user?.id ?? null);
 
   const { results: boats } = await env.DB.prepare(
     `SELECT b.*, ?2 AS owner_handle, ?3 AS owner_name, 1 AS owner_public, ${BOAT_HARBOR_COLS} FROM boats b
@@ -130,21 +162,31 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
     .bind(p.user_id, p.handle, p.display_name, isSelf ? 1 : 0)
     .all();
   const voyages = await publicShares(env, 'user', p.user_id);
-  const distNm = voyages.reduce((s, v) => s + v.distNm, 0);
-  const recordedNm = voyages.reduce((s, v) => s + (v.distSource === 'track' ? v.distNm : 0), 0);
-  return json({
-    profile: profileShape(p, isSelf),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    boats: boats.map((b: any) => boatShape(b, isSelf ? 'owner' : null)),
-    stats: { voyages: voyages.length, distNm, recordedNm },
-    voyages,
-    // öffentliche Törns anderer, auf denen die Person Crew ist – zählen nicht in die Kennzahlen
-    crewVoyages: await crewShares(env, p.user_id),
-    social: await followStats(env, 'user', p.user_id, user?.id ?? null),
-    // „Mein Verein“ und Heimathafen (Konzept 12.1/12.2) – nur, was öffentlich sein darf
-    home: publicHome(await homeOf(env, p.user_id)),
-    // Titelbild und neueste öffentliche Fotos aus eigenen und mitgesegelten Törns (Konzept 13)
-    ...pageCover('u', p.handle, await loadCover(env, 'u', p.user_id), p.visibility === 'public' ? null : key),
-    photos: await galleryPhotos(env, 'user', p.user_id),
-  });
+  // Kennzahlen nur aus Törns im Fahrtenbuch (F-422) – ausgeschlossene bleiben in der Liste
+  const counted = voyages.filter((v) => countsInLogbook(v.logState));
+  const distNm = counted.reduce((s, v) => s + v.distNm, 0);
+  const recordedNm = counted.reduce((s, v) => s + (v.distSource === 'track' ? v.distNm : 0), 0);
+  const reader = preview ? { preview: { memberOf: preview.as === 'group' ? preview.groupId : null } } : { userId: viewerId };
+  return json(
+    {
+      profile: profileShape(p, isSelf),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      boats: boats.map((b: any) => boatShape(b, isSelf ? 'owner' : null)),
+      stats: { voyages: counted.length, distNm, recordedNm },
+      voyages,
+      // öffentliche Törns anderer, auf denen die Person Crew ist – zählen nicht in die Kennzahlen
+      crewVoyages: await crewShares(env, p.user_id),
+      social: await followStats(env, 'user', p.user_id, viewerId),
+      // „Mein Verein“ und Heimathafen (Konzept 12.1/12.2) – nur, was öffentlich sein darf
+      home: publicHome(home),
+      // Titelbild und neueste öffentliche Fotos aus eigenen und mitgesegelten Törns (Konzept 13)
+      ...pageCover('u', p.handle, await loadCover(env, 'u', p.user_id), p.visibility === 'public' || preview ? null : key),
+      photos: await galleryPhotos(env, 'user', p.user_id),
+      // Beiträge für Besucher (F-420) – nur bei öffentlichem Profil; sich selbst zeigt „Mein Verlauf“ alles (F-401)
+      posts: p.visibility === 'public' && !p.hidden_at && !isSelf ? await visitorPosts(env, p.user_id, reader) : [],
+      ...(owner ? { previewOptions: await previewOptions(env, p.user_id, home) } : {}),
+      ...(preview ? { preview: { ...preview, visible: true } } : {}),
+    },
+    owner ? { headers: { 'Cache-Control': 'private, no-store' } } : undefined,
+  );
 }

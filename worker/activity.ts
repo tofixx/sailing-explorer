@@ -217,13 +217,24 @@ export async function recordHarborBoat(env: Env, harborId: string, boatId: strin
 }
 
 /** Beitrag in einer Gruppe – Ziel die Gruppe und (bei Vereinen) ihre Teams. */
-export async function recordPost(env: Env, postId: string, groupId: string, authorId: string, now = Date.now()): Promise<void> {
+/**
+ * Beitrag (Konzept 11.3, 21.7): im Gruppen-Verlauf Ziel Gruppe, bei Vereinen zusätzlich alle Teams – „Nur Mitglieder“
+ * nur die Heimatgruppe (F-415). Im Profil-Verlauf Ziel `user` (Follower, Teamkolleg:innen, man selbst, F-420).
+ * Nicht öffentliche Profil-Beiträge kommen nie ins Log.
+ */
+export async function recordPost(
+  env: Env,
+  p: { id: string; authorId: string; channel: { kind: 'group'; id: string } | { kind: 'user' }; visibility: 'public' | 'members' },
+  now = Date.now(),
+): Promise<void> {
   await safely('post', async () => {
     const id = randomId();
+    const groupId = p.channel.kind === 'group' ? p.channel.id : null;
     await env.DB.batch([
-      insertStmt(env, id, { kind: 'post', actorId: authorId, subjectKind: 'post', subjectId: postId, groupId }, now),
-      targetStmt(env, id, 'group', groupId, now),
-      teamsStmt(env, id, groupId, now),
+      insertStmt(env, id, { kind: 'post', actorId: p.authorId, subjectKind: 'post', subjectId: p.id, groupId }, now),
+      ...(groupId
+        ? [targetStmt(env, id, 'group', groupId, now), ...(p.visibility === 'public' ? [teamsStmt(env, id, groupId, now)] : [])]
+        : [targetStmt(env, id, 'user', p.authorId, now)]),
     ]);
   });
 }
@@ -245,7 +256,7 @@ async function recordMilestones(env: Env, s: ShareForActivity, now: number): Pro
   const from = Date.UTC(year, 0, 1);
   const to = Date.UTC(year + 1, 0, 1);
   const sum = async (where: string, ...args: unknown[]) =>
-    (await env.DB.prepare(`SELECT COALESCE(SUM(s.dist_nm), 0) AS nm FROM shares s WHERE ${where} AND ${PUBLIC_SHARE}`).bind(...args).first<{ nm: number }>())?.nm ?? 0;
+    (await env.DB.prepare(`SELECT COALESCE(SUM(s.dist_nm), 0) AS nm FROM shares s WHERE ${where} AND ${PUBLIC_SHARE} AND s.log_state <> 'excluded'`).bind(...args).first<{ nm: number }>())?.nm ?? 0;
 
   const subjects: Array<{ kind: 'user' | 'boat' | 'group'; id: string; nm: number }> = [];
   subjects.push({ kind: 'user', id: s.user_id, nm: await sum('s.user_id = ?1', s.user_id, from, to) });

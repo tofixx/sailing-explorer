@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { RECORDED_NM_SQL } from './logbook-sql';
+import { IN_LOGBOOK_SQL, RECORDED_NM_SQL } from './logbook-sql';
 import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
 import { HttpError, countKeyFailure, json, readJson } from './http';
@@ -78,7 +78,7 @@ export const BOAT_HARBOR_COLS = `(SELECT slug FROM harbors WHERE id = b.harbor_i
 
 async function stats(env: Env, boatId: string) {
   const s = await env.DB.prepare(
-    `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec FROM shares s WHERE s.boat_id = ? AND s.visibility = 'public' AND s.hidden_at IS NULL`,
+    `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec FROM shares s WHERE s.boat_id = ? AND s.visibility = 'public' AND s.hidden_at IS NULL AND ${IN_LOGBOOK_SQL}`,
   )
     .bind(boatId)
     .first<{ voyages: number; dist: number; rec: number }>();

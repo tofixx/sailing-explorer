@@ -14,7 +14,8 @@ import type { MapStyleId } from '../domain/map-style';
 import type { VoyageRole } from '../domain/crew-roles';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 import type { NotificationItem, NotificationKind, NotifyPrefs } from '../domain/notifications';
-import type { DistSource, LatLon, Logbook, ShareSource } from '../domain/logbook';
+import type { DistSource, LatLon, LogState, Logbook, ShareSource } from '../domain/logbook';
+import { previewParam, type MyPost, type MyPostArea, type PostBy, type PostVisibility, type PreviewOptions, type ProfilePost, type ProfilePreview } from '../domain/posts';
 
 export type { Visibility };
 
@@ -63,6 +64,8 @@ export interface ShareMeta extends Linkable {
   from?: LogHarbor | null;
   to?: LogHarbor | null;
   log?: Logbook;
+  /** „Ins Fahrtenbuch“ (F-422) – fehlt bei älteren Servern */
+  logState?: LogState;
 }
 
 /** Start- bzw. Zielhafen eines Törns (ausgeblendete Häfen: null) */
@@ -350,6 +353,8 @@ export type SharePatch = Partial<Pick<ShareMeta, 'title' | 'visibility' | 'view'
   boatId?: string | null;
   /** „In Gruppen zeigen“ (F-375): ersetzt die Auswahl */
   groupIds?: string[];
+  /** „Ins Fahrtenbuch“ (F-422): an (Vorschlag/bestätigt), bestätigen, ausschließen */
+  logState?: LogState;
   /** neuen Schlüssel erzeugen – alte Schlüssel-Links sind danach sofort ungültig */
   rotateKey?: boolean;
   // Fahrtenbuch (F-301): Angaben und Häfen; Datum/Strecke nur bei Einträgen ohne GPX
@@ -466,8 +471,9 @@ export const api = {
 
   myProfile: () => call<{ profile: Profile; exists: boolean }>('/api/me/profile'),
   saveProfile: (p: ProfileInput) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),
-  profile: (handle: string, key?: string | null) =>
-    call<{ profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: CrewVoyage[]; social?: FollowStats; home?: PublicHome } & PageMedia>(`/api/profiles/${encodeURIComponent(handle)}`, keyInit(key)),
+  /** Profilseite; `preview` (nur eigene Seite, F-423): so, wie ein simulierter Betrachter sie sieht */
+  profile: (handle: string, key?: string | null, preview?: ProfilePreview | null) =>
+    call<ProfilePageData>(`/api/profiles/${encodeURIComponent(handle)}${preview ? `?as=${encodeURIComponent(previewParam(preview))}` : ''}`, keyInit(key)),
 
   myBoats: () => call<{ boats: Boat[] }>('/api/boats'),
   createBoat: (b: BoatInput) => call<{ boat: Boat }>('/api/boats', jsonInit('POST', b)),
@@ -764,6 +770,8 @@ export interface GroupInfo extends Linkable {
   joinMode: JoinMode;
   /** wer Anfragen bestätigt (Konzept 14.1) – fehlt bei älteren Servern */
   approveBy?: Approvers;
+  /** wer Beiträge schreibt (F-421) – fehlt bei älteren Servern */
+  postBy?: PostBy;
   role: GroupRole | null;
   /** nur für Eigner und Admins: bis zur Prüfung ausgeblendet */
   hiddenAt?: number | null;
@@ -900,7 +908,7 @@ export interface DiscoverMembership {
   requested: string[];
 }
 
-export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy'>> & {
+export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy'>> & {
   kind?: GroupKind;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
@@ -938,7 +946,7 @@ export const groupApi = {
   decide: (id: string, userId: string, approve: boolean) => call<{ approved: boolean }>(`/api/groups/${gid(id)}/requests/${gid(userId)}`, jsonInit('POST', { approve })),
   addBoat: (id: string, boatId: string) => call<{ added: boolean }>(`/api/groups/${gid(id)}/boats`, jsonInit('POST', { boatId })),
   removeBoat: (id: string, boatId: string) => call<void>(`/api/groups/${gid(id)}/boats/${gid(boatId)}`, { method: 'DELETE' }),
-  post: (id: string, body: string, link: string) => call<{ post: { id: string } }>(`/api/groups/${gid(id)}/posts`, jsonInit('POST', { body, link })),
+  post: (id: string, input: PostInput) => call<{ post: { id: string } }>(`/api/groups/${gid(id)}/posts`, jsonInit('POST', input)),
   deletePost: (id: string) => call<void>(`/api/posts/${gid(id)}`, { method: 'DELETE' }),
   stream: (id: string, cursor?: string | null, key?: string | null) =>
     call<StreamPage>(`/api/groups/${gid(id)}/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, keyInit(key)),
@@ -1160,4 +1168,37 @@ export const notificationApi = {
   pushKey: () => call<{ publicKey: string | null }>('/api/push/key'),
   subscribePush: (endpoint: string) => call<void>('/api/me/push', jsonInit('PUT', { endpoint })),
   unsubscribePush: (endpoint: string) => call<void>('/api/me/push', jsonInit('DELETE', { endpoint })),
+};
+
+// ================================================================ Beiträge als Grundtyp (Konzept 21)
+
+/** Neuer Text-Beitrag (Gruppe oder eigenes Profil) */
+export interface PostInput {
+  body: string;
+  link: string;
+  visibility: PostVisibility;
+}
+
+/** Antwort der Profilseite – mit Beiträgen für Besucher (F-420) und der Vorschau „Ansehen als …“ (F-423) */
+export type ProfilePageData = {
+  profile: Profile;
+  boats: Boat[];
+  stats: PageStats;
+  voyages: ShareMeta[];
+  crewVoyages?: CrewVoyage[];
+  social?: FollowStats;
+  home?: PublicHome;
+  posts?: ProfilePost[];
+  previewOptions?: PreviewOptions;
+  /** gesetzt in der Vorschau; `visible: false` = der Betrachter sähe die Seite gar nicht */
+  preview?: ProfilePreview & { visible: boolean };
+} & PageMedia;
+
+export const postApi = {
+  /** „Mein Verlauf“ (F-401) */
+  mine: (area: MyPostArea, cursor?: string | null) =>
+    call<{ items: MyPost[]; cursor: string | null }>(`/api/me/posts?area=${area}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
+  /** Text-Beitrag im eigenen Profil (F-420) */
+  create: (input: PostInput) => call<{ post: { id: string } }>('/api/me/posts', jsonInit('POST', input)),
+  remove: (id: string) => call<void>(`/api/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

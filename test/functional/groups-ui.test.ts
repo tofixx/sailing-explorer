@@ -291,12 +291,16 @@ describe('sx-group-page', () => {
       myBoats: [{ id: 'B1', name: 'Möwe' }, { id: 'B2', name: 'Albatros' }],
     });
     const root = el.shadowRoot;
-    const ta = root.querySelector('textarea') as HTMLTextAreaElement;
+    // Beitrag schreiben über sx-post-composer (Konzept 21): „Wer sieht es“ mit „Nur Mitglieder“ (F-402)
+    const composer = root.querySelector('sx-post-composer') as HTMLElement & { updateComplete: Promise<unknown> };
+    await composer.updateComplete;
+    const croot = composer.shadowRoot!;
+    const ta = croot.querySelector('textarea') as HTMLTextAreaElement;
     ta.value = 'Absegeln am Samstag';
     ta.dispatchEvent(new Event('input'));
-    await el.updateComplete;
-    (root.querySelector('form[aria-label="Neuigkeit schreiben"]') as HTMLFormElement).requestSubmit();
-    expect(posts).toEqual([{ groupId: 'G1', body: 'Absegeln am Samstag', link: '' }]);
+    await composer.updateComplete;
+    (croot.querySelector('form') as HTMLFormElement).requestSubmit();
+    expect(posts).toEqual([{ groupId: 'G1', body: 'Absegeln am Samstag', link: '', visibility: 'public' }]);
     expect(text(root)).toContain('Beitrittsanfragen (1)');
     button(root, /Annehmen/)!.click();
     expect(reqs).toEqual([{ id: 'G1', userId: 'U9', approve: true }]);

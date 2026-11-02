@@ -26,7 +26,7 @@ const ROWS_SQL = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subject_id,
     EXISTS (SELECT 1 FROM users bu WHERE bu.id = b.owner_id AND bu.suspended_at IS NOT NULL) AS b_owner_suspended,
     g.id AS g_id, g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.hidden_at AS g_hidden, gm.role AS g_role,
     EXISTS (SELECT 1 FROM users gu WHERE gu.id = g.owner_id AND gu.suspended_at IS NOT NULL) AS g_owner_suspended,
-    p.id AS p_id, p.body AS p_body, p.link AS p_link, p.hidden_at AS p_hidden, p.author_id AS p_author,
+    p.id AS p_id, p.body AS p_body, p.link AS p_link, p.hidden_at AS p_hidden, p.author_id AS p_author, p.visibility AS p_vis, p.reach AS p_reach,
     h.slug AS h_slug, h.name AS h_name, h.hidden_at AS h_hidden,
     cb.ver AS cb_ver, cb.focus_y AS cb_y, cu.ver AS cu_ver, cu.focus_y AS cu_y, cg.ver AS cg_ver, cg.focus_y AS cg_y
   FROM activity a
@@ -276,6 +276,12 @@ export async function harborItems(env: Env, harborId: string, viewer: Viewer, c:
   return resolve(env, viewer, await targetCandidates(env, 'harbor', harborId, c), STREAM_SCAN, harborKeep);
 }
 
+/**
+ * „Alles“: Profil-Beiträge nur mit „Sichtbar bis: überall“ (Konzept 21.7) – in Phase 1 noch keine, die Ausbreitung
+ * nach oben folgt mit Phase 2. Gruppen-Beiträge erscheinen wie bisher.
+ */
+const communityKeep = (i: StreamItem) => (i.kind === 'post' && !i.group ? i.post?.reach === 'all' : true);
+
 const PUBLIC_TTL = 60;
 
 const defaultCache = (): Cache | undefined => (typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined);
@@ -308,7 +314,8 @@ const cursorParam = (request: Request) => encodeURIComponent(new URL(request.url
 export async function groupStream(request: Request, env: Env, id: string): Promise<Response> {
   const { group, role, user } = await visibleGroup(request, env, await loadGroup(env, id));
   const c = cursorOf(request);
-  const shared = group.visibility === 'public' && !group.hidden_at && !canManageGroup(role);
+  // Mitglieder nie aus dem Cache: er ist ohne Betrachter berechnet und enthält keine „Nur Mitglieder“-Beiträge (F-415)
+  const shared = group.visibility === 'public' && !group.hidden_at && role === null;
   if (!shared) {
     const page = await groupItems(env, group.id, { id: user?.id ?? null }, c);
     return json(page, { headers: { 'Cache-Control': 'private, no-store' } });
@@ -389,7 +396,7 @@ export async function publicStream(request: Request, env: Env): Promise<Response
     filterKey = `club=${g.id}`;
     compute = () => groupItems(env, g.id, { id: null }, c);
   } else {
-    compute = async () => resolve(env, { id: null }, await recentCandidates(env, c), STREAM_SCAN);
+    compute = async () => resolve(env, { id: null }, await recentCandidates(env, c), STREAM_SCAN, communityKeep);
   }
   const withFilters = first ? async () => ({ ...(await compute()), filters: await publicFilters(env) }) : compute;
   return cachedPage(request, env, `stream/public?${filterKey}&cursor=${cursorParam(request)}`, withFilters, user?.id ?? null);

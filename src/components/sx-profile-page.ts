@@ -1,6 +1,7 @@
 import { LitElement, css, html } from 'lit';
 import { currentPosition } from '../services/near-prefs';
-import type { Boat, CrewVoyage, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, Profile, PublicHome, ShareMeta, StreamPage } from '../services/api';
+import type { Boat, CrewVoyage, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, ProfilePageData, PublicHome, ShareMeta, StreamPage } from '../services/api';
+import { previewLabel, type MyPost, type MyPostArea } from '../domain/posts';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
@@ -16,6 +17,9 @@ import './sx-claim';
 import './sx-verified-badge';
 import './sx-page-media';
 import './sx-filter-select';
+import './sx-my-posts';
+import './sx-profile-posts';
+import './sx-preview-menu';
 
 /** Kurzer Hinweis für Eigentümer, wer die Seite sieht. */
 const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
@@ -25,7 +29,7 @@ const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
 };
 
 export type PageData =
-  | ({ kind: 'profile'; profile: Profile; boats: Boat[]; stats: PageStats; voyages: ShareMeta[]; crewVoyages?: CrewVoyage[]; social?: FollowStats; home?: PublicHome } & PageMedia)
+  | ({ kind: 'profile' } & ProfilePageData)
   | ({ kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[] } & PageMedia)
   /** Hafenseite /h/<slug> (Konzept 12.2) mit Neuigkeiten des Hafens */
   | ({ kind: 'harbor'; stream?: StreamPage | null } & HarborPageData);
@@ -38,6 +42,11 @@ export class SxProfilePage extends LitElement {
     error: { type: String },
     signedIn: { type: Boolean },
     streamLoading: { type: Boolean },
+    myPosts: { attribute: false },
+    myArea: { type: String },
+    myLoading: { type: Boolean },
+    busy: { type: Boolean },
+    supporter: { type: Boolean },
     editing: { state: true },
   };
   declare data: PageData | null;
@@ -49,6 +58,13 @@ export class SxProfilePage extends LitElement {
   declare streamLoading: boolean;
   /** Hafen bearbeiten aufgeklappt */
   declare editing: boolean;
+  /** „Mein Verlauf“ auf der eigenen Seite (F-401) – lädt der PostsController */
+  declare myPosts: { items: MyPost[]; cursor: string | null } | null;
+  declare myArea: MyPostArea;
+  declare myLoading: boolean;
+  declare busy: boolean;
+  /** darf „Nur ich“ wählen (E1) */
+  declare supporter: boolean;
 
   constructor() {
     super();
@@ -58,6 +74,11 @@ export class SxProfilePage extends LitElement {
     this.signedIn = false;
     this.streamLoading = false;
     this.editing = false;
+    this.myPosts = null;
+    this.myArea = 'all';
+    this.myLoading = false;
+    this.busy = false;
+    this.supporter = false;
   }
 
   static styles = [
@@ -230,6 +251,26 @@ export class SxProfilePage extends LitElement {
         border: 1px dashed var(--border);
         border-radius: var(--radius);
       }
+      .preview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--s-2);
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--s-3);
+        border-radius: var(--radius);
+        border: 2px dashed var(--accent);
+        background: var(--accent-soft);
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      .preview p {
+        margin: 0;
+        display: flex;
+        gap: var(--s-2);
+        align-items: center;
+      }
       form.edit {
         display: grid;
         gap: var(--s-2);
@@ -302,9 +343,44 @@ export class SxProfilePage extends LitElement {
     </div>`;
   }
 
+  /** Hinweis „Vorschau“ (F-423): deutlich markiert, mit „Vorschau beenden“. */
+  private previewBanner(d: Extract<PageData, { kind: 'profile' }>) {
+    if (!d.preview) return '';
+    return html`<div class="preview" role="status">
+      <p>${icon('eye')} <span>Vorschau – so sieht <b>${previewLabel(d.preview, d.previewOptions)}</b> deine Seite.</span></p>
+      <button class="btn small" @click=${() => emit(this, 'sx-profile-preview', { preview: null })}>${icon('x')} Vorschau beenden</button>
+    </div>`;
+  }
+
+  /** „Ansehen als …“ – nur auf der eigenen Seite (auch während der Vorschau). */
+  private previewMenu(d: Extract<PageData, { kind: 'profile' }>) {
+    if (!d.previewOptions) return '';
+    return html`<sx-preview-menu .options=${d.previewOptions} .current=${d.preview ?? null}></sx-preview-menu>`;
+  }
+
+  /** Eigene Seite: „Mein Verlauf“ (F-401); Besucher (und Vorschau): Beiträge, die sie sehen dürfen (F-420). */
+  private posts(d: Extract<PageData, { kind: 'profile' }>) {
+    if (d.profile.isSelf) {
+      return html`<section aria-labelledby="mine-t">
+        <h2 class="eyebrow" id="mine-t">Mein Verlauf</h2>
+        <sx-my-posts .items=${this.myPosts?.items ?? []} .cursor=${this.myPosts?.cursor ?? null} area=${this.myArea}
+          ?loading=${this.myLoading} ?busy=${this.busy} ?supporter=${this.supporter}></sx-my-posts>
+      </section>`;
+    }
+    if (!d.posts?.length) return '';
+    return html`<section aria-labelledby="posts-t"><h2 class="eyebrow" id="posts-t">Beiträge</h2>
+      <sx-profile-posts .items=${d.posts} ?preview=${!!d.preview}></sx-profile-posts></section>`;
+  }
+
   private profile(d: Extract<PageData, { kind: 'profile' }>) {
     const p = d.profile;
+    if (d.preview && !d.preview.visible) {
+      return html`${this.previewBanner(d)}
+        <div class="state">${icon('lock')} Diese Betrachter sehen deine Seite nicht – sie ist ${p.visibility === 'unlisted' ? 'nur mit Link' : p.visibility === 'private' ? 'nur für dich' : 'gerade ausgeblendet'} sichtbar.
+          <br /><br />${this.previewMenu(d)}</div>`;
+    }
     return html`
+      ${this.previewBanner(d)}
       <sx-cover kind="u" target-id=${p.handle} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} ?can-edit=${p.isSelf} label="Titelbild von ${p.displayName}"></sx-cover>
       <header class="hero">
         <div class="mark" aria-hidden="true">${p.displayName[0]}</div>
@@ -314,17 +390,21 @@ export class SxProfilePage extends LitElement {
           ${this.homeFacts(d.home, p.isSelf ? this.ownerFacts(p) : '')}
         </div>
         <div class="actions">
-          ${!p.isSelf && p.visibility === 'public' && d.social
+          ${!p.isSelf && !d.preview && p.visibility === 'public' && d.social
             ? html`<sx-follow kind="user" target-id=${p.handle} label=${p.displayName} .stats=${d.social} ?signed-in=${this.signedIn}></sx-follow>`
             : ''}
-          ${this.shareButton('u', p.handle, p.displayName, 'Profil teilen', p, !!p.isSelf)}
+          ${d.preview ? '' : this.shareButton('u', p.handle, p.displayName, 'Profil teilen', p, !!p.isSelf)}
           ${p.isSelf
             ? html`<button class="btn" @click=${() => emit(this, 'sx-account', 'profile')}>${icon('pencil')} Bearbeiten</button>`
-            : html`<button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'profile', id: p.handle, label: `das Profil von ${p.displayName}` })}>${icon('flag')} Melden</button>`}
+            : d.preview
+              ? ''
+              : html`<button class="btn ghost" @click=${() => emit(this, 'sx-report', { kind: 'profile', id: p.handle, label: `das Profil von ${p.displayName}` })}>${icon('flag')} Melden</button>`}
+          ${this.previewMenu(d)}
         </div>
       </header>
       ${p.isSelf && p.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.stats(d.stats)}
+      ${this.posts(d)}
       ${d.boats.length
         ? html`<section>
             <h2 class="eyebrow">Boote</h2>

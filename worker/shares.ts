@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { sharePostStmt } from './post-sql';
 import { currentUser, requireUser } from './auth';
 import { canManageBoat } from './boats';
 import { randomId } from './crypto';
@@ -20,7 +21,7 @@ import { voyageRole, type VoyageRole } from '../src/domain/crew-roles';
 import { clearConfirmations } from './crew-cleanup';
 export { EXPIRES_SQL };
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
-import { isBackfill, isDistSource, plausibleGpx, readLog, type DistSource, type ShareSource } from '../src/domain/logbook';
+import { initialLogState, isBackfill, isDistSource, isLogState, plausibleGpx, readLog, type DistSource, type LogState, type ShareSource } from '../src/domain/logbook';
 import { applyLogPatch, type LogPatchBody } from './logbook';
 
 export interface ShareRow {
@@ -64,6 +65,8 @@ export interface ShareRow {
   from_harbor_id?: string | null;
   to_harbor_id?: string | null;
   log?: string;
+  /** „Ins Fahrtenbuch“ (0029, F-422): confirmed | suggested | excluded */
+  log_state?: string;
   /** aus dem JOIN mit boats */
   boat_name?: string | null;
   boat_visibility?: string | null;
@@ -128,6 +131,8 @@ export function shareShape(row: ShareRow, isOwner: boolean, withLog = true) {
     from: harborAt(row.from_harbor_id, row.hf_slug, row.hf_name, row.hf_lat, row.hf_lon),
     to: harborAt(row.to_harbor_id, row.ht_slug, row.ht_name, row.ht_lat, row.ht_lon),
     ...(withLog ? { log: readLog(row.log) } : {}),
+    // „Ins Fahrtenbuch“ (F-422): Unbekanntes zählt wie ein Vorschlag
+    logState: (isLogState(row.log_state) ? row.log_state : 'suggested') as LogState,
   };
 }
 
@@ -287,6 +292,8 @@ export async function createShare(request: Request, env: Env): Promise<Response>
     started_at: startedAt,
     ended_at: endedAt,
     has_image: 0,
+    // „Ins Fahrtenbuch“ (F-422): GPX-Törns sind ein Vorschlag, außer beim Speichern abgeschaltet
+    log_state: initialLogState('gpx', h.get('X-Share-Log-State') === 'excluded'),
   };
 
   await env.TRACKS.put(shareKey(row.id), bytes, {
@@ -296,13 +303,15 @@ export async function createShare(request: Request, env: Env): Promise<Response>
   // Scheitert D1 nach dem Upload (z. B. Konto parallel gelöscht), bleibt sonst eine Datei ohne Zeile zurück.
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO shares (id, user_id, title, summary, visibility, share_key, view, size_bytes, track_count, created_at, updated_at, boat_id, listed, dist_nm, started_at, ended_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO shares (id, user_id, title, summary, visibility, share_key, view, size_bytes, track_count, created_at, updated_at, boat_id, listed, dist_nm, started_at, ended_at, log_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       row.id, row.user_id, row.title, row.summary, row.visibility, row.share_key, row.view, row.size_bytes, row.track_count, now, now, row.boat_id,
-      row.visibility === 'public' ? 1 : 0, row.dist_nm, row.started_at, row.ended_at ?? null,
+      row.visibility === 'public' ? 1 : 0, row.dist_nm, row.started_at, row.ended_at ?? null, row.log_state,
     ),
     addStorageStmt(env, row.size_bytes),
+    // Post-Zeile mit derselben ID (Konzept 21.3, F-400) – im selben Batch, damit Törn und Beitrag zusammen entstehen
+    sharePostStmt(env, row.id, user.id, 'gpx', now),
     ...(groupIds ? [insertShareGroupsStmt(env, row.id, groupIds, now)] : boatId ? [presetShareGroupsStmt(env, row.id, user.id, boatId, now)] : []),
   ]).catch(async (err: unknown) => {
     // nur aufräumen, wenn die Zeile wirklich fehlt (ein Timeout kann trotz Schreiben einen Fehler melden)
@@ -360,7 +369,7 @@ export async function getShareData(request: Request, env: Env, id: string): Prom
 /** PATCH /api/shares/:id – Titel, Sichtbarkeit, Link erneuern (rotateKey), Boot, gespeicherte Ansicht, Gruppen. */
 export async function updateShare(request: Request, env: Env, id: string): Promise<Response> {
   const { row, user } = await ownedShare(request, env, id);
-  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown; commentsMode?: unknown; groupIds?: unknown } & LogPatchBody>(request);
+  const body = await readJson<{ title?: unknown; visibility?: unknown; view?: unknown; boatId?: unknown; rotateKey?: unknown; commentsMode?: unknown; groupIds?: unknown; logState?: unknown } & LogPatchBody>(request);
   const previous = row.visibility;
   const previousBoat = row.boat_id;
   if (body.title !== undefined) {
@@ -383,6 +392,11 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
     if (!mode) throw new HttpError(400, 'invalid_comments_mode', 'Unbekannte Einstellung für Kommentare.');
     row.comments_mode = mode;
   }
+  // „Ins Fahrtenbuch“ (F-422): an (Vorschlag bzw. bestätigt), bestätigen oder ausschließen
+  if (body.logState !== undefined) {
+    if (!isLogState(body.logState)) throw new HttpError(400, 'invalid_log_state', 'Unbekannter Stand im Fahrtenbuch.');
+    row.log_state = body.logState;
+  }
   // „In Gruppen zeigen“ (F-375) – geprüft vor dem Schreiben; ein anderes Boot ändert die Auswahl nicht.
   const groupIds = body.groupIds === undefined ? null : await checkGroupIds(env, user.id, body.groupIds);
   // Fahrtenbuch-Angaben und Häfen; bei Einträgen ohne GPX auch Datum und Strecke (F-301)
@@ -401,10 +415,10 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
     ...(payload ? [replacePayloadStmt(env, row.id, row.size_bytes)] : []),
     env.DB.prepare(
       `UPDATE shares SET title = ?, visibility = ?, share_key = ?, listed = ?, boat_id = ?, view = ?, comments_mode = ?, updated_at = ?,
-         summary = ?, log = ?, from_harbor_id = ?, to_harbor_id = ?, started_at = ?, ended_at = ?, dist_nm = ?, dist_source = ?, size_bytes = ? WHERE id = ?`,
+         summary = ?, log = ?, from_harbor_id = ?, to_harbor_id = ?, started_at = ?, ended_at = ?, dist_nm = ?, dist_source = ?, size_bytes = ?, log_state = ? WHERE id = ?`,
     ).bind(
       row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.comments_mode ?? 'on', row.updated_at,
-      row.summary, row.log ?? '{}', row.from_harbor_id ?? null, row.to_harbor_id ?? null, row.started_at, row.ended_at ?? null, row.dist_nm, row.dist_source ?? 'track', row.size_bytes, row.id,
+      row.summary, row.log ?? '{}', row.from_harbor_id ?? null, row.to_harbor_id ?? null, row.started_at, row.ended_at ?? null, row.dist_nm, row.dist_source ?? 'track', row.size_bytes, row.log_state ?? 'suggested', row.id,
     ),
   ]);
   if (groupIds) await env.DB.batch(replaceShareGroups(env, row.id, user.id, groupIds, row.updated_at));
