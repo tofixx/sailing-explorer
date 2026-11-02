@@ -67,6 +67,8 @@ export interface Layout {
   x: (i: number) => number;
   /** Zeit an Pixelposition (null in Lücken außerhalb) */
   timeAt: (px: number) => number | null;
+  /** Pixelposition einer Zeit; null, wenn sie in keinem Segment liegt (Pause) */
+  xAt: (t: number) => number | null;
 }
 
 /** Verteilt Segmente proportional zur Dauer auf [left, right] mit festen Lücken dazwischen. */
@@ -101,6 +103,10 @@ export function layoutSegments(points: TimedPoint[], segs: Segment[], left: numb
       }
       if (!best) return null;
       return px < best.x0 ? best.t0 : best.t1;
+    },
+    xAt: (t) => {
+      for (const s of laid) if (t >= s.t0 && t <= s.t1) return s.x0 + s.w * ((t - s.t0) / s.dur);
+      return null;
     },
   };
 }

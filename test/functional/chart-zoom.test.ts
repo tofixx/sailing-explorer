@@ -52,15 +52,76 @@ describe('F-430 Großansicht der Diagramme', () => {
     expect(when()?.textContent).toMatch(/\d{2}:\d{2}/);
   });
 
-  it('[F-430] lange Zeiträume werden in der Großansicht breiter (28 px je Stunde) und damit seitlich scrollbar', async () => {
-    const big = await mount({ points: points(72), large: true });
-    const drawWidth = (big as unknown as { drawWidth: (w: number) => number }).drawWidth.bind(big);
-    expect(drawWidth(800)).toBe(72 * 28);
-    // sehr lange Zeiträume: gedeckelt, damit das Canvas noch gezeichnet wird
-    const long = await mount({ points: points(24 * 60), large: true });
-    expect((long as unknown as { drawWidth: (w: number) => number }).drawWidth(800)).toBeLessThanOrEqual(16_384);
-    expect(drawWidth(3000)).toBe(3000);
+  type Big = El & { view: { zoom: number; offset: number }; contentWidth: () => number; resetView: () => void };
+  const scroll = (big: El) => big.shadowRoot.querySelector('.scroll') as HTMLElement;
+  const wheel = (big: El, init: WheelEventInit) => {
+    const e = new WheelEvent('wheel', { deltaY: -100, clientX: 200, bubbles: true, cancelable: true, ...init });
+    scroll(big).dispatchEvent(e);
+    return e;
+  };
+
+  it('[F-430] lange Zeiträume starten mit 28 px je Stunde und sind seitlich scrollbar; kurze passen ganz', async () => {
+    const big = (await mount({ points: points(72), large: true })) as Big;
+    const s = scroll(big);
+    expect(s.hasAttribute('data-scroll-x')).toBe(true);
+    expect(s.getAttribute('tabindex')).toBe('0');
+    expect(s.getAttribute('aria-label')).toMatch(/Plus und Minus zoomen.*Pfeiltasten verschieben.*0 zeigt den ganzen Zeitraum/);
+    // Testumgebung misst 0 px – es gilt die Vorgabebreite 320, Datenfläche 320 − 34 − 12
+    expect(big.view.zoom).toBeCloseTo((72 * 28) / 274, 6);
+    const short = (await mount({ points: points(5), large: true })) as Big;
+    expect(short.view.zoom).toBe(1);
+  });
+
+  it('[F-430] Rad mit Strg zoomt um den Zeiger, „Ganzer Zeitraum“ in der Titelzeile setzt zurück', async () => {
+    const el = await mount({ points: points(6), zoomed: true });
+    const big = el.shadowRoot.querySelector('sx-time-chart[large]') as Big;
+    await big.updateComplete;
+    const reset = () => el.shadowRoot.querySelector('dialog header .reset') as HTMLButtonElement | null;
+    expect(big.view.zoom).toBe(1);
+    expect(reset()).toBeNull();
+    const e = wheel(big, { ctrlKey: true });
+    expect(e.defaultPrevented).toBe(true); // kein Browser-Zoom
+    expect(big.view.zoom).toBeGreaterThan(1);
+    await el.updateComplete;
+    expect(reset()?.textContent).toBe('Ganzer Zeitraum');
+    reset()!.click();
+    await el.updateComplete;
+    expect(big.view).toEqual({ zoom: 1, offset: 0 });
+    expect(reset()).toBeNull();
+    // ganz herausgezoomt: Rad ohne Strg geht an die Seite weiter
+    expect(wheel(big, { deltaY: 100 }).defaultPrevented).toBe(false);
+    // waagerechtes Rad bleibt natives Scrollen
+    expect(wheel(big, { deltaY: 0, deltaX: 80 }).defaultPrevented).toBe(false);
+  });
+
+  it('[F-430] Tastatur: + zoomt, Pfeil verschiebt, 0 setzt zurück', async () => {
+    const big = (await mount({ points: points(6), large: true })) as Big;
+    const key = (k: string) => scroll(big).dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    key('+');
+    expect(big.view.zoom).toBeCloseTo(1.5, 6);
+    const off = big.view.offset;
+    key('ArrowRight');
+    expect(big.view.offset).toBeGreaterThan(off);
+    key('-');
+    key('0');
+    expect(big.view).toEqual({ zoom: 1, offset: 0 });
+  });
+
+  it('[F-430] stark gezoomt bleibt die Canvas so breit wie der sichtbare Bereich; die Scrollbreite ist gedeckelt', async () => {
+    const big = (await mount({ points: points(24 * 60), large: true })) as Big;
+    for (let i = 0; i < 200; i++) wheel(big, { ctrlKey: true, deltaY: -100 });
+    expect(big.view.zoom).toBeGreaterThan(100);
+    const cv = big.shadowRoot.querySelector('canvas.base') as HTMLCanvasElement;
+    expect(cv.width).toBeLessThanOrEqual(320 * (window.devicePixelRatio || 1));
+    expect(cv.width).toBeLessThanOrEqual(16_384);
+    expect(big.contentWidth()).toBeLessThanOrEqual(4_000_000 + 34 + 12);
+    expect((big.shadowRoot.querySelector('.wrap') as HTMLElement).style.width).toBe(`${big.contentWidth()}px`);
+  });
+
+  it('[F-430] das kleine Diagramm bleibt ohne Zoom und ohne Scrollbereich', async () => {
     const small = await mount({ points: points(72) });
-    expect((small as unknown as { drawWidth: (w: number) => number }).drawWidth(800)).toBe(800);
+    const s = small.shadowRoot.querySelector('.scroll') as HTMLElement;
+    expect(s.hasAttribute('tabindex')).toBe(false);
+    expect(s.hasAttribute('data-scroll-x')).toBe(false);
   });
 });
