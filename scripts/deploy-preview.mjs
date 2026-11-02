@@ -44,7 +44,9 @@ const cfApi = (path, init = {}) =>
     headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`, ...init.headers },
   });
 async function deleteWorker(name) {
-  if (name === PROD) throw new Error('Die Produktion wird nie gelöscht.');
+  // nur Vorschau-Worker dieses Projekts, nie die Produktion
+  if (name === PROD || !name.startsWith(`${PROD}-`)) throw new Error(`${name} ist kein Vorschau-Worker.`);
+  if (!account) throw new Error('account_id fehlt in wrangler.jsonc.');
   const res = await cfApi(`/workers/scripts/${encodeURIComponent(name)}?force=true`, { method: 'DELETE' });
   if (res.status === 404) return false;
   if (!res.ok) throw new Error(`Löschen von ${name} fehlgeschlagen (${res.status}): ${await res.text()}`);
@@ -67,11 +69,18 @@ if (action === 'prune') {
   const res = await cfApi('/workers/scripts');
   const body = await res.json();
   if (!res.ok || !body.success) throw new Error(`Worker-Liste nicht lesbar (${res.status})`);
+  const failed = [];
   for (const { id } of body.result) {
     if (id === PROD || !id.startsWith(`${PROD}-`) || keep.has(id)) continue;
-    if (await deleteWorker(id)) console.log(`Vorschau ${id} entfernt (Branch existiert nicht mehr).`);
+    // ein dauerhaft scheiternder Worker darf die übrigen Waisen nicht blockieren
+    try {
+      if (await deleteWorker(id)) console.log(`Vorschau ${id} entfernt (Branch existiert nicht mehr).`);
+    } catch (e) {
+      failed.push(id);
+      console.error(String(e));
+    }
   }
-  process.exit(0);
+  process.exit(failed.length ? 1 : 0);
 }
 
 const s = slug(branch);
