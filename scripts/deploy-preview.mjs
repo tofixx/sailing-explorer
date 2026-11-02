@@ -35,6 +35,22 @@ export function slug(name) {
 
 const wrangler = (args, opts = {}) => execFileSync('npx', ['wrangler', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: process.platform === 'win32', ...opts });
 
+// Worker direkt über die Cloudflare-API löschen: `wrangler delete` prüft zusätzlich KV-Namespaces und braucht dafür
+// eine Berechtigung, die das CI-Token nicht hat (Workers Scripts:Edit genügt hier). 404 = gab es schon nicht mehr.
+const account = /"account_id":\s*"([0-9a-f]+)"/.exec(readFileSync('wrangler.jsonc', 'utf8'))?.[1];
+const cfApi = (path, init = {}) =>
+  fetch(`https://api.cloudflare.com/client/v4/accounts/${account}${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`, ...init.headers },
+  });
+async function deleteWorker(name) {
+  if (name === PROD) throw new Error('Die Produktion wird nie gelöscht.');
+  const res = await cfApi(`/workers/scripts/${encodeURIComponent(name)}?force=true`, { method: 'DELETE' });
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`Löschen von ${name} fehlgeschlagen (${res.status}): ${await res.text()}`);
+  return true;
+}
+
 // Vorschauen ohne Branch entfernen: Branches werden ohne Pull Request gemergt und gelöscht, dann greift
 // preview-cleanup nicht. Läuft nach jedem Produktions-Deploy. Fail-safe: ohne Branch-Liste (oder ohne main darin)
 // wird nichts gelöscht, die Produktion nie.
@@ -48,16 +64,12 @@ if (action === 'prune') {
     process.exit(0);
   }
   const keep = new Set(heads.map((h) => `${PROD}-${slug(h)}`));
-  const account = /"account_id":\s*"([0-9a-f]+)"/.exec(readFileSync('wrangler.jsonc', 'utf8'))?.[1];
-  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts`, {
-    headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
-  });
+  const res = await cfApi('/workers/scripts');
   const body = await res.json();
   if (!res.ok || !body.success) throw new Error(`Worker-Liste nicht lesbar (${res.status})`);
   for (const { id } of body.result) {
     if (id === PROD || !id.startsWith(`${PROD}-`) || keep.has(id)) continue;
-    wrangler(['delete', '--name', id, '--force']);
-    console.log(`Vorschau ${id} entfernt (Branch existiert nicht mehr).`);
+    if (await deleteWorker(id)) console.log(`Vorschau ${id} entfernt (Branch existiert nicht mehr).`);
   }
   process.exit(0);
 }
@@ -71,12 +83,7 @@ const workerName = `sailing-explorer-${s}`;
 const host = `dev-${s}.${ZONE}`;
 
 if (action === 'delete') {
-  try {
-    wrangler(['delete', '--name', workerName, '--force']);
-    console.log(`Vorschau ${workerName} entfernt.`);
-  } catch {
-    console.log(`Vorschau ${workerName} gab es nicht (mehr).`);
-  }
+  console.log((await deleteWorker(workerName)) ? `Vorschau ${workerName} entfernt.` : `Vorschau ${workerName} gab es nicht (mehr).`);
   process.exit(0);
 }
 
