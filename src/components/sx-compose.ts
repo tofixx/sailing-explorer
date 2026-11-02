@@ -2,6 +2,7 @@ import { LitElement, css, html, nothing } from 'lit';
 import { icon, type IconName } from './icons';
 import { base, emit, menuStyles } from './shared';
 import { MenuController } from './menu-controller';
+import { RECORDING_GUIDE_PATH } from '../content/recording-guide';
 
 /** Arten, die es in Phase 2 gibt (Konzept 21.4) – Umfrage, Veranstaltung und Fotos folgen in späteren Phasen. */
 export type ComposeKind = 'gpx' | 'logbook' | 'text' | 'draft';
@@ -47,6 +48,14 @@ export class SxCompose extends LitElement {
       .item small {
         display: block;
         margin: 0;
+      }
+      /* Hinweis unter „Törn (GPX)“ zur Anleitung (F-450) – klein, kein eigener Eintrag */
+      .how {
+        display: block;
+        margin: -2px 0 var(--s-1);
+        padding: var(--s-1) var(--s-2) var(--s-1) calc(var(--s-2) * 2 + 22px);
+        font-size: var(--fs-s);
+        color: var(--accent);
       }
       @media (min-width: 761px) {
         .menu {
@@ -99,7 +108,8 @@ export class SxCompose extends LitElement {
           : nothing}
         ${KINDS.map(
           (k) => html`<button class="item" type="button" @click=${() => this.pick(k.kind)}>
-            <span class="mark">${icon(k.icon)}</span><span>${k.label}<small>${k.hint}</small></span></button>`,
+            <span class="mark">${icon(k.icon)}</span><span>${k.label}<small>${k.hint}</small></span></button>
+            ${k.kind === 'gpx' ? html`<a class="how" href=${RECORDING_GUIDE_PATH}>Wie zeichne ich auf?</a>` : nothing}`,
         )}
       </div>
     </div>`;

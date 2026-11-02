@@ -1696,6 +1696,15 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(el<{ page: string }>('sx-legal-page').page).toBe('datenschutz');
   });
 
+  it('[F-450] /anleitung/aufzeichnen zeigt die Anleitung ohne Backend', async () => {
+    server.backend = 'html';
+    await startApp('/anleitung/aufzeichnen');
+    expect(el<{ hidden: boolean }>('sx-guide-page').hidden).toBe(false);
+    expect(el<{ hidden: boolean }>('sx-legal-page').hidden).toBe(true);
+    expect(document.title).toBe('So zeichnest du deinen Törn auf · Sail Explorer');
+    expect(document.querySelector('.app')?.hasAttribute('data-page')).toBe(true);
+  });
+
   it('[F-161] [F-405] „Beitrag schreiben“ auf der Gruppenseite öffnet „+ Neu → Text“ mit der Gruppe; Veröffentlichen geht an /api/posts', async () => {
     server.user = { id: 'U1', email: 'a@example.org' };
     server.groups = { page: page({ group: { ...page().group, role: 'admin' } }) };

@@ -30,6 +30,7 @@ import './components/sx-photo-upload';
 import './components/sx-reactions';
 import './components/sx-harbor-picker';
 import './components/sx-legal-page';
+import './components/sx-guide-page';
 import './components/sx-notifications';
 import './components/sx-logbook-form';
 import './components/sx-compose-dialog';

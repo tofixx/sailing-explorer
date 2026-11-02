@@ -1,6 +1,7 @@
 import { LitElement, css, html } from 'lit';
 import { icon } from './icons';
 import { base, emit, pickGpx } from './shared';
+import { RECORDING_GUIDE_PATH } from '../content/recording-guide';
 
 export interface Sample {
   file: string;
@@ -393,7 +394,8 @@ export class SxEmptyState extends LitElement {
         ? html`<button class="btn primary" @click=${() => emit(this, 'sx-track-view')}>${icon('map')} Zurück zu deinem Törn</button>
             <div class="hint">${this.trackCount === 1 ? '1 Track geladen' : `${this.trackCount} Tracks geladen`}</div>`
         : html`<button class="btn primary" @click=${() => pickGpx(this)}>${icon('upload')} GPX-Dateien wählen</button>
-            <div class="hint drag-hint">oder einfach auf die Karte ziehen</div>`}
+            <div class="hint drag-hint">oder einfach auf die Karte ziehen</div>
+            ${this.howTo()}`}
       ${this.samplesRow()} ${this.privacy()}
     </section>`;
   }
@@ -408,12 +410,17 @@ export class SxEmptyState extends LitElement {
       <p>Über <b>+ Neu</b> oben: GPX-Track auf der Seekarte mit Speed, Wind und Wellen, Fahrtenbuch-Eintrag oder Beitrag.</p>
       ${this.trackCount ? html`<div class="actions"><button class="btn primary" @click=${() => emit(this, 'sx-track-view')}>${icon('map')} Zurück zu deinem Törn</button></div>` : ''}
       <div class="hint drag-hint">GPX-Dateien kannst du auch einfach auf die Seite ziehen.</div>
-      ${this.samplesRow()} ${this.privacy()}
+      ${this.trackCount ? '' : this.howTo()} ${this.samplesRow()} ${this.privacy()}
     </section>`;
   }
 
+  /** Hinweis zur Anleitung „Aufzeichnen“ (F-450), solange noch kein Track geladen ist. */
+  private howTo() {
+    return html`<div class="hint how"><a href=${RECORDING_GUIDE_PATH}>Noch keine GPX-Datei? So zeichnest du deinen Törn auf</a></div>`;
+  }
+
   private footer() {
-    return html`<footer aria-label="Rechtliches"><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a></footer>`;
+    return html`<footer aria-label="Hilfe und Rechtliches"><a href=${RECORDING_GUIDE_PATH}>Anleitung</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a></footer>`;
   }
 
   render() {

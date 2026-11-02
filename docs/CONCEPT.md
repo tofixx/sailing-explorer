@@ -3141,3 +3141,45 @@ Der Arbeitsbereich (Karte, Seitenleiste) zeigt immer **genau einen Törn**:
   ohne GPX (Route ≤ 32 KB). Für GPX-Törns gibt es keinen Weg, Tracks zu ersetzen oder zu ergänzen. Dafür bräuchte es
   Plausibilität, Speicherzähler-Differenz, Neuberechnung von Distanz und Zeit sowie Wetter, Fotos (Zeitbezug) und das
   Vorschaubild. Bis dahin gibt es „GPX hinzufügen“ nur im Entwurf.
+
+## 25. Anleitung „So zeichnest du deinen Törn auf“ (F-450, 02.11.2026)
+
+Andere Apps zeichnen selbst auf; Sail Explorer lebt vom GPX-Import. Neue Nutzer:innen wissen oft nicht, womit sie
+aufzeichnen und wie sie an eine GPX-Datei kommen. Leitlinie: „Weniger ist mehr, ein Weg nach Rom“ – je Weg wenige
+Schritte, je Gerät eine Empfehlung.
+
+### 25.1 Umsetzung
+
+| Teil | Ort |
+|---|---|
+| Texte als Daten | `src/content/recording-guide.ts` (`RECORDING_GUIDE`, `RECORDING_GUIDE_PATH`) |
+| Seite | `sx-guide-page` unter `/anleitung/aufzeichnen` (Route `guide`, wie `sx-legal-page` ohne Backend), Abschnitte als `<details>` |
+| Einstiege | „+ Neu“-Sheet: Zeile unter „Törn (GPX)“; Startseite: Einstiegskarte ohne Track; Fußzeile „Anleitung“; später der Gäste-Slider (Konzept 22) |
+
+Keine Daten, keine Querschnitte, kein Löschpfad. Offener Punkt: direkter Import von Garmin-`.ADM`-Dateien (spart den
+Umweg über BaseCamp/HomePort) – eigener Auftrag.
+
+### 25.2 Stand und Quellen der App-Angaben (geprüft 02.11.2026)
+
+Wer die Anleitung ändert, prüft diese Angaben mit. „Belegt“ heißt: offizielle Seite oder Handbuch; „Forum“ heißt: nur
+aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
+
+| Angabe | Beleg |
+|---|---|
+| OsmAnd (iOS/Android): Fahrtenaufzeichnung kostenlos (nur Topo, Relief, Wikipedia, Seekarte, Wetter kosten) | belegt: https://osmand.net/docs/user/plugins/ |
+| OsmAnd: Aufzeichnung, Standard alle 5 s, Hinweise zu Akku-Optimierung und iOS-Hintergrund | belegt: https://osmand.net/docs/user/plugins/trip-recording |
+| OsmAnd: Meine Orte → Tracks → ⋮ bzw. lange antippen → Teilen (GPX) | belegt: https://osmand.net/docs/user/personal/tracks/manage-tracks |
+| Open GPX Tracker (iOS + Watch): kostenlos, Open Source, GPX teilen; Watch sendet Datei ans iPhone | belegt (Menüpfad nicht): https://apps.apple.com/de/app/open-gpx-tracker/id984503772, https://github.com/merlos/iOS-Open-GPX-Tracker |
+| OpenTracks (Android): kostenlos, Open Source, Export GPX/KML/KMZ, Teilen mit Apps | belegt (Menüpfad nicht): https://f-droid.org/packages/de.dennisguse.opentracks/, https://codeberg.org/OpenTracksApp/OpenTracks |
+| Geo Tracker (Android): GPX/KML/KMZ, Trip → Als Datei teilen; „Akkuoptimierungen ignorieren“ | belegt (Preis nicht): https://geo-tracker.org/en/docs/sharing/files/ – in der Anleitung nicht genannt |
+| Garmin-Uhren: Aktivität „Segeln“ (z. B. fēnix 8, quatix 8, MARQ) | belegt: Garmin-Handbuch fēnix 8 (Link in der Anleitung) |
+| Garmin Connect: GPX-Export nur im Web über Zahnrad | Forum: https://forums.garmin.com/apps-software/mobile-apps-web/f/garmin-connect-web/84396/how-to-export-as-gpx-in-modern |
+| WorkOutDoors (Apple Watch): kostenpflichtig, zeichnet ohne iPhone auf, Export GPX/FIT/TCX | belegt: https://apps.apple.com/us/app/workoutdoors/id1241909999 |
+| Garmin GPSMAP: Weg zur Datenübertragung, `.ADM`, nur ACTIVE LOG mit Zeitstempel, Umwandlung mit BaseCamp/HomePort | geprüfte Anleitung des Betreibers (Notion „Garmin-Plotter: Daten exportieren und in GPX umwandeln“); Handbuch GPSMAP 800/1000 nennt den Weg, nicht das Format |
+| Raymarine Axiom (LightHouse 4): Meine Daten → Import/Export → Meine Daten speichern → GPX auf microSD | belegt: https://docs.raymarine.com/81406/en-US/latest/SavingUserData-C80AD8A3.html; fehlende Zeitstempel nur laut Forum (2020) |
+| B&G/Simrad/Lowrance: Track exportieren auf Karte/USB; GPX nicht belegt | daher nur allgemein („GPX wählen, sonst Handbuch“) |
+| Navionics Boating: Tracks → Teilen → GPX, nur mit Abo | teilweise (Navionics-Blog, inzwischen auf garmin.com umgeleitet) |
+| Strava: GPX-Export nur auf strava.com („…“ → Export GPX) | belegt: https://support.strava.com/hc/en-us/articles/216918437 |
+| Komoot: Touren als GPX exportieren | teilweise: https://support.komoot.com/hc/en-us/articles/10115477099674 |
+| Aufzeichnungsrate 1–5 s | Empfehlung des Betreibers, keine Herstellerangabe |
+
