@@ -59,6 +59,15 @@ export function initialView(dataMs: number, viewport: number, pxPerHour: number)
   return clampView({ zoom: viewport > 0 ? ((dataMs / 3_600_000) * pxPerHour) / viewport : 1, offset: 0 }, viewport, maxZ);
 }
 
+/**
+ * Versatz, der die Stelle `x` (px ab Beginn der Zeitreihe) zeigt – mittig, Zoom unverändert; null, wenn sie schon
+ * im Ausschnitt liegt (dann bleibt alles stehen).
+ */
+export function revealOffset(v: ChartView, x: number, viewport: number, maxZ: number): number | null {
+  if (x >= v.offset && x <= v.offset + viewport) return null;
+  return clampView({ zoom: v.zoom, offset: x - viewport / 2 }, viewport, maxZ).offset;
+}
+
 /** Weiter als „ganzer Zeitraum“ hineingezoomt? */
 export function isZoomed(v: ChartView): boolean {
   return v.zoom > 1.001;
@@ -70,24 +79,49 @@ export function tickStep(msPerPx: number, minGapPx = 56): number {
   return TICK_STEPS_MIN[TICK_STEPS_MIN.length - 1] * 60_000;
 }
 
-/** Ortszeit-runde Zeitpunkte im Schritt `step` (ms) zwischen t0 und t1 (Tage: Mitternacht). Höchstens `limit`. */
+/** Beginn des Schritts in Ortszeit, in dem `t` liegt (Minuten seit Mitternacht auf ein Vielfaches von `stepMin`). */
+function floorLocal(t: number, stepMin: number): number {
+  const d = new Date(t);
+  const mins = d.getHours() * 60 + d.getMinutes();
+  // zuerst zurückrechnen – das hält die doppelte Stunde der Winterzeit eindeutig …
+  const back = t - (mins % stepMin) * 60_000 - d.getSeconds() * 1000 - d.getMilliseconds();
+  const b = new Date(back);
+  if ((b.getHours() * 60 + b.getMinutes()) % stepMin === 0) return back;
+  // … liegt eine Umstellung dazwischen, über die Uhrzeit setzen
+  d.setHours(0, mins - (mins % stepMin), 0, 0);
+  return d.getTime();
+}
+
+/**
+ * Ortszeit-runde Zeitpunkte im Schritt `step` (ms) zwischen t0 und t1 (Tage: Mitternacht). Höchstens `limit`.
+ * Jeder Tick wird neu auf die Ortszeit gerundet statt `t + step` zu rechnen – so bleiben die Striche auch über die
+ * Zeitumstellung (Sommer/Winter) auf runden Uhrzeiten.
+ */
 export function ticks(t0: number, t1: number, step: number, limit = 5000): number[] {
   if (!(step > 0) || !(t1 >= t0)) return [];
-  const d = new Date(t0);
   const day = step >= 86_400_000;
-  if (day) d.setHours(0, 0, 0, 0);
-  else {
-    const stepMin = Math.round(step / 60_000);
-    const mins = d.getHours() * 60 + d.getMinutes();
-    d.setHours(0, mins - (mins % stepMin), 0, 0);
-  }
+  const stepMin = Math.round(step / 60_000);
   const out: number[] = [];
-  while (out.length < limit) {
-    const t = d.getTime();
-    if (t > t1) break;
+  let t: number;
+  if (day) {
+    const d = new Date(t0);
+    d.setHours(0, 0, 0, 0);
+    t = d.getTime();
+  } else t = floorLocal(t0, stepMin);
+  while (out.length < limit && t <= t1) {
     if (t >= t0) out.push(t);
-    if (day) d.setDate(d.getDate() + 1);
-    else d.setTime(t + step);
+    let next: number;
+    if (day) {
+      const d = new Date(t);
+      d.setDate(d.getDate() + 1);
+      next = d.getTime();
+    } else {
+      next = floorLocal(t + step, stepMin);
+      // Umstellung auf Winterzeit: gerundet landet man wieder bei t – dann eine Stunde (die Umstellung) weiter runden
+      if (next <= t) next = floorLocal(t + step + 3_600_000, stepMin);
+      if (next <= t) next = t + step;
+    }
+    t = next;
   }
   return out;
 }
