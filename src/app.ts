@@ -460,7 +460,8 @@ export class App {
       // „von … · in …“ (F-228)
       const byline = s.mode.kind === 'share' ? s.mode.share : null;
       this.ui.byline.share = byline;
-      this.ui.byline.hidden = !byline?.sailor && !byline?.groups?.length;
+      // Titel des geteilten Törns immer (umbenennen für die Eigentümer:in, F-424), dazu „von … · in …“
+      this.ui.byline.hidden = !byline;
       // Fahrtenbuch-Angaben (Konzept 19)
       this.logbook.show(byline);
       if (s.mode.kind === 'share') void this.session.loadCrew(s.mode.share, s.mode.key);
@@ -760,6 +761,8 @@ export class App {
     on<{ id: string; kind: PostKind }>('sx-my-post-delete', (d) => po.remove(d.id, d.kind));
     on<{ id: string; logState: LogState }>('sx-log-state', (d) => po.setLogState(d.id, d.logState));
     on<{ preview: ProfilePreview | null }>('sx-profile-preview', (d) => po.preview(d.preview));
+    // Törn umbenennen (F-424): aus „Mein Verlauf“ über den PostsController, sonst wie Konto → Freigaben
+    on<{ id: string; title: string; scope: string }>('sx-title-save', (d) => (d.scope === 'mine' ? po.rename(d.id, d.title) : this.session.updateShare(d.id, { title: d.title })));
     on<{ scope: 'home' | 'group' | 'harbor' | 'public' }>('sx-stream-more', (d) => (d.scope === 'harbor' ? this.social.moreHarbor() : g.more(d.scope)));
     on<{ kind: FollowKind; id: string; follow: boolean }>('sx-follow', (d) => g.follow(d));
 

@@ -1011,6 +1011,10 @@ export class SessionController {
     const mode = this.store.get().mode;
     if (mode.kind === 'share' && mode.share.id === id) this.store.set({ mode: { ...mode, share } });
     if (this.lastShare?.share.id === id) this.lastShare.share = share;
+    // Teilen-Dialog und Fenstertitel folgen (z. B. nach dem Umbenennen, F-424)
+    const r = this.ui.share.result;
+    if (r?.share.id === id) this.ui.share.result = { ...r, share };
+    if (mode.kind === 'share' && mode.share.id === id) document.title = `${share.title} · Sail Explorer`;
   }
 
   private groupsSeq = 0;

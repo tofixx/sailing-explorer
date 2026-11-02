@@ -7,6 +7,7 @@ import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, isVisibility, type Visibility } f
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
+import './sx-title-edit';
 import './sx-support';
 import './sx-filter-select';
 import './sx-share-groups';
@@ -432,13 +433,19 @@ export class SxShareDialog extends LitElement {
   }
 
   /** Nach dem Speichern: Bestätigung und „Jetzt teilen“. */
+  /** Titel nach dem Speichern bzw. Teilen – die Eigentümer:in benennt ihn hier um (F-424), der Link bleibt. */
+  private resultTitle(r: ShareResult) {
+    return html`<sx-title-edit share-id=${r.share.id} .value=${r.share.title} ?editable=${r.share.isOwner}></sx-title-edit>`;
+  }
+
   private savedPanel(r: ShareResult) {
     const vis: Visibility = isVisibility(r.share.visibility) ? r.share.visibility : 'public';
     return html`<div class="body">
       <p class="muted visibility-note">
         <span class="vis">${icon('check')} Gespeichert</span>
-        „${r.share.title}“ liegt in deinem Konto – ${VISIBILITY_LABEL[vis]}.
+        Liegt in deinem Konto – ${VISIBILITY_LABEL[vis]}.
       </p>
+      ${this.resultTitle(r)}
       ${this.savedGroups(r)}
       <div class="actions">
         <button class="btn" @click=${this.close}>Schließen</button>
@@ -456,6 +463,7 @@ export class SxShareDialog extends LitElement {
     if (r) {
       const vis: Visibility = isVisibility(r.share.visibility) ? r.share.visibility : 'public';
       return html`<div class="body">
+        ${this.resultTitle(r)}
         <p class="muted visibility-note">
           <span class="vis">${icon(VISIBILITY_ICON[vis])} ${VISIBILITY_LABEL[vis]}</span>
           ${RESULT_TEXT[vis]}

@@ -16,5 +16,8 @@ describe('Törn-Zeile „von … in …“', () => {
     el.share = { sailor: null, groups: [] };
     await el.updateComplete;
     expect(el.shadowRoot.querySelector('p')).toBeNull();
+    el.share = null;
+    await el.updateComplete;
+    expect(el.shadowRoot.querySelector('sx-title-edit')).toBeNull();
   });
 });

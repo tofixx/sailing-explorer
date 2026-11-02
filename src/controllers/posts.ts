@@ -72,6 +72,11 @@ export class PostsController {
     if (await this.run(() => api.updateShare(id, { logState }), msg)) await this.refresh();
   }
 
+  /** Törn umbenennen (F-424) – auch „Nur mit Link“, der Schlüssel bleibt. */
+  async rename(id: string, title: string): Promise<void> {
+    if (await this.run(() => api.updateShare(id, { title }), 'Umbenannt')) await this.load();
+  }
+
   /** „Ansehen als …“ (F-423): eigene Seite mit simuliertem Betrachter laden; null beendet die Vorschau. */
   async preview(preview: ProfilePreview | null): Promise<void> {
     const handle = this.ownHandle();

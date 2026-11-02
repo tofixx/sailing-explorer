@@ -7,6 +7,8 @@ import '../../src/components/sx-my-posts';
 import '../../src/components/sx-preview-menu';
 import '../../src/components/sx-profile-page';
 import '../../src/components/sx-group-page';
+import '../../src/components/sx-title-edit';
+import '../../src/components/sx-voyage-byline';
 import type { GroupPageData, ProfilePageData } from '../../src/services/api';
 import type { MyPost } from '../../src/domain/posts';
 
@@ -122,6 +124,44 @@ describe('sx-my-posts', () => {
     await settle(free);
     expect(inner(free, 'sx-post-composer').shadowRoot.querySelectorAll('input[type="radio"]')).toHaveLength(0);
     expect(text(inner(free, 'sx-post-composer').shadowRoot)).toContain('„Nur ich“ gibt es für Unterstützer');
+  });
+});
+
+describe('sx-title-edit (F-424)', () => {
+  it('[F-424] Stift öffnet das Feld, Speichern meldet Titel und Bereich, Escape bricht ab; ohne Recht kein Stift', async () => {
+    const saves = listen('sx-title-save');
+    const el = await mount('sx-title-edit', { shareId: 'S1', value: 'Rügen', editable: true, scope: 'mine', heading: true });
+    expect(el.shadowRoot.querySelector('h2')!.textContent).toBe('Rügen');
+    button(el.shadowRoot, /Umbenennen/)!.click();
+    await el.updateComplete;
+    const input = el.shadowRoot.querySelector('input') as HTMLInputElement;
+    input.value = '  Rügen-Runde ';
+    (el.shadowRoot.querySelector('form') as HTMLFormElement).requestSubmit();
+    expect(saves).toEqual([{ id: 'S1', title: 'Rügen-Runde', scope: 'mine' }]);
+    await el.updateComplete;
+    button(el.shadowRoot, /Umbenennen/)!.click();
+    await el.updateComplete;
+    el.shadowRoot.querySelector('form')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await el.updateComplete;
+    expect(el.shadowRoot.querySelector('input')).toBeNull();
+    expect(saves).toHaveLength(1);
+    const ro = await mount('sx-title-edit', { shareId: 'S2', value: 'Fremd', editable: false });
+    expect(button(ro.shadowRoot, /Umbenennen/)).toBeUndefined();
+  });
+
+  it('[F-424] Törn-Ansicht zeigt den Titel (Eigentümer:in mit Stift), „Mein Verlauf“ bietet Umbenennen je Törn', async () => {
+    const byline = await mount('sx-voyage-byline', { share: { id: 'S1', title: 'Havel', isOwner: true, sailor: null, groups: [] } });
+    await settle(byline);
+    const t = inner(byline, 'sx-title-edit');
+    expect(t.shadowRoot.querySelector('h2')!.textContent).toBe('Havel');
+    expect(button(t.shadowRoot, /Umbenennen/)).toBeTruthy();
+    const guest = await mount('sx-voyage-byline', { share: { id: 'S1', title: 'Havel', isOwner: false, sailor: null, groups: [] } });
+    await settle(guest);
+    expect(button(inner(guest, 'sx-title-edit').shadowRoot, /Umbenennen/)).toBeUndefined();
+    const mine = await mount('sx-my-posts', { items, cursor: null, area: 'all' });
+    await settle(mine);
+    const edits = [...mine.shadowRoot.querySelectorAll('sx-title-edit')] as LitEl[];
+    expect(edits.map((e) => [e.shareId, e.scope, e.editable])).toEqual([['S1', 'mine', true], ['S2', 'mine', true]]);
   });
 });
 

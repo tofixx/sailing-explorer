@@ -422,6 +422,23 @@ describe('F-422 Ins Fahrtenbuch', () => {
   });
 });
 
+describe('F-424 Törn umbenennen nach dem Teilen, auch „Nur mit Link“', () => {
+  it('[F-424] Eigentümer:in benennt öffentliche und „Nur mit Link“-Törns um; Schlüssel bleibt, Link-Vorschau folgt; andere 404', async () => {
+    const p = await s.person({ profile: 'public', supporter: true });
+    const link = await s.share(p, { visibility: 'unlisted', title: 'Alt' });
+    const res = await json<{ share: { title: string; shareKey: string } }>(await s.send('PATCH', `/api/shares/${link.id}`, p.cookie, { title: 'Neuer Name' }));
+    expect(res.share).toMatchObject({ title: 'Neuer Name', shareKey: link.shareKey });
+    const html = await (await h.fetch(`/s/${link.id}/${link.shareKey}`)).text();
+    expect(/<meta property="og:title" content="([^"]*)"/.exec(html)?.[1]).toContain('Neuer Name');
+    expect((await myPosts(p)).items.find((i) => i.id === link.id)!.voyage).toMatchObject({ title: 'Neuer Name', path: `/s/${link.id}/${link.shareKey}` });
+    const pub = await s.share(p, { title: 'Öffentlich' });
+    expect((await s.send('PATCH', `/api/shares/${pub.id}`, p.cookie, { title: 'Umbenannt' })).status).toBe(200);
+    const other = await s.person();
+    expect((await s.send('PATCH', `/api/shares/${pub.id}`, other.cookie, { title: 'Fremd' })).status).toBe(404);
+    expect(await s.errorOf(await s.send('PATCH', `/api/shares/${pub.id}`, p.cookie, { title: '   ' }))).toBe('invalid_title');
+  });
+});
+
 describe('F-423 Ansehen als …', () => {
   it('[F-423] Vorschau als Öffentlichkeit bzw. Mitglied einer eigenen Gruppe – nie mehr als ein echter Betrachter', async () => {
     const p = await s.person({ profile: 'public', supporter: true });

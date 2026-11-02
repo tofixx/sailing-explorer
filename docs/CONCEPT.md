@@ -2925,6 +2925,7 @@ Migration `0029_posts.sql`, Regeln `src/domain/posts.ts`, Worker `worker/posts.t
 | F-421 | Schreibrecht je Gruppe `groups.post_by` (B3) |
 | F-422 | „Ins Fahrtenbuch“ (B14) |
 | F-423 | „Ansehen als …“ (B13) |
+| F-424 | Törn-Titel nach dem Teilen überall umbenennen (Törn-Ansicht, Teilen-Dialog, „Mein Verlauf“, Konto), auch „Nur mit Link“ – Wunsch des Betreibers |
 
 Abweichungen bzw. Festlegungen gegenüber 21.2–21.7:
 

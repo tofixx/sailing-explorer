@@ -5,6 +5,7 @@ import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
 import { POST_VISIBILITY_ICON, base, emit, linkedText, postCardStyles } from './shared';
 import './sx-post-composer';
+import './sx-title-edit';
 import type { SxPostComposer } from './sx-post-composer';
 
 const KIND_ICON: Partial<Record<MyPost['kind'], IconName>> = { voyage: 'map', logbook: 'book', text: 'comment' };
@@ -154,7 +155,8 @@ export class SxMyPosts extends LitElement {
       <div class="head">
         ${icon(KIND_ICON[p.kind] ?? 'comment')}
         <span class="t">${voyage
-          ? html`<a href=${voyage.path}>${voyage.title}</a> <span class="note">${fmtNum(voyage.distNm, 1)} sm · ${fmtDate(voyage.startedAt ?? p.createdAt)}</span>`
+          ? html`<sx-title-edit share-id=${p.id} scope="mine" editable .value=${voyage.title}></sx-title-edit>
+              <a href=${voyage.path} aria-label="Törn öffnen: ${voyage.title}">Öffnen</a> <span class="note">${fmtNum(voyage.distNm, 1)} sm · ${fmtDate(voyage.startedAt ?? p.createdAt)}</span>`
           : p.channel.kind === 'group'
             ? html`Beitrag in <a href="/g/${p.channel.slug}">${p.channel.name}</a>`
             : 'Beitrag in deinem Profil'}</span>
