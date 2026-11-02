@@ -1,0 +1,118 @@
+# Roadmap
+
+Einzige Quelle für „was kommt als Nächstes“. Stand 02.11.2026, Code-Stand `feature/beitraege-phase2` (9316c24).
+Inhalte stehen in den verlinkten Abschnitten. Hier stehen nur Reihenfolge, Nutzen, Aufwand und Abhängigkeiten.
+Erledigtes fällt heraus.
+
+**Leitlinie des Betreibers:** „Weniger ist mehr, ein Weg nach Rom“. **Priorisiert** wird nach dem Nutzen für die
+Gewinnung und Bindung von Seglerinnen, Seglern und Vereinen, dann nach Risiko und Aufwand. Zuerst kommt, was Vereine in
+die App holt und Segler zum Wiederkommen bringt, und zwar mit kleinem Risiko. Große Migrationen folgen erst, wenn es
+Nutzer gibt, die sie brauchen. Reine Technik-Arbeit steht nur dort, wo sie das nächste Feature billiger oder sicherer
+macht.
+
+Aufwand: S ≈ bis 1 Tag, M ≈ 2–4 Tage, L ≈ 1–2 Wochen. Quellen: K = [CONCEPT.md](CONCEPT.md),
+R = [ARCHITECTURE-RETRO.md](ARCHITECTURE-RETRO.md#d-empfehlungen-priorisiert-nach-nutzenaufwand) (d),
+U = [UX-NAVIGATION.md](UX-NAVIGATION.md), N = Notion (Betreiber).
+
+## Jetzt (nach dem laufenden Deploy)
+
+Das sind kleine Aufräumarbeiten ohne Konzeptänderung. Sie lassen sich nebenbei erledigen.
+
+| Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
+|---|---|---|---|---|
+| Doppelten Abruf `/api/discover?limit=6` beseitigen | Für Gäste fragen `loadDiscoverStrip` (`app.ts`) und `GuestSliderController` dasselbe ab. Ein Abruf weniger heißt: schnellere Startseite und weniger Last auf dem Worker | S | N (Todo) | – |
+| Zahnrad am Kartenstil umstellen | `sx-map-style` trägt noch das Zahnrad. Nach N6 gehört es nur dem Seiten-Menü. `sx-page-menu` hat das nicht erledigt; das Titelbild ist dagegen richtig gelöst (direkt am Bild, K 21.13) | S | N (zurückgestellt), [U N6](UX-NAVIGATION.md#7-navigations--und-kopfbereich-regeln-vorschlag) | – |
+| Menüwege der empfohlenen Apps in echten Apps prüfen | Die Anleitung soll stimmen. Belegt sind die Menüpfade bisher nur teilweise | S | N (Todo), K 25.2 | Geräte bzw. Apps |
+| B&G/Simrad/Lowrance-GPX klären | Klären, ob diese Plotter GPX mit Zeitstempeln exportieren. Danach eine konkrete statt einer allgemeinen Anleitung | S | N (Todo), K 25.2 | Handbuch oder Testdatei |
+
+## Als Nächstes
+
+Die Reihenfolge ist die Empfehlung. Die ersten fünf zahlen am stärksten auf die Gewinnung von Vereinen und Seglern
+ein.
+
+| # | Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
+|---|---|---|---|---|---|
+| 1 | **2–3 Potsdamer Vereine gewinnen** (Pilot) | Ohne Vereine ist der Stream leer. Jeder Verein bringt Mitglieder mit, und Rückmeldungen aus dem Pilot steuern die Phasen 4–9 | S (Betreiber) | N (Lücken) | Name/Domain-Entscheidung hilft; Veranstaltungen (#4) als Argument |
+| 2 | **Saisonrückblick mit Teilen-Bild und Abzeichen-Reihe** | Am Saisonende (jetzt) teilt jede:r gern ein „Meine Saison“-Bild. Das bringt Reichweite ohne Werbung. Die Abzeichen aus den Meilensteinen (`MILESTONES_NM`) belohnen das Wiederkommen | M | N (Quick Wins) | `share-image.ts`, Saison-Summen, K6 (keine Ranglisten) |
+| 3 | **Lösch-Register und Sichtbarkeits-Bausteine** | Das Register macht Prüfpunkt 6 maschinell, bevor neue Arten (Umfrage, Veranstaltung, Galerie) neue polymorphe Bezüge bringen. Es gibt noch 64 Kopien von `visibility = 'public'` und 104 von `hidden_at IS NULL` | M | R 1, R 3 | vor #4/#5. `reach-sql.ts` und `member-sql.ts` sind schon so gebaut |
+| 4 | **Veranstaltungen** (Phase 5) | Das stärkste Vereinsargument: Termine, Zusagen, Erinnerung und `.ics`. Danach „Ins Fahrtenbuch übernehmen“ | M | [K 21.5](CONCEPT.md#215-umfragen-und-veranstaltungen), [K 21.8](CONCEPT.md#218-phasenplan) | #3. Atomare Kapazität (R 10). Mail-Budget 100/Tag |
+| 5 | **Umfragen** (Phase 4) | Geringes Risiko, nützt Vereinen und Teams im Alltag („Wer segelt Mittwoch?“) | M | [K 21.5](CONCEPT.md#215-umfragen-und-veranstaltungen), K 21.8 | #3. Stufe „wichtig“ ist vorbereitet (K 24.7) |
+| 6 | **.ADM direkt importieren** | Garmin-Plotter-Nutzer sparen den Umweg über BaseCamp/HomePort. Das senkt die Einstiegshürde für Eigner größerer Boote | M | N (Todo), [K 25.1](CONCEPT.md#251-umsetzung) | Format-Analyse mit echten Dateien. Nur ACTIVE LOG mit Zeit |
+| 7 | **`ENTITY_ICON` und Byline mit Boot** | Ein Icon je Objektart (Team ≠ Boot, Verein ≠ Hafen). Die Törn-Byline nennt das Boot. Das sorgt für Wiedererkennung ohne neue Einstiege | S | U B12, B13, [U N4](UX-NAVIGATION.md#7-navigations--und-kopfbereich-regeln-vorschlag) | – |
+| 8 | **Filter nach Bootsklasse in Entdecken** | Man findet Gleichgesinnte (Jollen, Folkeboot, Fahrtenyachten) | S–M | N (Quick Wins) | `boats.boat_type` ist Freitext: Klassenliste bzw. Normalisierung nötig |
+
+## Danach
+
+| Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
+|---|---|---|---|---|
+| **Verwaltungsbereich und Fahrtenbuch nach Jahren** (Phase 8) | Das Fahrtenbuch als Meilennachweis bringt Bindung über Jahre. Der Konto-Dialog (1098 Zeilen) hört auf zu wachsen | M–L | [K 21.6](CONCEPT.md#216-fahrtenbuch-jahre-zusatzangaben-wertung-jahresbericht), K 21.8, R 9 | Crew-Ausnahme M1. Konto-Dialog ohne Funktionsverlust ablösen |
+| **Export / Segellebenslauf** | Eigene Daten mitnehmen (CSV, druckbar). Schafft Vertrauen und ist ein Argument gegen Lock-in | S–M | N (Lücken) | Phase 8 (gleiche Liste wie der Jahresbericht) |
+| **Routen und Heatmap auf der Community-Karte** (mit Cluster-Pins) | Das Revier wird sichtbar: „Hier wird gesegelt“. Starker Eindruck für Gäste | M | N (Quick Wins) | Nur Törns mit „Sichtbar bis: überall“ (`LISTED`). Cluster wie `src/domain/cluster.ts` |
+| **`sx-page-header`, `sx-entity-link`/`sx-avatar`, `sx-tabs`** | Ein Seitenkopf und klickbare Nennungen überall (N3, N5, N8). Weniger Sonderwege je Seite | M | [U 6](UX-NAVIGATION.md#6-optimierungsvorschläge-priorisiert-schnelle-gewinne-zuerst) 10–12, U B6, B7, B18 | #7 aus „Als Nächstes“ |
+| **`sx-invite-box`** und „Freunde einladen“ auf der eigenen Seite | Ein Einladungsmuster statt vier. Einladen geht nach „Später“ nicht mehr verloren | S–M | U 6 Nr. 13, U B14, B15 | – |
+| **Web-URL für Vereine und Häfen** | Verlinkung zur Vereinsseite. Für Vereine ein kleiner, sichtbarer Gewinn | S | N (zurückgestellt) | Migration (reservieren). Link-Prüfung wie Beiträge |
+| **GPX zu gespeicherten Törns** | Vergessene Tracks lassen sich nachreichen, ohne den Törn neu anzulegen | M–L | N (Todo), [K 23.3](CONCEPT.md#233-offen) | Plausibilität, Speicherzähler, Wetter, Fotos, Vorschaubild |
+| **Große Gruppen** (Phase 6) | Hinweis vor dem Posten und Tageszusammenfassung. Erst nötig, wenn Verläufe über 100 Personen wachsen | M | K 21.7.1, K 21.8 | Erst mit echten großen Vereinen. Schwellen bestätigen |
+| **Galerie-Beiträge** (Phase 7) | Fotos ohne Törn (Vereinsfest, Arbeitsdienst) | L | K 21.3.4, K 21.8 | Größtes Migrationsrisiko (Neubau `photos`). #3. Neubau als eigener Schritt |
+| **Auffindbarkeit ohne App-Store** | Gefunden werden über Suchmaschinen und Links (Vereins-/Hafenseiten, Link-Vorschau, Installieren-Hinweis) statt über einen Store | S–M | N (Lücken) | Manifest, `sx-install-hint` und OG-Vorschau gibt es. Fehlend: SEO-Prüfung, Sitemap öffentlicher Seiten |
+
+## Später
+
+| Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
+|---|---|---|---|---|
+| **Wertung und Jahresbericht** (Phase 9) | Vereins-Fahrtenpreise ohne Excel | L | K 21.6, K 21.8 | Phase 8. Auslegung „Gewichtung nach Mitgliederzahl“. Als Vereinshilfe kennzeichnen |
+| **Vereins- und Hafen-Challenges mit Opt-in-Rangliste** | Bindung über Wettbewerb zwischen Vereinen | M | N (Quick Wins) | Phase 9 (Opt-in-Muster). Widerspricht K6 („keine Ranglisten“), daher Entscheidung nötig |
+| **Segelschulen und Vereinsjugend mit Trainer-Rolle** | Eine neue Zielgruppe mit vielen Seglerinnen und Seglern | M–L | N (Quick Wins) | Rollenmodell (K 15, 12.12). Datenschutz Minderjährige |
+| **Aufzeichnen unterwegs** (PWA, später nativ) | Schließt die größte Lücke zur Konkurrenz: Man braucht keine zweite App mehr | L | N (Lücken) | Hintergrund-Ortung in PWAs (vor allem iOS) begrenzt, deshalb vorher ein Machbarkeitstest |
+| **Live-Standort teilen** | Sicherheit und Gemeinschaft auf dem Wasser | L | N (Lücken) | Aufzeichnen unterwegs. Datenschutz, Kosten (WebSocket/Durable Object) |
+| Tests nach Bereichen schneiden, `shared.ts` aufteilen | Weniger Merge-Konflikte (`app.test.ts` hat 1853 Zeilen, `shared.ts` 606) | S | R 7, R 8 | Nebenbei, sobald die Dateien ohnehin angefasst werden |
+
+## Bewusst nicht
+
+| Thema | Warum |
+|---|---|
+| Navigation, Seekarten | Dafür gibt es Plotter und Navigations-Apps. Sail Explorer wertet aus und verbindet |
+| Regatta-Organisation | Höchstens eine Schnittstelle (Ergebnisse übernehmen), kein eigenes Meldesystem |
+| Vereinsverwaltung | Beiträge, Mitgliedsdaten und Buchhaltung bleiben in den Vereinssystemen |
+| Hochsee, Charter | Der Fokus liegt auf Binnen- und Küstenrevieren mit Vereinen und Häfen (K 22.1) |
+| Instrumente (NMEA live) | Hardware-Vielfalt und Support-Aufwand, kein Nutzen für die Gewinnung |
+
+## Offene Entscheidungen
+
+| Frage | Optionen / Empfehlung |
+|---|---|
+| **Neuer Name** (Vorschlag „Wendespur“) | Vor der Entscheidung Marke (DPMA/EUIPO) und Domains (`.de`, `.app`) prüfen. Möglichst vor dem Pilot mit Vereinen festlegen, damit Einladungen und Links nicht umziehen müssen |
+| **`feature/supporter-badges`** (7 Commits, Stand 27.10.) | Empfehlung: **verwerfen** und brauchbare Ideen neu aufsetzen. Die Migration `0015_paid_support.sql` kollidiert mit `0015_approvers.sql`. Gutschein (K 18.9a) und freie Eigner (K 13.5) sind inzwischen anders gelöst |
+| **`feature/moderation-konzept`** (nur `docs/MODERATION.md`) | Empfehlung: Offene Teile (Textfilter, Vertrauensstufen, Bildprüfung) mit dem Admin-Bereich (K 18) abgleichen. Was noch fehlt, wird ein Konzept-Abschnitt mit Reservierung, der Branch wird danach gelöscht |
+| **Testkonto für Abläufe mit Anmeldung in der Vorschau** | Siehe Abwägung unten |
+| **Challenges vs. K6** | Ranglisten nur mit Opt-in und nur aus `dist_source = 'track'`? Oder bei „keine Ranglisten“ bleiben? |
+| Schwellen und Kontingente | Galerie 10/200 Fotos je Monat, Tageszusammenfassung 150/15, Hinweis 100 (K 21.10). Erst bei Umsetzung der jeweiligen Phase |
+
+**Abwägung Testkonto in der Vorschau.** Die Vorschau `dev-<branch>` ist öffentlich und hat keine Secrets, und die
+Anmeldung ist dort bewusst gesperrt. Ein Testkonto bräuchte dort einen Anmeldeweg ohne Mail und ohne Passkey. Weil die
+Vorschau öffentlich ist, könnte jede:r diesen Weg nutzen, Inhalte anlegen und Uploads auslösen. Zudem stünde derselbe
+Code im Produktions-Bundle, und ein falsch gesetzter Schalter würde ihn live öffnen. Ein Schutz per Cloudflare Access
+oder geheimem Token bräuchte wieder Secrets in der Vorschau. **Empfehlung:** Die Vorschau bleibt ohne Anmeldung.
+Angemeldete Abläufe werden lokal geprüft (`npm run dev` mit lokaler D1, Mail-Anbieter `log`, Code aus dem Log) und in
+den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur über Cloudflare Access vor
+`dev-*.segeln-potsdam.de` und mit einem Seed-Konto je Vorschau-Datenbank, niemals über einen Schalter im Worker.
+
+## Prozess
+
+| Punkt | Stand |
+|---|---|
+| **Nummern vor dem Start reservieren** | Regel in `CLAUDE.md` („Vor dem ersten Code“). Die Reservierungen stehen unten |
+| **`npm run check` mit `node_modules`-Junction** | Behoben: `vite.config.ts` gibt zusätzlich den echten Pfad von `node_modules` frei (`server.fs.allow`). Ein eigenes `npm ci` ist nur bei abweichendem `package-lock.json` nötig |
+| **Workers-Laufzeit startet unter Last nicht** (`ERR_RUNTIME_FAILURE`) | `worker-harness.ts` wiederholt genau diesen Startfehler bis zu zweimal, Testfehler bleiben unberührt. Beobachten: Tritt er trotzdem auf, `poolOptions.forks.maxForks` begrenzen (kostet Laufzeit, der volle Lauf dauert heute rund 220 s) |
+| **Mobil-Prüfung 375 px** | Verbindlich in Prüfpunkt 8 und Auslieferung Schritt 3, Skript `scripts/mobile-overflow.js`. Gewollte seitliche Scroll-Bereiche tragen `data-scroll-x`: Diagramm-Großansicht (`sx-time-chart`), Gäste-Slider, Entdecken-Leiste und Reiter, Filter und Modi der Startseite, Fotostreifen, Vorschaubilder im Stream, Konto-Reiter |
+| Migrationen nur additiv in Feature-Branches | Neubauten (`photos`, Phase 7) als eigener Schritt (R 4) |
+| Atomare Grenzen als Muster | `INSERT … SELECT … WHERE COUNT < n`, `meta.changes` prüfen (R 10), Pflicht ab Phase 5 |
+
+### Reservierungen
+
+Vergeben bis einschließlich **F-450**, **Konzept 25**, **Migration 0032** (Stand 9316c24). Die nächsten freien Nummern
+sind F-451, Konzept 26 und Migration 0033. Neue Aufträge bekommen ihren Bereich hier, bevor sie starten.
+
+| Branch / Auftrag | F-IDs | Konzept | Migration | Stand |
+|---|---|---|---|---|
+| `docs/roadmap` (diese Roadmap, Prozess-Fixes) | – | – | – | lokal committet |

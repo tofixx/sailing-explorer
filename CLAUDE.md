@@ -1,6 +1,7 @@
 # Sail Explorer – Hinweise für Agenten
 
 Grundlagen: `docs/PRINCIPLES.md`, `docs/CONCEPT.md`, `docs/REQUIREMENTS.md` (Tests nach F-IDs benannt).
+Was als Nächstes kommt und welche Nummern reserviert sind: `docs/ROADMAP.md` (einzige Quelle dafür).
 Ein Push auf `main` deployt die Produktion (segeln-potsdam.de) samt D1-Migrationen; andere Branches landen als
 öffentliche Vorschau unter `dev-<branch>.segeln-potsdam.de`.
 
@@ -19,6 +20,12 @@ Konzept-Abschnitt (`docs/CONCEPT.md`, höchstens eine Tabelle), geprüft gegen `
    genutzt werden; Verhalten bei 375 px.
 5. **Parallele Arbeit** – welche anderen Branches dieselben Querschnitte anfassen (`git log --all -- <datei>`); dort
    vorher abstimmen statt nachher integrieren.
+
+**Nummern vor dem Start reservieren:** Wer parallele Aufträge vergibt, reserviert vorab je Auftrag einen F-ID-Bereich
+(z. B. zehn Nummern), eine Konzept-Abschnittsnummer und ggf. eine Migrationsnummer und trägt sie mit Branch in die
+Tabelle „Reservierungen“ in `docs/ROADMAP.md` ein (laufend fortschreiben, Erledigtes als „gemergt“ markieren).
+Agenten vergeben nur Nummern aus ihrer Reservierung und prüfen vor jeder Vergabe gegen diese Tabelle; ohne Reservierung
+erst nachfragen. Die `git grep`-Prüfung über alle Branches (unten, „Lokale Arbeit“) bleibt zusätzlich Pflicht.
 
 ## Vor jedem Deploy: Review durch einen eigenen Agenten
 
@@ -43,7 +50,11 @@ Prüfpunkte:
 8. **Frontend in Komponenten** – UI gehört in Lit-Komponenten (`src/components`), gemeinsame Stile und Verhalten in
    geteilte Bausteine (`shared.ts`, z. B. `dialogStyles`) statt Kopien je Komponente; `app.ts`/`app.css` nur für
    Verdrahtung und Seitenraster. Bewährte Muster nutzen (Properties rein, Events raus, Controller für Abläufe, keine
-   Logik im Template) und Mobil-Verhalten (Handy-Breite, Touch, Scrollen) mitdenken.
+   Logik im Template) und Mobil-Verhalten (Handy-Breite, Touch, Scrollen) mitdenken. **Verbindlich:** Jede geänderte
+   Seite und jeder geänderte Dialog wird bei 375 px Breite geprüft – kein Element ragt über den rechten Rand, die Seite
+   scrollt nicht seitlich, Elemente werden schmal genug. Gewollte seitliche Scroll-Bereiche (Slider, Reiter-/Filterleisten,
+   Diagramm-Großansicht) tragen `data-scroll-x`. Prüfen mit `scripts/mobile-overflow.js` (im Browser per
+   `javascript_tool` oder in der Konsole; Ergebnis `ok: true`, sonst Selektor, Breite, rechte Kante).
 
 `npm run check` (Typecheck, Tests, Build) muss vorher grün sein.
 
@@ -54,7 +65,8 @@ live gehen, immer dieser Weg – nie direkt ungeprüft auf `main`:
 1. `npm run check` lokal grün, dann den Branch pushen. Woodpecker prüft ihn (Typecheck, Tests, Build) und stellt die
    Vorschau `dev-<branch>.segeln-potsdam.de` bereit (eigene Datenbank, ohne Anmeldung).
 2. Währenddessen läuft der Review-Agent (oben). Befunde beheben, erneut pushen.
-3. Erst wenn die Branch-Pipeline grün ist und die Vorschau lädt (Startseite, geänderte Seiten, mobil): nach `main`
+3. Erst wenn die Branch-Pipeline grün ist und die Vorschau lädt (Startseite, geänderte Seiten, mobil bei 375 px mit
+   `scripts/mobile-overflow.js` ohne Befund – nichts ragt rechts heraus, kein seitliches Scrollen außer `data-scroll-x`): nach `main`
    mergen und pushen. Die Pipeline wendet die Migrationen an und deployt; danach die Produktion kurz prüfen (Bundle
    enthält die Änderung, betroffene `/api/…` antworten).
 4. Gemergte Branches auf `origin` löschen (`git push origin --delete <branch>`) und den lokalen Worktree entfernen
@@ -64,7 +76,9 @@ live gehen, immer dieser Weg – nie direkt ungeprüft auf `main`:
 ## Lokale Arbeit
 
 Jede Sitzung arbeitet in einem eigenen `git worktree` (eigener Ordner, eigener Branch, gemeinsames `.git`) – kein
-Branch-Wechsel im selben Ordner. Für schnelle Runden gezielt testen (`npx vitest run <datei> -t "F-…"`), das volle
+Branch-Wechsel im selben Ordner. `node_modules` darf eine Junction auf einen anderen Worktree sein (`vite.config.ts`
+gibt dessen echten Pfad frei); bei abweichendem `package-lock.json` stattdessen eigenes `npm ci`. Worktrees nie mit
+`Remove-Item -Recurse` löschen (leert das Junction-Ziel), sondern wie in „Auslieferung“ Schritt 4. Für schnelle Runden gezielt testen (`npx vitest run <datei> -t "F-…"`), das volle
 `npm run check` erst vor dem Commit.
 Neue F-IDs vor der Vergabe in allen Branches suchen (`git grep -n "F-2.." $(git branch --format="%(refname:short)") -- docs/REQUIREMENTS.md`),
 parallele Sitzungen kollidieren sonst.

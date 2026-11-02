@@ -521,7 +521,7 @@ export class SxTimeChart extends LitElement {
     const i = this.hoverIndex();
     const p = i >= 0 ? this.points[i] : null;
     return html`
-      <div class="scroll"><div class="wrap" role="img" aria-label=${this.summary()}>
+      <div class="scroll" data-scroll-x><div class="wrap" role="img" aria-label=${this.summary()}>
         <canvas class="base"></canvas>
         <canvas
           class="overlay"

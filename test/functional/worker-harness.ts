@@ -60,6 +60,25 @@ export async function applyMigrations(db: D1Like, files: string[]): Promise<void
 }
 
 /**
+ * Startet workerd; unter Last (viele Testdateien parallel) scheitert der Prozessstart gelegentlich mit
+ * `ERR_RUNTIME_FAILURE`. Nur genau dieser Startfehler wird bis zu zweimal wiederholt – Fehler im Worker oder in Tests
+ * bleiben unberührt.
+ */
+async function startMiniflare(options: ConstructorParameters<typeof Miniflare>[0], attempts = 3): Promise<Miniflare> {
+  for (let i = 1; ; i++) {
+    const mf = new Miniflare(options);
+    try {
+      await mf.ready;
+      return mf;
+    } catch (err) {
+      await mf.dispose().catch(() => undefined);
+      if ((err as { code?: string }).code !== 'ERR_RUNTIME_FAILURE' || i >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, 500 * i));
+    }
+  }
+}
+
+/**
  * bindings: zusätzliche/abweichende vars und Secrets (z. B. Stripe-Konfiguration für die Unterstützen-Tests).
  * opts.migrateBefore: nur die Migrationen vor diesem Präfix anwenden (Migrationstests mit Altbestand).
  */
@@ -87,7 +106,7 @@ export async function startWorker(
   const logs: string[] = [];
 
   // Miniflare 5 (Beta) hat eine neue Options-Struktur; die bekannte v4-Form wird konvertiert.
-  const mf = new Miniflare(convertV4MiniflareOptions({
+  const options = convertV4MiniflareOptions({
     // Worker-Logs (z. B. „[mail:log] …“) nicht in die Testausgabe, Fehler schon
     handleStructuredLogs: (log: { level: string; message: string }) => {
       logs.push(log.message);
@@ -128,8 +147,8 @@ export async function startWorker(
         },
       },
     ],
-  }));
-  await mf.ready;
+  });
+  const mf = await startMiniflare(options);
 
   // Migrationen in Reihenfolge selbst anwenden (wie `wrangler d1 migrations apply`).
   const db = (await mf.getD1Database('DB')) as unknown as D1Like;
