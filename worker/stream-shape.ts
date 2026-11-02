@@ -72,6 +72,7 @@ export interface ActivityRow {
   ps_hidden?: number | null;
   ps_locked?: number | null;
   ps_owner?: string | null;
+  ps_reach?: string | null;
   /** „Sichtbar bis“ des Törns (F-427) */
   s_reach?: string | null;
   /** Hafen bei `harbor` (Konzept 12.4) */
@@ -159,13 +160,14 @@ function shapePost(r: ActivityRow, viewer: Viewer, base: StreamItem, group: Stre
   const boatPublic = r.pb_vis === 'public' && !r.pb_hidden && !r.pb_owner_suspended;
   const where: NonNullable<StreamItem['post']>['where'] =
     channel === 'harbor' && r.ph_slug && !r.ph_hidden ? { kind: 'harbor', slug: r.ph_slug, name: r.ph_name ?? '' }
-    : channel === 'boat' && r.p_cid && r.pb_name !== null && r.pb_name !== undefined && (boatPublic || atHome) ? { kind: 'boat', id: r.p_cid, name: r.pb_name }
+    : channel === 'boat' && r.p_cid && r.pb_name !== null && r.pb_name !== undefined && (boatPublic || atHome || isAuthor) ? { kind: 'boat', id: r.p_cid, name: r.pb_name }
     : undefined;
   const channelVisible = channel === 'group' ? !!group : channel === 'user' ? true : !!where;
   const keyOk = !!r.p_key && !!viewer.postKey && timingSafeEqual(viewer.postKey, r.p_key);
   const visible = canSeePost(
     { visibility, channel, hidden: false, authorSuspended: false, authorPublic: !!actor },
-    { isAuthor: isAuthor && channel === 'user', channelVisible, isMember: role !== null, keyOk },
+    // die Autor:in sieht eigene Beiträge in jedem Verlauf (auch `/p/<id>`), solange es ihn für sie gibt (K2)
+    { isAuthor, channelVisible, isMember: role !== null, keyOk },
   );
   if (!visible || (channel === 'group' && !group)) return null;
   const reach = isReach(r.p_reach) ? r.p_reach : 'here';
@@ -178,10 +180,12 @@ function shapePost(r: ActivityRow, viewer: Viewer, base: StreamItem, group: Stre
     if (!downward && (!lvl || !reachCovers(reach, lvl))) return null;
   }
   const canDelete = isAuthor || (channel === 'group' && canManageGroup(role));
+  // angehängter Törn (F-426): öffentlich und sein eigenes „Sichtbar bis“ deckt die Stufe, in der der Beitrag gerade
+  // erscheint (fail closed) – oder der eigene
+  const level = at && !atHome && at.kind !== 'single' ? levelOf(at) : null;
+  const attachOk = r.ps_vis === 'public' && !r.ps_hidden && (!level || reachCovers(isReach(r.ps_reach) ? r.ps_reach : 'all', level));
   const attached =
-    r.ps_id && !r.ps_locked && ((r.ps_vis === 'public' && !r.ps_hidden) || (!!viewer.id && viewer.id === r.ps_owner))
-      ? { id: r.ps_id, title: r.ps_title ?? '', distNm: r.ps_dist ?? 0 }
-      : null;
+    r.ps_id && !r.ps_locked && (attachOk || (!!viewer.id && viewer.id === r.ps_owner)) ? { id: r.ps_id, title: r.ps_title ?? '', distNm: r.ps_dist ?? 0 } : null;
   const path = keyOk && visibility === 'unlisted' ? `/p/${r.p_id}/${r.p_key}` : `/p/${r.p_id}`;
   return {
     ...base,

@@ -126,6 +126,8 @@ export class SxProfilePage extends LitElement {
         margin: 0 auto;
         padding: var(--s-5) var(--s-4) var(--s-6);
         display: grid;
+        /* eine Spalte, die nie breiter als die Seite wird (Titelbild-Platzhalter, lange Wörter – 375 px) */
+        grid-template-columns: minmax(0, 1fr);
         gap: var(--s-5);
       }
       .hero {

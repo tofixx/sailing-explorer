@@ -6,7 +6,7 @@ import type { Env } from './env';
 import { randomId } from './crypto';
 import { IN_LOGBOOK_SQL } from './logbook-sql';
 import { reachAtLeastSql } from './reach-sql';
-import { postLogKey } from './post-sql';
+import { postLogPrefix } from './post-sql';
 import { crossedMilestones, dayKey, seasonOf, type ActivityKind } from '../src/domain/groups';
 import { deleteBoatReactions, deleteGroupReactions, nightlyReactionCleanup, userReactionCleanup } from './reaction-cleanup';
 import { deleteBoatNotifications, groupNotificationCleanup, userNotificationCleanup } from './notification-cleanup';
@@ -344,7 +344,7 @@ export function channelPostsCleanup(env: Env, kind: 'harbor' | 'boat', id: strin
     stmt(`DELETE FROM notifications WHERE subject_kind = 'post' AND subject_id IN (${posts})`),
     stmt(`DELETE FROM reports WHERE target_kind = 'post' AND target_id IN (${posts})`),
     stmt(`DELETE FROM activity WHERE subject_kind = 'post' AND subject_id IN (${posts})`),
-    env.DB.prepare('DELETE FROM post_log WHERE group_id = ?').bind(postLogKey({ kind, id })),
+    env.DB.prepare(`DELETE FROM post_log WHERE substr(group_id, 1, length(?1)) = ?1`).bind(postLogPrefix(kind, id)),
     stmt(`DELETE FROM posts WHERE channel_kind = ?1 AND channel_id = ?2 AND share_id IS NULL`),
   ];
 }

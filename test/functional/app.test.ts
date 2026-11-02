@@ -87,6 +87,8 @@ interface Server {
   hold?: Promise<void>;
   /** Antwort von /api/shares/:id/crew (fehlt = 404) */
   crew?: Record<string, unknown>;
+  /** Bootsseite und ihr Stream (F-425); `boatStreamDelay` hält den Stream an (Reihenfolge Anker ↔ Nachladen) */
+  boat?: { page: Record<string, unknown>; stream: unknown; delay?: Promise<void> };
   /** Vereine, Teams, Neuigkeiten (Konzept 11): Gruppenseite, Gruppen-Stream, eigene Gruppen, persönlicher Stream, Vorschläge */
   groups?: { page?: Record<string, unknown>; stream?: unknown; mine?: unknown; myStream?: unknown; suggestions?: unknown; publicStream?: unknown; nearStream?: unknown; unread?: { count: number; more: boolean } };
   /** Verein, Hafen, Reaktionen (Konzept 12): Hafenseite, Hafen-Stream, Heimat, Reaktionen eines Törns */
@@ -163,6 +165,14 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     if (url === '/api/me/suggestions') return json(gr.suggestions ?? { people: [] });
     if (url.startsWith('/api/follows/')) return json({ followers: 1, following: 0, isFollowing: method === 'PUT' });
     if (url === '/api/boats' && method === 'GET') return json({ boats: [] });
+  }
+  if (server.boat) {
+    if (/^\/api\/boats\/Boot0000000001\/stream/.test(url)) {
+      await server.boat.delay;
+      return json(server.boat.stream);
+    }
+    if (url === '/api/boats/Boot0000000001') return json(server.boat.page);
+    if (url.startsWith('/api/pins')) return json({ items: [], canManage: false });
   }
   if (url === '/api/me/support') return server.user && server.support ? json(server.support) : json({ error: 'unauthenticated', message: 'Bitte zuerst anmelden.' }, 401);
   if (url === '/api/support/checkout' && method === 'POST') {
@@ -1649,6 +1659,27 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     } finally {
       assign.mockRestore();
     }
+  });
+});
+
+describe('F-406 Anker auf der Bootsseite', () => {
+  it('[F-406] [F-425] /b/<id>#p-<id>: der Anker wartet auf den Boots-Stream und hebt die Karte dort hervor (nicht die Einzelkarte)', async () => {
+    let release!: () => void;
+    const delay = new Promise<void>((r) => (release = r));
+    const post = { id: 'A1', kind: 'post', createdAt: 1, actor: null, group: null, post: { id: 'P1abcdefghijkl', body: 'Neue Segel', link: null, canDelete: false, where: { kind: 'boat', id: 'Boot0000000001', name: 'Möwe' } } };
+    server.boat = {
+      page: { boat: { id: 'Boot0000000001', name: 'Möwe', boatType: '', lengthM: null, sailNumber: '', homePort: '', description: '', visibility: 'public', createdAt: 0, updatedAt: 0, owner: null, role: null }, stats: { voyages: 0, distNm: 0 }, voyages: [] },
+      stream: { items: [post], cursor: null },
+      delay,
+    };
+    const started = startApp('/b/Boot0000000001#p-P1abcdefghijkl');
+    setTimeout(release, 50);
+    await started;
+    const page = el<{ highlight: string | null; data: { kind: string } | null }>('sx-profile-page');
+    await vi.waitFor(() => expect(page.highlight).toBe('P1abcdefghijkl'));
+    expect(page.data?.kind).toBe('boat');
+    expect(location.pathname).toBe('/b/Boot0000000001');
+    expect(server.calls.some((c) => c.url.startsWith('/api/posts/'))).toBe(false);
   });
 });
 

@@ -2992,6 +2992,13 @@ Abweichungen bzw. Festlegungen gegenüber 21.2–21.7:
   „bis Hafen“ zusätzlich Boot, Hafen des Boots und Hafenseite. Ziele von Törn und Fotos entstehen beim Anlegen und bei
   jeder Änderung (Auswahl, Boot, Sichtbarkeit, „Sichtbar bis“) aus derselben Funktion. `/entdecken` gehört zur
   Community und zeigt nur Törns mit „überall“.
+- **Tageszähler (Review S2):** Gruppen zählen wie bisher je Gruppe, das Profil je Person; Hafen und Boot zählen je
+  Konto (`harbor:<id>:<konto>`), weiter 5 pro Tag und Person – sonst sperrte, wer fünfmal schreibt und löscht, den
+  Verlauf für alle.
+- **Autor:in und Erweitern (Review K2, K3):** Die Autor:in sieht eigene Beiträge in jedem Verlauf (auch `/p/<id>`).
+  Sichtbarkeit bzw. „Sichtbar bis“ erweitern geht nur mit aktuellem Schreibrecht im Verlauf, einschränken immer.
+- **Anhang (Review K5):** Ein angehängter Törn erscheint nur, wenn sein eigenes „Sichtbar bis“ die Stufe abdeckt, in der
+  der Beitrag gerade gelesen wird (fail closed).
 - **Hafen schreiben (B6):** Boot zählt als Eigner oder Boots-Admin; Anleger:in bzw. Vertretung und Moderation dürfen
   auch. Löschen eines Hafen- oder Boots-Beitrags: Autor:in (Pins und Moderation über das Menü folgen in Phase 3).
 - **Ein Einstieg je Aufgabe (Leitlinie des Betreibers):** „+ Neu“ ersetzt „Track anlegen“, den runden Knopf und „Ins

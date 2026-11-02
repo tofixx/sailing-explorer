@@ -7,7 +7,7 @@ import {
 import { countsInLogbook, initialLogState, isLogState, logStateOn } from '../src/domain/logbook';
 import {
   REACHES, canWriteInHarbor, canWriteOnBoat, channelKey, channelName, channelPath, firstLine, reachChainText, reachChoices, reachCovers,
-  reachOptions, reachTargets, type ReachChain,
+  reachOptions, reachTargets, widensAudience, type ReachChain,
 } from '../src/domain/posts';
 import { isAppPath } from '../src/domain/visibility';
 import { reachAtLeastSql } from '../worker/reach-sql';
@@ -211,5 +211,15 @@ describe('F-406 Beiträge ohne eigene Seite: /p/<id>', () => {
     expect(isAppPath('https://evil.example/x')).toBe(false);
     expect(isAppPath('/x/abc')).toBe(false);
     expect(isAppPath('//evil.example')).toBe(false);
+  });
+});
+
+describe('F-409 Erweitern braucht Schreibrecht', () => {
+  it('[F-409] höhere Sichtbarkeit oder höheres „Sichtbar bis“ erweitert; herabsetzen nicht', () => {
+    expect(widensAudience({ visibility: 'members', reach: 'here' }, { visibility: 'public', reach: 'here' })).toBe(true);
+    expect(widensAudience({ visibility: 'public', reach: 'club' }, { visibility: 'public', reach: 'all' })).toBe(true);
+    expect(widensAudience({ visibility: 'public', reach: 'all' }, { visibility: 'public', reach: 'here' })).toBe(false);
+    expect(widensAudience({ visibility: 'public', reach: 'all' }, { visibility: 'members', reach: 'here' })).toBe(false);
+    expect(widensAudience({ visibility: 'unlisted', reach: 'here' }, { visibility: 'public', reach: 'here' })).toBe(true);
   });
 });

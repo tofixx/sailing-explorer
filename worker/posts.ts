@@ -23,7 +23,7 @@ import { GROUP_LIMITS } from '../src/domain/limits';
 import { cleanComment, commentLength, countLinks } from '../src/domain/comment-text';
 import { POST_MAX, POST_MAX_LINKS, STREAM_PAGE, canManageGroup, decodeCursor, encodeCursor, parsePostLink, type GroupKind, type GroupRole } from '../src/domain/groups';
 import {
-  canChoosePostVisibility, canManageChannel, canSeePost, canWriteInGroup, channelKey, channelPath, effectivePostBy, effectivePostVisibility, isChannelKind, isMyPostArea,
+  canChoosePostVisibility, canManageChannel, canSeePost, widensAudience, canWriteInGroup, channelKey, channelPath, effectivePostBy, effectivePostVisibility, isChannelKind, isMyPostArea,
   isPostVisibility, isReach, postVisibilityChoices, reachChoices, reachFor, reachTargets, shareKindOf,
   type AttachableShare, type ChannelKind, type ChannelRef, type MyPost, type PostKind, type PostLink, type PostVisibility, type ProfilePost, type Reach, type ReachChain,
 } from '../src/domain/posts';
@@ -80,7 +80,7 @@ async function readPostInput(env: Env, userId: string, input: RawPostInput, c: W
 }
 
 
-const LOG_WHERE: Record<ChannelKind, string> = { group: 'und Gruppe', user: 'im Profil', harbor: 'im Hafen', boat: 'am Boot' };
+const LOG_WHERE: Record<ChannelKind, string> = { group: 'und Gruppe', user: 'im Profil', harbor: 'von dir im Hafen', boat: 'von dir am Boot' };
 
 /** Link zur Karte (F-406): „Nur mit Link“ mit Schlüssel. */
 const postPath = (id: string, visibility: string, key: string | null) => (visibility === 'unlisted' && key ? `/p/${id}/${key}` : `/p/${id}`);
@@ -94,7 +94,7 @@ const forActivity = (id: string, authorId: string, c: { kind: ChannelKind; id: s
 /** Tagesgrenze prüfen, Beitrag samt Zähler in einem Batch schreiben, danach ins Log (Heimatverlauf + Ausbreitung). */
 async function insertTextPost(env: Env, authorId: string, c: WritableChannel, p: PostInput): Promise<{ id: string; createdAt: number; path: string }> {
   const now = Date.now();
-  const key = postLogKey(c);
+  const key = postLogKey(c, authorId);
   const today = (await env.DB.prepare('SELECT COUNT(*) AS n FROM post_log WHERE group_id = ? AND created_at > ?').bind(key, now - DAY).first<{ n: number }>())?.n ?? 0;
   if (today >= GROUP_LIMITS.postsPerDay) {
     throw new HttpError(429, 'post_quota', `Höchstens ${GROUP_LIMITS.postsPerDay} Beiträge pro Tag ${LOG_WHERE[c.kind]} – morgen geht es weiter.`);
@@ -182,6 +182,10 @@ export async function updatePost(request: Request, env: Env, id: string): Promis
   const raw = await readJson<{ visibility?: unknown; reach?: unknown }>(request);
   const { visibility, reach } = readAudience({ visibility: raw.visibility, reach: raw.reach ?? (isReach(p.reach) ? p.reach : undefined) }, c as WritableChannel, p.visibility);
   if (visibility !== p.visibility && !canChoosePostVisibility(visibility, await isSupporter(env, user.id))) throw visibilityRequiresSupport(env);
+  // erweitern nur mit aktuellem Schreibrecht im Verlauf (z. B. nach Austritt oder ohne Boot im Hafen nicht mehr)
+  if (widensAudience({ visibility: p.visibility, reach: isReach(p.reach) ? p.reach : 'here' }, { visibility, reach }) && !(await writableChannel(env, user.id, p.channel_kind, p.channel_id))) {
+    throw new HttpError(403, 'forbidden', 'Erweitern kannst du nur, wo du noch schreiben darfst – einschränken geht immer.');
+  }
   const linkKey = visibility === 'unlisted' ? (p.link_key ?? newShareKey()) : p.link_key;
   await env.DB.prepare('UPDATE posts SET visibility = ?, reach = ?, link_key = ?, updated_at = ? WHERE id = ?').bind(visibility, reach, linkKey, Date.now(), p.id).run();
   await syncPostActivity(env, p.id, forActivity(p.id, user.id, c, chain, visibility, reach), p.created_at);

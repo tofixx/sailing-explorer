@@ -251,8 +251,12 @@ interface Row {
   p_group: string | null;
   p_handle: string | null;
   p_ck: string | null;
+  p_vis: string | null;
+  p_susp: number | null;
   ph_name: string | null;
   pb_name: string | null;
+  pb_vis: string | null;
+  pb_role: number | null;
   a_actor: string | null;
   g_slug: string | null;
   g_name: string | null;
@@ -286,7 +290,9 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
     s.user_id AS s_owner, s.title AS s_title, s.visibility AS s_vis, s.share_key AS s_key,
     s.hidden_at AS s_hidden, s.locked_at AS s_locked, s.comments_mode AS s_cmode,
     p.author_id AS p_author, p.hidden_at AS p_hidden, p.group_id AS p_group, pp.handle AS p_handle, a.actor_id AS a_actor,
-    p.channel_kind AS p_ck, ph.name AS ph_name, pb.name AS pb_name,
+    p.channel_kind AS p_ck, p.visibility AS p_vis, ph.name AS ph_name, pb.name AS pb_name, pb.visibility AS pb_vis,
+    EXISTS (SELECT 1 FROM users pu WHERE pu.id = p.author_id AND pu.suspended_at IS NOT NULL) AS p_susp,
+    (pb.owner_id = n.user_id OR EXISTS (SELECT 1 FROM boat_admins ba WHERE ba.boat_id = pb.id AND ba.user_id = n.user_id)) AS pb_role,
     g.slug AS g_slug, g.name AS g_name, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden,
     g.locked_at AS g_locked, g.approve_by AS g_approve, gm.role AS g_role,
     EXISTS (SELECT 1 FROM group_requests r WHERE r.group_id = g.id) AS g_open,
@@ -341,12 +347,20 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
       if (r.kind === 'expiry') return { ...base, title: r.s_title, what: 'bald', href: '/?support=open' };
       return { ...base, title: r.s_title, what: 'deinen Törn', href: sharePath('s', r.subject_id, r.s_vis ?? 'private', r.s_key) };
     case 'post':
-      // Neuer Beitrag (F-416): Gruppe nur, solange man Mitglied ist; Hafen bzw. Boot solange sichtbar
+      // Neuer Beitrag (F-416): nur, solange die Empfängerin ihn sehen darf – kein Eintrag, der auf eine 404 führt.
+      // Gruppe: öffentlich bzw. „Nur Mitglieder“ und noch Mitglied; Hafen: öffentlich; Boot: öffentlich und das Boot
+      // öffentlich oder selbst verwaltet. Nie bei ausgeblendetem Beitrag oder gesperrter Autor:in.
       if (r.kind === 'post') {
-        if (r.p_hidden) return null;
-        if (r.p_ck === 'group') return r.g_slug && !r.g_hidden && !r.g_locked && r.g_role ? { ...base, title: r.g_name ?? '', what: '', href: `/p/${r.subject_id}` } : null;
-        const where = r.p_ck === 'harbor' ? r.ph_name : r.p_ck === 'boat' ? r.pb_name : null;
-        return where ? { ...base, title: where, what: '', href: `/p/${r.subject_id}` } : null;
+        if (r.p_hidden || r.p_susp) return null;
+        const href = `/p/${r.subject_id}`;
+        if (r.p_ck === 'group') {
+          const ok = (r.p_vis === 'public' || r.p_vis === 'members') && r.g_slug && !r.g_hidden && !r.g_locked && r.g_role;
+          return ok ? { ...base, title: r.g_name ?? '', what: '', href } : null;
+        }
+        if (r.p_vis !== 'public') return null;
+        if (r.p_ck === 'harbor') return r.ph_name ? { ...base, title: r.ph_name, what: '', href } : null;
+        if (r.p_ck === 'boat') return r.pb_name && (r.pb_vis === 'public' || r.pb_role) ? { ...base, title: r.pb_name, what: '', href } : null;
+        return null;
       }
       if (r.p_author !== userId || r.p_hidden) return null;
       // Beiträge haben keine eigene Seite: `/p/<id>` führt zum Anker im Heimatverlauf (F-406)

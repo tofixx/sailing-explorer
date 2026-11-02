@@ -39,7 +39,7 @@ const ROW_COLS_JOINS = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subje
     ph.slug AS ph_slug, ph.name AS ph_name, ph.hidden_at AS ph_hidden,
     pb.name AS pb_name, pb.visibility AS pb_vis, pb.hidden_at AS pb_hidden,
     EXISTS (SELECT 1 FROM users pbu WHERE pbu.id = pb.owner_id AND pbu.suspended_at IS NOT NULL) AS pb_owner_suspended,
-    ps.id AS ps_id, ps.title AS ps_title, ps.dist_nm AS ps_dist, ps.visibility AS ps_vis, ps.hidden_at AS ps_hidden, ps.locked_at AS ps_locked, ps.user_id AS ps_owner,
+    ps.id AS ps_id, (SELECT psp.reach FROM posts psp WHERE psp.id = ps.id) AS ps_reach, ps.title AS ps_title, ps.dist_nm AS ps_dist, ps.visibility AS ps_vis, ps.hidden_at AS ps_hidden, ps.locked_at AS ps_locked, ps.user_id AS ps_owner,
     h.slug AS h_slug, h.name AS h_name, h.hidden_at AS h_hidden,
     cb.ver AS cb_ver, cb.focus_y AS cb_y, cu.ver AS cu_ver, cu.focus_y AS cu_y, cg.ver AS cg_ver, cg.focus_y AS cg_y
   FROM a

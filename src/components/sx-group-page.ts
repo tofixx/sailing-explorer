@@ -108,6 +108,8 @@ export class SxGroupPage extends LitElement {
         margin: 0 auto;
         padding: var(--s-5) var(--s-4) var(--s-6);
         display: grid;
+        /* eine Spalte, die nie breiter als die Seite wird (Titelbild-Platzhalter, lange Wörter – 375 px) */
+        grid-template-columns: minmax(0, 1fr);
         gap: var(--s-5);
       }
       .hero {
@@ -546,7 +548,11 @@ export class SxGroupPage extends LitElement {
     // Gäste: erst anmelden; bei „Nur auf Einladung“ nur der Hinweis wie für Angemeldete (F-333)
     if (!this.signedIn) return g.joinMode !== 'invite' ? html`<button class="btn primary" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden und beitreten</button>` : html`<span class="faint">Beitritt nur auf Einladung</span>`;
     // Mitglieder: Stumm und Austreten stehen im Zahnrad-Menü (N6); stumm bleibt am Kopf erkennbar
-    if (m.role) return m.muted ? html`<span class="faint" title="Neuigkeiten erscheinen nicht in deinem Stream und der Wochenmail">${icon('bell-off')} Stumm</span>` : '';
+    if (m.role) {
+      return html`${m.muted ? html`<span class="faint" title="Neuigkeiten erscheinen nicht in deinem Stream und der Wochenmail">${icon('bell-off')} Stumm</span>` : ''}${m.role === 'owner'
+        ? html`<span class="faint" title="Übergib die Gruppe in der Mitgliederliste an einen Admin – danach kannst du austreten.">Eigentümer · erst übergeben, dann austreten</span>`
+        : ''}`;
+    }
     if (m.requested) return html`<span class="faint">Anfrage gestellt</span><button class="btn ghost" @click=${() => emit(this, 'sx-group-withdraw', { id: g.id })}>Anfrage zurückziehen</button>`;
     if (m.canJoin) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitreten</button>`;
     if (m.canRequest) return html`<button class="btn primary" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-join', { id: g.id })}>${icon('user')} Beitritt anfragen</button>`;

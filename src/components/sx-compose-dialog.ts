@@ -100,6 +100,7 @@ export class SxComposeDialog extends LitElement {
                 </select></label>
               ${t
                 ? html`<sx-post-composer label="Text" placeholder="Was gibt es Neues?" ?busy=${this.busy} .choices=${t.choices} .reaches=${t.reaches} .shares=${this.shares}
+                    hint="Höchstens 5 Beiträge pro Tag und Verlauf. Reiner Text, Links werden klickbar."
                     .choiceHints=${Object.fromEntries(t.choices.map((v) => [v, `${POST_VISIBILITY_CHOICE[v]}: ${HINT[v]}`]))}
                     @sx-post-submit=${(e: CustomEvent) => this.submit(e)}></sx-post-composer>`
                 : ''}`}

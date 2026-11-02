@@ -1,7 +1,8 @@
-import { LitElement, css, html, type PropertyValues } from 'lit';
+import { LitElement, css, html } from 'lit';
 import type { User } from '../services/api';
 import { icon } from './icons';
 import { base, emit, menuStyles } from './shared';
+import { MenuController } from './menu-controller';
 
 /** Adresse des Fahrtenbuchs auf der eigenen Seite (Reiter in „Mein Verlauf“, F-428). */
 export const logbookPath = (handle: string) => `/u/${handle}?bereich=fahrtenbuch`;
@@ -49,36 +50,8 @@ export class SxAccountMenu extends LitElement {
     `,
   ];
 
-  updated(changed: PropertyValues<this>) {
-    if (!changed.has('open') || changed.get('open') === undefined) return;
-    if (this.open) this.renderRoot.querySelector<HTMLElement>('.item')?.focus();
-    else if (this.shadowRoot?.activeElement) this.renderRoot.querySelector<HTMLButtonElement>('.toggle')?.focus();
-  }
-
-  connectedCallback() {
-    super.connectedCallback();
-    document.addEventListener('pointerdown', this.onOutside);
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    document.removeEventListener('pointerdown', this.onOutside);
-  }
-
-  private onOutside = (e: PointerEvent) => {
-    if (this.open && !e.composedPath().includes(this)) this.open = false;
-  };
-
-  private onFocusOut = (e: FocusEvent) => {
-    const next = e.relatedTarget as Node | null;
-    if (this.open && next && !this.shadowRoot!.contains(next)) this.open = false;
-  };
-
-  private onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !this.open) return;
-    e.preventDefault();
-    this.open = false;
-  };
+  /** Klick daneben, Fokus weg, Escape schließen; Fokus beim Öffnen und Schließen. */
+  private menu = new MenuController(this);
 
   private account(tab?: string) {
     this.open = false;
@@ -98,7 +71,7 @@ export class SxAccountMenu extends LitElement {
     if (!u) return '';
     const handle = u.handle ?? null;
     const letter = (u.displayName || u.email)[0] ?? '?';
-    return html`<div @keydown=${this.onKey} @focusout=${this.onFocusOut}>
+    return html`<div @keydown=${this.menu.onKey} @focusout=${this.menu.onFocusOut}>
       <button class="btn ghost icon toggle" type="button" aria-haspopup="true" aria-expanded=${this.open} aria-controls="am"
         title="Mein Bereich (${u.displayName || u.email})" aria-label="Mein Bereich" @click=${() => (this.open = !this.open)}>
         <span class="avatar">${letter}</span>

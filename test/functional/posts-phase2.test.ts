@@ -103,6 +103,19 @@ describe('F-425 Hafen- und Boots-Verlauf', () => {
     expect(item.post.where).toMatchObject({ kind: 'harbor', slug: h1.slug });
   });
 
+  it('[F-425] Tageszähler im Hafen je Konto: wer fünfmal schreibt und löscht, sperrt nur sich selbst', async () => {
+    const a = await s.person({ profile: 'public' });
+    const b = await s.person({ profile: 'public' });
+    const h1 = await harbor(a);
+    for (const p of [a, b]) await s.boat(p, { harborId: h1.id });
+    for (let i = 0; i < 5; i++) {
+      const p = await write(a, { kind: 'harbor', id: h1.id }, { body: `Nr. ${i}` });
+      expect((await s.send('DELETE', `/api/posts/${p!.id}`, a.cookie)).status).toBe(204);
+    }
+    expect(await s.errorOf(await s.send('POST', '/api/posts', a.cookie, { channel: { kind: 'harbor', id: h1.id }, body: 'zu viel' }))).toBe('post_quota');
+    await write(b, { kind: 'harbor', id: h1.id }, { body: 'geht noch' });
+  });
+
   it('[F-425] Boot: Eigner schreibt, Bootsseite zeigt es; privates Boot: Stream nur für Verwalter, F-415 – nie aus dem Cache für andere', async () => {
     const owner = await s.person({ profile: 'public', supporter: true });
     const other = await s.person({ profile: 'public' });
@@ -360,7 +373,7 @@ describe('F-404 Löschkonzept der neuen Verläufe', () => {
     const post = await busyPost(p, { kind: 'harbor', id: h1.id });
     expect((await s.send('DELETE', `/api/admin/harbors/${h1.id}`, admin.cookie, { confirm: h1.id })).status).toBe(204);
     expect(await gone(post.id)).toEqual(none);
-    expect(await one('SELECT 1 AS x FROM post_log WHERE group_id = ?', `harbor:${h1.id}`)).toBeNull();
+    expect(await one(`SELECT 1 AS x FROM post_log WHERE group_id LIKE ?`, `harbor:${h1.id}:%`)).toBeNull();
   });
 
   it('[F-404] Häfen zusammengeführt: Beiträge, Ziele und Tageszähler wandern zum Ziel', async () => {
@@ -371,8 +384,8 @@ describe('F-404 Löschkonzept der neuen Verläufe', () => {
     await ok(await s.send('POST', `/api/admin/harbors/${src.id}/merge`, admin.cookie, { into: dst.id }));
     expect(await one('SELECT channel_id FROM posts WHERE id = ?', post!.id)).toEqual({ channel_id: dst.id });
     expect(await targets(post!.id)).toEqual([`harbor:${dst.id}`]);
-    expect(await one('SELECT 1 AS x FROM post_log WHERE group_id = ?', `harbor:${src.id}`)).toBeNull();
-    expect(await one('SELECT 1 AS x FROM post_log WHERE group_id = ?', `harbor:${dst.id}`)).not.toBeNull();
+    expect(await one('SELECT 1 AS x FROM post_log WHERE group_id = ?', `harbor:${src.id}:${p.user.id}`)).toBeNull();
+    expect(await one('SELECT 1 AS x FROM post_log WHERE group_id = ?', `harbor:${dst.id}:${p.user.id}`)).not.toBeNull();
   });
 
   it('[F-404] Boot gelöscht – direkt und über die Kontolöschung der Eigner:in: Beiträge am Boot weg', async () => {
@@ -386,7 +399,7 @@ describe('F-404 Löschkonzept der neuen Verläufe', () => {
     const post2 = await write(q, { kind: 'boat', id: boat2.id }, { body: 'bald weg' });
     expect((await s.send('DELETE', '/api/account', q.cookie)).status).toBe(200);
     expect(await gone(post2!.id)).toEqual(none);
-    expect(await one('SELECT 1 AS x FROM post_log WHERE group_id = ?', `boat:${boat2.id}`)).toBeNull();
+    expect(await one(`SELECT 1 AS x FROM post_log WHERE group_id LIKE ?`, `boat:${boat2.id}:%`)).toBeNull();
   });
 
   it('[F-404] Autor:in gelöscht bzw. inaktiv entfernt: Beitrag im Hafen samt Reaktionen, Glocke, Meldungen und Aktivität weg', async () => {
@@ -568,3 +581,97 @@ describe('F-403 Anpinnen', () => {
     expect(await one(`SELECT 1 AS x FROM channel_pins WHERE channel_kind = 'user' AND channel_id = ?`, bo.user.id)).toBeNull();
   });
 });
+
+describe('F-403 Pins: Zusammenführen und nächtliches Aufräumen', () => {
+  const pin = (p: Person, postId: string, channel: { kind: string; id: string }) => s.send('PUT', `/api/posts/${postId}/pin`, p.cookie, { channel, pinned: true });
+
+  it('[F-403] Häfen zusammengeführt: Pins wandern zum Ziel, doppelte fallen, im alten Hafen bleibt keiner', async () => {
+    const p = await s.person({ profile: 'public' });
+    const src = await harbor(p);
+    const dst = await harbor(p);
+    const a = await write(p, { kind: 'harbor', id: src.id }, { body: 'wandert' });
+    await ok(await pin(p, a!.id, { kind: 'harbor', id: src.id }));
+    // derselbe Beitrag schon im Ziel angepinnt (Hafen-Ziel der Ausbreitung nachgebildet)
+    await (await s.db()).prepare(`INSERT INTO channel_pins (channel_kind, channel_id, post_id, created_at) VALUES ('harbor', ?, ?, 1)`).bind(dst.id, a!.id).run();
+    await ok(await s.send('POST', `/api/admin/harbors/${src.id}/merge`, admin.cookie, { into: dst.id }));
+    expect(await all(`SELECT channel_id FROM channel_pins WHERE post_id = ?`, a!.id)).toEqual([{ channel_id: dst.id }]);
+  });
+
+  it('[F-403] Konten zusammengeführt: Profil-Pins wandern, keine Pins des alten Kontos bleiben', async () => {
+    const from = await s.person({ profile: 'public' });
+    const into = await s.person({ profile: 'public' });
+    const a = await write(from, { kind: 'user' }, { body: 'alt' });
+    await ok(await pin(from, a!.id, { kind: 'user', id: '' }));
+    expect((await s.send('POST', `/api/admin/users/${from.user.id}/merge`, admin.cookie, { into: into.user.id, confirm: from.user.id })).status).toBe(200);
+    expect(await all(`SELECT channel_kind, channel_id FROM channel_pins WHERE post_id = ?`, a!.id)).toEqual([{ channel_kind: 'user', channel_id: into.user.id }]);
+    expect(await one(`SELECT 1 AS x FROM channel_pins WHERE channel_kind = 'user' AND channel_id = ?`, from.user.id)).toBeNull();
+  });
+
+  it('[F-403] nächtlich: Pins verschwundener Verläufe fallen, andere bleiben', async () => {
+    const p = await s.person({ profile: 'public' });
+    const team = await s.group(p, { kind: 'team' });
+    const post = await write(p, { kind: 'group', id: team.id }, { body: 'bleibt' });
+    await ok(await pin(p, post!.id, { kind: 'group', id: team.id }));
+    const db = await s.db();
+    await db.prepare(`INSERT INTO channel_pins (channel_kind, channel_id, post_id, created_at) VALUES ('boat', 'GoneBoat00000001', ?, 1)`).bind(post!.id).run();
+    await db.prepare(`INSERT INTO channel_pins (channel_kind, channel_id, post_id, created_at) VALUES ('harbor', 'GoneHarbor000001', ?, 1)`).bind(post!.id).run();
+    await h.scheduled();
+    expect(await all(`SELECT channel_kind FROM channel_pins WHERE post_id = ? ORDER BY channel_kind`, post!.id)).toEqual([{ channel_kind: 'group' }]);
+  });
+});
+
+describe('Review-Befunde Phase 2/3', () => {
+  it('[F-416] Glocke nur, solange die Empfängerin den Beitrag sehen darf – nicht mehr nach „Nur mit Link“', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const member = await s.person({ profile: 'public' });
+    const team = await s.group(owner, { kind: 'team' });
+    await s.join(owner, team, member);
+    expect((await s.send('PATCH', '/api/me/settings', member.cookie, { notify: { post: 'none' } })).status).toBe(200);
+    const post = await write(owner, { kind: 'group', id: team.id }, { body: 'gleich mit Link' });
+    const bell = async () => (await ok<{ items: Array<{ kind: string }> }>(await s.send('GET', '/api/notifications', member.cookie))).items.filter((n) => n.kind === 'post');
+    expect(await bell()).toHaveLength(1);
+    await ok(await s.send('PATCH', `/api/posts/${post!.id}`, owner.cookie, { visibility: 'unlisted' }));
+    expect(await bell()).toEqual([]);
+  });
+
+  it('[F-406] die Autor:in sieht eigene Beiträge in jedem Verlauf, auch am privaten Boot über /p/<id>', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const other = await s.person({ profile: 'public' });
+    const boat = await s.boat(owner, { visibility: 'private' });
+    const p = await write(owner, { kind: 'boat', id: boat.id }, { body: 'privat' });
+    expect((await s.send('GET', `/api/posts/${p!.id}`, other.cookie)).status).toBe(404);
+    const mine = await ok<{ item: { post: { where: { kind: string } } } }>(await s.send('GET', `/api/posts/${p!.id}`, owner.cookie));
+    expect(mine.item.post.where.kind).toBe('boat');
+  });
+
+  it('[F-409] erweitern nur mit aktuellem Schreibrecht im Verlauf, einschränken immer', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const member = await s.person({ profile: 'public' });
+    const club = await s.group(owner);
+    const team = await s.group(owner, { kind: 'team', parentId: club.id });
+    await s.join(owner, team, member);
+    const p = await write(member, { kind: 'group', id: team.id }, { body: 'noch drin', reach: 'club' });
+    expect((await s.send('DELETE', `/api/groups/${team.id}/members/${member.user.id}`, member.cookie)).status).toBe(204);
+    expect((await s.send('PATCH', `/api/posts/${p!.id}`, member.cookie, { reach: 'all' })).status).toBe(403);
+    await ok(await s.send('PATCH', `/api/posts/${p!.id}`, member.cookie, { reach: 'here' }));
+    await ok(await s.send('PATCH', `/api/posts/${p!.id}`, member.cookie, { visibility: 'members' }));
+  });
+
+  it('[F-426] angehängter Törn nur, wenn sein „Sichtbar bis“ die Stufe abdeckt, in der der Beitrag erscheint', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const clubMember = await s.person({ profile: 'public' });
+    const club = await s.group(owner);
+    const team = await s.group(owner, { kind: 'team', parentId: club.id });
+    await s.join(owner, club, clubMember);
+    await s.join(owner, team, clubMember);
+    const r = await createShare(h, owner.cookie, { visibility: 'public', title: 'Nur Team', headers: { 'X-Share-Groups': JSON.stringify([team.id]), 'X-Share-Reach': 'here' } });
+    const share = ((await r.json()) as { share: { id: string } }).share;
+    const post = await write(owner, { kind: 'group', id: team.id }, { body: 'mit Anhang', reach: 'club', shareId: share.id });
+    type Items = Array<{ post?: { id: string; voyage: { id: string } | null } }>;
+    const inTeam = (await stream(`/api/groups/${team.id}/stream`, clubMember.cookie)).items as unknown as Items;
+    expect(inTeam.find((i) => i.post?.id === post!.id)!.post!.voyage).toMatchObject({ id: share.id });
+    const inClub = (await stream(`/api/groups/${club.id}/stream`, clubMember.cookie)).items as unknown as Items;
+    expect(inClub.find((i) => i.post?.id === post!.id)!.post!.voyage).toBeNull();
+  });
+});
+

@@ -23,10 +23,18 @@ export function readShareReach(raw: unknown): Reach {
 }
 
 /**
- * Schlüssel des Tageszählers „Beiträge je Verlauf“ (`post_log.group_id`, auch nach dem Löschen): Gruppe = ihre ID (wie
- * seit Konzept 11.4), sonst `<art>:<id>` (Profil `user:<id>`, Hafen `harbor:<id>`, Boot `boat:<id>`).
+ * Schlüssel des Tageszählers „Beiträge je Verlauf und Tag“ (`post_log.group_id`, auch nach dem Löschen): Gruppe = ihre
+ * ID (wie seit Konzept 11.4), Profil `user:<id>`; Hafen und Boot zählen je Konto (`harbor:<id>:<konto>`), damit niemand
+ * mit Schreiben und Löschen den Verlauf für alle sperrt (21.12).
  */
-export const postLogKey = (c: { kind: 'user' | 'group' | 'harbor' | 'boat'; id: string }): string => (c.kind === 'group' ? c.id : `${c.kind}:${c.id}`);
+export function postLogKey(c: { kind: 'user' | 'group' | 'harbor' | 'boat'; id: string }, authorId = ''): string {
+  if (c.kind === 'group') return c.id;
+  if (c.kind === 'user') return `user:${c.id}`;
+  return `${postLogPrefix(c.kind, c.id)}${authorId}`;
+}
+
+/** Gemeinsamer Anfang aller Zähler eines Hafens bzw. Boots (Aufräumen, Zusammenführen). */
+export const postLogPrefix = (kind: 'harbor' | 'boat', id: string): string => `${kind}:${id}:`;
 
 /** Höchstens so viele fehlende Post-Zeilen je Nacht nachtragen. */
 const REPAIR_MAX = 200;

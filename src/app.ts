@@ -85,7 +85,7 @@ import type { SxClaim } from './components/sx-claim';
 import type { ClaimRequest } from './services/api';
 import { PostsController } from './controllers/posts';
 import { ComposeController } from './controllers/compose';
-import { PostLinkController, anchorPost, type PostList } from './controllers/post-link';
+import { PostLinkController } from './controllers/post-link';
 import { PinsController } from './controllers/pins';
 import type { SxComposeDialog } from './components/sx-compose-dialog';
 import type { ComposeKind } from './components/sx-compose';
@@ -183,8 +183,8 @@ export class App {
   private compose: ComposeController;
   private postLink: PostLinkController;
   private pins: PinsController;
-  /** „Mein Verlauf“ der eigenen Seite fertig geladen (für den Anker `#p-<id>`) */
-  private ownLoaded: Promise<void> = Promise.resolve();
+  /** Listen der offenen Seite fertig geladen – Bootsstream bzw. „Mein Verlauf“ (für den Anker `#p-<id>`) */
+  private pageReady: Promise<void> = Promise.resolve();
   /** angezeigte Seite statt Karte (Entdecken bzw. Profil, Gruppe …) – für die Bereiche in der Kopfzeile */
   private pageSection: 'discover' | 'page' | null = null;
   /** persönlicher Stream geladen, aber noch nicht angezeigt: Stand für „gelesen“ (F-222) */
@@ -292,7 +292,18 @@ export class App {
       startLogbook: () => this.logbook.start(),
       posted: (post) => this.showPosted(post),
     });
-    this.postLink = new PostLinkController({ list: () => this.postList(), ready: () => this.ownLoaded });
+    this.postLink = new PostLinkController({
+      page: this.ui.page,
+      groupPage: this.ui.groupPage,
+      enterPage: () => {
+        this.ui.app.setAttribute('data-page', '');
+        this.pageSection = 'page';
+        this.ui.topbar.section = 'page';
+      },
+      openPage: (route) => this.openPage(route),
+      ready: () => this.pageReady,
+      more: { group: () => this.groups.more('group'), harbor: () => this.social.moreHarbor(), boat: () => this.social.moreBoat(), own: () => this.posts.load(true) },
+    });
     this.pins = new PinsController({
       // Pins an die sichtbare Seite: Gruppenseite bzw. Hafen-/Bootsseite
       show: (pins, manage) => Object.assign(this.ui.groupPage.hidden ? this.ui.page : this.ui.groupPage, { pins, manage }),
@@ -321,7 +332,7 @@ export class App {
         case 'share':
           return await this.openShare(route.id, route.key);
         case 'post':
-          return await this.openPost(route.id, route.key);
+          return await this.postLink.open(route.id, route.key);
         case 'profile':
         case 'boat':
         case 'discover':
@@ -330,7 +341,7 @@ export class App {
         case 'harbor':
         case 'legal':
           await this.openPage(route);
-          return await this.revealAnchor();
+          return await this.postLink.revealAnchor();
         case 'admin':
           return await this.openAdmin();
         case 'login':
@@ -1041,6 +1052,7 @@ export class App {
       return;
     }
     this.compose.setContext(null);
+    this.pageReady = Promise.resolve();
     if (route.kind === 'harbor') {
       await this.social.openHarbor(route.slug);
       if (nav !== this.navSeq) return;
@@ -1080,13 +1092,13 @@ export class App {
         document.title = `${d.profile.displayName} · Sail Explorer`;
         // eigene Seite: „Mein Verlauf“ mit allem, auch Privatem (F-401)
         page.myPosts = null;
-        if (d.profile.isSelf) this.ownLoaded = this.posts.openOwn();
+        if (d.profile.isSelf) this.pageReady = this.posts.openOwn();
       } else {
         const d = await api.boat(route.id, route.key);
         page.data = { kind: 'boat', ...d };
         document.title = `${d.boat.name} · Sail Explorer`;
         // Neuigkeiten des Boots (F-425) und „+ Neu → Text“ mit diesem Boot
-        void this.social.loadBoatStream(route.key);
+        this.pageReady = this.social.loadBoatStream(route.key);
         this.compose.setContext({ kind: 'boat', id: d.boat.id });
         void this.pins.open({ kind: 'boat', id: d.boat.id });
       }
@@ -1098,68 +1110,6 @@ export class App {
   }
 
   // ---------------------------------------------------------------- Beiträge: `/p/<id>` und Anker (F-406)
-
-  /**
-   * `/p/<id>(/<schlüssel>)`: Steht die Karte im Heimatverlauf, Adresse auf ihn mit Anker `#p-<id>` ersetzen und die Seite
-   * öffnen (Weiterleitung im Browser, damit die Link-Vorschau des Workers die erste Zeile zeigen kann); sonst die
-   * einzelne Karte.
-   */
-  private async openPost(id: string, key?: string, single = false) {
-    this.ui.app.setAttribute('data-page', '');
-    this.pageSection = 'page';
-    this.ui.topbar.section = 'page';
-    this.ui.groupPage.hidden = true;
-    const page = this.ui.page;
-    page.hidden = false;
-    Object.assign(page, { loading: true, error: '', data: null, highlight: null });
-    try {
-      const r = await this.postLink.load(id, key);
-      if (!single && r.link.inStream && r.link.home) {
-        history.replaceState(null, '', `${r.link.home}#p-${id}`);
-        const route = parseRoute(location);
-        if (route.kind === 'profile' || route.kind === 'boat' || route.kind === 'group' || route.kind === 'harbor') {
-          Object.assign(page, { hidden: true, loading: false });
-          await this.openPage(route);
-          return await this.revealAnchor(key);
-        }
-      }
-      page.data = { kind: 'post', ...r };
-      page.highlight = id;
-      document.title = 'Beitrag · Sail Explorer';
-    } catch (e) {
-      page.error = e instanceof ApiError && e.status === 404 ? 'Diesen Beitrag gibt es nicht (mehr) – oder du darfst ihn nicht sehen.' : errorText(e);
-    } finally {
-      page.loading = false;
-    }
-  }
-
-  /** Anker `#p-<id>`: Karte im Verlauf finden (weitere Seiten laden) und hervorheben – sonst die einzelne Karte. */
-  private async revealAnchor(key?: string) {
-    const id = anchorPost(location.hash);
-    if (!id) return;
-    if (await this.postLink.reveal(id)) return;
-    history.replaceState(null, '', `/p/${id}${key ? `/${key}` : ''}`);
-    await this.openPost(id, key, true);
-  }
-
-  /** Die Beitragsliste der offenen Seite – für den Anker (Gruppe, Hafen, Boot, eigene Seite, Profil für Besucher). */
-  private postList(): PostList | null {
-    const postIds = (items: Array<{ kind: string; post?: { id: string } }> | undefined) => (items ?? []).filter((i) => i.kind === 'post' && i.post).map((i) => i.post!.id);
-    const gp = this.ui.groupPage;
-    if (!gp.hidden) {
-      return { ids: () => postIds(gp.stream?.items), hasMore: () => !!gp.stream?.cursor, more: () => this.groups.more('group'), mark: (id) => (gp.highlight = id) };
-    }
-    const page = this.ui.page;
-    const d = page.data;
-    const mark = (id: string) => (page.highlight = id);
-    if (d?.kind === 'harbor') return { ids: () => postIds((page.data as typeof d).stream?.items), hasMore: () => !!(page.data as typeof d).stream?.cursor, more: () => this.social.moreHarbor(), mark };
-    if (d?.kind === 'boat') return { ids: () => postIds((page.data as typeof d).stream?.items), hasMore: () => !!(page.data as typeof d).stream?.cursor, more: () => this.social.moreBoat(), mark };
-    if (d?.kind === 'profile' && d.profile.isSelf) {
-      return { ids: () => (page.myPosts?.items ?? []).map((p) => p.id), hasMore: () => !!page.myPosts?.cursor, more: () => this.posts.load(true), mark };
-    }
-    if (d?.kind === 'profile') return { ids: () => (d.posts ?? []).map((p) => p.id), hasMore: () => false, more: async () => undefined, mark };
-    return null;
-  }
 
   /** Verlauf der offenen Hafen- bzw. Bootsseite (für die Pins). */
   private pinChannel(): { kind: 'harbor' | 'boat'; id: string } | null {

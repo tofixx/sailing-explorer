@@ -1,6 +1,7 @@
-import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
+import { LitElement, css, html, nothing } from 'lit';
 import { icon, type IconName } from './icons';
 import { base, emit, menuStyles } from './shared';
+import { MenuController } from './menu-controller';
 
 /** Arten, die es in Phase 2 gibt (Konzept 21.4) – Umfrage, Veranstaltung und Fotos folgen in späteren Phasen. */
 export type ComposeKind = 'gpx' | 'logbook' | 'text';
@@ -72,36 +73,8 @@ export class SxCompose extends LitElement {
     `,
   ];
 
-  updated(changed: PropertyValues<this>) {
-    if (!changed.has('open') || changed.get('open') === undefined) return;
-    if (this.open) this.renderRoot.querySelector<HTMLButtonElement>('.item')?.focus();
-    else if (this.shadowRoot?.activeElement) this.renderRoot.querySelector<HTMLButtonElement>('.toggle')?.focus();
-  }
-
-  connectedCallback() {
-    super.connectedCallback();
-    document.addEventListener('pointerdown', this.onOutside);
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    document.removeEventListener('pointerdown', this.onOutside);
-  }
-
-  private onOutside = (e: PointerEvent) => {
-    if (this.open && !e.composedPath().includes(this)) this.open = false;
-  };
-
-  private onFocusOut = (e: FocusEvent) => {
-    const next = e.relatedTarget as Node | null;
-    if (this.open && next && !this.shadowRoot!.contains(next)) this.open = false;
-  };
-
-  private onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !this.open) return;
-    e.preventDefault();
-    this.open = false;
-  };
+  /** Klick daneben, Fokus weg, Escape schließen; Fokus beim Öffnen und Schließen. */
+  private menu = new MenuController(this);
 
   /** Synchron im Klick gemeldet – so darf der Controller die Dateiauswahl noch öffnen (Browser verlangen eine Geste). */
   private pick(kind: ComposeKind) {
@@ -110,7 +83,7 @@ export class SxCompose extends LitElement {
   }
 
   render() {
-    return html`<div @keydown=${this.onKey} @focusout=${this.onFocusOut}>
+    return html`<div @keydown=${this.menu.onKey} @focusout=${this.menu.onFocusOut}>
       <button class="btn primary toggle" type="button" title="Neu anlegen – Törn, Fahrtenbuch-Eintrag oder Beitrag" aria-label="Neu anlegen"
         aria-haspopup="true" aria-expanded=${this.open} aria-controls="nm" @click=${() => (this.open = !this.open)}>${icon('plus')}<span class="label-text">Neu</span></button>
       ${this.open ? html`<div class="backdrop" @click=${() => (this.open = false)}></div>` : nothing}

@@ -1,6 +1,7 @@
-import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
+import { LitElement, css, html, nothing } from 'lit';
 import { icon, type IconName } from './icons';
 import { base, emit, menuStyles } from './shared';
+import { MenuController } from './menu-controller';
 
 /** Ein Eintrag im Seiten-Menü – nur, was erlaubt ist, gibt die Seite hinein. */
 export interface PageMenuItem {
@@ -56,36 +57,8 @@ export class SxPageMenu extends LitElement {
     `,
   ];
 
-  updated(changed: PropertyValues<this>) {
-    if (!changed.has('open') || changed.get('open') === undefined) return;
-    if (this.open) this.renderRoot.querySelector<HTMLButtonElement>('.item')?.focus();
-    else if (this.shadowRoot?.activeElement) this.renderRoot.querySelector<HTMLButtonElement>('.toggle')?.focus();
-  }
-
-  connectedCallback() {
-    super.connectedCallback();
-    document.addEventListener('pointerdown', this.onOutside);
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    document.removeEventListener('pointerdown', this.onOutside);
-  }
-
-  private onOutside = (e: PointerEvent) => {
-    if (this.open && !e.composedPath().includes(this)) this.open = false;
-  };
-
-  private onFocusOut = (e: FocusEvent) => {
-    const next = e.relatedTarget as Node | null;
-    if (this.open && next && !this.shadowRoot!.contains(next)) this.open = false;
-  };
-
-  private onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !this.open) return;
-    e.preventDefault();
-    this.open = false;
-  };
+  /** Klick daneben, Fokus weg, Escape schließen; Fokus beim Öffnen und Schließen. */
+  private menu = new MenuController(this);
 
   private pick(id: string) {
     this.open = false;
@@ -94,7 +67,7 @@ export class SxPageMenu extends LitElement {
 
   render() {
     if (!this.items.length) return nothing;
-    return html`<div @keydown=${this.onKey} @focusout=${this.onFocusOut}>
+    return html`<div @keydown=${this.menu.onKey} @focusout=${this.menu.onFocusOut}>
       <button class="btn icon toggle" type="button" aria-label="Mehr zu ${this.label}" title="Mehr" aria-haspopup="true" aria-expanded=${this.open} aria-controls="pm"
         @click=${() => (this.open = !this.open)}>${icon('gear')}</button>
       <div class="menu" id="pm" role="group" aria-label=${this.label} ?hidden=${!this.open}>

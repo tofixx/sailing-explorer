@@ -142,6 +142,15 @@ export const SHARE_REACH_OPTIONS: ReachOption[] = [
 
 const RANK: Record<PostVisibility, number> = { private: 0, members: 1, unlisted: 2, public: 3 };
 
+/**
+ * Erweitert eine Änderung das Publikum – höhere Sichtbarkeit oder (öffentlich) höheres „Sichtbar bis“? Dafür braucht es
+ * das aktuelle Schreibrecht im Verlauf; herabsetzen geht immer (F-409).
+ */
+export function widensAudience(from: { visibility: PostVisibility; reach: Reach }, to: { visibility: PostVisibility; reach: Reach }): boolean {
+  if (RANK[to.visibility] > RANK[from.visibility]) return true;
+  return to.visibility === 'public' && REACH_RANK[to.reach] > REACH_RANK[from.visibility === 'public' ? from.reach : 'here'];
+}
+
 /** Stufe eines Gruppen-Verlaufs als Beitrags-Stufe: geschlossen = nur Mitglieder. */
 const channelLevel = (groupVisibility: Visibility): PostVisibility => (groupVisibility === 'private' ? 'members' : groupVisibility);
 
