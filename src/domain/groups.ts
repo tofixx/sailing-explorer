@@ -375,6 +375,19 @@ export function parsePostLink(input: unknown): string | '' | null {
   }
 }
 
+/**
+ * Webseite eines Vereins, Teams oder Hafens (F-540, F-541): dieselbe Prüfung wie der Link eines Beitrags – nur http(s)
+ * mit Host, höchstens 500 Zeichen. '' = keine (Feld geleert), null = ungültig.
+ */
+export const parseWebUrl = parsePostLink;
+
+/** Anzeige einer Webseite: Host ohne „www.“ (z. B. „svp-potsdam.de“); ungültig = ''. */
+export function webUrlLabel(url: string | null | undefined): string {
+  const href = parseWebUrl(url);
+  if (!href) return '';
+  return new URL(href).hostname.replace(/^www\./, '');
+}
+
 // ---------------------------------------------------------------- Vorschläge
 
 export const SUGGESTION_REASONS = ['group', 'crew', 'boat', 'port'] as const;

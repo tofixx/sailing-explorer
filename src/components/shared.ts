@@ -2,6 +2,7 @@ import { css, html } from 'lit';
 import { icon, type IconName } from './icons';
 import type { CoverRef } from '../domain/cover';
 import { linkify } from '../domain/comment-text';
+import { parseWebUrl, webUrlLabel } from '../domain/groups';
 import { POST_KIND_LABEL, hasKindCard, type PostKind, type PostVisibility } from '../domain/posts';
 
 /** Gemeinsame Grundstile aller Komponenten – nutzt ausschließlich Tokens. */
@@ -390,6 +391,16 @@ export function emit<T>(el: HTMLElement, name: string, detail?: T): void {
 /** Beitragstext mit klickbaren http(s)-Links – Lit escaped alle Textstücke, nie `innerHTML` (Sicherheit 2). */
 export function linkedText(t: string) {
   return linkify(t).map((p) => (p.href ? html`<a href=${p.href} rel="nofollow ugc noopener noreferrer" target="_blank">${p.text}</a>` : p.text));
+}
+
+/**
+ * Webseite eines Vereins, Teams oder Hafens (F-540, F-541) als Angabe im Seitenkopf (`.facts`): neuer Tab,
+ * rel="noopener nofollow ugc" (von Nutzern gepflegt, kein Empfehlungs-Link). Ungültiges zeigt nichts (fail closed).
+ */
+export function webLink(url: string | null | undefined) {
+  const href = parseWebUrl(url);
+  if (!href) return '';
+  return html`<span class="vis web">${icon('globe')}<a href=${href} target="_blank" rel="noopener nofollow ugc" title=${href}>${webUrlLabel(href)}</a></span>`;
 }
 
 /**

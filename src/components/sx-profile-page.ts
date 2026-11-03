@@ -7,7 +7,7 @@ import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
-import { base, emit, logbookTag, onMapStyles, pageMenuReveal, writePostButton } from './shared';
+import { base, emit, logbookTag, onMapStyles, pageMenuReveal, webLink, writePostButton } from './shared';
 import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
@@ -204,6 +204,10 @@ export class SxProfilePage extends LitElement {
         color: var(--accent);
         text-decoration: none;
         font-weight: 600;
+      }
+      .facts .web {
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
       .facts .vis {
         display: inline-flex;
@@ -569,6 +573,7 @@ export class SxProfilePage extends LitElement {
     };
     const patch: HarborPatch = {};
     if (f.has('name')) Object.assign(patch, { name: String(f.get('name') ?? ''), lat: num('lat'), lon: num('lon') });
+    if (f.has('webUrl')) patch.webUrl = String(f.get('webUrl') ?? '').trim();
     if (f.has('clubId')) patch.clubId = String(f.get('clubId') ?? '') || null;
     emit(this, 'sx-harbor-save', { id, patch });
     this.editing = false;
@@ -615,6 +620,7 @@ export class SxProfilePage extends LitElement {
     return html`<form class="edit" @submit=${(e: Event) => this.saveHarbor(e, h.id)}>
       ${h.canEdit
         ? html`<div><label class="label" for="hn">Name</label><input id="hn" name="name" type="text" maxlength="80" required .value=${h.name} /></div>
+            <div><label class="label" for="hw">Webseite (optional)</label><input id="hw" name="webUrl" type="url" inputmode="url" maxlength="500" placeholder="https://" .value=${h.webUrl ?? ''} /></div>
             <div class="row">
               <span><label class="label" for="hlat">Breite</label><input id="hlat" name="lat" type="text" inputmode="decimal" placeholder="52,4" .value=${h.lat == null ? '' : String(h.lat).replace('.', ',')} /></span>
               <span><label class="label" for="hlon">Länge</label><input id="hlon" name="lon" type="text" inputmode="decimal" placeholder="13,05" .value=${h.lon == null ? '' : String(h.lon).replace('.', ',')} /></span>
@@ -660,6 +666,7 @@ export class SxProfilePage extends LitElement {
           <div class="facts">
             <span>Hafen</span>
             ${pos ? html`<span class="num">${pos}</span>` : ''}
+            ${webLink(h.webUrl)}
           </div>
         </div>
         <div class="actions">

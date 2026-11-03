@@ -16,7 +16,7 @@ import { clearHomeClub } from './home';
 import { loadCover, pageCover, removeCoverOf } from './covers';
 import { galleryPhotoCleanup } from './photo-keys';
 import { galleryPhotos } from './gallery';
-import { harborFromBoatInput, harborRef } from './harbors';
+import { harborFromBoatInput, harborRef, readWebUrl } from './harbors';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, parseVisibility } from './validate';
 import { GROUP_LIMITS, groupLimitMessage, groupVerdict } from '../src/domain/limits';
 import { canChooseVisibility, DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
@@ -59,6 +59,8 @@ export interface GroupRow {
   members_visible?: string | null;
   /** Tageszusammenfassung (0035, F-469): 1 an (Standard), 0 vom Eigner abgeschaltet */
   day_summary?: number | null;
+  /** Webseite (0043, F-540): geprüfte http(s)-URL, NULL = keine */
+  web_url?: string | null;
   owner_id: string;
   hidden_at: number | null;
   /** gesperrt (0023, Konzept 18.2): niemand hat dann eine Rolle */
@@ -146,6 +148,8 @@ export function groupShape(g: GroupRow, role: GroupRole | null) {
     name: g.name,
     description: g.description,
     homePort: g.home_port,
+    // Webseite (F-540) – für alle, die die Gruppe sehen; Link mit rel="noopener nofollow ugc"
+    webUrl: g.web_url || null,
     harbor: g.harbor_id && g.harbor_slug ? harborRef({ id: g.harbor_id, slug: g.harbor_slug, name: g.harbor_name ?? '' }) : null,
     visibility: g.visibility,
     joinMode: g.join_mode,
@@ -176,6 +180,8 @@ interface GroupInput {
   name?: unknown;
   slug?: unknown;
   description?: unknown;
+  /** Webseite (F-540): http(s)-URL, '' bzw. null = entfernen */
+  webUrl?: unknown;
   homePort?: unknown;
   /** Lage eines neuen Hafens zu `homePort` (F-353) */
   homePortPos?: unknown;
@@ -207,6 +213,7 @@ function applyInput(g: GroupRow, input: GroupInput): Visibility | null {
     g.slug = slug;
   }
   if (input.description !== undefined) g.description = cleanText(input.description, 1000);
+  if (input.webUrl !== undefined) g.web_url = readWebUrl(input.webUrl);
   if (input.approveBy !== undefined) {
     if (!isApprovers(input.approveBy)) throw new HttpError(400, 'invalid_approvers', 'Unbekannte Regel, wer Anfragen bestätigt.');
     g.approve_by = input.approveBy;
@@ -279,9 +286,9 @@ export async function createGroup(request: Request, env: Env): Promise<Response>
   try {
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO groups (id, kind, parent_id, slug, name, description, home_port, harbor_id, visibility, share_key, join_mode, approve_by, post_by, members_visible, owner_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(g.id, g.kind, g.parent_id, g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.members_visible, g.owner_id, now, now),
+        `INSERT INTO groups (id, kind, parent_id, slug, name, description, web_url, home_port, harbor_id, visibility, share_key, join_mode, approve_by, post_by, members_visible, owner_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(g.id, g.kind, g.parent_id, g.slug, g.name, g.description, g.web_url ?? null, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.members_visible, g.owner_id, now, now),
       env.DB.prepare(`INSERT INTO group_members (group_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)`).bind(g.id, user.id, now),
     ]);
   } catch (err) {
@@ -317,9 +324,9 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   if (await slugTaken(env, g.slug, g.id)) throw SLUG_TAKEN();
   g.updated_at = Date.now();
   await env.DB.prepare(
-    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, approve_by = ?, post_by = ?, members_visible = ?, day_summary = ?, updated_at = ? WHERE id = ?',
+    'UPDATE groups SET slug = ?, name = ?, description = ?, web_url = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, approve_by = ?, post_by = ?, members_visible = ?, day_summary = ?, updated_at = ? WHERE id = ?',
   )
-    .bind(g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.members_visible ?? DEFAULT_MEMBERS_VISIBLE, g.day_summary === 0 ? 0 : 1, g.updated_at, g.id)
+    .bind(g.slug, g.name, g.description, g.web_url ?? null, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.members_visible ?? DEFAULT_MEMBERS_VISIBLE, g.day_summary === 0 ? 0 : 1, g.updated_at, g.id)
     .run();
   return json({ group: groupShape(g, role) });
 }

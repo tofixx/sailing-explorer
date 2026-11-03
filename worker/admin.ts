@@ -2,6 +2,7 @@
 // zuweisen, endgültig löschen, Protokoll. Jede Route prüft requireAdmin (404 für alle anderen); jede Aktion und jeder
 // Einblick landet im Admin-Protokoll. Zusammenführen steht in worker/admin-merge.ts.
 import { transferGroupStmts } from './groups';
+import { readWebUrl } from './harbors';
 import type { Env } from './env';
 import { HttpError, json, readJson } from './http';
 import { LOCKED, adminLogStmt, isAdmin, ownsLockedSql, requireAdmin } from './moderation';
@@ -211,8 +212,9 @@ async function extra(env: Env, kind: AdminKind, id: string): Promise<Record<stri
   if (kind === 'shares') {
     return (await q(`SELECT started_at AS startedAt, size_bytes + image_bytes AS bytes, (SELECT name FROM boats WHERE id = shares.boat_id) AS boat FROM shares WHERE id = ?1`)) ?? {};
   }
+  if (kind === 'groups') return (await q('SELECT web_url AS webUrl FROM groups WHERE id = ?1')) ?? {};
   if (kind === 'harbors') {
-    return (await q(`SELECT lat, lon, (SELECT COUNT(*) FROM users WHERE home_harbor_id = ?1) AS homeOf, (SELECT name FROM groups WHERE id = harbors.club_id) AS club,
+    return (await q(`SELECT lat, lon, web_url AS webUrl, (SELECT COUNT(*) FROM users WHERE home_harbor_id = ?1) AS homeOf, (SELECT name FROM groups WHERE id = harbors.club_id) AS club,
       (SELECT COUNT(*) FROM harbor_redirects WHERE harbor_id = ?1) AS redirects FROM harbors WHERE id = ?1`)) ?? {};
   }
   return {};
@@ -278,9 +280,17 @@ export async function adminRename(request: Request, env: Env, rawKind: string, i
   const admin = await requireAdmin(request, env);
   const { kind, lk } = await target(env, rawKind, id);
   await assertUnlocked(env, lk, id);
-  const input = await readJson<{ name?: unknown; displayName?: unknown; handle?: unknown; slug?: unknown }>(request);
+  const input = await readJson<{ name?: unknown; displayName?: unknown; handle?: unknown; slug?: unknown; webUrl?: unknown }>(request);
   const now = Date.now();
   const log = (detail: string) => adminLogStmt(env, admin.id, 'rename', lk, id, detail, now);
+  // Webseite von Gruppe bzw. Hafen (F-543): Moderation ändert oder entfernt sie mit Protokoll-Eintrag
+  const webUrl = async (table: 'groups' | 'harbors') => {
+    if (input.webUrl === undefined) return [];
+    const next = readWebUrl(input.webUrl);
+    const cur = (await env.DB.prepare(`SELECT web_url FROM ${table} WHERE id = ?`).bind(id).first<{ web_url: string | null }>())?.web_url ?? null;
+    if (cur === next) return [];
+    return [env.DB.prepare(`UPDATE ${table} SET web_url = ?, updated_at = ? WHERE id = ?`).bind(next, now, id), log(`Webseite ${cur ?? '–'} → ${next ?? '–'}`)];
+  };
   if (kind === 'users') {
     const p = await env.DB.prepare('SELECT handle, display_name FROM profiles WHERE user_id = ?').bind(id).first<{ handle: string; display_name: string }>();
     if (!p) throw new HttpError(409, 'no_profile', 'Dieses Konto hat kein Profil.');
@@ -310,10 +320,11 @@ export async function adminRename(request: Request, env: Env, rawKind: string, i
         ? env.DB.prepare('UPDATE groups SET name = ?, slug = ?, updated_at = ? WHERE id = ?').bind(name, slug, now, id)
         : env.DB.prepare('UPDATE boats SET name = ?, updated_at = ? WHERE id = ?').bind(name, now, id),
       log(kind === 'groups' ? `${cur!.name} (/g/${cur!.slug}) → ${name} (/g/${slug})` : `${cur!.name} → ${name}`),
+      ...(kind === 'groups' ? await webUrl('groups') : []),
     ]);
   } else if (kind === 'harbors') {
     const cur = await env.DB.prepare('SELECT name FROM harbors WHERE id = ?').bind(id).first<{ name: string }>();
-    const name = cleanText(input.name, HARBOR_LIMITS.nameMax);
+    const name = input.name === undefined ? cur!.name : cleanText(input.name, HARBOR_LIMITS.nameMax);
     const key = harborKey(name);
     if (!key) throw new HttpError(400, 'invalid_name', 'Bitte einen Hafennamen angeben.');
     if (await env.DB.prepare('SELECT 1 AS x FROM harbors WHERE name_key = ? AND id <> ?').bind(key, id).first()) {
@@ -325,6 +336,7 @@ export async function adminRename(request: Request, env: Env, rawKind: string, i
       env.DB.prepare('UPDATE boats SET home_port = ? WHERE harbor_id = ?').bind(name, id),
       env.DB.prepare('UPDATE groups SET home_port = ? WHERE harbor_id = ?').bind(name, id),
       log(`${cur!.name} → ${name}`),
+      ...(await webUrl('harbors')),
     ]);
   } else {
     throw new HttpError(400, 'not_supported', 'Törns benennt nur, wer sie geteilt hat.');

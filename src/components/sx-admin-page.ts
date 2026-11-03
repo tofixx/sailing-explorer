@@ -356,8 +356,10 @@ export class SxAdminPage extends LitElement {
           kind === 'users'
             ? [['displayName', 'Anzeigename', i.name], ['handle', 'Profilname (Adresse)', i.handle ?? '']]
             : kind === 'groups'
-              ? [['name', 'Name', i.name], ['slug', 'Adresse', i.path?.split('/')[2] ?? '']]
-              : [['name', 'Name', i.name]];
+              ? [['name', 'Name', i.name], ['slug', 'Adresse', i.path?.split('/')[2] ?? ''], ['webUrl', 'Webseite (leer = keine)', String(d.extra.webUrl ?? '')]]
+              : kind === 'harbors'
+                ? [['name', 'Name', i.name], ['webUrl', 'Webseite (leer = keine)', String(d.extra.webUrl ?? '')]]
+                : [['name', 'Name', i.name]];
         return html`<div class="form">
           ${fields.map(([n, l, v]) => html`<label class="label" for=${n}>${l}</label><input type="text" id=${n} name=${n} .value=${v} />`)}
           <div class="row-actions">
