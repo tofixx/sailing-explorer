@@ -26,6 +26,7 @@ vi.mock('../../src/map/map-view', async () => {
       focus = v.fn();
       showPlace = v.fn();
       photos = { set: v.fn(), highlight: v.fn(), focus: v.fn(), startPlacing: v.fn(), stopPlacing: v.fn(), callbacks: {} };
+      heat = { set: v.fn(), fitHotspot: v.fn(() => false) };
     },
   };
 });
@@ -49,6 +50,8 @@ const manualMeta = () => ({
 });
 let attached: { headers: Record<string, string>; body: Uint8Array<ArrayBuffer> } | null;
 let images: number;
+/** Raster für die Revier-Wärmekarte (Konzept 37) */
+let heats: Array<{ cells: number[] }>;
 
 async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const url = String(input);
@@ -59,6 +62,11 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
   if (url === `/api/shares/${ID}/track` && method === 'PUT') {
     attached = { headers: Object.fromEntries(Object.entries(init.headers as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v])), body: init.body as Uint8Array<ArrayBuffer> };
     return json({ share: { ...manualMeta(), source: 'gpx', distSource: 'track' } });
+  }
+  if (url === '/api/discover/heat') return json({ cells: [], voyages: [] });
+  if (url === `/api/shares/${ID}/heat` && method === 'PUT') {
+    heats.push(JSON.parse(String(init.body)) as { cells: number[] });
+    return new Response(null, { status: 204 });
   }
   if (url === `/api/shares/${ID}/image` && method === 'PUT') {
     images++;
@@ -84,6 +92,7 @@ const origAdd = document.addEventListener.bind(document);
 beforeEach(() => {
   attached = null;
   images = 0;
+  heats = [];
   vi.stubGlobal('fetch', vi.fn(router));
   vi.stubGlobal('BroadcastChannel', class {
     addEventListener() {}
@@ -182,6 +191,9 @@ describe('F-607 Ablauf im Browser', () => {
     expect(mode.kind === 'share' && mode.share.source).toBe('gpx');
     expect(state().tracks.some((t) => t.estimated)).toBe(false);
     await vi.waitFor(() => expect(images).toBe(1));
+    // Raster für die Revier-Wärmekarte (F-581) – einmal, aus dem nachgereichten Track
+    await vi.waitFor(() => expect(heats).toHaveLength(1));
+    expect(heats[0].cells.length).toBeGreaterThan(0);
   });
 
   it('[F-602] Track von einem anderen Tag: Hinweis vor dem Hochladen, keine Rückfrage, nichts gesendet', async () => {
@@ -199,5 +211,6 @@ describe('F-607 Ablauf im Browser', () => {
     await settled();
     expect(attached).toBeNull();
     expect(images).toBe(0);
+    expect(heats).toHaveLength(0);
   });
 });

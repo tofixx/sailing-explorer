@@ -1,4 +1,4 @@
-import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type StreamFilter, type StreamPage } from '../services/api';
+import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type InviteTo, type StreamFilter, type StreamPage } from '../services/api';
 import { locate, nearCenter, readNearPrefs, writeNearPrefs, type NearPrefs } from '../services/near-prefs';
 import { roundCoord, type NearRadius, type StreamMode } from '../domain/near';
 import type { NearInfo } from '../components/sx-home-feed';
@@ -244,12 +244,12 @@ export class GroupsController {
     return this.act(() => groupApi.removeMember(d.id, d.userId), 'Entfernt');
   }
 
-  invite(d: { id: string; email: string | null }) {
+  invite(d: { id: string; to: InviteTo | null }) {
     return this.act(async () => {
-      const res = await groupApi.invite(d.id, d.email);
+      const res = await groupApi.invite(d.id, d.to);
       // Der Einladungslink steht nur in dieser Antwort – einmal zeigen.
       this.ui.page.inviteLink = res.link ?? res.devLink ?? null;
-    }, d.email ? 'Einladung verschickt' : 'Einladungslink erzeugt');
+    }, d.to ? 'Einladung verschickt' : 'Einladungslink erzeugt');
   }
 
   revokeInvite(id: string) {

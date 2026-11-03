@@ -41,10 +41,14 @@ const menu = (el: LitEl, label: RegExp) => {
   return m ? button(m.shadowRoot, label) : undefined;
 };
 
+/** Event-Detail ohne Funktionen (z. B. `done`), damit `toEqual` nur die Daten vergleicht. */
+const withoutFns = (d: unknown) =>
+  d && typeof d === 'object' && !Array.isArray(d) ? Object.fromEntries(Object.entries(d).filter(([, v]) => typeof v !== 'function')) : d;
 let cleanups: Array<() => void> = [];
 function listen(name: string) {
   const got: unknown[] = [];
-  const fn = (e: Event) => got.push((e as CustomEvent).detail);
+  // Rückrufe (`done` beim Einladen, F-590) gehören nicht zum Vergleich
+  const fn = (e: Event) => got.push(withoutFns((e as CustomEvent).detail));
   document.addEventListener(name, fn);
   cleanups.push(() => document.removeEventListener(name, fn));
   return got;
@@ -170,8 +174,12 @@ describe('sx-home-feed', () => {
     button(el.shadowRoot, /Anfragen/)!.click();
     expect(joins.map((d) => (d as { id: string }).id)).toEqual(['GOPEN', 'GREQ']);
     expect(el.shadowRoot.querySelector('a[href="/g/einladung"].btn')).not.toBeNull();
-    button(el.shadowRoot, /Link erzeugen/)!.click();
-    expect(invites).toEqual([{ email: null }]);
+    // Freunde einladen im gemeinsamen Baustein (F-590), mit Hinweis auf den festen Ort nach „Später“ (F-592)
+    const box = inner(el, 'sx-invite-box');
+    await box.updateComplete;
+    button(box.shadowRoot, /Einladungslink erzeugen/)!.click();
+    expect(invites).toEqual([{ to: null }]);
+    expect(text(el.shadowRoot)).toContain('Zahnrad → Freunde einladen');
     button(el.shadowRoot, /Später/)!.click();
     await settle(el);
     expect(text(el.shadowRoot)).not.toContain('Willkommen an Bord!');
@@ -317,10 +325,16 @@ describe('sx-group-page', () => {
     expect(text(root)).toContain('Beitrittsanfragen (1)');
     button(root, /Annehmen/)!.click();
     expect(reqs).toEqual([{ id: 'G1', userId: 'U9', approve: true }]);
-    expect(root.querySelector('code.link')!.textContent).toBe('http://localhost/einladung#token=abc');
-    button(root, /Einladungslink erzeugen/)!.click();
-    expect(invites).toEqual([{ id: 'G1', email: null }]);
-    button(root, /Zurückziehen/)!.click();
+    // Einladen im gemeinsamen Baustein (F-590): der Link einmal, danach kein zweiter „erzeugen“-Knopf
+    const box = inner(el, 'sx-invite-box');
+    await box.updateComplete;
+    expect((box.shadowRoot.querySelector('input[readonly]') as HTMLInputElement).value).toBe('http://localhost/einladung#token=abc');
+    expect(button(box.shadowRoot, /Einladungslink erzeugen/)).toBeUndefined();
+    const form = box.shadowRoot.querySelector('form')!;
+    form.querySelector('input')!.value = 'neu@example.org';
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(invites).toEqual([{ id: 'G1', to: { email: 'neu@example.org' } }]);
+    button(box.shadowRoot, /Zurückziehen/)!.click();
     expect(revoke).toEqual([{ id: 'I1' }]);
     button(root, /Zum Admin/)!.click();
     expect(roles).toEqual([{ id: 'G1', userId: 'U2', role: 'admin' }]);

@@ -1,6 +1,7 @@
 import type { LogbookEntry } from '../domain/logbook-year';
 import type { SupportTier } from '../domain/support';
 import type { SeasonStats } from '../domain/season-stats';
+import type { HeatData } from '../domain/heat';
 import type { PollConfig, PollPeople, PollView } from '../domain/polls';
 import type { ComposePostKind } from '../domain/posts';
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
@@ -557,6 +558,10 @@ export const api = {
 
   /** Saison-Zahlen der Community für die Startseite der Gäste (F-431), gecacht 10 Minuten */
   discoverStats: () => call<SeasonStats>('/api/discover/stats'),
+  /** Revier-Wärmekarte (Konzept 37, F-582): für alle gleich, gecacht 15 Minuten */
+  discoverHeat: () => call<HeatData>('/api/discover/heat'),
+  /** Raster des eigenen GPX-Törns (F-581) */
+  putShareHeat: (id: string, cells: number[]) => call<void>(`/api/shares/${encodeURIComponent(id)}/heat`, jsonInit('PUT', { cells })),
   /** `near`: nur aus der Umgebung, nächste zuerst (F-344) */
   /** `boatClass`: Klasse oder Gruppe (F-537) */
   discover: (limit: number, query = '', near?: { center: NearCenter; r: number } | null, boatClass = '') =>
@@ -1011,7 +1016,7 @@ export const groupApi = {
   setRole: (id: string, userId: string, role: 'admin' | 'member') => call<{ role: string }>(`/api/groups/${gid(id)}/members/${gid(userId)}`, jsonInit('PATCH', { role })),
   /** userId 'me' = austreten; `follow`: danach weiter folgen (F-446) */
   removeMember: (id: string, userId: string, follow = false) => call<{ followed?: boolean } | void>(`/api/groups/${gid(id)}/members/${gid(userId)}${follow ? '?follow=1' : ''}`, { method: 'DELETE' }),
-  invite: (id: string, email: string | null) => call<InviteCreated>(`/api/groups/${gid(id)}/invites`, jsonInit('POST', email ? { email } : {})),
+  invite: (id: string, to: InviteTo | null) => call<InviteCreated>(`/api/groups/${gid(id)}/invites`, jsonInit('POST', to ?? {})),
   request: (id: string, message: string, key?: string | null) =>
     call<{ requested: boolean; already?: boolean; joined?: boolean }>(`/api/groups/${gid(id)}/requests`, {
       ...jsonInit('POST', { message }),
@@ -1229,7 +1234,7 @@ export const coverApi = {
 
 export const friendApi = {
   /** ohne Adresse: Einladungslink (nur in dieser Antwort) */
-  invite: (to: { email?: string; handle?: string }) => call<InviteCreated>('/api/invites', jsonInit('POST', to)),
+  invite: (to: InviteTo | null) => call<InviteCreated>('/api/invites', jsonInit('POST', to ?? {})),
 };
 
 // ================================================================ Passkeys (Konzept 14.7)

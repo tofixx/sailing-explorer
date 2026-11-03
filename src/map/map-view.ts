@@ -9,6 +9,7 @@ import type { Layers } from '../services/store';
 import { cssVar, escapeHtml, fmtDateTime, fmtNum } from '../util/html';
 import { endpointPin, waveChevron, waveChevronSize, windBadge, windBadgeSize } from './glyphs';
 import { PhotoLayer } from './photo-layer';
+import { HeatLayer } from './heat-layer';
 import { addBaseMapControl } from './basemap-control';
 
 export interface MapCallbacks {
@@ -44,6 +45,8 @@ export class MapView {
   private raf = 0;
   /** Ebene „Fotos“ (Phase C) – Callbacks setzt die Verdrahtung */
   readonly photos: PhotoLayer;
+  /** Ebene „Revier“ (Konzept 37) – Daten setzt der HeatController */
+  readonly heat: HeatLayer;
 
   constructor(
     private el: HTMLElement,
@@ -83,6 +86,7 @@ export class MapView {
     this.waveLayer.addTo(this.map);
     this.windLayer.addTo(this.map);
     this.photos = new PhotoLayer(this.map, el);
+    this.heat = new HeatLayer(this.map, el);
 
     this.map.on('zoomend viewreset', () => {
       this.project();

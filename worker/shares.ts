@@ -7,7 +7,7 @@ import { randomId } from './crypto';
 import { HttpError, clientIp, countKeyFailure, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, nextShareKey, requestKey } from './access';
 import { assertActive, deleteShareReports, isAdmin, logLockedView } from './moderation';
-import { deleteKeys, photoKeysForShares, previewKey, shareKey } from './photo-keys';
+import { deleteKeys, photoKeysForShares, previewKey, shareFileKeys, shareKey } from './photo-keys';
 import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
 import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, replaceManualPayloadStmt, subtractShareStmt } from './storage';
 import { deleteShareNotifications } from './notification-cleanup';
@@ -477,11 +477,11 @@ export async function deleteShare(request: Request, env: Env, id: string): Promi
   return new Response(null, { status: 204 });
 }
 
-/** Löscht Datei, Vorschaubild, Meldungen und Datensatz eines Törns (Kommentare, Crew, Einladungen per CASCADE). */
+/** Löscht Datei, Vorschaubild, Revier-Raster, Meldungen und Datensatz eines Törns (Kommentare, Crew, Einladungen per CASCADE). */
 export async function removeShare(env: Env, id: string): Promise<void> {
   // Dateien zuerst (Track, Übersichtsbild, Fotos aus der D1-Liste): scheitert danach D1, bleibt nur eine Zeile ohne
   // Datei zurück statt einer Datei, die niemand mehr findet. Die Foto-Zeilen fallen per ON DELETE CASCADE.
-  await deleteKeys(env, [shareKey(id), previewKey(id), ...(await photoKeysForShares(env, [id]))]);
+  await deleteKeys(env, [...shareFileKeys(id), ...(await photoKeysForShares(env, [id]))]);
   await env.DB.batch(shareDeleteStmts(env, id));
 }
 

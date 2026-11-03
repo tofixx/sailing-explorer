@@ -58,12 +58,13 @@ import { DiscoverController } from './controllers/discover';
 import type { SxGroupPage } from './components/sx-group-page';
 import type { SxHomeFeed } from './components/sx-home-feed';
 import type { SxGuestSlider } from './components/sx-guest-slider';
-import type { FollowKind, GroupInput } from './services/api';
+import type { FollowKind, GroupInput, InviteTo } from './services/api';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
 import { UnreadController } from './controllers/unread';
 
 import { MapStyleController } from './controllers/map-style';
+import { HeatController } from './controllers/heat';
 import type { MapStyleScope, SxMapStyle } from './components/sx-map-style';
 import type { SxLegalPage } from './components/sx-legal-page';
 import { RECORDING_GUIDE } from './content/recording-guide';
@@ -200,6 +201,7 @@ export class App {
   private started = false;
 
   private mapStyle: MapStyleController;
+  private heat: HeatController;
   private notifications: NotificationsController;
   /** Startseite als Einstieg (nicht Profil-, Boots-, Gruppen- oder Entdecken-Seite) – nur dort lädt die Startseite Neuigkeiten */
   private homeRoute = false;
@@ -299,6 +301,7 @@ export class App {
     this.unread = new UnreadController(this.store, { show: (label) => (this.ui.topbar.unread = label), visible: () => this.markSeen() });
 
     this.mapStyle = new MapStyleController(this.store, { picker: this.ui.mapStyle, toast: (msg, ms) => this.toast(msg, ms) });
+    this.heat = new HeatController(this.store, { layer: this.map.heat, picker: this.ui.mapStyle });
     this.notifications = new NotificationsController(this.store, {
       panel: this.ui.notifications,
       badge: (label) => (this.ui.topbar.bell = label),
@@ -503,6 +506,7 @@ export class App {
     const toern = section === 'track' || section === 'community' ? toernLabel(s) : null;
     Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home, saved: s.saved, section, toern, draft: resumableDraft(s) });
     if (changed('home') || changed('tracks')) this.markSeen();
+    this.syncHeat(home && !has);
     // „Abmelden“ im Konto nennt den Entwurf, der dabei verworfen wird (F-438)
     if (changed('draft')) this.ui.account.draft = s.draft?.title ?? null;
     // Neuigkeiten auf der Startseite und Rollen auf der Gruppenseite hängen an der Anmeldung (Konzept 11.5).
@@ -666,6 +670,7 @@ export class App {
 
     // Tracks & Karte
     on<{ id: MapStyleId; scope: MapStyleScope }>('sx-map-style-apply', (d) => void this.mapStyle.choose(d.id, d.scope));
+    on<{ on: boolean }>('sx-map-heat', (d) => this.heat.toggle(d.on));
     on<FileList>('sx-files', (files) => void this.ws.files(files));
     on<FileList>('sx-files-add', (files) => void this.ws.add(files));
     on<string>('sx-sample', (file) => void this.ws.sample(file));
@@ -743,7 +748,8 @@ export class App {
     on('sx-invite-accept', () => s.acceptInvite());
     on<{ id: string; scope: 'crew' | 'boat'; boatId?: string }>('sx-invite-revoke', (d) => s.revokeInvite(d));
     on<string>('sx-invite-copy', (url) => s.copyInvite(url));
-    on<{ to: { email: string } | { handle: string } | null; role?: VoyageRole }>('sx-crew-invite', (d) => s.inviteCrew(d.to, d.role));
+    on<{ url: string; title: string; text: string }>('sx-invite-share', (d) => s.shareInvite(d));
+    on<{ to: { email: string } | { handle: string } | null; role?: VoyageRole; done?: () => void }>('sx-crew-invite', (d) => s.inviteCrew(d.to, d.role).then((ok) => ok && d.done?.()));
     on<{ userId: string; role: VoyageRole }>('sx-crew-role', (d) => s.setCrewRole(d.userId, d.role));
     on<{ role: VoyageRole }>('sx-crew-own-role', (d) => s.setOwnerRole(d.role));
     on<{ userIds: string[] | 'all'; owner: boolean }>('sx-crew-confirm', (d) => s.confirmCrew(d.userIds, d.owner));
@@ -753,7 +759,7 @@ export class App {
     on('sx-crew-edit', () => this.editCrew());
     on<{ file: File }>('sx-track-attach', (d) => void this.ws.attach(d.file));
     on<string>('sx-boat-admins', (id) => s.loadAdmins(id));
-    on<{ boatId: string; to: { email: string } | { handle: string } }>('sx-boat-admin-invite', (d) => s.inviteAdmin(d.boatId, d.to));
+    on<{ boatId: string; to: { email: string } | { handle: string }; done?: () => void }>('sx-boat-admin-invite', (d) => s.inviteAdmin(d.boatId, d.to).then((ok) => ok && d.done?.()));
     on<string>('sx-my-invite-accept', (id) => s.acceptMyInvite(id));
     on<string>('sx-my-invite-decline', (id) => s.declineMyInvite(id));
     on<{ boatId: string; userId: string }>('sx-boat-admin-remove', (d) => s.removeAdmin(d.boatId, d.userId));
@@ -821,7 +827,7 @@ export class App {
     on('sx-discover-locate', () => this.discover.useLocation());
     // Willkommens-Karte der Startseite (Konzept 14.3)
     on<{ id: string; name: string }>('sx-home-join', (d) => g.join(d.id, { name: d.name }));
-    on<{ email: string | null }>('sx-friend-invite', (d) => this.social.inviteFriend(d.email));
+    on<{ to: InviteTo | null; done?: () => void }>('sx-friend-invite', (d) => this.social.inviteFriend(d.to).then((ok) => ok && d.done?.()));
     // Fahrtenbuch (Konzept 19)
     on('sx-logbook-start', () => this.logbook.start());
     // GPX-Törn: Vorschläge aus dem geladenen Track (F-460). Bearbeiten gibt es nur am offenen Törn, und der Arbeitsbereich
@@ -841,7 +847,7 @@ export class App {
     on<{ id: string; userId: string; approve: boolean }>('sx-group-request', (d) => g.decide(d));
     on<{ id: string; userId: string; role: 'admin' | 'member' }>('sx-group-role', (d) => g.setRole(d));
     on<{ id: string; userId: string }>('sx-group-remove', (d) => g.removeMember(d));
-    on<{ id: string; email: string | null }>('sx-group-invite', (d) => g.invite(d));
+    on<{ id: string; to: InviteTo | null; done?: () => void }>('sx-group-invite', (d) => g.invite(d).then((ok) => ok && d.done?.()));
     on<{ id: string }>('sx-group-invite-revoke', (d) => g.revokeInvite(d.id));
     on<{ id: string; boatId: string }>('sx-group-boat-add', (d) => g.addBoat(d));
     on<{ id: string; boatId: string }>('sx-group-boat-remove', (d) => g.removeBoat(d));
@@ -1228,8 +1234,18 @@ export class App {
   private showPlace(page: HTMLElement, place: { lat: number; lon: number } | null) {
     this.ui.app.toggleAttribute('data-place', !!place);
     page.toggleAttribute('on-map', !!place);
+    this.syncHeat(false);
     // erst nach dem Umschalten des Rasters messen – sonst kennt die Karte ihre Größe nicht
     requestAnimationFrame(() => this.map.showPlace(place, Math.min(window.innerHeight * 0.34, 300)));
+  }
+
+  /**
+   * Revier-Wärmekarte (Konzept 37): Pins, wo die Karte Community-Hintergrund ist (Startseite, Hafen-/Vereinsseite mit
+   * Ort), nicht in der Törn-Ansicht; einpassen nur auf der Startseite ohne Tracks.
+   */
+  private syncHeat(fit: boolean) {
+    const place = this.ui.app.hasAttribute('data-place');
+    this.heat.setView({ pins: place || this.ui.app.hasAttribute('data-empty'), fit: fit && !place });
   }
 
   /**
@@ -1242,6 +1258,7 @@ export class App {
     this.ui.page.removeAttribute('on-map');
     this.ui.groupPage.removeAttribute('on-map');
     this.map.showPlace(null);
+    this.syncHeat(false);
     this.refitAfterPlace = true;
   }
 

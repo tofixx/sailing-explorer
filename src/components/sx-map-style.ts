@@ -8,10 +8,11 @@ import { base, emit, menuStyles } from './shared';
 export type MapStyleScope = 'now' | 'profile' | 'reset';
 
 /**
- * Kartenstil: Zahnrad unten rechts über der Karte, klappt ein Menü mit den Stilen auf (Knöpfe mit aria-pressed).
+ * Kartenstil: Ebenen-Knopf unten rechts über der Karte, klappt ein Menü mit den Stilen auf (Knöpfe mit aria-pressed).
  * Ein Klick wendet den Stil sofort an (bis zum Neuladen); angemeldet lässt sich der geltende Stil als Standard setzen
  * oder der Standard entfernen.
- * Reine Darstellung – Event `sx-map-style-apply` { id, scope }.
+ * Dazu der Schalter „Revier“ (Wärmekarte der öffentlichen Törns, Konzept 37, F-584) – bleibt offen beim Umschalten.
+ * Reine Darstellung – Events `sx-map-style-apply` { id, scope }, `sx-map-heat` { on }.
  */
 export class SxMapStyle extends LitElement {
   static properties = {
@@ -21,6 +22,7 @@ export class SxMapStyle extends LitElement {
     signedIn: { type: Boolean },
     busy: { type: Boolean },
     error: { type: String },
+    heat: { type: Boolean },
   };
   declare open: boolean;
   /** gerade geltender Stil */
@@ -30,6 +32,8 @@ export class SxMapStyle extends LitElement {
   declare signedIn: boolean;
   declare busy: boolean;
   declare error: string;
+  /** Ebene „Revier“ (Konzept 37) an */
+  declare heat: boolean;
 
   constructor() {
     super();
@@ -39,6 +43,7 @@ export class SxMapStyle extends LitElement {
     this.signedIn = false;
     this.busy = false;
     this.error = '';
+    this.heat = false;
   }
 
   static styles = [
@@ -144,6 +149,12 @@ export class SxMapStyle extends LitElement {
             <span class="bar" style="background:${rampCss(s.ramp)}" aria-hidden="true"></span>
           </button>`;
         })}
+        <hr />
+        <button class="item heat" type="button" aria-pressed=${this.heat} title="Wärmekarte der öffentlichen Törns – ohne Namen, Zeiten, Anfang und Ende"
+          @click=${() => emit(this, 'sx-map-heat', { on: !this.heat })}>
+          <span class="mark">${this.heat ? icon('check') : ''}</span>
+          <span>Revier<small>wo gesegelt wird</small></span>
+        </button>
         <hr />
         ${this.profileActions()}
         ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}

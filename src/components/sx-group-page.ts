@@ -8,7 +8,7 @@ import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import './sx-filter-select';
 import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy, type PostBy } from '../domain/posts';
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
-import { fmtDate, fmtNum, plural } from '../util/html';
+import { fmtNum, plural } from '../util/html';
 import { ENTITY_ICON, groupIcon, icon } from './icons';
 import { base, emit, offerFollow, onMapStyles, pageMenuReveal, webLink, webLinkStyles, writePostButton } from './shared';
 import './sx-page-menu';
@@ -24,6 +24,9 @@ import './sx-harbor-picker';
 import './sx-page-media';
 import './sx-claim';
 import './sx-verified-badge';
+import './sx-invite-box';
+import type { InviteCreateDetail } from './sx-invite-box';
+import { inviteShareText, inviteShareTitle } from '../domain/invite-text';
 
 /**
  * Gruppenseite `/g/<slug>` und Anlegen `/g/neu` (Konzept 11.1, 11.5, F-163). Rein präsentational: Daten kommen als
@@ -353,14 +356,6 @@ export class SxGroupPage extends LitElement {
         border: 1px dashed var(--border);
         border-radius: var(--radius);
       }
-      code.link {
-        display: block;
-        padding: var(--s-2);
-        border-radius: var(--radius);
-        background: var(--surface-2);
-        overflow-wrap: anywhere;
-        font-size: var(--fs-s);
-      }
       .counter {
         font-size: var(--fs-xs);
         color: var(--text-3);
@@ -639,35 +634,18 @@ export class SxGroupPage extends LitElement {
     </header>`;
   }
 
+  /** „Leute einladen“ im gemeinsamen `sx-invite-box` (F-590); offene Einladungen sehen nur Verwalter. */
   private invites(g: GroupInfo, list: PendingInvite[]) {
-    let email = '';
     const approval = !canApprove(g.role, g.approveBy ?? 'admins') && !(g.joinMode === 'open' && g.visibility === 'public');
     return html`<div class="box" aria-label="Einladen">
       <h3 class="eyebrow">Leute einladen</h3>
-      ${approval ? html`<p class="hint">Wer deine Einladung annimmt, stellt eine Beitrittsanfrage, die in dieser Gruppe andere bestätigen.</p>` : ''}
-      <div class="row">
-        <button class="btn" ?disabled=${this.busy} @click=${() => emit(this, 'sx-group-invite', { id: g.id, email: null })}>${icon('link')} Einladungslink erzeugen</button>
-      </div>
-      ${this.inviteLink
-        ? html`<div><code class="link">${this.inviteLink}</code>
-            <div class="row" style="margin-top:var(--s-2)"><button class="btn small" @click=${() => emit(this, 'sx-invite-copy', this.inviteLink)}>${icon('copy')} Kopieren</button>
-              <span class="hint">Nur jetzt sichtbar. 14 Tage gültig, bis zu 100 Personen.</span></div></div>`
-        : ''}
-      <form class="row" @submit=${(e: Event) => {
-          e.preventDefault();
-          if (email) emit(this, 'sx-group-invite', { id: g.id, email });
-        }}>
-        <input type="email" placeholder="E-Mail-Adresse" aria-label="Per E-Mail einladen" @input=${(e: Event) => (email = (e.target as HTMLInputElement).value)} />
-        <button class="btn" type="submit" ?disabled=${this.busy}>${icon('mail')} Einladen</button>
-      </form>
-      ${list.length
-        ? html`<ul class="list" aria-label="Offene Einladungen">
-            ${list.map(
-              (i) => html`<li><span class="name">${i.email ?? `Einladungslink (noch ${i.usesLeft}×)`}</span><span class="faint">bis ${fmtDate(i.expiresAt)}</span>
-                <button class="btn small ghost" @click=${() => emit(this, 'sx-group-invite-revoke', { id: i.id })}>Zurückziehen</button></li>`,
-            )}
-          </ul>`
-        : ''}
+      <sx-invite-box .link=${this.inviteLink ?? ''} ?busy=${this.busy} .pending=${list}
+        link-note="Nur jetzt sichtbar · ${GROUP_LIMITS.inviteDays} Tage gültig · bis zu ${GROUP_LIMITS.linkUses} Personen."
+        share-title=${inviteShareTitle()} share-text=${inviteShareText({ kind: 'group', groupKind: g.kind, target: g.name })}
+        @invite-create=${(e: CustomEvent<InviteCreateDetail>) => emit(this, 'sx-group-invite', { id: g.id, to: e.detail.to, done: e.detail.done })}
+        @invite-revoke=${(e: CustomEvent<{ id: string }>) => emit(this, 'sx-group-invite-revoke', { id: e.detail.id })}>
+        ${approval ? html`<p class="hint">Wer deine Einladung annimmt, stellt eine Beitrittsanfrage, die in dieser Gruppe andere bestätigen.</p>` : ''}
+      </sx-invite-box>
     </div>`;
   }
 

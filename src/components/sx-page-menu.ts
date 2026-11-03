@@ -65,6 +65,11 @@ export class SxPageMenu extends LitElement {
     emit(this, 'sx-page-menu-pick', { id });
   }
 
+  /** Fokus zurück auf den Zahnrad-Knopf – z. B. nachdem ein aus dem Menü geöffneter Bereich schließt (F-592). */
+  focusToggle() {
+    this.renderRoot.querySelector<HTMLButtonElement>('button.toggle')?.focus();
+  }
+
   render() {
     if (!this.items.length) return nothing;
     return html`<div @keydown=${this.menu.onKey} @focusout=${this.menu.onFocusOut}>
