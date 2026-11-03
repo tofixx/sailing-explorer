@@ -5,6 +5,7 @@ import { fmtMB } from '../util/html';
 import { limitsFor } from '../domain/limits';
 import { icon } from './icons';
 import { base, emit } from './shared';
+import { APP_NAME } from '../domain/brand';
 
 export type SupportVariant = 'offer' | 'required';
 
@@ -300,8 +301,8 @@ export class SxSupport extends LitElement {
     return html`<div class="offer">
       <div class="line ${supporter ? 'thanks' : ''}">
         <span>${supporter
-          ? html`${icon('pennant')} Danke, dass du Sail Explorer unterstützt!`
-          : html`${icon('sail')} Gefällt dir Sail Explorer? Gib eine Runde aus – und speichere mehr Törns länger.`}</span>
+          ? html`${icon('pennant')} Danke, dass du ${APP_NAME} unterstützt!`
+          : html`${icon('sail')} Gefällt dir ${APP_NAME}? Gib eine Runde aus – und speichere mehr Törns länger.`}</span>
         ${supporter
           ? html`<button class="btn small" aria-expanded=${open} @click=${() => (this.expanded = !this.expanded)}>
               ${icon(open ? 'x' : 'coffee')} ${open ? 'Schließen' : 'Verlängern'}

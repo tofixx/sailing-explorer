@@ -9,6 +9,7 @@ import type { SxProfilePage } from '../components/sx-profile-page';
 import { errorText } from './session';
 import { appendDays, withDayPage } from '../services/day-cards';
 import { NOTIFY_LEVEL_LABEL, type NotifyLevel } from '../domain/notifications';
+import { APP_NAME } from '../domain/brand';
 
 export interface GroupsUi {
   page: SxGroupPage;
@@ -86,7 +87,7 @@ export class GroupsController {
     const data = await groupApi.bySlug(this.current.slug, this.current.key);
     page.data = data;
     page.signedIn = this.signedIn();
-    document.title = `${data.group.name} · Sail Explorer`;
+    document.title = `${data.group.name} · ${APP_NAME}`;
     const g = data.group;
     const [stream, boats] = await Promise.all([
       groupApi.stream(g.id, null, this.current.key).catch(() => ({ items: [], cursor: null }) as StreamPage),
@@ -99,7 +100,7 @@ export class GroupsController {
     this.current = null;
     const page = this.ui.page;
     page.hidden = false;
-    document.title = 'Verein gründen · Sail Explorer';
+    document.title = `Verein gründen · ${APP_NAME}`;
     Object.assign(page, { mode: 'create', loading: false, error: '', signedIn: this.signedIn() });
     if (!this.signedIn()) return;
     const [mine, support] = await Promise.all([groupApi.mine().catch(() => null), api.support().catch(() => null)]);

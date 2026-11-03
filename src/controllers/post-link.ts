@@ -8,6 +8,7 @@ import type { PostLink } from '../domain/posts';
 import type { SxProfilePage } from '../components/sx-profile-page';
 import type { SxGroupPage } from '../components/sx-group-page';
 import { errorText } from './session';
+import { APP_NAME } from '../domain/brand';
 
 /** Eine Liste mit Beiträgen auf der offenen Seite (Gruppe, Hafen, Boot, Profil, „Mein Verlauf“). */
 export interface PostList {
@@ -72,7 +73,7 @@ export class PostLinkController {
       }
       page.data = { kind: 'post', ...r };
       page.highlight = id;
-      document.title = 'Beitrag · Sail Explorer';
+      document.title = `Beitrag · ${APP_NAME}`;
     } catch (e) {
       page.error = e instanceof ApiError && e.status === 404 ? 'Diesen Beitrag gibt es nicht (mehr) – oder du darfst ihn nicht sehen.' : errorText(e);
     } finally {

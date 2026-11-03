@@ -8,6 +8,7 @@ import type { Sample } from './sx-empty-state';
 import { RECORDING_GUIDE_PATH } from '../content/recording-guide';
 import { POST_VISIBILITY_ICON, base, coverBanner, coverBannerStyles, emit } from './shared';
 import type { PostVisibility } from '../domain/posts';
+import { APP_NAME } from '../domain/brand';
 
 /** Stufen auf Folie 4 – nur, was kostenlos geht (Beiträge: E1, B4); Wörter wie im Schreib-Dialog (UX-NAVIGATION N7). */
 const LEVELS: Array<[PostVisibility, string]> = [
@@ -467,7 +468,7 @@ export class SxGuestSlider extends LitElement {
   render() {
     const slides = this.slides();
     const n = slides.length;
-    return html`<section aria-roledescription="carousel" aria-label="Willkommen bei Sail Explorer" @keydown=${this.onKey}>
+    return html`<section aria-roledescription="carousel" aria-label="Willkommen bei ${APP_NAME}" @keydown=${this.onKey}>
       <button class="btn small ghost icon close" aria-label="Einführung ausblenden" title="Ausblenden" @click=${() => emit(this, 'sx-guest-dismiss')}>${icon('x')}</button>
       <div class="track" data-scroll-x @scroll=${this.onScroll} @scrollend=${this.onScrollEnd}>
         ${slides.map(

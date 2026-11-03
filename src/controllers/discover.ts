@@ -6,6 +6,7 @@ import type { SxDiscover } from '../components/sx-discover';
 import { SEARCH_LIMITS, searchKey } from '../domain/search';
 import { errorText } from './session';
 import { isBoatClassFilter } from '../domain/boat-class';
+import { APP_NAME } from '../domain/brand';
 
 /** Einträge je Liste auf /entdecken (F-74) */
 const PAGE_LIMIT = 24;
@@ -38,7 +39,7 @@ export class DiscoverController {
   async open(): Promise<void> {
     const page = this.page;
     page.hidden = false;
-    document.title = 'Entdecken · Sail Explorer';
+    document.title = `Entdecken · ${APP_NAME}`;
     const params = new URLSearchParams(location.search);
     const query = params.get('q') ?? '';
     // Bootsklasse aus ?klasse= (F-537); Unbekanntes filtert nicht

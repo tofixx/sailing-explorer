@@ -909,7 +909,7 @@ liefert der Server wie beim Login einen `devLink`. „Mich selbst“ heißt im P
 ### 10.4 Mails
 
 Eine neue Vorlage `inviteMail` in `worker/mail.ts`, Text und HTML, deutsch:
-„<Name> lädt dich ein, das Boot „<Boot>“ bei Sail Explorer mitzuverwalten“
+„<Name> lädt dich ein, das Boot „<Boot>“ bei Luv & Leute mitzuverwalten“
 bzw. „… in die Crew des Törns „<Titel>““. Der Name ist der Anzeigename des
 Profils, sonst der Spaßname des Kontos (10.6) – nie die E-Mail-Adresse, Boots- und Törnnamen sind
 Nutzertext und werden **escaped** und gekürzt. Hinweis auf Gültigkeit und
@@ -993,7 +993,7 @@ für Beteiligte nötig ist (Listen der Eigentümer, Mails, Posteingang).
 
 ## 11. Vereine, Teams und Neuigkeiten
 
-Stand: Oktober 2026. Ziel des Betreibers: Sail Explorer soll Segler zusammenbringen – wie ein soziales Netz, aber
+Stand: Oktober 2026. Ziel des Betreibers: Luv & Leute (bis 03.11.2026 „Sail Explorer“) soll Segler zusammenbringen – wie ein soziales Netz, aber
 mit den Regeln aus Abschnitt 1 (Sichtbarkeit), 4.4 (Moderation), 5 (Grenzen) und 10 (Einladungen) und im
 Cloudflare-Free-Tier. Anforderungen: **F-150 ff.** (`REQUIREMENTS.md`). Umsetzung: `migrations/0011_groups.sql`,
 `worker/groups.ts`, `worker/activity.ts`, `worker/stream.ts`, `worker/follows.ts`, `worker/posts.ts`,
@@ -2422,7 +2422,7 @@ verifiziert). Der Dialog fragt:
 und Zugriffsschutz – und beweisen wenig. Stattdessen prüft die Moderation über einen **unabhängigen öffentlichen
 Kanal**: Sie ruft die Nummer bzw. schreibt die Adresse aus dem Impressum oder dem Vereinsregister an (nicht die im
 Antrag genannte) und fragt nach. Der Dialog sagt das so und bittet, keine Ausweiskopien zu schicken. Eine Bestätigung
-per Mail bleibt im Postfach der Moderation – nicht in Sail Explorer.
+per Mail bleibt im Postfach der Moderation – nicht in Luv & Leute.
 
 Antragstellende sehen den Stand auf der Seite („Antrag in Prüfung seit …“, „abgelehnt am … – Begründung“) und können
 einen offenen Antrag zurückziehen (Status `withdrawn`, Angaben sofort geleert; das Gerüst zählt bis zur Wartefrist zur
@@ -2447,7 +2447,7 @@ Entscheidung (`POST /api/admin/claims/:id { decision, note, previous }`):
 ### 20.4 Abzeichen „verifiziert“
 
 `groups.verified_at`, `harbors.verified_at` (Zeitpunkt, sonst NULL). Ein Haken-Abzeichen „Verifiziert“ mit Hinweis
-„Von Sail Explorer bestätigt: wird vom Verein selbst verwaltet“ (bzw. „vom Hafen“) erscheint im Kopf der Vereins- und
+„Von Luv & Leute bestätigt: wird vom Verein selbst verwaltet“ (bzw. „vom Hafen“) erscheint im Kopf der Vereins- und
 der Hafenseite, auf `/entdecken`-Karten und im Hafen-Picker. Die API liefert nur `verified: boolean` – wer
 vertritt, Funktion und Kontakt bleiben intern.
 
@@ -3324,7 +3324,7 @@ Noch offen: Umfragen und Veranstaltungen gibt es noch nicht; die Regel stuft sie
 
 ## 25. Anleitung „So zeichnest du deinen Törn auf“ (F-450, 02.11.2026)
 
-Andere Apps zeichnen selbst auf; Sail Explorer lebt vom GPX-Import. Neue Nutzer:innen wissen oft nicht, womit sie
+Andere Apps zeichnen selbst auf; Luv & Leute lebt vom GPX-Import. Neue Nutzer:innen wissen oft nicht, womit sie
 aufzeichnen und wie sie an eine GPX-Datei kommen. Leitlinie: „Weniger ist mehr, ein Weg nach Rom“ – je Weg wenige
 Schritte, je Gerät eine Empfehlung.
 
@@ -3378,3 +3378,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 32. Wertung und Jahresbericht (Phase 9, F-413, F-414, F-418, F-500 … F-507) → [`docs/concept/32-wertung.md`](concept/32-wertung.md)
 
 ## 34. Bootsklasse und Filter in Entdecken (F-535 … F-539) → [`docs/concept/34-bootsklasse.md`](concept/34-bootsklasse.md)
+
+## 35. Moderation: Abgleich des Entwurfs mit dem Gebauten (Textfilter, Vertrauensstufen, Bildprüfung, Melden, Sperren) → [`docs/concept/35-moderation.md`](concept/35-moderation.md)
