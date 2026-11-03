@@ -1,4 +1,4 @@
-// Plus-Knopf (Konzept 21.4, F-405): Text-Beitrag in einen Verlauf schreiben – Gäste melden sich zuerst an (danach geht
+// Plus-Knopf (Konzept 21.4, F-405): Beitrag (Text, Umfrage – Konzept 29) in einen Verlauf schreiben – Gäste melden sich zuerst an (danach geht
 // es weiter, wie F-312), die offene Gruppen-, Hafen- bzw. Bootsseite ist vorausgewählt. Nach dem Veröffentlichen geht
 // es in den Heimatverlauf, die neue Karte wird hervorgehoben (F-406). Die Komponenten melden nur Absichten.
 import { postApi, type ChannelPostInput, type CreatedPost } from '../services/api';
@@ -7,6 +7,7 @@ import { channelKey } from '../domain/posts';
 import type { ComposeKind } from '../components/sx-compose';
 import { pickGpx } from '../components/shared';
 import { errorText } from './session';
+import type { ComposePostKind } from '../domain/polls';
 
 /** Verlauf der offenen Seite (vorausgewählt), z. B. `group:<id>`. */
 export type ComposeContext = { kind: 'group' | 'harbor' | 'boat'; id: string } | null;
@@ -43,16 +44,17 @@ export class ComposeController {
     if (kind === 'gpx') pickGpx(document.body);
     else if (kind === 'draft') this.ui.resumeDraft();
     else if (kind === 'logbook') this.ui.startLogbook();
-    else this.openText();
+    else this.openPost(kind);
   }
 
-  private openText(): void {
-    this.ui.requireLogin('Melde dich an, um einen Beitrag zu schreiben. Danach geht es direkt weiter.', () => void this.show());
+  /** Text bzw. Umfrage: ein Dialog, das Formular je Art (`KIND_FORMS` in sx-compose-dialog). */
+  private openPost(kind: ComposePostKind): void {
+    this.ui.requireLogin('Melde dich an, um einen Beitrag zu schreiben. Danach geht es direkt weiter.', () => void this.show(kind));
   }
 
-  private async show(): Promise<void> {
+  private async show(kind: ComposePostKind): Promise<void> {
     const d = this.ui.dialog;
-    Object.assign(d, { open: true, loading: true, error: '', targets: [], shares: [] });
+    Object.assign(d, { open: true, loading: true, error: '', targets: [], shares: [], kind });
     try {
       const data = await postApi.compose(this.ctx ? `${this.ctx.kind}:${this.ctx.id}` : null);
       const selected = data.preselect ?? 'user';

@@ -3,21 +3,24 @@ import { icon, type IconName } from './icons';
 import { base, emit, menuStyles } from './shared';
 import { MenuController } from './menu-controller';
 import { RECORDING_GUIDE_PATH } from '../content/recording-guide';
+import type { ComposePostKind } from '../domain/polls';
 
-/** Arten, die es in Phase 2 gibt (Konzept 21.4) – Umfrage, Veranstaltung und Fotos folgen in späteren Phasen. */
-export type ComposeKind = 'gpx' | 'logbook' | 'text' | 'draft';
+/** Arten (Konzept 21.4): Törn, Fahrtenbuch, Text, Umfrage (29) – Veranstaltung und Fotos folgen; je Art eine Zeile in KINDS. */
+export type ComposeKind = 'gpx' | 'logbook' | ComposePostKind | 'draft';
 
 const KINDS: Array<{ kind: ComposeKind; icon: IconName; label: string; hint: string }> = [
   { kind: 'gpx', icon: 'map', label: 'Törn (GPX)', hint: 'Neuer Törn aus GPX-Dateien – wird lokal ausgewertet' },
   { kind: 'logbook', icon: 'book', label: 'Fahrtenbuch-Eintrag', hint: 'Törn ohne Track eintragen' },
   { kind: 'text', icon: 'comment', label: 'Text', hint: 'Beitrag in Profil, Gruppe, Hafen oder Boot' },
+  { kind: 'poll', icon: 'poll', label: 'Umfrage', hint: 'Frage mit Antworten zum Abstimmen' },
 ];
 
 /**
  * Plus-Knopf „+ Neu“ (Konzept 21.4, F-405): ein Einstieg für alles, was man anlegt – ersetzt „Track anlegen“ in der
  * Kopfzeile und den runden Knopf auf dem Handy. Ab 760 px ein Menü am Knopf, mobil ein Bottom-Sheet (Muster
  * `menuStyles`). Meldet genau ein Event `sx-compose-open` { kind } – der ComposeController öffnet die Dateiauswahl
- * (noch im Klick, ohne Anmeldung), das Fahrtenbuch-Formular bzw. den Text-Dialog mit dem Verlauf der offenen Seite.
+ * (noch im Klick, ohne Anmeldung), das Fahrtenbuch-Formular bzw. den Dialog (Text, Umfrage) mit dem Verlauf der
+ * offenen Seite.
  */
 export class SxCompose extends LitElement {
   static properties = {

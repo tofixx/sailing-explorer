@@ -82,6 +82,8 @@ import type { SxClaim } from './components/sx-claim';
 import type { ClaimRequest } from './services/api';
 import { PostsController } from './controllers/posts';
 import { ComposeController } from './controllers/compose';
+import { PollController } from './controllers/polls';
+import type { PollEventDetail } from './components/sx-poll';
 import { GuestSliderController } from './controllers/guest-slider';
 import { PostLinkController } from './controllers/post-link';
 import { PinsController } from './controllers/pins';
@@ -172,6 +174,7 @@ export class App {
   private posts = new PostsController({ page: this.ui.page, toast: (msg, ms) => this.toast(msg, ms) });
   private unread: UnreadController;
   private compose: ComposeController;
+  private polls: PollController;
   private postLink: PostLinkController;
   private pins: PinsController;
   /** Listen der offenen Seite fertig geladen – Bootsstream bzw. „Mein Verlauf“ (für den Anker `#p-<id>`) */
@@ -296,6 +299,8 @@ export class App {
       posted: (post) => this.showPosted(post),
       resumeDraft: () => void this.ws.resume(),
     });
+    // ---- Umfragen (Konzept 29) ----
+    this.polls = new PollController({ toast: (msg, ms) => this.toast(msg, ms), requireLogin: (reason, then) => this.session.requireLogin(reason, then) });
     this.postLink = new PostLinkController({
       page: this.ui.page,
       groupPage: this.ui.groupPage,
@@ -833,11 +838,14 @@ export class App {
     on<{ scope: string; day: string; cursor: string | null }>('sx-day-open', (d) =>
       d.scope === 'harbor' ? this.social.openHarborDay(d.day, d.cursor) : d.scope === 'group' ? g.openDay(d.day, d.cursor) : undefined,
     );
-    // „+ Neu“ (F-405): ein Event für alle Arten; Text-Dialog
+    // „+ Neu“ (F-405): ein Event für alle Arten; Dialog für Text und Umfrage
     on<{ kind: ComposeKind }>('sx-compose-open', (d) => this.compose.open(d.kind));
     on<ChannelPostInput>('sx-compose-submit', (d) => void this.compose.submit(d));
     on('sx-compose-close', () => this.compose.close());
     on<{ ctx: string }>('sx-compose-channel', (d) => void this.compose.loadAudience(d.ctx));
+    on<PollEventDetail>('sx-poll-vote', (d) => this.polls.vote(d));
+    on<PollEventDetail>('sx-poll-close', (d) => this.polls.close(d));
+    on<PollEventDetail>('sx-poll-who', (d) => this.polls.who(d));
     on<{ kind: FollowKind; id: string; follow: boolean }>('sx-follow', (d) => g.follow(d));
 
     // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----

@@ -15,6 +15,7 @@ import { reachAtLeastSql } from './reach-sql';
 import { liveSql, notSuspendedSql } from './visible-sql';
 import type { Visibility } from '../src/domain/visibility';
 import type { Reach } from '../src/domain/posts';
+import { attachPolls } from './polls';
 import { logbookIds, shapeItem, type ActivityRow, type LogShare, type ReadAt, type Viewer } from './stream-shape';
 import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
 import { pageByDays, type Candidate, type DayPageOut } from './stream-days';
@@ -38,7 +39,7 @@ const ROW_COLS_JOINS = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subje
     g.id AS g_id, g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.hidden_at AS g_hidden, gm.role AS g_role, g.members_visible AS g_members,
     EXISTS (SELECT 1 FROM users gu WHERE gu.id = g.owner_id AND gu.suspended_at IS NOT NULL) AS g_owner_suspended,
     p.id AS p_id, p.body AS p_body, p.link AS p_link, p.hidden_at AS p_hidden, p.author_id AS p_author, p.visibility AS p_vis, p.reach AS p_reach,
-    p.channel_kind AS p_ck, p.channel_id AS p_cid, p.link_key AS p_key, p.kind AS p_kind,
+    p.channel_kind AS p_ck, p.channel_id AS p_cid, p.link_key AS p_key, p.kind AS p_kind, p.data AS p_data,
     ph.slug AS ph_slug, ph.name AS ph_name, ph.hidden_at AS ph_hidden,
     pb.name AS pb_name, pb.visibility AS pb_vis, pb.hidden_at AS pb_hidden,
     EXISTS (SELECT 1 FROM users pbu WHERE pbu.id = pb.owner_id AND pbu.suspended_at IS NOT NULL) AS pb_owner_suspended,
@@ -122,10 +123,22 @@ async function attachReactions(env: Env, items: StreamItem[], viewerId: string |
   });
 }
 
-/** Für gecachte (für alle gleiche) Seiten: die eigene Reaktion nachträglich eintragen – auch in Tageskarten. */
+/**
+ * Angaben je Art und Betrachter (Konzept 29): Umfragen bekommen Stimmen, eigene Wahl und – wenn sichtbar – das Ergebnis.
+ * Ein Batch je Art und Seite, immer nach dem öffentlichen Cache. Neue Arten (Veranstaltung …) ergänzen eine Zeile.
+ */
+async function attachKindData(env: Env, items: StreamItem[], viewerId: string | null): Promise<void> {
+  await attachPolls(env, items, viewerId);
+}
+
+/**
+ * Für gecachte (für alle gleiche, ohne Betrachter berechnete) Seiten: eigene Reaktion und Angaben je Art für den
+ * angemeldeten Betrachter nachträglich eintragen – auch in Tageskarten, nie in den Cache.
+ */
 async function addMine<T extends StreamPageOut & { days?: DayCard[] }>(env: Env, page: T, viewerId: string | null): Promise<T> {
   if (!viewerId) return page;
   const all = [...page.items, ...(page.days ?? []).flatMap((d) => d.top)];
+  await attachKindData(env, all, viewerId);
   const keys = all.filter((i) => i.reactions).map((i) => [i.reactions!.subject, i.reactions!.id]);
   if (!keys.length) return page;
   const { results } = await env.DB.prepare(MINE_SQL).bind(JSON.stringify(keys), viewerId).all<{ sk: string; sid: string; kind: ReactionKind }>();
@@ -205,6 +218,7 @@ async function resolve(env: Env, viewer: Viewer, candidates: Candidate[], scanne
     if (items.length >= STREAM_PAGE) break;
   }
   await attachReactions(env, items, viewer.id);
+  await attachKindData(env, items, viewer.id);
   const more = items.length >= STREAM_PAGE || candidates.length >= scanned;
   return { items, cursor: more && last ? encodeCursor({ at: last.at, id: last.id }) : null };
 }
@@ -227,7 +241,10 @@ export async function postCard(env: Env, viewerId: string | null, postId: string
   if (!row) return null;
   // `at`: Einzelansicht bzw. – für Pins (F-403) – der Verlauf, in dem gelesen wird (Stufe und Öffentlichkeit wie im Stream)
   const item = shapeItem(row, { id: viewerId, at, postKey: key });
-  if (item) await attachReactions(env, [item], viewerId);
+  if (item) {
+    await attachReactions(env, [item], viewerId);
+    await attachKindData(env, [item], viewerId);
+  }
   return item;
 }
 

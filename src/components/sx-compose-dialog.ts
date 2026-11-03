@@ -1,10 +1,34 @@
-import { LitElement, css, html, type PropertyValues } from 'lit';
+import { LitElement, css, html, type PropertyValues, type TemplateResult } from 'lit';
+import { POST_MAX } from '../domain/groups';
+import { POLL_LIMITS, type ComposePostKind } from '../domain/polls';
 import { POST_VISIBILITY_CHOICE, channelKey, channelName, type AttachableShare, type ComposeTarget, type PostVisibility, defaultPostVisibility } from '../domain/posts';
 import type { Audience } from '../domain/large-groups';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import './sx-post-composer';
+import './sx-poll-form';
 import type { SxPostComposer } from './sx-post-composer';
+
+/**
+ * Formular je Art (Konzept 21.4, 29): Titel, Beschriftung und Länge des Texts, ohne Link/Anhang (`plain`) und das
+ * Formularteil im Slot von `sx-post-composer`, das seine Nutzlast als `sx-payload` meldet. Neue Arten: eine Zeile.
+ */
+interface KindForm {
+  title: string;
+  label: string;
+  placeholder: string;
+  hint: string;
+  max: number;
+  plain: boolean;
+  part?: () => TemplateResult;
+}
+const KIND_FORMS: Record<ComposePostKind, KindForm> = {
+  text: { title: 'Neuer Beitrag', label: 'Text', placeholder: 'Was gibt es Neues?', hint: 'Höchstens 5 Beiträge pro Tag und Verlauf. Reiner Text, Links werden klickbar.', max: POST_MAX, plain: false },
+  poll: {
+    title: 'Neue Umfrage', label: 'Frage', placeholder: 'Wer segelt am Mittwoch?', hint: 'Zählt als Beitrag: höchstens 5 pro Tag und Verlauf.', max: POLL_LIMITS.question, plain: true,
+    part: () => html`<sx-poll-form></sx-poll-form>`,
+  },
+};
 
 /** Erklärung je Stufe „Wer sieht es“ – unabhängig vom Verlauf formuliert. */
 const HINT: Record<PostVisibility, string> = {
@@ -17,9 +41,10 @@ const HINT: Record<PostVisibility, string> = {
 /**
  * Text-Beitrag über den Plus-Knopf (Konzept 21.4, F-405): „Wo steht es?“ (Profil, Gruppen mit Schreibrecht, Häfen und
  * Boote), dann das gemeinsame Formular `sx-post-composer` mit den Stufen dieses Verlaufs. Mobil randlos als Vollbild
- * (`dialogStyles`). Rein präsentational – meldet `sx-compose-submit` { channel, body, link, visibility, reach?,
- * shareId }, `sx-compose-channel` { ctx } (anderer Verlauf gewählt – der Controller lädt dessen Publikum `audience`,
- * F-465) und `sx-compose-close`; der Controller leert es mit `clear()`.
+ * (`dialogStyles`). `kind` wählt das Formular je Art (`KIND_FORMS`). Rein präsentational – meldet `sx-compose-submit`
+ * { channel, kind, body, link, visibility, reach?, shareId, [kind]: Nutzlast }, `sx-compose-channel` { ctx } (anderer
+ * Verlauf gewählt – der Controller lädt dessen Publikum `audience`, F-465) und `sx-compose-close`; der Controller
+ * leert es mit `clear()`.
  */
 export class SxComposeDialog extends LitElement {
   static properties = {
@@ -33,7 +58,13 @@ export class SxComposeDialog extends LitElement {
     selected: { type: String },
     /** Publikum des gewählten Verlaufs (F-465), null solange unbekannt */
     audience: { attribute: false },
+    /** Art des Beitrags (Text, Umfrage) */
+    kind: { type: String },
+    payload: { state: true },
   };
+  declare kind: ComposePostKind;
+  /** Nutzlast des Formularteils (`sx-payload`); null = unvollständig */
+  declare payload: unknown;
   declare open: boolean;
   declare loading: boolean;
   declare busy: boolean;
@@ -53,6 +84,8 @@ export class SxComposeDialog extends LitElement {
     this.shares = [];
     this.selected = 'user';
     this.audience = null;
+    this.kind = 'text';
+    this.payload = null;
   }
 
   static styles = [
@@ -74,6 +107,7 @@ export class SxComposeDialog extends LitElement {
 
   clear() {
     this.renderRoot.querySelector<SxPostComposer>('sx-post-composer')?.clear();
+    (this.renderRoot.querySelector('sx-post-composer > *') as { clear?: () => void } | null)?.clear?.();
   }
 
   private target(): ComposeTarget | undefined {
@@ -98,17 +132,19 @@ export class SxComposeDialog extends LitElement {
     e.stopPropagation();
     const t = this.target();
     if (!t) return;
-    emit(this, 'sx-compose-submit', { channel: { kind: t.ref.kind, id: t.id }, ...e.detail });
+    const part = KIND_FORMS[this.kind].part ? { [this.kind]: this.payload } : {};
+    emit(this, 'sx-compose-submit', { channel: { kind: t.ref.kind, id: t.id }, kind: this.kind, ...e.detail, ...part });
   }
 
   render() {
     const t = this.target();
+    const f = KIND_FORMS[this.kind] ?? KIND_FORMS.text;
     return html`<dialog aria-labelledby="ch" @close=${() => this.open && emit(this, 'sx-compose-close')} @cancel=${(e: Event) => {
         e.preventDefault();
         emit(this, 'sx-compose-close');
       }}>
       <header>
-        <h2 id="ch">Neuer Beitrag</h2>
+        <h2 id="ch">${f.title}</h2>
         <button class="btn ghost icon" type="button" aria-label="Schließen" @click=${() => emit(this, 'sx-compose-close')}>${icon('x')}</button>
       </header>
       <div class="body">
@@ -119,11 +155,16 @@ export class SxComposeDialog extends LitElement {
                   ${this.targets.map((x) => html`<option value=${channelKey(x.ref)} ?selected=${t === x}>${x.ref.kind === 'user' ? 'Mein Profil' : channelName(x.ref)}</option>`)}
                 </select></label>
               ${t
-                ? html`<sx-post-composer label="Text" placeholder="Was gibt es Neues?" ?busy=${this.busy} .choices=${t.choices} preset=${defaultPostVisibility(t.ref.kind)} .reaches=${t.reaches} .shares=${this.shares}
+                ? html`<sx-post-composer label=${f.label} placeholder=${f.placeholder} max=${f.max} ?plain=${f.plain} .ready=${!f.part || !!this.payload}
+                    ?busy=${this.busy} .choices=${t.choices} preset=${defaultPostVisibility(t.ref.kind)} .reaches=${t.reaches} .shares=${this.shares}
                     .audience=${this.audience} .smaller=${this.smaller(t)} @sx-compose-pick=${(e: CustomEvent<{ key: string }>) => this.pick(e.detail.key)}
-                    hint="Höchstens 5 Beiträge pro Tag und Verlauf. Reiner Text, Links werden klickbar."
+                    hint=${f.hint}
                     .choiceHints=${Object.fromEntries(t.choices.map((v) => [v, `${POST_VISIBILITY_CHOICE[v]}: ${HINT[v]}`]))}
-                    @sx-post-submit=${(e: CustomEvent) => this.submit(e)}></sx-post-composer>`
+                    @sx-post-submit=${(e: CustomEvent) => this.submit(e)}
+                    @sx-payload=${(e: CustomEvent<{ value: unknown }>) => {
+                      e.stopPropagation();
+                      this.payload = e.detail.value;
+                    }}>${f.part?.() ?? ''}</sx-post-composer>`
                 : ''}`}
         ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
       </div>

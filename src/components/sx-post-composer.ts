@@ -14,8 +14,10 @@ import './sx-reach-picker';
  * (`shares`, F-426). Gruppenseite, eigene Seite und der Plus-Knopf (`sx-compose-dialog`) nutzen dasselbe Formular.
  * Mit `audience` zeigt es ab 100 Personen den Publikums-Hinweis (F-465) mit kleineren Gruppen (`smaller`) und der
  * Schnellwahl „Nur hier“ bzw. „Nur Mitglieder“; senden bleibt möglich.
- * Rein präsentational – meldet `sx-post-submit` { body, link, visibility, reach?, shareId } und `sx-compose-pick`
- * { key } (kleinere Gruppe gewählt); der Host leert es nach Erfolg mit `clear()`.
+ * Andere Arten (Umfrage, Konzept 29) setzen `plain` (ohne Link und Anhang), ihre Höchstlänge `max`, legen ihr
+ * Formularteil in den Slot und melden mit `ready`, ob es vollständig ist. Rein präsentational – meldet `sx-post-submit`
+ * { body, link, visibility, reach?, shareId } und `sx-compose-pick` { key } (kleinere Gruppe gewählt); der Host leert es
+ * nach Erfolg mit `clear()`.
  */
 export class SxPostComposer extends LitElement {
   static properties = {
@@ -28,6 +30,14 @@ export class SxPostComposer extends LitElement {
     /** Erklärung je Stufe (z. B. „Nur Mitglieder von …“) */
     choiceHints: { attribute: false },
     busy: { type: Boolean },
+    /** nur Text: ohne Link und angehängten Törn (Umfrage) */
+    plain: { type: Boolean },
+    /** Höchstlänge des Texts */
+    max: { type: Number },
+    /** Formularteil im Slot vollständig (Umfrage: Antworten gültig) */
+    ready: { type: Boolean },
+    /** Beschriftung des Knopfs */
+    action: { type: String },
     /** Stufen „Sichtbar bis“ des Verlaufs (leer: keine Auswahl, der Server nimmt den Standard) */
     reaches: { attribute: false },
     /** eigene Törns zum Anhängen (leer: keine Auswahl) */
@@ -49,6 +59,10 @@ export class SxPostComposer extends LitElement {
   declare preset: PostVisibility;
   declare choiceHints: Partial<Record<PostVisibility, string>>;
   declare busy: boolean;
+  declare plain: boolean;
+  declare max: number;
+  declare ready: boolean;
+  declare action: string;
   declare reaches: ReachOption[];
   declare shares: AttachableShare[];
   declare audience: Audience | null;
@@ -69,6 +83,10 @@ export class SxPostComposer extends LitElement {
     this.preset = 'public';
     this.choiceHints = {};
     this.busy = false;
+    this.plain = false;
+    this.max = POST_MAX;
+    this.ready = true;
+    this.action = 'Veröffentlichen';
     this.body = '';
     this.link = '';
     this.visibility = null;
@@ -193,7 +211,7 @@ export class SxPostComposer extends LitElement {
     e.preventDefault();
     const visibility = this.current();
     const reach = visibility === 'public' ? this.currentReach() : undefined;
-    emit(this, 'sx-post-submit', { body: this.body, link: this.link.trim(), visibility, ...(reach ? { reach } : {}), shareId: this.shareId || null });
+    emit(this, 'sx-post-submit', { body: this.body, link: this.plain ? '' : this.link.trim(), visibility, ...(reach ? { reach } : {}), shareId: this.plain ? null : this.shareId || null });
   }
 
   /** „Sichtbar bis“ nur bei öffentlich; sonst der Hinweis, dass es im Verlauf bleibt. */
@@ -230,7 +248,7 @@ export class SxPostComposer extends LitElement {
 
   /** Eigenen Törn anhängen (F-426) – fällt für Leser weg, die den Törn nicht sehen dürfen. */
   private sharePicker() {
-    if (!this.shares.length) return '';
+    if (!this.shares.length || this.plain) return '';
     return html`<label><span class="label">Törn anhängen (optional)</span>
       <select .value=${this.shareId} @change=${(e: Event) => (this.shareId = (e.target as HTMLSelectElement).value)}>
         <option value="">Kein Törn</option>
@@ -244,13 +262,16 @@ export class SxPostComposer extends LitElement {
     const current = this.current();
     return html`<form aria-label=${this.label} @submit=${(e: Event) => this.submit(e)}>
       <label><span class="label">${this.label}</span>
-        <textarea maxlength=${POST_MAX + 200} .value=${this.body} placeholder=${this.placeholder}
+        <textarea maxlength=${this.max + 200} .value=${this.body} placeholder=${this.placeholder}
           @input=${(e: Event) => (this.body = (e.target as HTMLTextAreaElement).value)}></textarea></label>
       <!-- Zähler erst nahe der Grenze ansagen (ab 90 %), sonst bei jedem Tastendruck -->
-      <div class="counter" aria-live=${len >= POST_MAX * 0.9 ? 'polite' : 'off'}>${len} / ${POST_MAX}</div>
-      <label><span class="label">Link (optional)</span>
-        <input type="text" inputmode="url" maxlength=${POST_LINK_MAX} placeholder="https://…" .value=${this.link}
-          @input=${(e: Event) => (this.link = (e.target as HTMLInputElement).value)} /></label>
+      <div class="counter" aria-live=${len >= this.max * 0.9 ? 'polite' : 'off'}>${len} / ${this.max}</div>
+      <slot></slot>
+      ${this.plain
+        ? ''
+        : html`<label><span class="label">Link (optional)</span>
+            <input type="text" inputmode="url" maxlength=${POST_LINK_MAX} placeholder="https://…" .value=${this.link}
+              @input=${(e: Event) => (this.link = (e.target as HTMLInputElement).value)} /></label>`}
       ${this.choices.length > 1
         ? html`<fieldset>
             <legend class="label">Wer sieht es?</legend>
@@ -263,7 +284,7 @@ export class SxPostComposer extends LitElement {
           ${this.choiceHints[current] ? html`<p class="hint">${this.choiceHints[current]}</p>` : ''}`
         : ''}
       ${this.reachPicker(current)} ${this.audienceHint(current)} ${this.sharePicker()}
-      <div class="row"><button class="btn primary" type="submit" ?disabled=${this.busy || !len || len > POST_MAX}>${icon('comment')} Veröffentlichen</button>
+      <div class="row"><button class="btn primary" type="submit" ?disabled=${this.busy || !len || len > this.max || !this.ready}>${icon('comment')} ${this.action}</button>
         ${this.hint ? html`<span class="hint">${this.hint}</span>` : ''}</div>
     </form>`;
   }

@@ -266,6 +266,26 @@ export const notifyShare = (env: Env, shareId: string) =>
     await deliver(env, 'post', 'share', shareId, s.user_id, sql, s.boat_id ?? '', NOTIFICATION_LIMITS.postFanOut);
   });
 
+/** Höchstens so viele beendete Umfragen meldet ein Nachtlauf (der Rest folgt in der nächsten Nacht). */
+const POLL_CLOSED_BATCH = 200;
+/** Beendete, noch nicht gemeldete Umfragen (`?1` jetzt) – in beiden Anweisungen dieselbe Auswahl in derselben Reihenfolge. */
+const CLOSED_POLLS_SQL = `SELECT id FROM posts WHERE kind = 'poll' AND json_extract(data, '$.poll.notified') IS NULL
+  AND json_extract(data, '$.poll.closesAt') <= ?1 ORDER BY id LIMIT ${POLL_CLOSED_BATCH}`;
+
+/**
+ * Nachtlauf (Konzept 29, F-476): „Deine Umfrage ist beendet“ an die Autor:in jeder Umfrage, deren Ende erreicht ist –
+ * einmal (`data.poll.notified`), nur Glocke, im selben Batch markiert. Selbst beendete Umfragen sind schon markiert.
+ */
+export const nightlyPollClosedStmts = (env: Env, now: number): D1PreparedStatement[] => [
+  env.DB.prepare(
+    `INSERT INTO notifications (id, user_id, kind, subject_kind, subject_id, actor_id, count, created_at, updated_at)
+     SELECT lower(hex(randomblob(12))), p.author_id, 'poll_closed', 'post', p.id, NULL, 1, ?1, ?1 FROM posts p
+     WHERE p.id IN (${CLOSED_POLLS_SQL})
+     ON CONFLICT DO NOTHING`,
+  ).bind(now),
+  env.DB.prepare(`UPDATE posts SET data = json_set(data, '$.poll.notified', 1) WHERE id IN (${CLOSED_POLLS_SQL})`).bind(now),
+];
+
 /** Hinweis des Betreibers (nicht abschaltbar, zusätzlich zur Mail): Törn wird bald gelöscht – an die Eigentümer:in. */
 export const notifyExpiry = (env: Env, shareId: string) =>
   safely('expiry', () => deliver(env, 'expiry', 'share', shareId, null, 'SELECT user_id AS uid FROM shares WHERE id = ?3'));
@@ -365,6 +385,7 @@ interface Row {
   p_handle: string | null;
   p_ck: string | null;
   p_vis: string | null;
+  p_kind?: string | null;
   p_susp: number | null;
   ph_name: string | null;
   pb_name: string | null;
@@ -403,7 +424,7 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
     s.user_id AS s_owner, EXISTS (SELECT 1 FROM users su WHERE su.id = s.user_id AND su.suspended_at IS NOT NULL) AS s_susp, s.title AS s_title, s.visibility AS s_vis, s.share_key AS s_key,
     s.hidden_at AS s_hidden, s.locked_at AS s_locked, s.comments_mode AS s_cmode,
     p.author_id AS p_author, p.hidden_at AS p_hidden, p.group_id AS p_group, pp.handle AS p_handle, a.actor_id AS a_actor,
-    p.channel_kind AS p_ck, p.visibility AS p_vis, ph.name AS ph_name, pb.name AS pb_name, pb.visibility AS pb_vis,
+    p.channel_kind AS p_ck, p.visibility AS p_vis, p.kind AS p_kind, ph.name AS ph_name, pb.name AS pb_name, pb.visibility AS pb_vis,
     EXISTS (SELECT 1 FROM users pu WHERE pu.id = p.author_id AND pu.suspended_at IS NOT NULL) AS p_susp,
     (pb.owner_id = n.user_id OR EXISTS (SELECT 1 FROM boat_admins ba WHERE ba.boat_id = pb.id AND ba.user_id = n.user_id)) AS pb_role,
     g.slug AS g_slug, g.name AS g_name, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden,
@@ -469,16 +490,18 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
       if (r.kind === 'post') {
         if (r.p_hidden || r.p_susp) return null;
         const href = `/p/${r.subject_id}`;
+        // Umfrage (Konzept 29): eigener Satz „neue Umfrage“
+        const kindWhat = r.p_kind === 'poll' ? 'poll' : '';
         if (r.p_ck === 'group') {
           const member = (r.p_vis === 'public' || r.p_vis === 'members') && !!r.g_role;
           const follower = r.p_vis === 'public' && r.g_vis === 'public';
           const ok = r.g_slug && !r.g_hidden && !r.g_locked && (member || follower);
-          return ok ? { ...base, title: r.g_name ?? '', what: '', href } : null;
+          return ok ? { ...base, title: r.g_name ?? '', what: kindWhat, href } : null;
         }
         if (r.p_vis !== 'public') return null;
-        if (r.p_ck === 'harbor') return r.ph_name ? { ...base, title: r.ph_name, what: '', href } : null;
-        if (r.p_ck === 'boat') return r.pb_name && (r.pb_vis === 'public' || r.pb_role) ? { ...base, title: r.pb_name, what: '', href } : null;
-        if (r.p_ck === 'user') return actor ? { ...base, title: actor.name, what: '', href } : null;
+        if (r.p_ck === 'harbor') return r.ph_name ? { ...base, title: r.ph_name, what: kindWhat, href } : null;
+        if (r.p_ck === 'boat') return r.pb_name && (r.pb_vis === 'public' || r.pb_role) ? { ...base, title: r.pb_name, what: kindWhat, href } : null;
+        if (r.p_ck === 'user') return actor ? { ...base, title: actor.name, what: kindWhat, href } : null;
         return null;
       }
       if (r.p_author !== userId || r.p_hidden) return null;

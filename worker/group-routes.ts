@@ -8,6 +8,7 @@ import { inviteGroup } from './invites';
 import { createChannelPost, createPost, createProfilePost, deletePost, getCompose, getPost, listMyPosts, updatePost } from './posts';
 import { listPins, setPin } from './pins';
 import { getComposeAudience } from './compose-audience';
+import { closePoll, getPoll, putVote } from './polls';
 import { boatStream, groupStream, markStreamSeen, personalStream, streamUnread } from './stream';
 import { follow, getSuggestions, unfollow } from './follows';
 import { listChannels, putDefaultLevel, putLevel } from './notify-levels';
@@ -48,6 +49,10 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['PUT', new RegExp(`^/api/posts/${ID}/pin$`), (r, env, [id]) => setPin(r, env, id)],
   ['GET', /^\/api\/pins$/, (r, env) => listPins(r, env)],
   ['PATCH', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => updatePost(r, env, id)],
+  // Phase 4 (Konzept 29): Umfragen
+  ['PUT', new RegExp(`^/api/posts/${ID}/vote$`), (r, env, [id]) => putVote(r, env, id)],
+  ['POST', new RegExp(`^/api/posts/${ID}/close$`), (r, env, [id]) => closePoll(r, env, id)],
+  ['GET', new RegExp(`^/api/posts/${ID}/poll$`), (r, env, [id]) => getPoll(r, env, id)],
   ['POST', /^\/api\/posts$/, (r, env) => createChannelPost(r, env)],
   ['GET', /^\/api\/me\/compose$/, (r, env) => getCompose(r, env)],
   ['GET', /^\/api\/me\/compose\/audience$/, (r, env) => getComposeAudience(r, env)],

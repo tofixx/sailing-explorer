@@ -2545,7 +2545,7 @@ Anleger:in“ prüft vorher `mayAdoptHarbor` (`worker/claim-cleanup.ts`) – je 
 Stand: 02.11.2026, **Entscheidungen des Betreibers eingearbeitet (21.0), Phase 1 (21.11) und Phase 2 (21.12) umgesetzt.**
 Anforderungs-IDs hier sind Platzhalter (**F-400 ff.**) und werden erst bei der Umsetzung nach `docs/REQUIREMENTS.md`
 übernommen – vergeben sind F-400, F-401, F-402, F-404, F-405, F-406, F-409, F-415 (Bedeutung wie unten), F-420 … F-424
-(21.11), F-425 … F-428 (21.12) und F-403, F-416, F-429 (21.13).
+(21.11), F-425 … F-428 (21.12), F-403, F-416, F-429 (21.13) und F-407 (Konzept 29).
 
 Anlass (Betreiber): *„Ich denke es macht Sinn, Posts als solche zu definieren und diese können dann ein GPX-Törn sein,
 oder Umfrage, Veranstaltung mit Check-in, Fotos oder nur ein Fahrtenbuch-Eintrag. Alle Typen sollten über den
@@ -2901,7 +2901,7 @@ lesbaren `body` als Rückfall mitbringt.
 - **F-404** Löschkonzept je Art (21.3.3) mit Test je Weg, inkl. R2-Fotos von Galerie-Beiträgen.
 - **F-405** Plus-Knopf mit Art, Verlauf, Sichtbarkeit, „Sichtbar bis“; Verlauf auf Gruppen-, Hafen- und Bootsseiten vorausgewählt.
 - **F-406** Galerie, Umfrage, Veranstaltung, Text ohne eigene Seite; `/p/<id>` führt zum Anker im Heimatverlauf.
-- **F-407** Umfragen nach 21.5.
+- **F-407** Umfragen nach 21.5 (umgesetzt, Konzept 29).
 - **F-408** Veranstaltungen mit Zusage (teil/vielleicht/nicht) und Kapazität, ohne Check-in.
 - **F-409** Ausbreitung Team → Verein → Hafen → Community für öffentliche Beiträge, begrenzt durch „Sichtbar bis“.
 - **F-410** Erinnerungen und Änderungsmeldungen zu Veranstaltungen.
