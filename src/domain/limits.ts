@@ -115,6 +115,9 @@ export const COVER_WIDTH = 1500;
 export const COVER_HEIGHT = 1000;
 export const COVER_BYTES = 400 * 1024;
 
+/** Neue Titelbilder je Konto in 24 h, über Profil, Boote und Gruppen (F-561); Ausschnitt und Entfernen zählen nicht. */
+export const COVER_LIMITS = { perDay: 5 } as const;
+
 /** Galerie an Person, Boot, Verein/Team: so viele der neuesten öffentlichen Törn-Fotos. */
 export const GALLERY_PHOTOS = 12;
 

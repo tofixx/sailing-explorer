@@ -1110,7 +1110,7 @@ export class App {
         el.adjust();
       } else {
         await coverApi.remove(d.kind, d.id);
-        this.patchCover(d.kind, { cover: null });
+        this.patchCover(d.kind, { cover: null, coverHeldUntil: null });
       }
       this.toast(d.file ? 'Titelbild gespeichert' : 'Titelbild entfernt');
     } catch (err) {

@@ -41,8 +41,8 @@ export function social(h: Harness) {
   async function person(o: { profile?: 'public' | 'unlisted' | 'private' | null; supporter?: boolean } = {}): Promise<Person> {
     const mail = email();
     const s = o.supporter || (o.profile && o.profile !== 'public') ? await loginSupporter(h, mail) : await login(h, mail);
-    // Konto älter als 24 h (wie in den Moderationstests)
-    await (await db()).prepare('UPDATE users SET created_at = created_at - ? WHERE id = ?').bind(2 * DAY, s.user.id).run();
+    // Konto älter als 7 Tage (wie in den Moderationstests): kein neues Konto (F-560) – Titelbilder sofort öffentlich
+    await (await db()).prepare('UPDATE users SET created_at = created_at - ? WHERE id = ?').bind(8 * DAY, s.user.id).run();
     if (o.profile === null || o.profile === undefined) return { ...s, email: mail };
     const handle = uniq('seg');
     const res = await send('PUT', '/api/me/profile', s.cookie, { handle, displayName: `Name ${handle}`, bio: '', visibility: o.profile });

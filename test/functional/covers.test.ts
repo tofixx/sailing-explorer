@@ -77,7 +77,7 @@ describe('Titelbilder (Konzept 13.2)', () => {
     const img = await h.fetch(cover);
     expect(img.status).toBe(200);
     expect(img.headers.get('Content-Type')).toBe('image/webp');
-    expect(img.headers.get('Cache-Control')).toBe('public, max-age=86400');
+    expect(img.headers.get('Cache-Control')).toBe('public, max-age=300');
 
     // Ersetzen: neue Adresse, alte liefert 404, alte Datei ist weg
     const again = (await (await putCover('u', me.handle!, me.cookie, jpeg(1200, 400))).json()) as { cover: string };

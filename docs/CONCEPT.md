@@ -3385,4 +3385,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 
 ## 35. Moderation: Abgleich des Entwurfs mit dem Gebauten (Textfilter, Vertrauensstufen, Bildprüfung, Melden, Sperren) → [`docs/concept/35-moderation.md`](concept/35-moderation.md)
 
+## 36. Moderation: Titelbilder absichern, Melde-Gewicht und Gründe (F-560 … F-569) → [`docs/concept/36-moderation-titelbilder.md`](concept/36-moderation-titelbilder.md)
 ## 38. GPX nachreichen: Track zu einem gespeicherten Fahrtenbuch-Eintrag (F-600 … F-607) → [`docs/concept/38-gpx-nachreichen.md`](concept/38-gpx-nachreichen.md)

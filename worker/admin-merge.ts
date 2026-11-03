@@ -162,6 +162,8 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     db.prepare('UPDATE photos SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     // Monatszähler der Galerie (Konzept 31) wandert mit – sonst würde das Zusammenführen Kontingent freigeben
     db.prepare('UPDATE photo_log SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
+    // Tageslimit der Titelbilder (Konzept 36) ebenso
+    db.prepare('UPDATE cover_log SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('UPDATE comments SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     // Beiträge samt Profil-Verlauf (Konzept 21.3): auch die Post-Zeilen der Törns wandern mit
     db.prepare(`UPDATE posts SET author_id = ?1, channel_id = CASE WHEN channel_kind = 'user' AND channel_id = ?2 THEN ?1 ELSE channel_id END WHERE author_id = ?2`).bind(A, B),
