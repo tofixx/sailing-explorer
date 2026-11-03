@@ -243,6 +243,9 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
        WHERE v.user_id = ?2 AND NOT EXISTS (SELECT 1 FROM poll_votes a WHERE a.post_id = v.post_id AND a.user_id = ?1)`,
     ).bind(A, B),
     db.prepare('DELETE FROM poll_votes WHERE user_id = ?').bind(B),
+    // Zusagen zu Veranstaltungen (Konzept 30): die des Ziels gewinnen
+    db.prepare(`INSERT OR IGNORE INTO event_rsvps (post_id, user_id, status, updated_at) SELECT post_id, ?1, status, updated_at FROM event_rsvps WHERE user_id = ?2`).bind(A, B),
+    db.prepare('DELETE FROM event_rsvps WHERE user_id = ?').bind(B),
     // Benachrichtigungen (Konzept 17): die der Quelle sind kurzlebig und fallen weg; als Auslöser und Push-Gerät zählt das Ziel
     db.prepare('UPDATE notifications SET actor_id = ?1 WHERE actor_id = ?2').bind(A, B),
     db.prepare('DELETE FROM notifications WHERE user_id = ?').bind(B),

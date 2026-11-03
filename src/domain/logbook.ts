@@ -112,6 +112,8 @@ export interface Logbook {
   mast?: number;
   regatta?: { name: string; place?: number; starters?: number };
   items?: LogItem[];
+  /** aus einer Veranstaltung übernommen (Konzept 30, F-487) – nur ein Verweis, die Veranstaltung darf verschwinden */
+  eventId?: string;
 }
 
 const line = (v: unknown): string => cleanComment(v).replace(/\s*\n\s*/g, ' ');
@@ -160,6 +162,7 @@ export function parseLog(input: unknown): { log: Logbook } | { error: string } {
   const extra = parseExtra(o, log);
   if (extra) return { error: extra };
   if (JSON.stringify(log).length > LOG_LIMITS.logChars) return { error: 'Fahrtenbuch-Angaben zu lang – bitte Notizen oder Posten kürzen.' };
+  if (typeof o.eventId === 'string' && /^[A-Za-z0-9]{12,32}$/.test(o.eventId)) log.eventId = o.eventId;
   return { log };
 }
 
@@ -240,7 +243,7 @@ export function readLog(raw: unknown): Logbook {
 }
 
 /** Gibt es Angaben, die das Fahrtenbuch-Panel zeigt? (`timed` ist nur ein Merker) */
-export const hasLog = (log: Logbook): boolean => Object.keys(log).some((k) => k !== 'timed');
+export const hasLog = (log: Logbook): boolean => Object.keys(log).some((k) => k !== 'timed' && k !== 'eventId');
 
 // ---------------------------------------------------------------- Route und Distanz
 

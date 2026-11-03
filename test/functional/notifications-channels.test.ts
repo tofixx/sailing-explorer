@@ -52,7 +52,7 @@ const digests = (to: string) => mails(to).filter((l) => l.includes('Benachrichti
 describe('F-256 Kanäle je Art: keine, Mail oder Push; Hinweise des Betreibers nicht abschaltbar', () => {
   it('[F-256] Standard und Ändern; Unbekanntes → 400; notifyComments bleibt als Kurzform', async () => {
     const p = await s.person();
-    expect((await settings(p)).notify).toEqual({ comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none', post: 'none' });
+    expect((await settings(p)).notify).toEqual({ comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none', post: 'none', event: 'none' });
     expect((await setNotify(p, { follow: 'push', comment: 'mail' })).status).toBe(200);
     expect((await settings(p)).notify).toMatchObject({ follow: 'push', comment: 'mail' });
     expect((await settings(p)).notifyComments).toBe('daily');

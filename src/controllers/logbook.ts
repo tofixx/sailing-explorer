@@ -5,10 +5,13 @@ import type { SxLogbookForm, LogbookSave } from '../components/sx-logbook-form';
 import { SxLogbookPanel } from '../components/sx-logbook-panel';
 import type { LogSuggestion } from '../domain/logbook-suggest';
 import { errorText } from './session';
+import type { LogbookPreset } from '../domain/events';
 
 /** Wie das Formular aufgeht: mit Vorschlägen aus dem Track (GPX-Törn) und was nach dem Speichern passiert. */
 export interface LogbookStart {
   suggestion?: LogSuggestion | null;
+  /** neuer Eintrag aus einer Veranstaltung: Datum, Titel, Zusatzangaben (F-487) */
+  preset?: LogbookPreset | null;
   /** statt der Törn-Ansicht (z. B. Fahrtenbuch-Seite neu laden) */
   after?: (id: string) => void;
 }
@@ -28,15 +31,15 @@ export class LogbookController {
 
   private after: LogbookStart['after'] = undefined;
 
-  /** „Ohne GPX eintragen“ bzw. „Bearbeiten“ (F-300, F-312, F-461). */
+  /** „Ohne GPX eintragen“ bzw. „Bearbeiten“ (F-300, F-312, F-461); `preset`: aus einer Veranstaltung übernommen (F-487). */
   start(share: ShareMeta | null = null, o: LogbookStart = {}): void {
     this.after = o.after;
-    this.ui.requireLogin('Melde dich an, um ins Fahrtenbuch einzutragen. Danach geht es direkt weiter.', () => void this.openForm(share, o.suggestion ?? null));
+    this.ui.requireLogin('Melde dich an, um ins Fahrtenbuch einzutragen. Danach geht es direkt weiter.', () => void this.openForm(share, o.suggestion ?? null, o.preset ?? null));
   }
 
-  private async openForm(share: ShareMeta | null, suggestion: LogSuggestion | null) {
+  private async openForm(share: ShareMeta | null, suggestion: LogSuggestion | null, preset: LogbookPreset | null) {
     const f = this.ui.form;
-    Object.assign(f, { share, suggestion, error: '', busy: false, used: -1 });
+    Object.assign(f, { share, suggestion, preset, error: '', busy: false, used: -1 });
     // Boote und Kontingent nebenbei – das Formular geht sofort auf
     f.open = true;
     const [boats, support] = await Promise.all([api.myBoats().catch(() => ({ boats: [] })), api.support().catch(() => null)]);

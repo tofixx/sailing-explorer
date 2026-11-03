@@ -116,7 +116,7 @@ describe('F-491 Galerie-Beitrag anlegen: Beitrag, dann Fotos', () => {
     const me = await s.person();
     const other = await s.person();
     expect(await s.errorOf(await s.send('POST', '/api/posts', me.cookie, { channel: { kind: 'user', id: '' }, body: '' }))).toBe('empty');
-    expect(await s.errorOf(await s.send('POST', '/api/posts', me.cookie, { channel: { kind: 'user', id: '' }, kind: 'event', body: 'x' }))).toBe('invalid_kind');
+    expect(await s.errorOf(await s.send('POST', '/api/posts', me.cookie, { channel: { kind: 'user', id: '' }, kind: 'mond', body: 'x' }))).toBe('invalid_kind');
     const post = (await gallery(me, { kind: 'user' }))!;
     expect((await upload(post.id, other.cookie)).status).toBe(404);
     expect((await upload(post.id, undefined)).status).toBe(401);

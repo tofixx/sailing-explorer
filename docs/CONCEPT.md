@@ -3371,4 +3371,6 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 
 ## 29. Umfragen (F-407, F-470 … F-478) → [`docs/concept/29-umfragen.md`](concept/29-umfragen.md)
 
+## 30. Veranstaltungen (F-408, F-410, F-480 … F-489) → [`docs/concept/30-veranstaltungen.md`](concept/30-veranstaltungen.md)
+
 ## 31. Galerie-Beiträge: Fotos ohne Törn (Phase 7, F-490 … F-499) → [`docs/concept/31-galerie.md`](concept/31-galerie.md)

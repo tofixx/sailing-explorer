@@ -58,6 +58,8 @@ const paths = {
   // Unterstützen: Kiste mit Flaschenhälsen
   crate: svg`<rect class="f" x="3" y="11" width="18" height="9.5" rx="1.5"/><rect x="3" y="11" width="18" height="9.5" rx="1.5"/><path d="M6.5 11V8.3c0-.8.7-1.3.7-2.1V3.5h1.6v2.7c0 .8.7 1.3.7 2.1V11M11 11V8.3c0-.8.7-1.3.7-2.1V3.5h1.6v2.7c0 .8.7 1.3.7 2.1V11M15.5 11V8.3c0-.8.7-1.3.7-2.1V3.5h1.6v2.7c0 .8.7 1.3.7 2.1V11"/><path d="M10 15.5h4"/>`,
   // Unterstützer-Abzeichen: Wimpel am Mast
+  // Veranstaltung (Konzept 30): Kalenderblatt
+  calendar: svg`<rect class="f" x="4" y="5.5" width="16" height="15" rx="2.5"/><rect x="4" y="5.5" width="16" height="15" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4M8 14h2M14 14h2M8 17h2"/>`,
   pennant: svg`<path class="f" d="M6 4.5 19.5 9 6 13.5z"/><path d="M6 21V3M6 4.5 19.5 9 6 13.5"/>`,
   // Fahrtenbuch: aufgeschlagenes Buch (Konzept 19)
   book: svg`<path class="f" d="M3 5.5c3-1 6-1 9 1 3-2 6-2 9-1V19c-3-1-6-1-9 1-3-2-6-2-9-1z"/><path d="M3 5.5c3-1 6-1 9 1 3-2 6-2 9-1V19c-3-1-6-1-9 1-3-2-6-2-9-1zM12 6.5V20"/>`,

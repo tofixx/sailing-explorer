@@ -49,6 +49,8 @@ interface PostInput {
   reach: Reach;
   /** `posts.data`: angehängter Törn (Text, F-426) bzw. Nutzlast der Art (Umfrage, Konzept 29) */
   data: Record<string, unknown>;
+  /** Nutzlast in eigener Tabelle (Veranstaltung, Konzept 30) – im selben Batch wie der Beitrag */
+  rows: Array<{ sql: string; args: unknown[] }>;
 }
 
 type RawPostInput = { kind?: unknown; body?: unknown; link?: unknown; visibility?: unknown; reach?: unknown; shareId?: unknown; channel?: unknown } & Record<string, unknown>;
@@ -94,8 +96,8 @@ async function readPostInput(env: Env, userId: string, input: RawPostInput, c: W
   const shareId = def.plain ? null : await readShareId(env, userId, input.shareId);
   const payload = def.data ? def.data(input[kind], Date.now()) : {};
   if ('error' in payload && typeof payload.error === 'string') throw new HttpError(400, payload.error, String(payload.message));
-  const data = { ...(shareId ? { shareId } : {}), ...payload };
-  return { kind, body, link: link || null, ...audience, data };
+  const data = { ...(shareId ? { shareId } : {}), ...(def.rows ? {} : payload) };
+  return { kind, body: def.body ? def.body(body, payload) : body, link: link || null, ...audience, data, rows: def.rows ? def.rows(payload) : [] };
 }
 
 
@@ -125,6 +127,7 @@ async function insertPost(env: Env, authorId: string, c: WritableChannel, p: Pos
       `INSERT INTO posts (id, author_id, group_id, body, link, created_at, kind, channel_kind, channel_id, visibility, reach, link_key, data)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(id, authorId, c.groupId, p.body, p.link, now, p.kind, c.kind, c.id, p.visibility, p.reach, linkKey, JSON.stringify(p.data)),
+    ...p.rows.map((r) => env.DB.prepare(r.sql).bind(id, ...r.args)),
     env.DB.prepare('INSERT INTO post_log (group_id, created_at) VALUES (?, ?)').bind(key, now),
   ]);
   const act = forActivity(id, authorId, c, c.chain, p.visibility, p.reach);

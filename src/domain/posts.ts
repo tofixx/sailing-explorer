@@ -4,6 +4,7 @@
 import type { GroupKind, GroupRole } from './groups';
 import { POST_MAX, canManageGroup } from './groups';
 import { POLL_LIMITS } from './polls';
+import { EVENT_LIMITS } from './events';
 import type { Visibility } from './visibility';
 import type { LogState } from './logbook';
 
@@ -29,11 +30,13 @@ export const COMPOSE_LIMITS = {
   poll: { bodyMax: POLL_LIMITS.question, plain: true },
   // Galerie (Konzept 31): Text optional, Fotos folgen über POST /api/posts/:id/photos
   gallery: { bodyMax: POST_MAX, plain: false, bodyOptional: true },
+  // Veranstaltung (Konzept 30): der Text ist der Titel, die Beschreibung kommt mit der Nutzlast
+  event: { bodyMax: EVENT_LIMITS.titleMax, plain: true },
 } as const;
 export type ComposePostKind = keyof typeof COMPOSE_LIMITS;
 
 /** Name der Art in Links und Überschriften („Umfrage öffnen“). */
-export const POST_KIND_LABEL: Partial<Record<PostKind, string>> = { poll: 'Umfrage', gallery: 'Fotos' };
+export const POST_KIND_LABEL: Partial<Record<PostKind, string>> = { poll: 'Umfrage', gallery: 'Fotos', event: 'Veranstaltung' };
 
 /**
  * Bringt die Art eine eigene Nutzlast mit, die nur die Stream-Karte zeigt (Umfrage …)? Dann verlinken Profil und „Mein

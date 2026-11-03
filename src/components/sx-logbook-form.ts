@@ -8,6 +8,7 @@ import type { LogSuggestion } from '../domain/logbook-suggest';
 import { VOYAGE_ROLES, VOYAGE_ROLE_SHORT, isVoyageRole, type VoyageRole } from '../domain/crew-roles';
 import { fmtNum } from '../domain/format';
 import type { Visibility } from '../domain/visibility';
+import type { LogbookPreset } from '../domain/events';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
@@ -49,6 +50,7 @@ export class SxLogbookForm extends LitElement {
   static properties = {
     open: { type: Boolean },
     share: { attribute: false },
+    preset: { attribute: false },
     boats: { attribute: false },
     supporter: { type: Boolean },
     used: { type: Number },
@@ -68,6 +70,8 @@ export class SxLogbookForm extends LitElement {
   declare open: boolean;
   /** vorhandener Eintrag (Bearbeiten) oder null (neu) */
   declare share: ShareMeta | null;
+  /** neuer Eintrag aus einer Veranstaltung (Konzept 30, F-487): Datum, Titel, Verweis */
+  declare preset: LogbookPreset | null;
   declare boats: Boat[];
   declare supporter: boolean;
   /** Einträge der laufenden Saison und Grenze (L1) – -1 = unbekannt */
@@ -95,6 +99,7 @@ export class SxLogbookForm extends LitElement {
     super();
     this.open = false;
     this.share = null;
+    this.preset = null;
     this.boats = [];
     this.supporter = false;
     this.used = -1;
@@ -256,8 +261,10 @@ export class SxLogbookForm extends LitElement {
     this.local = '';
     this.roundTrip = !!s && !!s.from && s.from.slug === s.to?.slug;
     this.visibility = s?.visibility ?? 'public';
-    this.area = s?.log?.area ?? '';
-    this.items = (s?.log?.items ?? []).map((it) => ({ ...it }));
+    // neuer Eintrag aus einer Veranstaltung (F-487): Zusatzangaben der Vorlage (Regatta, Posten)
+    const l = s ? s.log : this.preset?.log;
+    this.area = l?.area ?? '';
+    this.items = (l?.items ?? []).map((it) => ({ ...it }));
     this.filled = {};
   }
 
@@ -308,6 +315,8 @@ export class SxLogbookForm extends LitElement {
       sails: this.field('sails'),
       berth: this.field('berth'),
       notes: this.renderRoot.querySelector<HTMLTextAreaElement>('[name="notes"]')?.value ?? '',
+      // Verweis auf die Veranstaltung (F-487) – beim Bearbeiten erhalten
+      eventId: this.share ? this.share.log?.eventId : this.preset?.eventId,
       // Zusatzangaben (F-412); Felder anderer Reviere stehen nicht im Formular und verwirft parseLog ohnehin
       area: this.area,
       tidal: this.renderRoot.querySelector<HTMLInputElement>('[name="tidal"]')?.checked === true,
@@ -510,7 +519,8 @@ export class SxLogbookForm extends LitElement {
 
   private form() {
     const s = this.share;
-    const log = s?.log ?? {};
+    const p = s ? null : this.preset;
+    const log = s?.log ?? p?.log ?? {};
     const timed = !!log.timed;
     const gpx = this.gpx;
 
@@ -521,7 +531,7 @@ export class SxLogbookForm extends LitElement {
         : html`<div class="row">
             <div>
               <label class="label" for="lf-date">Datum</label>
-              <input id="lf-date" name="date" type="date" required .value=${s?.startedAt ? dateOf(s.startedAt) : dateOf(Date.now())} />
+              <input id="lf-date" name="date" type="date" required .value=${dateOf(s?.startedAt ?? p?.startedAt ?? Date.now())} />
             </div>
             <div>
               <label class="label" for="lf-time">Abfahrt <span class="faint">(optional)</span></label>
@@ -622,7 +632,7 @@ export class SxLogbookForm extends LitElement {
         ? ''
         : html`<div>
               <label class="label" for="lf-title">Titel</label>
-              <input id="lf-title" name="title" maxlength="120" placeholder=${this.titleSuggestion()} .value=${s?.title ?? ''} />
+              <input id="lf-title" name="title" maxlength="120" placeholder=${this.titleSuggestion()} .value=${s?.title ?? p?.title ?? ''} />
             </div>
             <sx-visibility-picker
               .value=${this.visibility}

@@ -16,6 +16,9 @@ import { isAdmin } from './validate';
 import { followLevelSql, notifyLevelSql } from './notify-sql';
 import { reachAtLeastSql } from './reach-sql';
 import { isBackfill } from '../src/domain/logbook';
+import { RSVP_NOTIFIED } from '../src/domain/events';
+import { firstLine } from '../src/domain/posts';
+import { publicSql } from './visible-sql';
 import {
   NOTIFICATION_LIMITS, notifyEventOf, isChoosable, type NotifyEvent, isNotificationKind, notificationText, parsePrefs, isNotificationSubject, type NotificationItem, type NotificationKind,
   type NotificationSubject,
@@ -41,21 +44,29 @@ async function safely(what: string, fn: () => Promise<unknown>): Promise<void> {
 async function deliver(
   env: Env, kind: NotificationKind, subjectKind: NotificationSubject, subjectId: string, actorId: string | null, recipients: string, ...args: unknown[]
 ): Promise<void> {
+  const rows = await write(env, kind, subjectKind, subjectId, actorId, recipients, ...args);
+  if (!rows.length) return;
+  const users = rows.map((r) => r.user_id);
+  if (isChoosable(kind)) await sendPush(env, users, kind);
+  await pingLive(env, users);
+}
+
+/** Nur die Zeilen schreiben (wie `deliver`, ohne Push und Live-Hinweis) – liefert Empfänger und Zähler der Zeile. */
+async function write(
+  env: Env, kind: NotificationKind, subjectKind: NotificationSubject, subjectId: string, actorId: string | null, recipients: string, ...args: unknown[]
+): Promise<Array<{ user_id: string; count: number }>> {
   const { results } = await env.DB.prepare(
     `INSERT INTO notifications (id, user_id, kind, subject_kind, subject_id, actor_id, count, created_at, updated_at)
      SELECT lower(hex(randomblob(12))), r.uid, ?1, ?2, ?3, ?4, 1, ?5, ?5 FROM (${recipients}) r
      WHERE r.uid IS NOT NULL AND r.uid IS NOT ?4
      ON CONFLICT(user_id, kind, subject_kind, subject_id) WHERE read_at IS NULL
      DO UPDATE SET count = count + 1, actor_id = excluded.actor_id, updated_at = excluded.updated_at
-       WHERE NOT (?1 IN ('reaction', 'follow') AND notifications.actor_id IS excluded.actor_id)
-     RETURNING user_id`,
+       WHERE NOT (?1 IN ('reaction', 'follow', 'rsvp') AND notifications.actor_id IS excluded.actor_id)
+     RETURNING user_id, count`,
   )
     .bind(kind, subjectKind, subjectId, actorId, Date.now(), ...args)
-    .all<{ user_id: string }>();
-  const users = results.map((r) => r.user_id);
-  if (!users.length) return;
-  if (isChoosable(kind)) await sendPush(env, users, kind);
-  await pingLive(env, users);
+    .all<{ user_id: string; count: number }>();
+  return results;
 }
 
 /**
@@ -287,6 +298,46 @@ export const nightlyPollClosedStmts = (env: Env, now: number): D1PreparedStateme
   ).bind(now),
   env.DB.prepare(`UPDATE posts SET data = json_set(data, '$.poll.notified', 1) WHERE id IN (${CLOSED_POLLS_SQL})`).bind(now),
 ];
+// ---------------------------------------------------------------- Veranstaltungen (Konzept 30, F-410, F-416)
+
+/**
+ * Alle mit „Nehme teil“ bzw. „Vielleicht“ (?3 = Beitrag), nicht gesperrt, höchstens NOTIFICATION_LIMITS.postFanOut (wie
+ * neue Beiträge) – auch in stummen Verläufen (eigene Zusage, 21.7).
+ */
+const RSVP_RECIPIENTS = `SELECT r.user_id AS uid FROM event_rsvps r JOIN users u ON u.id = r.user_id
+  WHERE r.post_id = ?3 AND r.status IN (${RSVP_NOTIFIED.map((x) => `'${x}'`).join(', ')}) AND u.suspended_at IS NULL AND u.locked_at IS NULL
+  ORDER BY r.updated_at LIMIT ${NOTIFICATION_LIMITS.postFanOut}`;
+
+/** Erste Zusage („Nehme teil“, „Vielleicht“) an die Autor:in – gebündelt, nur Glocke (kein wählbarer Kanal). */
+export const notifyRsvp = (env: Env, postId: string, actorId: string) =>
+  safely('rsvp', () => deliver(env, 'rsvp', 'post', postId, actorId, 'SELECT author_id AS uid FROM posts WHERE id = ?3'));
+
+/**
+ * Zeit/Ort geändert oder abgesagt (F-410): sofort an alle mit Zusage (Glocke, Live-Hinweis). Push für die, die ihn
+ * gewählt haben: bei einer neuen Zeile, bei einer Absage immer und wenn die ungelesene Zeile bisher eine Erinnerung war
+ * (ohne handelnde Person, also noch kein Push) – wiederholtes Ändern weckt nicht jedes Mal.
+ */
+export const notifyEventChange = (env: Env, postId: string, authorId: string, cancelled: boolean) =>
+  safely('event change', async () => {
+    const { results: reminded } = await env.DB.prepare(
+      `SELECT user_id FROM notifications WHERE kind = 'event' AND subject_kind = 'post' AND subject_id = ? AND read_at IS NULL AND actor_id IS NULL`,
+    )
+      .bind(postId)
+      .all<{ user_id: string }>();
+    const wasReminder = new Set(reminded.map((r) => r.user_id));
+    const rows = await write(env, 'event', 'post', postId, authorId, RSVP_RECIPIENTS);
+    if (!rows.length) return;
+    const push = rows.filter((r) => cancelled || r.count === 1 || wasReminder.has(r.user_id)).map((r) => r.user_id);
+    if (push.length) await sendPush(env, push, 'event');
+    await pingLive(env, rows.map((r) => r.user_id));
+  });
+
+/**
+ * Erinnerung im Nachtlauf (F-485): ohne handelnde Person, nur Glocke und Sammelmail – kein Push und kein Live-Hinweis
+ * um 03:17 UTC (Konzept 30.3).
+ */
+export const notifyEventReminder = (env: Env, postId: string) =>
+  safely('event reminder', () => write(env, 'event', 'post', postId, null, RSVP_RECIPIENTS));
 
 /** Hinweis des Betreibers (nicht abschaltbar, zusätzlich zur Mail): Törn wird bald gelöscht – an die Eigentümer:in. */
 export const notifyExpiry = (env: Env, shareId: string) =>
@@ -385,10 +436,20 @@ interface Row {
   p_hidden: number | null;
   p_group: string | null;
   p_handle: string | null;
+  /** Profil der Autor:in öffentlich und ihr Name (Profil-Verlauf) */
+  p_apub: number | null;
+  p_aname: string | null;
+  /** Schlüssel „Nur mit Link“ (Veranstaltung: Ziel `/p/<id>/<schlüssel>`) */
+  p_key: string | null;
   p_ck: string | null;
   p_vis: string | null;
   p_kind?: string | null;
   p_susp: number | null;
+  /** Veranstaltung (Konzept 30): erste Zeile = Titel, abgesagt, eigene Zusage, Anlass ohne handelnde Person */
+  p_body: string | null;
+  p_cancelled: number | null;
+  p_rsvp: number | null;
+  n_system: number;
   ph_name: string | null;
   pb_name: string | null;
   pb_vis: string | null;
@@ -426,8 +487,12 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
     s.user_id AS s_owner, EXISTS (SELECT 1 FROM users su WHERE su.id = s.user_id AND su.suspended_at IS NOT NULL) AS s_susp, s.title AS s_title, s.visibility AS s_vis, s.share_key AS s_key,
     s.hidden_at AS s_hidden, s.locked_at AS s_locked, s.comments_mode AS s_cmode,
     p.author_id AS p_author, p.hidden_at AS p_hidden, p.group_id AS p_group, pp.handle AS p_handle, a.actor_id AS a_actor,
+    ${publicSql('pp')} AS p_apub, pp.display_name AS p_aname, p.link_key AS p_key,
     p.channel_kind AS p_ck, p.visibility AS p_vis, p.kind AS p_kind, ph.name AS ph_name, pb.name AS pb_name, pb.visibility AS pb_vis,
     EXISTS (SELECT 1 FROM users pu WHERE pu.id = p.author_id AND pu.suspended_at IS NOT NULL) AS p_susp,
+    CASE WHEN n.kind IN ('event', 'rsvp') THEN p.body END AS p_body, (n.actor_id IS NULL) AS n_system,
+    (SELECT pe.cancelled_at FROM post_events pe WHERE n.kind = 'event' AND pe.post_id = p.id) AS p_cancelled,
+    EXISTS (SELECT 1 FROM event_rsvps er WHERE n.kind = 'event' AND er.post_id = p.id AND er.user_id = n.user_id AND er.status IN (${RSVP_NOTIFIED.map((x) => `'${x}'`).join(', ')})) AS p_rsvp,
     (pb.owner_id = n.user_id OR EXISTS (SELECT 1 FROM boat_admins ba WHERE ba.boat_id = pb.id AND ba.user_id = n.user_id)) AS pb_role,
     g.slug AS g_slug, g.name AS g_name, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden,
     g.locked_at AS g_locked, g.approve_by AS g_approve, gm.role AS g_role,
@@ -463,6 +528,37 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
 
 const INVITE_WHAT: Record<string, string> = { boat_admin: 'als Admin für das Boot', crew: 'in die Crew von', friend: 'zum gegenseitigen Folgen' };
 
+/**
+ * Darf die Empfängerin einen Beitrag (neu, Veranstaltung) aus der Glocke sehen – und wie heißt sein Verlauf? Gruppe:
+ * öffentlich bzw. „Nur Mitglieder“ und noch Mitglied, Follower nur öffentliche Beiträge öffentlicher Gruppen (F-449);
+ * Hafen: öffentlich; Boot: öffentlich und das Boot öffentlich oder selbst verwaltet; Profil: öffentlich und Profil der
+ * Autor:in öffentlich (ihr Name). Nie bei ausgeblendetem Beitrag oder gesperrter Autor:in – kein Eintrag führt auf eine 404.
+ */
+function postWhere(r: Row): string | null {
+  if (r.p_hidden || r.p_susp) return null;
+  if (r.p_ck === 'group') {
+    const member = (r.p_vis === 'public' || r.p_vis === 'members') && !!r.g_role;
+    const follower = r.p_vis === 'public' && r.g_vis === 'public';
+    return r.g_slug && !r.g_hidden && !r.g_locked && (member || follower) ? (r.g_name ?? '') : null;
+  }
+  if (r.p_vis !== 'public') return null;
+  if (r.p_ck === 'harbor') return r.ph_name ?? null;
+  if (r.p_ck === 'boat') return r.pb_name && (r.pb_vis === 'public' || r.pb_role) ? r.pb_name : null;
+  if (r.p_ck === 'user') return r.p_apub ? (r.p_aname ?? '') : null;
+  return null;
+}
+
+/**
+ * Verlauf einer Veranstaltung für Erinnerung und Änderung: besteht er noch (Gruppe nicht ausgeblendet oder gesperrt, Hafen
+ * nicht ausgeblendet, Boot weder ausgeblendet noch gesperrt)? Name für die Sammelmail; Profil ohne Namen ('').
+ */
+function eventWhere(r: Row): string | null {
+  if (r.p_ck === 'group') return r.g_slug && !r.g_hidden && !r.g_locked ? (r.g_name ?? '') : null;
+  if (r.p_ck === 'harbor') return r.ph_name ?? null;
+  if (r.p_ck === 'boat') return r.pb_name ?? null;
+  return r.p_ck === 'user' ? '' : null;
+}
+
 /** Prüfung beim Lesen: Eintrag gültig? Dann Text-Bausteine und Ziel, sonst null. */
 function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
   if (!isNotificationKind(r.kind)) return null;
@@ -490,22 +586,25 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
       // Gruppen (F-449); Hafen: öffentlich; Boot: öffentlich und das Boot öffentlich oder selbst verwaltet; Profil:
       // öffentlich und Profil der Autor:in öffentlich. Nie bei ausgeblendetem Beitrag oder gesperrter Autor:in.
       if (r.kind === 'post') {
-        if (r.p_hidden || r.p_susp) return null;
-        const href = `/p/${r.subject_id}`;
-        // Umfrage (Konzept 29): eigener Satz „neue Umfrage“
-        const kindWhat = r.p_kind === 'poll' ? 'poll' : '';
-        if (r.p_ck === 'group') {
-          const member = (r.p_vis === 'public' || r.p_vis === 'members') && !!r.g_role;
-          const follower = r.p_vis === 'public' && r.g_vis === 'public';
-          const ok = r.g_slug && !r.g_hidden && !r.g_locked && (member || follower);
-          return ok ? { ...base, title: r.g_name ?? '', what: kindWhat, href } : null;
-        }
-        if (r.p_vis !== 'public') return null;
-        if (r.p_ck === 'harbor') return r.ph_name ? { ...base, title: r.ph_name, what: kindWhat, href } : null;
-        if (r.p_ck === 'boat') return r.pb_name && (r.pb_vis === 'public' || r.pb_role) ? { ...base, title: r.pb_name, what: kindWhat, href } : null;
-        // Profil: Text-Beiträge „in <Name>“; eine Umfrage im Profil ohne Ort („hat eine Umfrage gestartet“)
-        if (r.p_ck === 'user') return actor ? { ...base, title: kindWhat ? '' : actor.name, what: kindWhat, href } : null;
-        return null;
+        // Profil: Text-Beiträge „in <Name>“ (nur mit öffentlichem Profil der handelnden Person); Umfrage ohne Ort
+        const where = postWhere(r);
+        if (where === null || (r.p_ck === 'user' && !actor)) return null;
+        // Umfrage (Konzept 29) und Veranstaltung (Konzept 30): eigener Satz „neue Umfrage“ bzw. „neue Veranstaltung“
+        const kindWhat = r.p_kind === 'poll' || r.p_kind === 'event' ? r.p_kind : '';
+        return { ...base, title: r.p_ck === 'user' && kindWhat ? '' : where, what: kindWhat, href: `/p/${r.subject_id}` };
+      }
+      // Veranstaltung (Konzept 30): Zusage an die Autor:in; Erinnerung, Änderung, Absage an alle mit gültiger Zusage – wer
+      // zugesagt hat, kannte die Veranstaltung (auch „Nur mit Link“: Ziel mit Schlüssel). Nie bei ausgeblendetem Beitrag,
+      // gesperrter Autor:in oder ausgeblendetem bzw. gesperrtem Verlauf. Die Sammelmail nennt nur den Verlauf (`where`),
+      // nie den Titel (Regel von `mailLine`).
+      if (r.kind === 'event' || r.kind === 'rsvp') {
+        if (r.p_body === null || r.p_hidden || r.p_susp) return null;
+        if (r.kind === 'rsvp' ? r.p_author !== userId : !r.p_rsvp) return null;
+        const where = eventWhere(r);
+        if (where === null) return null;
+        const what = r.kind === 'rsvp' ? '' : r.p_cancelled ? 'cancelled' : r.n_system ? 'reminder' : 'changed';
+        const href = r.p_vis === 'unlisted' && r.p_key ? `/p/${r.subject_id}/${r.p_key}` : `/p/${r.subject_id}`;
+        return { ...base, title: firstLine(r.p_body), what, href, ...(where ? { where } : {}) };
       }
       if (r.p_author !== userId || r.p_hidden) return null;
       // Beiträge haben keine eigene Seite: `/p/<id>` führt zum Anker im Heimatverlauf (F-406)

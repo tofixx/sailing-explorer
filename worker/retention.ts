@@ -19,6 +19,7 @@ import { emptyGalleries, photoLogCleanup } from './post-photos';
 import { removePost } from './posts';
 import { expireClaims } from './claims';
 import { nightlyClaimCleanup } from './claim-cleanup';
+import { runEventNight } from './events';
 import { GRACE_MS, INACTIVE_ACCOUNT_MS, SEASON_MAIL_MONTH, WARN_MS, seasonEnd } from '../src/domain/support';
 import { LOG_ACTION_MS, LOG_VIEW_MS } from '../src/domain/admin';
 
@@ -60,6 +61,8 @@ export interface RetentionResult {
   groupDigests: number;
   /** nach Ablauf der Sperrfrist endgültig gelöschte Objekte (Konzept 18.4) */
   lockExpired: number;
+  /** Veranstaltungen: erinnert (nächste 36 h) und nach Frist gelöscht (Konzept 30) */
+  events: { reminded: number; expired: number };
 }
 
 function chunks<T>(list: T[], size = CHUNK): T[][] {
@@ -207,6 +210,8 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     return 0;
   });
   const purged = await step('inactive', purgeInactive(env, now), 0);
+  // Veranstaltungen (Konzept 30): Frist und Erinnerung – vor der Sammelmail, damit die Erinnerung noch mitgeht
+  const events = await step('events', runEventNight(env, now), { reminded: 0, expired: 0 });
   // Sammelmail nach dem Aufräumen: Kommentare auf gerade gelöschten Törns zählen nicht mehr.
   const digests = await sendNotificationDigests(env, origin, now).catch((err) => {
     console.error('comment digests failed', err);
@@ -272,5 +277,5 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   // fehlende Zeile wieder an (bis dahin gelten Uploads als pausiert).
   const counted = await step('count', storageTotal(env), null);
   const storageBytes = await recomputeStorage(env);
-  return { deleted, warned, seasonMails, purged, digests, claimsExpired, groupDigests, lockExpired, covers, storageBytes, storageDrift: counted === null ? null : storageBytes - counted, failed };
+  return { deleted, warned, seasonMails, purged, digests, claimsExpired, groupDigests, lockExpired, covers, events, storageBytes, storageDrift: counted === null ? null : storageBytes - counted, failed };
 }
