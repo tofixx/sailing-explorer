@@ -4,7 +4,6 @@ import { createShare, gzip, payloadJson, startWorker, type Harness } from './wor
 import { social, type Person } from './social-helpers';
 import { shareExpiry } from '../../src/domain/support';
 
-const DAY = 86_400_000;
 let h: Harness;
 let s: ReturnType<typeof social>;
 const harbors = { from: '', to: '' };
@@ -278,9 +277,9 @@ describe('F-606 Löschwege nach dem Nachreichen', () => {
 
   // Gleichzeitigkeit: Ein Trigger am Speicherzähler (erstes Statement im Batch) ändert den Törn, bevor sein UPDATE läuft.
   async function race(entryId: string, action: string): Promise<void> {
-    await (await db()).prepare(`CREATE TRIGGER race_${entryId} AFTER UPDATE ON counters BEGIN ${action}; END`).run();
+    await (await db()).prepare(`CREATE TRIGGER race_${entryId} AFTER UPDATE ON counters BEGIN ${action}; END`).bind().run();
   }
-  const dropRace = async (entryId: string) => (await db()).prepare(`DROP TRIGGER IF EXISTS race_${entryId}`).run();
+  const dropRace = async (entryId: string) => (await db()).prepare(`DROP TRIGGER IF EXISTS race_${entryId}`).bind().run();
 
   it('[F-606] während des Nachreichens gelöscht: die neue Datei wird wieder entfernt, 404', async () => {
     const owner = await s.person();

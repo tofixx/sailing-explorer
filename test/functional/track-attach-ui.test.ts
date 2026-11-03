@@ -47,7 +47,7 @@ const manualMeta = () => ({
   id: ID, title: 'Havel-Schlag', summary: '3,0 sm · 13.06.2026 · Fahrtenbuch', view: '', visibility: 'public', isOwner: true, link: `/s/${ID}`,
   source: 'manual', distSource: 'stated', distNm: 3, startedAt: T0 - 2 * 3_600_000, endedAt: null, trackCount: 0, commentsMode: 'on',
 });
-let attached: { headers: Record<string, string>; body: Uint8Array } | null;
+let attached: { headers: Record<string, string>; body: Uint8Array<ArrayBuffer> } | null;
 let images: number;
 
 async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
@@ -57,7 +57,7 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
   if (url === '/api/config') return json({ turnstileSiteKey: '', sharing: true, support: null, freeShares: 3 });
   if (url === '/api/auth/me') return json({ user: { id: 'U1', email: 'a@example.org' } });
   if (url === `/api/shares/${ID}/track` && method === 'PUT') {
-    attached = { headers: Object.fromEntries(Object.entries(init.headers as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v])), body: init.body as Uint8Array };
+    attached = { headers: Object.fromEntries(Object.entries(init.headers as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v])), body: init.body as Uint8Array<ArrayBuffer> };
     return json({ share: { ...manualMeta(), source: 'gpx', distSource: 'track' } });
   }
   if (url === `/api/shares/${ID}/image` && method === 'PUT') {
