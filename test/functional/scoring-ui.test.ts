@@ -195,6 +195,20 @@ describe('Vorlage im Fahrtenbuch (F-501, F-505)', () => {
     expect((saves[0] as { patch: { log: { templateId?: string } } }).patch.log.templateId).toBe('altevorlage');
   });
 
+  it('[F-501] Eintrag aus einer Veranstaltung: Verweis (eventId) und Vorlage bleiben beim Bearbeiten beide erhalten', async () => {
+    const share = { id: 'ManualShareId2345678', title: 'Pokal', visibility: 'public', isOwner: true, distNm: 9, startedAt: Date.UTC(2026, 5, 13), endedAt: null, source: 'manual', distSource: 'stated', boat: null, from: null, to: null, log: { eventId: 'EventPostId234567890', templateId: 'preis' } };
+    for (const templates of [data().templates, []]) {
+      const el = await mount('sx-logbook-form', { share, open: true, templates });
+      await el.updateComplete;
+      const saves = events(el, 'sx-logbook-save');
+      // nur die Angaben prüfen – Häfen fehlen im Test, deshalb direkt das Ergebnis von log()
+      const log = (el as unknown as { log(): unknown }).log();
+      expect(log, JSON.stringify(templates.length)).toMatchObject({ eventId: 'EventPostId234567890', templateId: 'preis' });
+      expect(saves).toEqual([]);
+      el.remove();
+    }
+  });
+
   it('[F-505] ohne andere Vorlage als „Nur Meilen“ keine Punkte im Fahrtenbuch', async () => {
     const el = await mount('sx-logbook-page', {
       entries: [{ id: 'A', own: true, path: '/s/A', title: 'Havel', startedAt: Date.UTC(2026, 5, 13, 10), endedAt: null, timed: false, source: 'manual', distNm: 10, distSource: 'stated', from: null, to: null, role: null, roleConfirmed: false, boat: null, logState: 'confirmed', log: { templateId: 'meilen' } }],
