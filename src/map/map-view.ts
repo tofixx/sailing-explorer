@@ -66,7 +66,11 @@ export class MapView {
       current.remove();
       current = auto(dark.matches).addTo(this.map);
     });
-    L.control.layers(bases, undefined, { position: 'topright' }).addTo(this.map);
+    const layersCtl = L.control.layers(bases, undefined, { position: 'topright' }).addTo(this.map);
+    // F-617: deutsch benannt und vom Kartenstil (F-218, unten rechts) unterscheidbar – Leaflet nennt ihn „Layers“
+    const toggle = layersCtl.getContainer()?.querySelector<HTMLElement>('.leaflet-control-layers-toggle');
+    toggle?.setAttribute('title', 'Grundkarte');
+    toggle?.setAttribute('aria-label', 'Grundkarte');
     L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(this.map);
     // Zoom unten (mit dem Daumen erreichbar), über dem Maßstab: Leaflet stapelt in unteren Ecken das zuletzt Hinzugefügte oben
     L.control.zoom({ position: 'bottomleft', zoomInTitle: 'Hineinzoomen', zoomOutTitle: 'Herauszoomen' }).addTo(this.map);
