@@ -51,15 +51,19 @@ export class HeatLayer {
     const b = this.data ? hotspot(this.data.cells) : null;
     if (!b) return false;
     this.map.invalidateSize({ animate: false });
-    this.map.fitBounds(b, { maxZoom: 12, animate: false, padding: [24, 24] });
+    // Ohne Größe (versteckt, Raster noch nicht umgeschaltet) ergäbe fitBounds mit Rand eine Zoomstufe NaN – und
+    // Leaflets Zuschneiden der Rechtecke liefe endlos. Dann beim ersten Größenwechsel einpassen.
+    const size = this.map.getSize();
+    if (size.x < 100 || size.y < 100) this.map.once('resize', () => this.fitHotspot());
+    else this.map.fitBounds(b, { maxZoom: 12, animate: false, padding: [24, 24] });
     return true;
   }
 
   private draw() {
     this.cells.clearLayers();
     this.pins.clearLayers();
-    if (!this.data) return;
     const zoom = this.map.getZoom();
+    if (!this.data || !Number.isFinite(zoom)) return;
     const f = binFactor(zoom);
     const cells = rebin(this.data.cells, f);
     let max = 1;

@@ -173,6 +173,22 @@ describe('F-586 Startseite einpassen', () => {
     expect(map.getBounds().contains([52.4 + HEAT.cellLat / 2, 13.0 + HEAT.cellLon / 2])).toBe(true);
     expect(map.getZoom()).toBeLessThanOrEqual(12);
   });
+
+  it('[F-586] ohne Kartengröße (versteckt) wird nicht eingepasst (keine Zoomstufe NaN), sondern beim ersten Größenwechsel', () => {
+    const el = document.createElement('div');
+    let w = 0;
+    Object.defineProperties(el, { clientWidth: { get: () => w }, clientHeight: { get: () => w } });
+    document.body.append(el);
+    const map = L.map(el).setView([54, 12], 8);
+    const layer = new HeatLayer(map, el);
+    layer.set(DATA, true);
+    expect(layer.fitHotspot()).toBe(true);
+    expect(map.getZoom()).toBe(8);
+    w = 400;
+    map.invalidateSize({ animate: false });
+    expect(Number.isFinite(map.getZoom())).toBe(true);
+    expect(map.getBounds().contains([52.4 + HEAT.cellLat / 2, 13.0 + HEAT.cellLon / 2])).toBe(true);
+  });
 });
 
 describe('F-581 Raster senden', () => {
