@@ -2,7 +2,7 @@ import { LitElement, css, html, nothing } from 'lit';
 import type { User } from '../services/api';
 import type { Mode } from '../services/store';
 import { icon, logo, type IconName } from './icons';
-import { base, emit } from './shared';
+import { badgeStyles, base, emit } from './shared';
 import './sx-compose';
 import './sx-account-menu';
 import { APP_NAME } from '../domain/brand';
@@ -76,6 +76,7 @@ export class SxTopbar extends LitElement {
 
   static styles = [
     base,
+    badgeStyles,
     css`
       :host {
         display: flex;
@@ -169,17 +170,6 @@ export class SxTopbar extends LitElement {
       .tab[aria-current] {
         background: var(--accent-soft);
         color: var(--accent);
-      }
-      .badge {
-        min-width: 18px;
-        height: 18px;
-        padding: 0 5px;
-        border-radius: 9px;
-        background: var(--err);
-        color: #fff;
-        font: 700 var(--fs-xs) / 18px var(--font);
-        text-align: center;
-        font-variant-numeric: tabular-nums;
       }
       /* Neben den Reitern ist für die Statuspille kein Platz mehr: mittig unter der Kopfzeile, über der Karte */
       @media (max-width: 1150px) {

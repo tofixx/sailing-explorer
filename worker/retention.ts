@@ -8,6 +8,7 @@ import { EXPIRES_SQL, shareDeleteStmts } from './shares';
 import { recomputeStorage, storageTotal } from './storage';
 import { deleteOrphanReports, ownsLockedSql } from './moderation';
 import { expireLocks, orphanLocksStmt, remindLocks } from './locks';
+import { digestReports } from './report-notices';
 import { sendNotificationDigests } from './notification-mail';
 import { nightlyPollClosedStmts, notifyExpiry } from './notifications';
 import { deleteKeys, photoKeysForShares, shareFileKeys } from './photo-keys';
@@ -204,6 +205,8 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   const lockExpired = await step('locks', expireLocks(env, now), 0);
   // 14 Tage vor Ablauf einmal eine Sammel-Erinnerung an die Admins
   await step('lock_reminder', remindLocks(env, origin, now), 0);
+  // Offene Meldungen (F-570): eine Sammelmail an die Admins, nur wenn seit der letzten neue dazugekommen sind
+  await step('report_digest', digestReports(env, origin, now), 0);
   const warned = await step('warn', warnExpiring(env, origin, now), 0);
   const seasonMails = await remindSeason(env, origin, now).catch((err) => {
     console.error('season reminders failed', err);

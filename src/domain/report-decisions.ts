@@ -1,0 +1,80 @@
+// Moderation 3, 6, 8 (Roadmap, Konzept 35; REQUIREMENTS „Moderation: Hinweise für Admins und Begründung an
+// Betroffene“, F-570 … F-575): reine Regeln für den Zähler offener Meldungen, die Begründungsmail nach einer
+// Meldungs-Entscheidung (DSA Art. 17) und den Vorschlag „Sperren statt Löschen“ in der Meldungsansicht.
+import { REPORT_REASON_LABEL, type ReportKind } from './comment-text';
+import type { AdminKind } from './admin';
+
+export type ReportDecision = 'keep' | 'hide' | 'delete';
+
+export const REPORT_NOTICE_LIMITS = {
+  /** Begründungsmails je Konto in 24 h, wenn nur „Spam“ gemeldet wurde (DSA Art. 17 Abs. 2: Spam in Massen) */
+  spamPerOwnerPerDay: 3,
+} as const;
+
+/**
+ * Gründe, bei denen der Beleg zählt: In der Meldungsansicht ist „Sperren“ dann die vorgeschlagene Entscheidung statt
+ * „Löschen“ (Konzept 35.1 „Beweissicherung“). Als Zeichenketten, damit künftige Gründe (z. B. `minors`) ohne Typfehler
+ * dazukommen.
+ */
+export const EVIDENCE_REASONS: readonly string[] = ['illegal', 'minors'];
+
+/** Soll „Sperren“ statt „Löschen“ vorgeschlagen werden? */
+export const suggestLock = (reasons: Partial<Record<string, number>>): boolean => EVIDENCE_REASONS.some((r) => (reasons[r] ?? 0) > 0);
+
+/**
+ * Was „Sperren“ aus der Meldungsansicht trifft (Konzept 18.2): Törn, Boot, Gruppe und Hafen sich selbst, ein Profil
+ * das Konto. Kommentare, Fotos und Beiträge lassen sich nicht einzeln sperren – dort sichert die Sperre des Kontos der
+ * Autor:in den Beleg. Ohne Eigentümer:in (z. B. Hafen ohne Anleger:in bei Kommentaren nicht möglich) → null.
+ */
+export function reportLockTarget(kind: ReportKind, targetId: string, ownerId: string | null | undefined): { kind: AdminKind; id: string; account: boolean } | null {
+  switch (kind) {
+    case 'share':
+      return { kind: 'shares', id: targetId, account: false };
+    case 'boat':
+      return { kind: 'boats', id: targetId, account: false };
+    case 'group':
+      return { kind: 'groups', id: targetId, account: false };
+    case 'harbor':
+      return { kind: 'harbors', id: targetId, account: false };
+    case 'profile':
+      return { kind: 'users', id: targetId, account: true };
+    default:
+      return ownerId ? { kind: 'users', id: ownerId, account: true } : null;
+  }
+}
+
+/** Gründe in der Mail an Betroffene – in der dritten Person (die Liste der Meldenden spricht in der ersten). */
+const NOTICE_REASON: Partial<Record<string, string>> = {
+  spam: 'Spam oder Werbung',
+  abuse: 'beleidigend oder belästigend',
+  illegal: 'rechtswidriger Inhalt',
+  depicted: 'eine abgebildete oder genannte Person möchte das nicht',
+  other: 'sonstiger Grund',
+};
+
+/** Gründe der Meldungen für die Mail, häufigster zuerst, ohne Anzahl und ohne Anmerkungen (die verrieten Meldende). */
+export function noticeReasons(counts: Partial<Record<string, number>>): string[] {
+  return Object.entries(counts)
+    .filter(([, n]) => (n ?? 0) > 0)
+    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0) || a[0].localeCompare(b[0]))
+    .map(([r]) => NOTICE_REASON[r] ?? (REPORT_REASON_LABEL as Partial<Record<string, string>>)[r] ?? 'sonstiger Grund')
+    .filter((v, i, all) => all.indexOf(v) === i);
+}
+
+/**
+ * Bekommt die Eigentümer:in eine Begründung? Ausblenden und Löschen immer (DSA Art. 17), „Behalten“ nur, wenn der
+ * Inhalt bis dahin ausgeblendet war (er ist dann wieder sichtbar); nicht an die entscheidende Person selbst. Nur
+ * Spam-Meldungen: höchstens `spamPerOwnerPerDay` Mails je Konto und Tag.
+ */
+export function shouldNotify(m: { decision: ReportDecision; wasHidden: boolean; reasons: Partial<Record<string, number>>; sentToday: number; selfDecided: boolean }): boolean {
+  if (m.selfDecided) return false;
+  if (m.decision === 'keep' && !m.wasHidden) return false;
+  const onlySpam = Object.entries(m.reasons).every(([r, n]) => r === 'spam' || !n);
+  return !(onlySpam && m.sentToday >= REPORT_NOTICE_LIMITS.spamPerOwnerPerDay);
+}
+
+/** Zähler am Konto-Knopf: ab 100 „99+“, 0 → leer. */
+export const reportBadge = (n: number | null | undefined): string => (!n || n < 1 ? '' : n > 99 ? '99+' : String(n));
+
+/** „1 offene Meldung“ / „3 offene Meldungen“ zum Zähler (leer bei 0). */
+export const openReportsLabel = (badge: string): string => (!badge ? '' : `${badge} offene ${badge === '1' ? 'Meldung' : 'Meldungen'}`);

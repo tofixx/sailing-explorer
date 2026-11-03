@@ -4,7 +4,7 @@ import type { SharePurpose } from '../components/sx-share-dialog';
 import { PasskeyExistsError, PreparedOptions, isPasskeyCancel, isPasskeyDuplicate, passkeyLib, passkeysSupported } from '../services/passkey';
 import { disablePush } from '../services/push';
 import { deviceName } from '../domain/device';
-import { passkeyApi, groupApi } from '../services/api';
+import { communityApi, passkeyApi, groupApi } from '../services/api';
 import { inviteAcceptedText } from '../domain/invite-text';
 import type { VoyageRole } from '../domain/crew-roles';
 import { plausibleGpx } from '../domain/logbook';
@@ -147,8 +147,10 @@ export class SessionController {
   private async refreshUser() {
     try {
       const { user, admin } = await api.me();
-      // Admin nur aus /api/auth/me – blendet „Admin“ in der Kopfzeile ein (Konzept 18.1)
-      this.store.set({ user: user && admin ? { ...user, admin } : user });
+      // Admin nur aus /api/auth/me – blendet „Admin“ in der Kopfzeile ein (Konzept 18.1); dazu der Zähler offener
+      // Meldungen am Konto-Knopf (F-571) – ein Fehler dabei lässt nur den Zähler weg
+      const openReports = user && admin ? await communityApi.adminReportCount().then((r) => r.open, () => 0) : 0;
+      this.store.set({ user: user && admin ? { ...user, admin, openReports } : user });
     } catch {
       /* offline */
     }

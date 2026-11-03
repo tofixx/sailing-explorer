@@ -1,5 +1,6 @@
 import { ApiError, communityApi, groupApi, type AdminAction, type SettingsPatch, type ShareMeta } from '../services/api';
 import type { Store } from '../services/store';
+import type { AdminKind } from '../domain/admin';
 import type { CommentsMode, ReportReason } from '../domain/comment-text';
 import { CHANNEL_LABEL, CHOOSABLE_LABEL, NOTIFY_LEVEL_LABEL, type Channel, type ChoosableKind, type NotifyLevel } from '../domain/notifications';
 import type { SxAccountDialog } from '../components/sx-account-dialog';
@@ -221,18 +222,40 @@ export class CommunityController {
     this.ui.account.reports = null;
     try {
       this.ui.account.reports = (await communityApi.adminReports()).reports;
+      this.setOpenReports(this.ui.account.reports.length);
     } catch (e) {
       this.ui.account.reports = [];
       this.ui.account.error = errorText(e);
     }
   }
 
+  /** Zähler am Konto-Knopf (F-571) nach dem Laden der Liste nachführen – die Liste ist der aktuellere Stand. */
+  private setOpenReports(n: number) {
+    const u = this.store.get().user;
+    if (u?.admin && u.openReports !== n) this.store.set({ user: { ...u, openReports: n } });
+  }
+
   decide(id: string, action: AdminAction) {
     const done = action === 'keep' ? 'Behalten – wieder sichtbar' : action === 'hide' ? 'Ausgeblendet' : 'Gelöscht';
     return this.accountAct(async () => {
-      await communityApi.decideReport(id, action);
+      const { notified } = await communityApi.decideReport(id, action);
       await this.loadReports();
-    }, done);
+      // Begründung an Betroffene (F-572) – sagen, ob sie rausging
+      this.ui.toast(`${done}${notified ? ' – Begründung per Mail an Betroffene' : ''}`);
+    });
+  }
+
+  /**
+   * „Sperren“ aus der Meldungsansicht (F-574): dieselbe Sperre wie im Admin-Bereich (Konzept 18.2, Begründung per Mail
+   * F-296). Die Admin-API wird erst hier nachgeladen, damit sie nicht im Haupt-Bundle landet.
+   */
+  lockFromReport(kind: AdminKind, id: string, reason: string) {
+    return this.accountAct(async () => {
+      const { adminApi } = await import('../services/admin-api');
+      const r = await adminApi.lock(kind, id, reason);
+      await this.loadReports();
+      this.ui.toast(r.action === 'extend' ? 'Sperre verlängert' : 'Gesperrt – der Beleg bleibt erhalten');
+    });
   }
 
   suspend(userId: string, suspended: boolean) {

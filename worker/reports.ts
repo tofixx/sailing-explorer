@@ -16,6 +16,7 @@ import { removeShare, visibleShare } from './shares';
 import { removePhotoById, visiblePhoto } from './photos';
 import { canViewGroup, loadGroup, removeGroup, roleIn } from './groups';
 import { removePost, visiblePost } from './posts';
+import { UNLOCKED_REPORT_TARGET, prepareDecisionNotice, sendDecisionNotice } from './report-notices';
 import { harborVisible, loadHarbor, removeHarbor } from './harbors';
 import { canManageGroup } from '../src/domain/groups';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, normalizeHandle, parseReportKind, parseReportReason } from './validate';
@@ -274,7 +275,7 @@ export async function listReports(request: Request, env: Env): Promise<Response>
   const { results: groups } = await env.DB.prepare(
     `SELECT target_kind, target_id, MIN(id) AS id, COUNT(*) AS n, COUNT(DISTINCT reporter_id) AS reporters,
        MIN(created_at) AS first_at, MAX(created_at) AS last_at, GROUP_CONCAT(reason) AS reasons
-     FROM reports WHERE resolved_at IS NULL GROUP BY target_kind, target_id ORDER BY first_at LIMIT ?`,
+     FROM reports r WHERE resolved_at IS NULL AND ${UNLOCKED_REPORT_TARGET('r')} GROUP BY target_kind, target_id ORDER BY first_at LIMIT ?`,
   )
     .bind(REPORT_LIMITS.adminList)
     .all<Group>();
@@ -339,6 +340,8 @@ export async function decideReport(request: Request, env: Env, reportId: string)
   if (!r || !kind) throw new HttpError(404, 'not_found', 'Diese Meldung gibt es nicht (mehr).');
   // Gesperrtes (Konzept 18.2) entscheidet der Admin-Bereich – sonst höbe „wieder einblenden“ die Sperre unbemerkt auf.
   if (await isLockedTarget(env, kind, r.target_id)) throw LOCKED();
+  // Begründung an Betroffene (F-572): vorher lesen – nach „Löschen“ gibt es das Ziel nicht mehr
+  const notice = await prepareDecisionNotice(env, kind, r.target_id);
   const now = Date.now();
   const log = adminLogStmt(env, admin.id, `report_${action}`, kind, r.target_id, '', now);
   const { table, idCol } = TABLE[kind];
@@ -359,7 +362,7 @@ export async function decideReport(request: Request, env: Env, reportId: string)
       log,
     ]);
   }
-  return json({ ok: true });
+  return json({ ok: true, notified: await sendDecisionNotice(env, admin.id, notice, action, now) });
 }
 
 /**

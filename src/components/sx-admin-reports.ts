@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import type { AdminAction, AdminReport } from '../services/api';
 import { REPORT_KIND_LABEL, REPORT_REASON_LABEL, type ReportKind, type ReportReason } from '../domain/comment-text';
 import { fmtDate, plural } from '../util/html';
+import { noticeReasons, reportLockTarget, suggestLock } from '../domain/report-decisions';
 import { icon } from './icons';
 import { base, emit } from './shared';
 
@@ -9,25 +10,31 @@ const KIND: Record<ReportKind, string> = REPORT_KIND_LABEL;
 
 /**
  * Offene Meldungen für Admins (Konzept 4.4), je Ziel zusammengefasst. Reine Darstellung – Events:
- * `sx-admin-decide` { id, action }, `sx-admin-suspend` { userId, suspended }, `sx-admin-refresh`.
+ * `sx-admin-decide` { id, action }, `sx-admin-suspend` { userId, suspended }, `sx-admin-lock` { kind, id, reason },
+ * `sx-admin-refresh`. „Löschen“ fragt nach und schlägt dabei „Sperren“ vor (F-574): Strafbares sperren statt löschen,
+ * Missbrauchsdarstellungen nicht kopieren oder weiterleiten.
  */
 export class SxAdminReports extends LitElement {
   static properties = {
     reports: { attribute: false },
     busy: { type: Boolean },
     confirm: { state: true },
+    lockReason: { state: true },
   };
   /** null = lädt */
   declare reports: AdminReport[] | null;
   declare busy: boolean;
   /** "delete:<id>" oder "suspend:<userId>" wartet auf Bestätigung */
   declare confirm: string | null;
+  /** Begründung der Sperre im Lösch-Dialog (geht an die Betroffenen, F-296) */
+  declare lockReason: string;
 
   constructor() {
     super();
     this.reports = null;
     this.busy = false;
     this.confirm = null;
+    this.lockReason = '';
   }
 
   static styles = [
@@ -119,12 +126,71 @@ export class SxAdminReports extends LitElement {
       a {
         color: var(--accent);
       }
+      .evidence {
+        display: grid;
+        gap: var(--s-2);
+        border-radius: var(--radius);
+        padding: var(--s-2) var(--s-3);
+        background: var(--surface-2);
+        font-size: var(--fs-s);
+      }
+      .evidence.warn {
+        background: var(--warn-bg);
+      }
+      .evidence p {
+        margin: 0;
+      }
+      .evidence label {
+        display: grid;
+        gap: var(--s-1);
+      }
+      .evidence input {
+        width: 100%;
+        min-width: 0;
+        min-height: 44px;
+      }
     `,
   ];
 
   private decide(id: string, action: AdminAction) {
     this.confirm = null;
     emit(this, 'sx-admin-decide', { id, action });
+  }
+
+  /** Löschen öffnen: Begründung der Sperre aus den Gründen der Meldungen vorbelegen. */
+  private askDelete(r: AdminReport) {
+    this.confirm = `delete:${r.id}`;
+    this.lockReason = `Gemeldet: ${noticeReasons(r.reasons).join('; ')}`;
+  }
+
+  /** Hinweis und Entscheidung „Sperren statt Löschen“ (F-574). */
+  private deletePanel(r: AdminReport) {
+    const lock = reportLockTarget(r.kind, r.targetId, r.target?.owner.id);
+    const warn = suggestLock(r.reasons);
+    const reason = this.lockReason.trim();
+    return html`<div class="evidence ${warn ? 'warn' : ''}" role="note">
+      <p><b>Strafbares sperren statt löschen.</b> Die Sperre sichert den Beleg (nur für Admins sichtbar, 180 Tage) und schickt
+        der Eigentümer:in die Begründung; Löschen hebt ihn sofort und endgültig auf.${lock?.account
+          ? ` ${r.kind === 'profile' ? 'Ein Profil' : 'Dieser Inhalt'} lässt sich nur mit dem Konto sperren.`
+          : ''}</p>
+      <p><b>Missbrauchsdarstellungen von Kindern:</b> nicht weiter ansehen, nicht herunterladen, kopieren oder weiterleiten – auch
+        nicht als Beleg. Sperren und nur den Fundort (Link, ID) an die Polizei oder internet-beschwerdestelle.de melden.</p>
+      ${lock
+        ? html`<label>Begründung der Sperre (geht per Mail an die Betroffenen)
+            <input type="text" maxlength="500" .value=${this.lockReason} @input=${(e: Event) => (this.lockReason = (e.target as HTMLInputElement).value)} />
+          </label>`
+        : ''}
+      <div class="actions">
+        ${lock
+          ? html`<button class="btn small primary" type="button" ?disabled=${this.busy || !reason} @click=${() => {
+              this.confirm = null;
+              emit(this, 'sx-admin-lock', { kind: lock.kind, id: lock.id, reason });
+            }}>${icon('lock')} ${lock.account ? 'Konto sperren' : 'Sperren'}</button>`
+          : ''}
+        <button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'delete')}>${icon('trash')} Endgültig löschen</button>
+        <button class="btn small" type="button" @click=${() => (this.confirm = null)}>Abbrechen</button>
+      </div>
+    </div>`;
   }
 
   private item(r: AdminReport) {
@@ -145,25 +211,28 @@ export class SxAdminReports extends LitElement {
         ${t?.hiddenAt ? html`<span class="chip warn">ausgeblendet seit ${fmtDate(t.hiddenAt)}</span>` : ''}
       </div>
       ${r.notes.length ? html`<ul class="notes" aria-label="Anmerkungen">${r.notes.map((n) => html`<li>${n.note}</li>`)}</ul>` : ''}
-      <p class="sub">Erste Meldung ${fmtDate(r.firstAt)}${owner ? html` · Eigentümer: ${owner.displayName}${owner.suspended ? ' (gesperrt)' : ''}` : ''}</p>
-      <div class="actions">
-        ${this.confirm === `delete:${r.id}`
-          ? html`<button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'delete')}>${icon('trash')} Endgültig löschen</button>
-              <button class="btn small" type="button" @click=${() => (this.confirm = null)}>Abbrechen</button>`
-          : html`<button class="btn small" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'keep')}>${icon('check')} Behalten${t?.hiddenAt ? ' & einblenden' : ''}</button>
+      <p class="sub">Erste Meldung ${fmtDate(r.firstAt)}${owner ? html` · Eigentümer: ${owner.displayName}${owner.suspended ? ' (suspendiert)' : ''}` : ''}</p>
+      ${this.confirm === `delete:${r.id}` ? this.deletePanel(r) : this.actions(r)}
+    </li>`;
+  }
+
+  private actions(r: AdminReport) {
+    const t = r.target;
+    const owner = t?.owner;
+    return html`<div class="actions">
+        <button class="btn small" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'keep')}>${icon('check')} Behalten${t?.hiddenAt ? ' & einblenden' : ''}</button>
               <button class="btn small" type="button" ?disabled=${this.busy || !t} @click=${() => this.decide(r.id, 'hide')}>${icon('eyeOff')} Ausblenden</button>
-              <button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => (this.confirm = `delete:${r.id}`)}>${icon('trash')} Löschen</button>`}
+              <button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => this.askDelete(r)}>${icon('trash')} Löschen</button>
         ${owner
           ? this.confirm === `suspend:${owner.id}:${r.id}`
             ? html`<button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => {
                 this.confirm = null;
                 emit(this, 'sx-admin-suspend', { userId: owner.id, suspended: !owner.suspended });
-              }}>${owner.suspended ? 'Ja, entsperren' : 'Ja, Konto sperren'}</button>
+              }}>${owner.suspended ? 'Ja, Suspendierung aufheben' : 'Ja, suspendieren'}</button>
                 <button class="btn small" type="button" @click=${() => (this.confirm = null)}>Abbrechen</button>`
-            : html`<button class="btn small ghost danger" type="button" ?disabled=${this.busy} @click=${() => (this.confirm = `suspend:${owner.id}:${r.id}`)}>${icon('lock')} ${owner.suspended ? 'Entsperren' : 'Konto sperren'}</button>`
+            : html`<button class="btn small ghost danger" type="button" ?disabled=${this.busy} @click=${() => (this.confirm = `suspend:${owner.id}:${r.id}`)}>${icon('lock')} ${owner.suspended ? 'Suspendierung aufheben' : 'Konto suspendieren'}</button>`
           : ''}
-      </div>
-    </li>`;
+      </div>`;
   }
 
   render() {

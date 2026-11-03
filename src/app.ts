@@ -42,6 +42,7 @@ import { CommunityController } from './controllers/community';
 import type { SxComments } from './components/sx-comments';
 import type { ReportTarget, SxReportDialog } from './components/sx-report-dialog';
 import type { AdminAction } from './services/api';
+import type { AdminKind } from './domain/admin';
 import type { CommentsMode, NotifyMode, ReportReason } from './domain/comment-text';
 // ---- Fotos (Phase C) ----
 import { PhotosController } from './controllers/photos';
@@ -440,17 +441,18 @@ export class App {
   }
 
   /**
-   * ?konto=einstellungen (Mail „Neuer Passkey“) bzw. ?konto=einladungen (Glocke: Einladung an mich): Konto öffnen,
-   * Parameter entfernen.
+   * ?konto=einstellungen (Mail „Neuer Passkey“), ?konto=einladungen (Glocke: Einladung an mich) bzw. ?konto=meldungen
+   * (Sammelmail an Admins, F-570): Konto öffnen, Parameter entfernen.
    */
   private async handleAccountParam() {
     const url = new URL(location.href);
     const which = url.searchParams.get('konto');
-    if (which !== 'einstellungen' && which !== 'einladungen') return;
+    const tabs: Record<string, AccountTab | undefined> = { einstellungen: 'settings', einladungen: undefined, meldungen: 'reports' };
+    if (!which || !(which in tabs)) return;
     url.searchParams.delete('konto');
     history.replaceState(history.state, '', url.pathname + url.search + url.hash);
     await this.session.backendReady;
-    void this.openAccount(which === 'einstellungen' ? 'settings' : undefined);
+    void this.openAccount(tabs[which]);
   }
 
   /** Konto öffnen; zeigt es „Einladungen an dich“, sind die Benachrichtigungen dazu gelesen (F-253). */
@@ -772,6 +774,7 @@ export class App {
     on('sx-admin-refresh', () => c.loadReports());
     on<{ id: string; action: AdminAction }>('sx-admin-decide', (d) => c.decide(d.id, d.action));
     on<{ userId: string; suspended: boolean }>('sx-admin-suspend', (d) => c.suspend(d.userId, d.suspended));
+    on<{ kind: AdminKind; id: string; reason: string }>('sx-admin-lock', (d) => c.lockFromReport(d.kind, d.id, d.reason));
 
     // ---- Fotos (Phase C) ----
     const ph = this.photos;

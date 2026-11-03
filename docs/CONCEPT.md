@@ -1782,8 +1782,9 @@ Aufbewahrung) und werden **2 Jahre nach ihrem Ablauf** gelöscht; Konto löschen
 Tabelle `admin_log (id, admin_id, action, target_kind, target_id, detail, created_at)`; `admin_id` NULL = nächtlicher
 Lauf. Aktionen: `list`, `view`, `lock`, `extend`, `unlock`, `lock_expired`, `rename`, `owner`, `merge_harbor`,
 `merge_user`, `delete`, `grant_support`, `revoke_support`, `delete_comment`, `harbor_edit`, `lock_notice`,
-`view_content` (Einblick in Gesperrtes, 18.5), dazu die Meldungs-Entscheidungen (`report_keep`, `report_hide`, `report_delete`) und
-`suspend`/`unsuspend`. `detail` ist ein kurzer Text (höchstens 500 Zeichen: Begründung, alter → neuer Name,
+`view_content` (Einblick in Gesperrtes, 18.5), dazu die Meldungs-Entscheidungen (`report_keep`, `report_hide`, `report_delete`), die Begründung an Betroffene
+(`report_notice`, am Konto der Eigentümer:in, F-572), die nächtliche Sammelmail über offene Meldungen (`report_digest`,
+F-570) und `suspend`/`unsuspend`. `detail` ist ein kurzer Text (höchstens 500 Zeichen: Begründung, alter → neuer Name,
 Zahlen) – **keine Mail-Adressen**. Lesen: `GET /api/admin/log?q=&page=` (Suche nach Ziel-ID, Admin oder Aktion).
 
 Fristen: Einblicke (`list`, `view`) **180 Tage**, alle übrigen Einträge **2 Jahre** (auch `view_content`: Zugriff auf
@@ -1809,7 +1810,8 @@ Sperr-Fristen), `worker/admin.ts` (Listen, Details, Umbenennen, Eigner, Löschen
 Filter-Chips, seitenweise blättern; je Zeile Status-Abzeichen (gesperrt bis …, ausgeblendet, suspendiert, privat) und
 Aktionen: Details, Umbenennen, Eigner, Sperren/Verlängern/Entsperren, Zusammenführen (Häfen, Konten), Endgültig
 löschen. Zerstörerische Aktionen fragen nach (Löschen und Konten verbinden mit Eingabe der ID). Meldungen bleiben im
-Konto-Dialog (Reiter „Meldungen“).
+Konto-Dialog (Reiter „Meldungen“); Admins sehen am Konto-Knopf die Zahl offener Meldungen (F-571), „Löschen“ einer
+Meldung schlägt „Sperren“ vor (F-574).
 
 ### 18.13 Fragen an den Betreiber – entschieden (28.10.2026)
 
