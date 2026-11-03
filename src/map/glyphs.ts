@@ -35,7 +35,7 @@ export function windBadge(dirFrom: number, kn: number, style: MapStyle = CLASSIC
   <path d="M22 35v7" stroke="${col}" stroke-width="2.5" stroke-linecap="round"/>
 </g>
 <circle cx="22" cy="22" r="12" fill="var(--surface)" stroke="${col}" stroke-width="3"/>
-<text x="22" y="26" text-anchor="middle" font-family="var(--font)" font-size="11.5" font-weight="750" fill="var(--text)">${label}</text>
+<text x="22" y="26" text-anchor="middle" style="font-family:var(--font)" font-size="11.5" font-weight="750" fill="var(--text)">${label}</text>
 </svg>`;
 }
 
@@ -91,7 +91,7 @@ export function photoPin(count = 1, active = false): string {
 export function voyagePin(count = 1): string {
   const inner =
     count > 1
-      ? `<text x="22" y="26" text-anchor="middle" font-family="var(--font)" font-size="11.5" font-weight="750" fill="#fff">${count > 99 ? '99+' : count}</text>`
+      ? `<text x="22" y="26" text-anchor="middle" style="font-family:var(--font)" font-size="11.5" font-weight="750" fill="#fff">${count > 99 ? '99+' : count}</text>`
       : '<path d="M23 14v13h7zM21 17l-6 10h6zM14 29h16l-2 3H16z" fill="#fff"/>';
   return `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
 <circle cx="22" cy="22" r="16" fill="var(--map-halo)"/>

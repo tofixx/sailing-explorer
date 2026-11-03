@@ -43,6 +43,8 @@ describe('F-581 Raster schreiben (PUT /api/shares/:id/heat)', () => {
     expect((await put(id, b.cookie, { cells: cells(3) })).status).toBe(404);
     expect((await put(id, a.cookie, { cells: [1, 2, 3] })).status).toBe(400);
     expect((await put(id, a.cookie, { cells: cells(HEAT.maxCells + 1) })).status).toBe(400);
+    // verstreute Zellen (kein Weg)
+    expect((await put(id, a.cookie, { cells: Array.from({ length: HEAT.maxJumps + 2 }, (_, x) => [I + 10 * x, J]).flat() })).status).toBe(400);
     expect(await heatFile(id)).toBeNull();
     expect((await put(id, a.cookie, { cells: cells(3) })).status).toBe(204);
     expect((await put(id, a.cookie, { cells: cells(2) })).status).toBe(204);
@@ -69,6 +71,17 @@ describe('F-583 Löschwege des Rasters', () => {
     expect(await heatFile(two)).not.toBeNull();
     expect((await h.fetch('/api/account', { method: 'DELETE', cookie: a.cookie })).status).toBe(200);
     expect(await heatFile(two)).toBeNull();
+  });
+});
+
+describe('F-581 Grenze je Minute', () => {
+  it('[F-581] mehr als 10 Raster je Minute und Konto: 429', async () => {
+    const a = await loginSupporter(h, mail());
+    const id = await share(a.cookie);
+    const codes: number[] = [];
+    for (let x = 0; x < 11; x++) codes.push((await put(id, a.cookie, { cells: cells(2) })).status);
+    expect(codes.slice(0, 5).every((c) => c === 204)).toBe(true);
+    expect(codes).toContain(429);
   });
 });
 
@@ -104,10 +117,20 @@ describe('F-582 Wärmekarte (GET /api/discover/heat)', () => {
     const broken = await share(a.cookie);
     await (await h.r2() as unknown as { put(k: string, v: string): Promise<unknown> }).put(`heat/${broken}.json`, '{kaputt');
 
+    // ein Konto mit vielen Törns zählt höchstens 10 (neueste)
+    const heavy = await loginSupporter(h, mail());
+    const many: string[] = [];
+    for (let x = 0; x < HEAT.perUser + 1; x++) many.push(await share(heavy.cookie));
+    const bucket = (await h.r2()) as unknown as { put(k: string, v: string): Promise<unknown> };
+    for (const [x, id] of many.entries()) {
+      await db.prepare('UPDATE shares SET started_at = ? WHERE id = ?').bind(Date.now() - (x + 1) * 60_000, id).run();
+      await bucket.put(`heat/${id}.json`, JSON.stringify({ cells: cells(1, base + 300) }));
+    }
+
     // erst ein Mitglied (mit Cookie), dann ein Gast: dieselbe Antwort, kein Betrachter-Bezug
     const member = await h.fetch('/api/discover/heat', { cookie: a.cookie });
     expect(member.status).toBe(200);
-    expect(member.headers.get('Cache-Control')).toBe(`public, max-age=${HEAT.ttl}`);
+    expect(member.headers.get('Cache-Control')).toBe(`public, max-age=${HEAT.browserTtl}`);
     const text = await member.text();
     const guest = await h.fetch('/api/discover/heat');
     expect(await guest.text()).toBe(text);
@@ -116,10 +139,12 @@ describe('F-582 Wärmekarte (GET /api/discover/heat)', () => {
     const ids = data.voyages.map((v) => v[0]);
     expect(ids).toEqual(expect.arrayContaining([shown1, shown2]));
     for (const id of [link, priv, hidden, here, manual, banned, broken]) expect(ids).not.toContain(id);
+    expect(ids.filter((id) => many.includes(id)).sort()).toEqual(many.slice(0, HEAT.perUser).sort());
     // überlappende Zellen zählen zwei Törns, meiste zuerst; ausgeschlossene Spalten fehlen
-    const mine = Array.from({ length: data.cells.length / 3 }, (_, x) => data.cells.slice(3 * x, 3 * x + 3)).filter(([, j]) => j >= J + base);
+    const mine = Array.from({ length: data.cells.length / 3 }, (_, x) => data.cells.slice(3 * x, 3 * x + 3)).filter(([, j]) => j >= J + base && j < J + base + 300);
+    expect(data.cells.slice(0, 3)).toEqual([I, J + base + 300, HEAT.perUser]);
     expect(mine).toEqual([[I, J + base, 2], [I + 1, J + base, 2], [I + 2, J + base, 1], [I + 3, J + base, 1]]);
-    expect(data.cells.slice(0, 3)).toEqual([I, J + base, 2]);
+
     expect(text).not.toContain('Geheimname');
     expect(text).not.toMatch(/handle|title|time|started|user/i);
 

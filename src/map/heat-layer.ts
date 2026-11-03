@@ -46,15 +46,18 @@ export class HeatLayer {
     this.draw();
   }
 
-  /** Karte auf den dichtesten Bereich einpassen (F-586) – false, wenn es keinen gibt. */
-  fitHotspot(): boolean {
+  /**
+   * Karte auf den dichtesten Bereich einpassen (F-586) – false, wenn es keinen gibt. Ohne Größe (versteckt, Raster noch
+   * nicht umgeschaltet) ergäbe fitBounds mit Rand eine Zoomstufe NaN, und Leaflets Zuschneiden der Rechtecke liefe
+   * endlos; dann wird beim ersten Größenwechsel eingepasst – nur, wenn `wanted()` dann noch gilt (z. B. inzwischen ein
+   * GPX geladen: nicht mehr).
+   */
+  fitHotspot(wanted: () => boolean = () => true): boolean {
     const b = this.data ? hotspot(this.data.cells) : null;
     if (!b) return false;
     this.map.invalidateSize({ animate: false });
-    // Ohne Größe (versteckt, Raster noch nicht umgeschaltet) ergäbe fitBounds mit Rand eine Zoomstufe NaN – und
-    // Leaflets Zuschneiden der Rechtecke liefe endlos. Dann beim ersten Größenwechsel einpassen.
     const size = this.map.getSize();
-    if (size.x < 100 || size.y < 100) this.map.once('resize', () => this.fitHotspot());
+    if (size.x < 100 || size.y < 100) this.map.once('resize', () => wanted() && this.fitHotspot(wanted));
     else this.map.fitBounds(b, { maxZoom: 12, animate: false, padding: [24, 24] });
     return true;
   }

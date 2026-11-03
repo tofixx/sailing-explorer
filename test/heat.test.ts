@@ -31,11 +31,24 @@ describe('F-580 Raster eines Törns (voyageCells)', () => {
     expect(voyageCells([line(101), line(101)])).toEqual(a);
   });
 
-  it('[F-580] lange Törns werden gleichmäßig auf höchstens 200 Zellen ausgedünnt, keine Zeiten im Ergebnis', () => {
+  it('[F-580] lange Törns enden nach 200 Zellen (erster Abschnitt), keine Zeiten im Ergebnis; das Ergebnis besteht die Prüfung', () => {
     const long = line(2000, 0.002); // ≈ 440 km
     const cells = voyageCells([long.map((p, k) => ({ ...p, time: k * 1000 }))]);
     expect(cells.length).toBe(2 * HEAT.maxCells);
     expect(cells.every(Number.isInteger)).toBe(true);
+    expect(cells[0]).toBe(cellOf(52.4 + 0.004, 13)[0]);
+    expect(parseCells(cells)).not.toBeNull();
+  });
+
+  it('[F-580] GPS-Lücken bis 2 km werden geradlinig ergänzt (zusammenhängender Weg), längere sind ein Neuanfang', () => {
+    // Punkte alle 0,01° (≈ 1,1 km): ohne Ergänzung lägen Zellen 3–4 auseinander
+    const sparse = voyageCells([line(11, 0.01)]);
+    const is = pairs(sparse).map(([i]) => i);
+    for (let k = 1; k < is.length; k++) expect(is[k] - is[k - 1]).toBeLessThanOrEqual(1);
+    // 0,05° (≈ 5,5 km) Abstand: nicht ergänzt
+    expect(pairs(voyageCells([line(4, 0.05)])).length).toBe(2);
+    // mehrere Tracks weit auseinander: jedes Raster besteht die Prüfung
+    expect(parseCells(voyageCells([line(101), line(101, 0.001, 13.5)]))).not.toBeNull();
   });
 });
 
@@ -49,6 +62,20 @@ describe('F-581 Raster prüfen (parseCells)', () => {
     expect(parseCells([999_999, 2])).toBeNull();
     expect(parseCells(new Array(2 * HEAT.maxCells + 2).fill(1))).toBeNull();
     expect(parseCells({ cells: [1, 2] })).toBeNull();
+  });
+
+  it('[F-581] wegähnlich: jede Zelle höchstens 3 Zellen neben einer früheren, höchstens 20 Neuanfänge, Ausdehnung ≤ 1,5° × 2,5°', () => {
+    const path = Array.from({ length: 30 }, (_, k) => [17000 + k, 2600]).flat();
+    expect(parseCells(path)).toEqual(path);
+    // 3 Zellen Abstand gehen noch, 4 sind ein Neuanfang
+    expect(parseCells([1, 1, 4, 4])).not.toBeNull();
+    // verstreute Zellen (Text, Bild): zu viele Neuanfänge
+    const scattered = Array.from({ length: HEAT.maxJumps + 2 }, (_, k) => [17000 + 5 * k, 2600]).flat();
+    expect(parseCells(scattered)).toBeNull();
+    expect(parseCells(scattered.slice(0, 2 * (HEAT.maxJumps + 1)))).not.toBeNull();
+    // zu weit ausgedehnt
+    expect(parseCells([17000, 2600, 17000 + HEAT.spanI + 1, 2600])).toBeNull();
+    expect(parseCells([17000, 2600, 17000, 2600 + HEAT.spanJ + 1])).toBeNull();
   });
 });
 

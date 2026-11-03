@@ -9,14 +9,26 @@ export const HEAT = {
   cellLon: 0.005,
   /** Anfang und Ende jedes Tracks (Luftlinie) fallen weg – kein Liegeplatz auf der Karte */
   trimM: 300,
-  /** höchstens so viele Zellen je Törn (gleichmäßig ausgedünnt) */
+  /** höchstens so viele Zellen je Törn – längere Wege enden danach (erster Abschnitt) */
   maxCells: 200,
-  /** höchstens so viele Törns fließen ein (neueste zuerst) */
+  /** Wegähnlich: jede Zelle liegt höchstens so viele Zellen neben einer früheren … */
+  near: 3,
+  /** … außer an höchstens so vielen Neuanfängen (weitere Tracks, Lücken im GPS, Anfang/Ende im Hafen) */
+  maxJumps: 20,
+  /** Ausdehnung eines Rasters höchstens 1,5° Breite × 2,5° Länge (in Zellen) – längere Wege enden davor */
+  spanI: 500,
+  spanJ: 500,
+  /** GPS-Lücken bis zu dieser Länge (m) werden geradlinig ergänzt, längere sind ein Neuanfang */
+  gapM: 2000,
+  /** höchstens so viele Törns fließen ein (neueste zuerst) … */
   voyages: 100,
+  /** … und davon höchstens so viele je Konto */
+  perUser: 10,
   /** höchstens so viele Zellen in der Antwort (meiste Törns zuerst) */
   maxOut: 4000,
-  /** Gültigkeit der öffentlich gecachten Antwort in Sekunden */
-  ttl: 900,
+  /** Cache der Antwort in Sekunden: im Rechenzentrum (Cache API) und im Browser – zusammen höchstens 15 Minuten */
+  edgeTtl: 840,
+  browserTtl: 60,
   /** gezeichnete Zellen sind mindestens so breit (px) – darunter fasst die Karte gröber zusammen */
   minPx: 8,
   /** Raster der Cluster-Pins in px */
@@ -56,53 +68,94 @@ export const cellBounds = (i: number, j: number, f = 1): [[number, number], [num
   [(i + 1) * f * HEAT.cellLat, (j + 1) * f * HEAT.cellLon],
 ];
 
-/** Gleichmäßig ausgedünnt auf höchstens `max` Paare, Reihenfolge und erstes/letztes Paar bleiben. */
-function thinPairs(flat: number[], max: number): number[] {
-  const n = flat.length / 2;
-  if (n <= max) return flat;
-  const out: number[] = [];
-  for (let k = 0; k < max; k++) {
-    const at = Math.round((k * (n - 1)) / (max - 1));
-    out.push(flat[2 * at], flat[2 * at + 1]);
+/** Zellen, die das Raster schon hat, und seine Ausdehnung – für `voyageCells` und `parseCells` dieselbe Regel. */
+class CellSet {
+  readonly flat: number[] = [];
+  private keys = new Set<number>();
+  private lo = [Infinity, Infinity];
+  private hi = [-Infinity, -Infinity];
+  jumps = 0;
+
+  has(i: number, j: number): boolean {
+    return this.keys.has(keyOf(i, j));
   }
-  return out;
+
+  /** Grenzen: Zahl der Zellen und Ausdehnung – false, wenn die Zelle nicht mehr passt. */
+  fits(i: number, j: number): boolean {
+    if (this.flat.length >= 2 * HEAT.maxCells) return false;
+    return Math.max(this.hi[0], i) - Math.min(this.lo[0], i) <= HEAT.spanI && Math.max(this.hi[1], j) - Math.min(this.lo[1], j) <= HEAT.spanJ;
+  }
+
+  /** Liegt eine frühere Zelle höchstens `HEAT.near` Zellen daneben? */
+  touches(i: number, j: number): boolean {
+    for (let di = -HEAT.near; di <= HEAT.near; di++) for (let dj = -HEAT.near; dj <= HEAT.near; dj++) if (this.keys.has(keyOf(i + di, j + dj))) return true;
+    return false;
+  }
+
+  add(i: number, j: number): void {
+    if (this.flat.length && !this.touches(i, j)) this.jumps++;
+    this.keys.add(keyOf(i, j));
+    this.flat.push(i, j);
+    this.lo = [Math.min(this.lo[0], i), Math.min(this.lo[1], j)];
+    this.hi = [Math.max(this.hi[0], i), Math.max(this.hi[1], j)];
+  }
 }
 
 /**
  * Raster eines Törns (F-580): Zellen in der Reihenfolge des Wegs, jede einmal, ohne die ersten und letzten 300 m
- * (Luftlinie zum ersten bzw. letzten Punkt) jedes Tracks und ohne GPS-Ausreißer; höchstens `HEAT.maxCells`. Flach
- * [i0, j0, i1, j1, …]. Keine Zeiten, keine Reihenfolge der Tracks untereinander außer der Liste.
+ * (Luftlinie zum ersten bzw. letzten Punkt) jedes Tracks und ohne GPS-Ausreißer. GPS-Lücken bis 2 km werden
+ * geradlinig ergänzt, damit das Raster ein zusammenhängender Weg ist (`parseCells`). Lange Wege enden, sobald 200
+ * Zellen, 20 Neuanfänge oder 1,5° × 2,5° Ausdehnung erreicht sind (der erste Abschnitt zählt). Flach [i0, j0, …];
+ * keine Zeiten.
  */
 export function voyageCells(tracks: ReadonlyArray<ReadonlyArray<HeatPoint>>): number[] {
-  const seen = new Set<string>();
-  const out: number[] = [];
+  const set = new CellSet();
+  const put = (lat: number, lon: number): boolean => {
+    const [i, j] = cellOf(lat, lon);
+    if (set.has(i, j)) return true;
+    if (!set.fits(i, j) || (set.flat.length && !set.touches(i, j) && set.jumps >= HEAT.maxJumps)) return false;
+    set.add(i, j);
+    return true;
+  };
   for (const pts of tracks) {
     const ok = pts.filter((p) => !p.glitch && Number.isFinite(p.lat) && Number.isFinite(p.lon));
     if (!ok.length) continue;
     const a = ok[0];
     const b = ok[ok.length - 1];
+    const inside = (p: HeatPoint) => haversine(a.lat, a.lon, p.lat, p.lon) >= HEAT.trimM && haversine(b.lat, b.lon, p.lat, p.lon) >= HEAT.trimM;
+    let prev: HeatPoint | null = null;
     for (const p of ok) {
-      if (haversine(a.lat, a.lon, p.lat, p.lon) < HEAT.trimM || haversine(b.lat, b.lon, p.lat, p.lon) < HEAT.trimM) continue;
-      const [i, j] = cellOf(p.lat, p.lon);
-      const key = `${i}:${j}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(i, j);
+      if (!inside(p)) {
+        prev = null;
+        continue;
+      }
+      // Lücke ergänzen: Zwischenpunkte etwa alle halbe Zelle (nur zwischen zwei gezählten Punkten, bis 2 km)
+      const d = prev ? haversine(prev.lat, prev.lon, p.lat, p.lon) : 0;
+      const steps = prev && d <= HEAT.gapM ? Math.floor(d / 150) : 0;
+      for (let k = 1; k <= steps; k++) if (!put(prev!.lat + ((p.lat - prev!.lat) * k) / (steps + 1), prev!.lon + ((p.lon - prev!.lon) * k) / (steps + 1))) return set.flat;
+      if (!put(p.lat, p.lon)) return set.flat;
+      prev = p;
     }
   }
-  return thinPairs(out, HEAT.maxCells);
+  return set.flat;
 }
 
 /**
  * Prüft ein Raster aus dem Netz (F-581): flache Liste ganzer Zahlen, gerade Länge, 1 … `HEAT.maxCells` Paare, Indizes
- * im gültigen Bereich. Sonst null (fail closed).
+ * im gültigen Bereich, Ausdehnung höchstens 1,5° × 2,5°, und wegähnlich: jede Zelle liegt höchstens 3 Zellen neben
+ * einer früheren, bis auf höchstens 20 Neuanfänge (kein Text oder Bild aus verstreuten Zellen). Sonst null (fail closed).
  */
 export function parseCells(input: unknown): number[] | null {
   if (!Array.isArray(input) || input.length < 2 || input.length % 2 || input.length > 2 * HEAT.maxCells) return null;
+  const set = new CellSet();
   for (let k = 0; k < input.length; k += 2) {
     const i = input[k];
     const j = input[k + 1];
     if (!Number.isInteger(i) || !Number.isInteger(j) || Math.abs(i) > I_MAX || Math.abs(j) > J_MAX) return null;
+    if (set.has(i, j)) continue;
+    if (!set.fits(i, j)) return null;
+    set.add(i, j);
+    if (set.jumps > HEAT.maxJumps) return null;
   }
   return input as number[];
 }

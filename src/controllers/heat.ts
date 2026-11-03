@@ -62,7 +62,8 @@ export class HeatController {
     const data = await this.load();
     if (!this.on) return; // inzwischen ausgeschaltet
     this.ui.layer.set(data, this.view.pins);
-    if (data && this.view.fit && !this.fitted) this.fitted = this.ui.layer.fitHotspot();
+    // aufgeschoben (Karte ohne Größe): nur, wenn die Ansicht es dann noch will
+    if (data && this.view.fit && !this.fitted) this.fitted = this.ui.layer.fitHotspot(() => this.view.fit);
   }
 }
 

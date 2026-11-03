@@ -191,6 +191,29 @@ describe('F-586 Startseite einpassen', () => {
   });
 });
 
+describe('F-586 aufgeschobenes Einpassen', () => {
+  it('[F-586] lädt jemand vor dem ersten Größenwechsel ein GPX, wird nicht mehr eingepasst', async () => {
+    fetchStub();
+    const el = document.createElement('div');
+    let w = 0;
+    Object.defineProperties(el, { clientWidth: { get: () => w }, clientHeight: { get: () => w } });
+    document.body.append(el);
+    const map = L.map(el).setView([54, 12], 8);
+    const layer = new HeatLayer(map, el);
+    const store = new Store({ ...initialState, backend: true });
+    const c = new HeatController(store, { layer, picker: { heat: true } });
+    c.setView({ pins: true, fit: true });
+    await flush();
+    // GPX geladen: Törn-Ansicht will kein Einpassen mehr
+    c.setView({ pins: false, fit: false });
+    await flush();
+    w = 400;
+    map.invalidateSize({ animate: false });
+    expect(map.getZoom()).toBe(8);
+    expect(map.getCenter().lat).toBeCloseTo(54);
+  });
+});
+
 describe('F-581 Raster senden', () => {
   it('[F-581] sendet das Raster eines GPX-Törns einmal je Sitzung, nie für Fahrtenbuch-Einträge oder ohne Zellen', async () => {
     const calls = fetchStub();
