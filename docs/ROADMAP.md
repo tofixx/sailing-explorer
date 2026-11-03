@@ -160,4 +160,4 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
   Verwaltern (der Boots-Schlüssel fehlt dem Betrachter), gesperrte nie, bei gesperrtem Konto (Törn oder Boot) nichts;
   Plattform-Admins sehen ausgeblendete Boote dort nicht (enger als `getBoat`). Gesperrte Boote fallen auch aus `boat`.
   Wortlaut „auf <Boot>“.
-| `fix/saison-ab-maerz` (Fahrtenbuch und Wertung wählen bis Ende Februar die abgelaufene Saison) | F-555 … F-559 | – | – | `src/domain/support.ts` (`shownSeason`), `logbook-year.ts`, `controllers/logbook-page.ts`, `scoring.ts` (`clubListSeason`), `controllers/scoring-page.ts` | gebaut 03.11. |
+| `fix/saison-ab-maerz` (Fahrtenbuch und Wertung wählen bis Ende Februar die abgelaufene Saison) | F-555 … F-559 | – | – | `src/domain/support.ts` (`shownSeason`), `logbook-year.ts`, `controllers/logbook-page.ts`, `scoring.ts` (`clubListSeason`), `controllers/scoring-page.ts` | gemergt 03.11. |
