@@ -17,6 +17,34 @@ export const base = css`
     display: none !important;
   }
 
+  /* Gewollte seitliche Scroll-Bereiche: schlanke Linie statt Standard-Scrollbalken, ohne Pfeile. Länge und Lage des
+     Griffs bleiben die echten (Anteil und Position des sichtbaren Ausschnitts). Blink/WebKit über die Pseudo-Elemente –
+     dort darf kein scrollbar-width/-color greifen, sonst gewinnt der Standardbalken; Firefox über die Standard-Eigenschaften. */
+  [data-scroll-x]::-webkit-scrollbar {
+    height: 4px;
+  }
+  [data-scroll-x]::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  [data-scroll-x]::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  [data-scroll-x]::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+  }
+  [data-scroll-x]:hover::-webkit-scrollbar-thumb {
+    background: var(--text-2);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    [data-scroll-x] {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+  }
+
   .btn {
     display: inline-flex;
     align-items: center;

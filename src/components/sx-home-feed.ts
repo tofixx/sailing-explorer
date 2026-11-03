@@ -200,7 +200,6 @@ export class SxHomeFeed extends LitElement {
         gap: var(--s-2);
         overflow-x: auto;
         padding-bottom: 2px;
-        scrollbar-width: thin;
       }
       .filters .chip {
         flex: none;
