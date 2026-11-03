@@ -89,7 +89,7 @@ const HARBORS_SQL = `SELECT h.id, h.slug, h.name FROM harbors h WHERE h.hidden_a
 
 async function profileChannel(env: Env, userId: string): Promise<WritableChannel> {
   const r = await env.DB.prepare(
-    `SELECT h.id AS h_id, h.name AS h_name, (${publicSql('p')}) AS open
+    `SELECT h.id AS h_id, h.name AS h_name, ${publicSql('p')} AS open
      FROM users u LEFT JOIN profiles p ON p.user_id = u.id LEFT JOIN harbors h ON h.id = u.home_harbor_id AND h.hidden_at IS NULL WHERE u.id = ?`,
   )
     .bind(userId)

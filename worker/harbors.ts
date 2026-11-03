@@ -193,7 +193,7 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
   if (!harborVisible(h, isAdmin(env, user?.id))) throw HARBOR_NOT_FOUND();
   const { results: boats } = await env.DB.prepare(
     `SELECT b.id, b.name, b.boat_type, b.length_m, p.handle AS owner_handle, p.display_name AS owner_name,
-       (${publicSql('p')}) AS owner_public
+       ${publicSql('p')} AS owner_public
      FROM boats b LEFT JOIN profiles p ON p.user_id = b.owner_id
      WHERE b.harbor_id = ? AND ${publicSql('b')}
        AND ${notSuspendedSql('b.owner_id')}

@@ -285,7 +285,7 @@ export async function visiblePost(request: Request, env: Env, id: string): Promi
   const p = SHARE_ID_RE.test(id)
     ? await env.DB.prepare(
         `SELECT p.id, p.author_id, p.group_id, p.visibility, p.hidden_at, p.share_id, p.channel_kind, p.channel_id, p.link_key,
-           (u.suspended_at IS NOT NULL) AS suspended, (${publicSql('pr')}) AS author_public,
+           (u.suspended_at IS NOT NULL) AS suspended, ${publicSql('pr')} AS author_public,
            (SELECT 1 FROM harbors h WHERE p.channel_kind = 'harbor' AND h.id = p.channel_id AND h.hidden_at IS NULL) AS harbor_ok,
            b.visibility AS b_vis, b.share_key AS b_key, b.hidden_at AS b_hidden, b.locked_at AS b_locked
          FROM posts p JOIN users u ON u.id = p.author_id LEFT JOIN profiles pr ON pr.user_id = p.author_id

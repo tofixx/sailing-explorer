@@ -70,7 +70,7 @@ export async function roleFor(env: Env, userId: string, boatId: string): Promise
   return row?.role ?? null;
 }
 
-const BOAT_SELECT = `SELECT b.*, p.handle AS owner_handle, p.display_name AS owner_name, (${publicSql('p')}) AS owner_public,
+const BOAT_SELECT = `SELECT b.*, p.handle AS owner_handle, p.display_name AS owner_name, ${publicSql('p')} AS owner_public,
     h.slug AS harbor_slug, h.name AS harbor_name
   FROM boats b LEFT JOIN profiles p ON p.user_id = b.owner_id LEFT JOIN harbors h ON h.id = b.harbor_id AND h.hidden_at IS NULL`;
 

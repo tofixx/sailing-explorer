@@ -50,7 +50,7 @@ describe('F-454 Sichtbarkeits-Bausteine: SQL = canView', () => {
       expect(await evalRow(liveSql('t'), row), JSON.stringify(row)).toBe(live);
     }
     // ohne Alias: die Spalten der Tabelle selbst
-    expect(publicSql()).toBe(`visibility = 'public' AND hidden_at IS NULL`);
+    expect(publicSql()).toBe(`(visibility = 'public' AND hidden_at IS NULL)`);
   });
 
   it('[F-454] notSuspendedSql: gesperrtes Konto fällt heraus, aktives und fehlendes nicht', async () => {
@@ -67,7 +67,8 @@ describe('F-454 Sichtbarkeits-Bausteine: SQL = canView', () => {
 /**
  * Sperrklinke (PRINCIPLES „Erweitern“ 2): Die verbliebenen Literal-Kopien der Bausteine (Stand F-454 in Dateien
  * paralleler Branches: Streams, Benachrichtigungen, Profil, Startseite) dürfen nur weniger werden. Wer eine Datei
- * ohnehin anfasst, ersetzt sie und senkt die Zahl hier.
+ * ohnehin anfasst, ersetzt sie und senkt die Zahl hier. Bekannte Lücke: andere Schreibweisen (Zeilenumbruch, andere
+ * Reihenfolge, `visibility='public'`) zählt sie nicht – bewusst nicht verschärft, das Review prüft den Rest.
  */
 describe('F-454 keine neuen Literal-Kopien', () => {
   const LIMITS: Array<[string, RegExp, number]> = [

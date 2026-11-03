@@ -457,7 +457,7 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
   const manager = canManageGroup(role);
 
   const { results: members } = await env.DB.prepare(
-    `SELECT m.user_id, m.role, m.created_at, p.handle, p.display_name, (${publicSql('p')}) AS public_profile
+    `SELECT m.user_id, m.role, m.created_at, p.handle, p.display_name, ${publicSql('p')} AS public_profile
      FROM group_members m LEFT JOIN profiles p ON p.user_id = m.user_id
      WHERE m.group_id = ? ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, m.created_at`,
   )
@@ -547,7 +547,7 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
 /** Offene Beitrittsanfragen mit Anzeigenamen – für alle, die bestätigen dürfen. */
 async function openRequests(env: Env, groupId: string) {
   const { results: requests } = await env.DB.prepare(
-    `SELECT r.user_id, r.message, r.created_at, p.handle, p.display_name, (${publicSql('p')}) AS public_profile
+    `SELECT r.user_id, r.message, r.created_at, p.handle, p.display_name, ${publicSql('p')} AS public_profile
      FROM group_requests r LEFT JOIN profiles p ON p.user_id = r.user_id WHERE r.group_id = ? ORDER BY r.created_at`,
   )
     .bind(groupId)

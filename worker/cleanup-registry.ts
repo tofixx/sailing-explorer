@@ -15,7 +15,10 @@ import type { ChannelKind } from '../src/domain/posts';
 import type { FollowKind } from '../src/domain/groups';
 import type { CoverKind } from '../src/domain/cover';
 
-/** Name einer von einem Worker-Modul exportierten Funktion (der Test prüft, dass es sie gibt). */
+/**
+ * Name einer von einem Worker-Modul exportierten Funktion. Der Test prüft nur, dass es sie gibt – nicht, dass sie die
+ * Tabelle bzw. Art wirklich aufräumt; das sichern die Waisen-Prüfung (F-452) und die Löschweg-Tests der Funktionen.
+ */
 type Fn = string;
 
 /** Wie Zeilen einer Tabelle (bzw. Dateien eines Präfixes) wieder verschwinden. Mindestens ein Feld ist gesetzt. */

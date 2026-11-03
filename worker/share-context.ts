@@ -21,7 +21,7 @@ export async function shareContext(
   const [sailor, groups] = await env.DB.batch([
     env.DB.prepare(
       `SELECT p.handle, p.display_name FROM profiles p JOIN users u ON u.id = p.user_id AND u.suspended_at IS NULL
-       WHERE p.user_id = ?1 AND (?2 OR (${publicSql('p')}))`,
+       WHERE p.user_id = ?1 AND (?2 OR ${publicSql('p')})`,
     ).bind(share.user_id, isOwner ? 1 : 0),
     env.DB.prepare(
       `SELECT g.slug, g.name, g.kind FROM share_groups sg
