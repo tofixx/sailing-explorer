@@ -289,7 +289,7 @@ Konzept: `docs/CONCEPT.md` Abschnitt 17. Umsetzung: `migrations/0021_notificatio
 - **F-306** Aufbewahrung (L2): Einträge ohne GPX werden am 1. Februar nach der zweiten Saison ab Anlegen gelöscht (angelegt 2026 → 1.2.2028) bzw. nach der letzten unterstützten Saison, wenn die später endet (`manualExpiry` = `EXPIRES_SQL`, ein Test vergleicht beide). Erinnerung, Löschlauf und Löschwarnung wie F-65/F-66.
 - **F-307** Hafenposition (L3): Neue Häfen brauchen eine Lage (F-353, auch im Fahrtenbuch: sonst 400 `position_required`); im Fahrtenbuch-Formular fragt der Hafen-Picker bei neuen Häfen und `sx-place-picker` bei vorhandenen ohne Position danach. Ändern danach wie F-171 (Anleger:in, Moderation); fremde Häfen ohne Position: 403. Häfen ohne Position und ohne Anleger:in (Altbestand): wer als Erste:r die Position setzt (Fahrtenbuch oder PATCH), wird Anleger:in. Die Hafensuche liefert die Position mit.
 - **F-308** Stream und Meilensteine: Ein öffentlicher Eintrag erscheint wie ein Törn als `voyage` („hat einen Törn ins Fahrtenbuch eingetragen“, Abzeichen). Nachträge (Abfahrt mehr als 14 Tage vor dem Anlegen) kommen gebündelt als `logbook` je Konto und Tag („hat 6 Törns ins Fahrtenbuch nachgetragen (84 sm)“, bis zu 5 verlinkt); das Bündel merkt sich höchstens 100 Törns, zählt beim Lesen nur jetzt öffentliche, nicht ausgeblendete und verschwindet, wenn keiner mehr da ist (nachts endgültig). Meilensteine und Saison-Summen zählen Fahrtenbuch-Meilen mit (L4).
-- **F-309** Keine Medien (L6): Foto-Upload und Übersichtsbild an Einträgen ohne GPX → 409 `no_media_manual`, geprüft vor allen anderen Grenzen; die Payload ist auf 32 KB begrenzt und zählt zum Speicher; Link-Vorschau ohne Bild.
+- **F-309** Keine Medien (L6): Foto-Upload und Übersichtsbild an Einträgen ohne GPX → 409 `no_media_manual`, geprüft vor allen anderen Grenzen (mit nachgereichtem GPX ist es ein Törn, F-601); die Payload ist auf 32 KB begrenzt und zählt zum Speicher; Link-Vorschau ohne Bild.
 - **F-310** Löschen: keine neuen Pfade – Einzeln, Ablauf, Konto, inaktives Konto und Moderation entfernen Einträge samt Payload, Zähleranteil und Aktivitäten über `removeShare`; das Bündel `logbook` fällt mit den Aktivitäten des Kontos. Hafen gelöscht → Start-/Zielhafen der Törns leer (`ON DELETE SET NULL`); Häfen zusammengeführt → Törns zeigen auf den verbleibenden.
 - **F-311** GPX-Plausibilität (L8, `plausibleGpx`, gleich in Browser und Worker): höchstens 2.000 sm je Törn; mit Start und Ende (`X-Share-Ended`) Dauer ≤ 60 Tage und Distanz ≤ Dauer × 30 kn (mindestens eine Viertelstunde angesetzt) – sonst 400 `implausible_distance`; der Browser erklärt es vor dem Hochladen. GPS-Ausreißer zählen nicht zur Distanz (F-04).
 - **F-312** Gäste (L5): „+ Neu → Fahrtenbuch-Eintrag“ (F-405) öffnet erst die Anmeldung („Melde dich an, um ins Fahrtenbuch einzutragen“), danach geht das Formular direkt auf – auch wenn der Link in einem anderen Tab eingelöst wurde.
@@ -560,6 +560,43 @@ Nur eigene Werte, keine Vergleiche mit anderen und keine Ranglisten (K6). Nichts
 - **F-531** Der Kartenstil-Knopf über der Karte (F-218) trägt das Ebenen-Symbol und heißt „Kartenstil“. Das Zahnrad trägt nur noch das Seiten-Menü (`sx-page-menu`, UX N6); „Konto & Einstellungen“ im Konto-Menü nimmt die Schieberegler (`sliders`), damit es sich von „Meine Seite“ (Person) unterscheidet.
 - **F-532** Ein Icon je Objektart (`ENTITY_ICON` in `src/components/icons.ts`, UX N4): Person `user`, Boot `sail`, Verein `pennant`, Team `team` (eigenes Symbol, nicht das Boot), Hafen `anchor`, Törn `map`, Fahrtenbuch `book`, Beitrag `comment`. Gruppen wählen es über `groupIcon(kind)`. Genutzt in Byline, Stream-Karte und Tageskarte, Entdecken (Karten, Leiste, Chip ohne öffentliches Profil), Gruppen- (auch „gründen“), Profil-, Boots- und Hafenseite, Hafen-Auswahl, Startseite (Chips, Heimatzeile, Heimathafen), „Mein Verlauf“ und Fahrtenbuch; `POST_KIND_ICON` übernimmt Törn, Fahrtenbuch und Beitrag daraus. Orte ohne Objekt (eigener Standort, „In der Nähe“, Position übernehmen, Ort einer Veranstaltung) nehmen die Stecknadel `location`, nicht den Anker.
 - **F-533** Die Törn-Byline nennt das Boot („von <Person> auf <Boot> in <Gruppe>“) als Link auf `/b/<id>` – nur, wenn der Betrachter die Bootsseite öffnen darf: Die Einzelansicht `GET /api/shares/:id` liefert dafür `boatPage` (öffentlich und nicht ausgeblendet, oder der Betrachter ist Eigner bzw. Admin des Boots), sonst `null`. Fail closed: gesperrte Boote nie; „Nur mit Link“ ohne Verwaltung nicht, weil der Boots-Schlüssel fehlt; Plattform-Admins bekommen ausgeblendete Boote nicht genannt; ist die Eigentümer:in des Törns oder der Eigner des Boots gesperrt (suspendiert), kein Boot – wie Profil und Gruppen (F-228). Das Listen-Feld `boat` nennt gesperrte Boote ebenfalls nicht mehr (auch nicht der Eigentümer:in); sonst bleibt es unverändert. Lange Namen brechen in der Byline um (375 px).
+
+## GPX nachreichen (Konzept 38)
+
+Ein Endpunkt `PUT /api/shares/:id/track`, ein Menüeintrag, keine Migration. Entscheidungen in
+[`docs/concept/38-gpx-nachreichen.md`](concept/38-gpx-nachreichen.md).
+
+- **F-600** Nur die Eigentümer:in eines Fahrtenbuch-Eintrags ohne GPX (`source = 'manual'`) reicht einen Track nach:
+  fremde und gesperrte Törns 404, Gäste 401, gesperrte Konten 403 `suspended`, Törns mit GPX 409 `not_manual` (ein
+  vorhandener Track wird in v1 nicht ersetzt, auch kein zweites Nachreichen). Rate-Limit wie beim Hochladen.
+- **F-601** Danach ist der Eintrag ein GPX-Törn: `source = 'gpx'`, `dist_source = 'track'`, Distanz, Track-Zahl, Größe
+  und Kurzbeschreibung aus dem Upload, Abfahrt/Ankunft aus dem Track (ohne Zeitstempel bleiben die des Eintrags),
+  Post-Art `voyage`. Die Payload (gleiches Format wie `POST /api/shares`) ersetzt die Route in derselben Datei. ID, Link,
+  Titel, Sichtbarkeit, „Sichtbar bis“, Gruppen, Boot, Häfen, Angaben (`log`), Stand „Ins Fahrtenbuch“, eigene Rolle,
+  Crew samt Bestätigungen, Kommentare und Reaktionen bleiben; Neuigkeiten und Benachrichtigungen gibt es keine.
+  Fotos und Übersichtsbild sind ab dann erlaubt (F-309 gilt nicht mehr).
+- **F-602** Plausibilität wie beim Hochladen (`plausibleGpx`, F-311: 400 `implausible_distance`; ungültiges Format 400
+  `invalid_payload`) und Zeitfenster (`trackDateError`): Ein Track mit Zeitstempeln muss die Kalendertage des Eintrags
+  (Abfahrt bis Ankunft, UTC) ± 1 Tag berühren, sonst 409 `track_mismatch` mit beiden Daten und dem Hinweis, erst das
+  Datum des Eintrags zu ändern. Der Browser prüft gleich und erklärt es vor dem Hochladen.
+- **F-603** Kontingente wie ein neuer Törn: Törn-Kontingent (`checkShareQuota`, 402 `supporter_required` bzw. 409
+  `quota`), Speicher (Grenze abzüglich der alten Route, 402/409/413), Notbremse. Der Speicherzähler wächst im selben
+  Batch um neue Payload − alte Route (`replaceManualPayloadStmt`, nur solange der Törn noch `manual` ist); das
+  Fahrtenbuch-Kontingent (F-305) wird frei.
+- **F-604** Aufbewahrung: Ab dem Nachreichen gilt die Frist der Törns (`shareExpiry` ab dem Anlegen, F-65), eine Saison
+  kürzer als ohne GPX (F-306); `expiry_warned_at` wird zurückgesetzt. Läge der neue Löschtermin innerhalb der Warnfrist
+  (14 Tage) oder schon vorbei, 409 `expiry_soon` mit Datum, der Eintrag bleibt unverändert.
+- **F-605** Einziger Einstieg: „GPX nachreichen“ (Symbol `upload`) als erster Eintrag im Zahnrad-Menü des Törns
+  (`voyageMenuItems`), nur für die Eigentümer:in eines Eintrags ohne GPX. Die Byline öffnet die Dateiauswahl (`.gpx`)
+  direkt aus dem Klick und meldet `sx-track-attach` { file }.
+- **F-606** Löschwege: keine neuen. Die Route wird überschrieben (eine Datei); Track und Übersichtsbild gehen mit dem
+  Törn (einzeln, Frist nach Törn-Regel, Konto, Moderation, Zusammenführen über die bestehenden Pfade). Wird der Törn
+  während des Nachreichens gelöscht, entfernt der Worker die gerade geschriebene Datei (404); hat ein paralleler Aufruf
+  schon nachgereicht, 409 `conflict`.
+- **F-607** Ablauf im Browser (`WorkspaceController.attach`): GPX lesen, F-602 prüfen, Rückfrage (`sx-confirm`, nennt
+  Datei, Datum, Strecke, was bleibt und die kürzere Aufbewahrung), Wetter einmal laden und mitspeichern, hochladen,
+  Törn neu öffnen, Hinweis „Track nachgereicht“, Übersichtsbild im Querformat nachziehen (`SessionController.uploadPreview`,
+  wie nach dem Speichern). Abbrechen sendet nichts.
 
 ## Betrieb
 

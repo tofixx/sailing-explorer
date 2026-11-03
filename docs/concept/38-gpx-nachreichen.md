@@ -26,8 +26,8 @@ Weg nach Rom“: ein Endpunkt, ein Menüeintrag, keine Migration.
 | Datenmodell | **Keine Migration** (0046 bleibt frei). Erweiterung eines bestehenden Objekts: Spalten von `shares` (`source`, `dist_source`, `dist_nm`, `started_at`, `ended_at`, `track_count`, `size_bytes`, `summary`, `expiry_warned_at`) und `posts.kind`. R2: dieselbe Datei `shareKey(id)` wird überschrieben (die Route war schon dort). |
 | Querschnitte | Sichtbarkeit: `ownedShare` (fremde, gesperrte → 404), `assertActive` (gesperrte Konten 403), `UPLOAD_LIMITER`. Zähler/Kontingente: siehe 38.1, Speicher-Zähler über `replaceManualPayloadStmt` (`worker/storage.ts`) im selben Batch. Caches: `GET /api/shares/:id/data` ist `private, no-cache` mit ETag (die neue Datei hat einen neuen); Stream- und Entdecken-Caches (60 s) laufen ab wie bei jeder Törn-Änderung – nichts Betrachterabhängiges kommt hinzu; der Browser lädt Metadaten und Payload nach dem Nachreichen neu. Benachrichtigungen, Aktivitäten, Einbettungen, Zusammenführen, Admin: unberührt. Aufbewahrung: `EXPIRES_SQL` folgt `source` (38.1). |
 | Lösch- und Sichtbarkeitspfade | 38.3 |
-| Komponentenschnitt | Reine Regeln `src/domain/track-attach.ts` (`canAttachTrack`, `trackDateError`, `attachExpiryError`). Worker: `attachTrack` in neu `worker/track-attach.ts` (Route `PUT /api/shares/:id/track` in `worker/index.ts`), nutzt `checkPayload` aus `shares.ts` (exportiert). Oberfläche: Menüeintrag „GPX nachreichen“ in `voyageMenuItems` (`sx-voyage-byline`, nur Eigentümer:in eines Eintrags ohne GPX), die Byline öffnet direkt aus dem Klick eine verborgene Dateiauswahl und meldet `sx-track-attach` { file }; Ablauf `WorkspaceController.attach` (GPX lesen, prüfen, Rückfrage `sx-confirm`, Wetter, Hochladen, Törn neu öffnen), danach `SessionController.uploadPreview` (Übersichtsbild). `api.attachTrack` in `services/api.ts`. Eine Zeile Verdrahtung in `app.ts`. 375 px: nur ein Menüeintrag im vorhandenen Sheet und der vorhandene Rückfrage-Dialog. |
-| Parallele Arbeit | `feature/moderation-titelbilder`, `feature/moderation-admin`, `feature/revier-heatmap`, `feature/invite-box`, `feature/segellebenslauf` fassen `shares.ts`, `storage.ts`, `sx-voyage-byline` und `workspace.ts` nicht an (Spalte „Berührt“). Hier in `shares.ts` nur `export` vor `checkPayload`. |
+| Komponentenschnitt | Reine Regeln `src/domain/track-attach.ts` (`canAttachTrack`, `trackDateError`, `attachExpiryError`). Worker: `attachTrack` in neu `worker/track-attach.ts` (Route `PUT /api/shares/:id/track` in `worker/index.ts`), nutzt `checkPayload`, `decodeHeader`, `NOT_FOUND`, `shareDetail` aus `shares.ts` (nur exportiert). Oberfläche: Menüeintrag „GPX nachreichen“ in `voyageMenuItems` (`sx-voyage-byline`, nur Eigentümer:in eines Eintrags ohne GPX), die Byline öffnet direkt aus dem Klick eine verborgene Dateiauswahl und meldet `sx-track-attach` { file }; Ablauf `WorkspaceController.attach` (GPX lesen, prüfen, Rückfrage `sx-confirm`, Wetter, Hochladen, Törn neu öffnen), danach `SessionController.uploadPreview` (Übersichtsbild). `api.attachTrack` in `services/api.ts`. Eine Zeile Verdrahtung in `app.ts`. 375 px: nur ein Menüeintrag im vorhandenen Sheet und der vorhandene Rückfrage-Dialog. |
+| Parallele Arbeit | `feature/moderation-titelbilder`, `feature/moderation-admin`, `feature/revier-heatmap`, `feature/invite-box`, `feature/segellebenslauf` fassen `shares.ts`, `storage.ts`, `sx-voyage-byline` und `workspace.ts` nicht an (Spalte „Berührt“). Hier in `shares.ts` nur `export` vor vier vorhandenen Helfern. |
 
 ## 38.3 Lösch- und Sichtbarkeitspfade
 
@@ -43,5 +43,10 @@ Eigentümer:in eines Eintrags ohne GPX.
 
 ## 38.4 Anforderungen
 
-F-600 … F-607 in `docs/REQUIREMENTS.md` (Block „GPX nachreichen“); Tests in `test/functional/track-attach.test.ts`,
-`test/functional/track-attach-ui.test.ts` und `test/unit/track-attach.test.ts`.
+F-600 … F-607 in `docs/REQUIREMENTS.md` (Block „GPX nachreichen“); Tests in `test/functional/track-attach.test.ts`
+(Worker), `test/functional/track-attach-ui.test.ts` (Menü, Byline, Ablauf im Browser) und `test/track-attach.test.ts`
+(Regeln). F-608, F-609 bleiben frei; Migration 0046 wurde nicht gebraucht.
+
+Löschwege ohne eigenen Test hier: inaktives Konto (betrifft nur Konten ohne Törns), Moderation und Zusammenführen –
+sie laufen über `removeShare`/`purgeUser` bzw. hängen die Törn-Zeile um und kennen nur `shareKey`/`previewKey`, die
+dieser Weg nicht ändert (Tests dort: `admin.test.ts`, `deletion.test.ts`).
