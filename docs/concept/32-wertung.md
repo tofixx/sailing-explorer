@@ -72,7 +72,7 @@ Die Teilnahme schaltet die Person selbst um (`PUT /api/groups/:id/scoring { optI
 Namen und Summe sieht und welche Törns zählen. Sortiert nach Punkten ohne Platzziffern – eine Hilfe für den
 Fahrtenpreis, keine Rangliste.
 
-**Gewichtung (einfachste vertretbare Auslegung):** ein **Faktor je Vereinsvorlage** (0,1–10, leer = zählt nicht). Die
+**Gewichtung (entschieden 03.11.2026, 32.7):** ein **Faktor je Vereinsvorlage** (0,1–10, leer = zählt nicht). Die
 Punktesumme einer Person ist Σ Punkte je Vorlage × Faktor (`clubPoints` – die einzige Stelle; eine andere Auslegung
 ändert nur diese Funktion und das Feld `list_weight`). So kann ein Verein z. B. Arbeitsdienst doppelt und Regatten
 halb zählen lassen.
@@ -101,7 +101,7 @@ nichts wird gespeichert oder verschickt.
 
 | Punkt | Umsetzung |
 | --- | --- |
-| Gewichtung „nach Mitgliederzahl“ | **offen, mit dem Betreiber bestätigen.** Eingebaut ist ein Faktor je Vereinsvorlage (32.4). Eine Normierung nach Mitgliederzahl des Vereins ändert innerhalb eines Vereins die Reihenfolge nicht und hätte nur zwischen Vereinen Sinn – das wäre eine vereinsübergreifende Rangliste (K6). „Punkte je Kopf der Crew an Bord“ bräuchte die Crew-Zahl je Törn; als weitere Auslegung nur in `clubPoints` bzw. `scoreEntry` zu ergänzen |
+| Gewichtung „nach Mitgliederzahl“ | **entschieden 03.11.2026: beim Faktor bleiben, keine Normierung nach Mitgliederzahl (K6).** Eingebaut ist ein Faktor je Vereinsvorlage (32.4). Eine Normierung nach Mitgliederzahl des Vereins ändert innerhalb eines Vereins die Reihenfolge nicht und hätte nur zwischen Vereinen Sinn – das wäre eine vereinsübergreifende Rangliste (K6). „Punkte je Kopf der Crew an Bord“ bräuchte die Crew-Zahl je Törn; als weitere Auslegung nur in `clubPoints` bzw. `scoreEntry` zu ergänzen |
 | Punkte je verschiedenem Hafen | entfällt – eine Saison-Größe, die die Summe der Einträge bricht (Jahresbericht und Liste wären nicht mehr additiv) |
 | Vorlagen im Admin-Bereich | Vorschläge pflegen Admins auf `/konto/wertung` mit demselben Formular wie Vereine |
 | Eine Tabelle statt zwei | `scoring_templates` mit `group_id` leer bzw. gesetzt |
