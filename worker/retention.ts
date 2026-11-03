@@ -8,7 +8,7 @@ import { EXPIRES_SQL, shareDeleteStmts } from './shares';
 import { recomputeStorage, storageTotal } from './storage';
 import { deleteOrphanReports, ownsLockedSql } from './moderation';
 import { expireLocks, orphanLocksStmt, remindLocks } from './locks';
-import { digestReports } from './report-notices';
+import { UNLOCKED_REPORT_TARGET, digestReports } from './report-notices';
 import { sendNotificationDigests } from './notification-mail';
 import { nightlyPollClosedStmts, notifyExpiry } from './notifications';
 import { deleteKeys, photoKeysForShares, shareFileKeys } from './photo-keys';
@@ -206,7 +206,7 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   // 14 Tage vor Ablauf einmal eine Sammel-Erinnerung an die Admins
   await step('lock_reminder', remindLocks(env, origin, now), 0);
   // Offene Meldungen (F-570): eine Sammelmail an die Admins, nur wenn seit der letzten neue dazugekommen sind
-  await step('report_digest', digestReports(env, origin, now), 0);
+  await step('report_digest', digestReports(env, now), 0);
   const warned = await step('warn', warnExpiring(env, origin, now), 0);
   const seasonMails = await remindSeason(env, origin, now).catch((err) => {
     console.error('season reminders failed', err);
@@ -260,7 +260,7 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     // – außer das Ziel ist gesperrt: dann bleibt die Meldung als Beleg, bis die Sperre endet (Konzept 18.3)
     env.DB.prepare(
       `UPDATE reports SET reporter_id = NULL, note = '' WHERE resolved_at IS NULL AND created_at < ? AND (reporter_id IS NOT NULL OR note <> '')
-         AND NOT EXISTS (SELECT 1 FROM locks l WHERE l.target_kind = CASE reports.target_kind WHEN 'profile' THEN 'user' ELSE reports.target_kind END AND l.target_id = reports.target_id)`,
+         AND ${UNLOCKED_REPORT_TARGET('reports')}`,
     ).bind(now - OPEN_REPORT_MS),
     // Gutscheine der Admins (Konzept 18.9a): keine Zahlung, keine Aufbewahrungspflicht – 2 Jahre nach Ablauf gelöscht
     env.DB.prepare(`DELETE FROM supports WHERE provider = 'admin' AND valid_until < ?`).bind(now - LOG_ACTION_MS),

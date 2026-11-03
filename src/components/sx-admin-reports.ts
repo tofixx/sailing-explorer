@@ -171,7 +171,9 @@ export class SxAdminReports extends LitElement {
     return html`<div class="evidence ${warn ? 'warn' : ''}" role="note">
       <p><b>Strafbares sperren statt löschen.</b> Die Sperre sichert den Beleg (nur für Admins sichtbar, 180 Tage) und schickt
         der Eigentümer:in die Begründung; Löschen hebt ihn sofort und endgültig auf.${lock?.account
-          ? ` ${r.kind === 'profile' ? 'Ein Profil' : 'Dieser Inhalt'} lässt sich nur mit dem Konto sperren.`
+          ? r.kind === 'profile'
+            ? ' Ein Profil lässt sich nur mit dem Konto sperren.'
+            : ' Dieser Inhalt lässt sich nur mit dem Konto der Autor:in sperren. Er bleibt dann erhalten, solange Törn bzw. Gruppe bestehen – deren Eigner:in oder der Ablauf des Törns können ihn trotzdem entfernen.'
           : ''}</p>
       <p><b>Missbrauchsdarstellungen von Kindern:</b> nicht weiter ansehen, nicht herunterladen, kopieren oder weiterleiten – auch
         nicht als Beleg. Sperren und nur den Fundort (Link, ID) an die Polizei oder internet-beschwerdestelle.de melden.</p>

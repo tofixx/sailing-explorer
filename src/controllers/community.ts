@@ -221,8 +221,9 @@ export class CommunityController {
     if (!this.ui.account.settings?.isAdmin) return;
     this.ui.account.reports = null;
     try {
-      this.ui.account.reports = (await communityApi.adminReports()).reports;
-      this.setOpenReports(this.ui.account.reports.length);
+      const { reports, total } = await communityApi.adminReports();
+      this.ui.account.reports = reports;
+      this.setOpenReports(total);
     } catch (e) {
       this.ui.account.reports = [];
       this.ui.account.error = errorText(e);

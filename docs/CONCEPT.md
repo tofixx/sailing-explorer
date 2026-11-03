@@ -1655,7 +1655,7 @@ normalen Löschwegen ausgenommen:
 | inaktive leere Konten (12 Monate) | übersprungen (Konto gesperrt oder besitzt Gesperrtes) |
 | Konto selbst löschen | 409 `locked_content`, solange das Konto gesperrte Törns, Boote oder Gruppen besitzt (Art. 17 Abs. 3 lit. e DSGVO: Verteidigung von Rechtsansprüchen) – ein gesperrtes Konto kann sich ohnehin nicht anmelden |
 | Eigner löscht Törn, Boot, Gruppe, Fotos, Kommentare, Crew, Beiträge | unmöglich (für ihn 404) |
-| offene Meldungen nach 180 Tagen anonymisieren | übersprungen, solange das Ziel gesperrt ist (Anmerkungen bleiben als Beleg) |
+| offene Meldungen nach 180 Tagen anonymisieren | übersprungen, solange das Ziel gesperrt ist – bei Kommentar, Foto und Beitrag das Konto der Autor:in (F-575) (Anmerkungen bleiben als Beleg) |
 
 Gesichert wird das gesperrte Objekt samt dem, was daran hängt. Beiträge **Dritter** (z. B. der Kommentar einer anderen
 Person auf einem gesperrten Törn) folgen weiter dem Konto ihrer Autor:innen: Löscht diese Person ihr Konto, geht ihr

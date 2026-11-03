@@ -147,10 +147,13 @@ export class SessionController {
   private async refreshUser() {
     try {
       const { user, admin } = await api.me();
-      // Admin nur aus /api/auth/me – blendet „Admin“ in der Kopfzeile ein (Konzept 18.1); dazu der Zähler offener
-      // Meldungen am Konto-Knopf (F-571) – ein Fehler dabei lässt nur den Zähler weg
-      const openReports = user && admin ? await communityApi.adminReportCount().then((r) => r.open, () => 0) : 0;
-      this.store.set({ user: user && admin ? { ...user, admin, openReports } : user });
+      // Admin nur aus /api/auth/me – blendet „Admin“ in der Kopfzeile ein (Konzept 18.1)
+      this.store.set({ user: user && admin ? { ...user, admin } : user });
+      if (!user || !admin) return;
+      // danach der Zähler offener Meldungen am Konto-Knopf (F-571) – ein Fehler lässt nur den Zähler weg
+      const { open } = await communityApi.adminReportCount().catch(() => ({ open: 0 }));
+      const now = this.store.get().user;
+      if (now?.id === user.id && now.admin) this.store.set({ user: { ...now, openReports: open } });
     } catch {
       /* offline */
     }

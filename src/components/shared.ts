@@ -476,21 +476,6 @@ export const POST_VISIBILITY_ICON: Record<PostVisibility, IconName> = { public: 
  * Überschrift, Einträge mit `aria-pressed`. Die Lage der Tafel (über bzw. unter dem Knopf) setzt jede Komponente selbst;
  * mobil kommt sie als Sheet vom unteren Rand.
  */
-/** Roter Zähler (Community-Reiter, Glocke, Konto-Knopf mit offenen Meldungen – F-571). */
-export const badgeStyles = css`
-  .badge {
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 9px;
-    background: var(--err);
-    color: #fff;
-    font: 700 var(--fs-xs) / 18px var(--font);
-    text-align: center;
-    font-variant-numeric: tabular-nums;
-  }
-`;
-
 export const menuStyles = css`
   .menu {
     position: absolute;
@@ -568,6 +553,21 @@ export const menuStyles = css`
   }
   .error {
     color: var(--err);
+  }
+`;
+
+/** Roter Zähler (Community-Reiter, Glocke, Konto-Knopf mit offenen Meldungen – F-571). */
+export const badgeStyles = css`
+  .badge {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--err);
+    color: #fff;
+    font: 700 var(--fs-xs) / 18px var(--font);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
   }
 `;
 

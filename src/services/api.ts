@@ -688,7 +688,7 @@ export const communityApi = {
       headers: { 'Content-Type': 'application/json', ...(key ? { 'X-Share-Key': key } : {}) },
     }),
   reportInfo: () => call<{ contact: string | null; reasons: ReportReason[] }>('/api/reports/info'),
-  adminReports: () => call<{ reports: AdminReport[] }>('/api/admin/reports'),
+  adminReports: () => call<{ reports: AdminReport[]; total: number }>('/api/admin/reports'),
   adminReportCount: () => call<{ open: number }>('/api/admin/reports/count'),
   decideReport: (id: string, action: AdminAction) => call<{ ok: true; notified: boolean }>(`/api/admin/reports/${encodeURIComponent(id)}`, jsonInit('POST', { action })),
   suspendUser: (userId: string, suspended: boolean) =>
