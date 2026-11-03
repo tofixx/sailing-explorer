@@ -12,6 +12,7 @@ import { roleFor } from './boats';
 import { canView, requestKey } from './access';
 import { BOAT_ID_RE } from './validate';
 import { reachAtLeastSql } from './reach-sql';
+import { liveSql, notSuspendedSql } from './visible-sql';
 import type { Visibility } from '../src/domain/visibility';
 import type { Reach } from '../src/domain/posts';
 import { logbookIds, shapeItem, type ActivityRow, type LogShare, type ReadAt, type Viewer } from './stream-shape';
@@ -354,7 +355,7 @@ interface DaySummary {
 async function groupSummary(env: Env, group: { id: string; day_summary?: number | null }): Promise<DaySummary | null> {
   if (group.day_summary === 0) return null;
   const [n, m] = await env.DB.batch([
-    env.DB.prepare('SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?').bind(group.id),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM group_members m WHERE m.group_id = ? AND ${notSuspendedSql('m.user_id')}`).bind(group.id),
     env.DB.prepare(`SELECT user_id FROM group_members WHERE group_id = ? AND role IN ('owner', 'admin')`).bind(group.id),
   ]);
   return { large: isLargeChannel((n.results[0] as { n: number }).n), managers: new Set((m.results as Array<{ user_id: string }>).map((r) => r.user_id)) };
@@ -362,7 +363,7 @@ async function groupSummary(env: Env, group: { id: string; day_summary?: number 
 
 /** Hafen: Boote mit diesem Heimathafen; Vertretung bzw. Anleger:in verwaltet ihn (`canManageChannel`). */
 async function harborSummary(env: Env, h: { id: string; created_by: string | null }): Promise<DaySummary> {
-  const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM boats WHERE harbor_id = ?').bind(h.id).first<{ n: number }>();
+  const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM boats b WHERE b.harbor_id = ? AND ${liveSql('b')}`).bind(h.id).first<{ n: number }>();
   return { large: isLargeChannel(n?.n ?? 0), managers: new Set(h.created_by ? [h.created_by] : []) };
 }
 

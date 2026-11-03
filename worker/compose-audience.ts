@@ -8,6 +8,7 @@ import { HttpError, json } from './http';
 import { writableChannel, type WritableChannel } from './post-chain';
 import { isChannelKind } from '../src/domain/posts';
 import { roundAudience, type Audience } from '../src/domain/large-groups';
+import { liveSql, notSuspendedSql } from './visible-sql';
 
 /** Ein Teil des Publikums: Gruppen (Mitglieder), Folgen-Ziele [Art, ID], Häfen (Heimathafen bzw. Boot dort). */
 interface Parts {
@@ -16,13 +17,17 @@ interface Parts {
   harbors: string[];
 }
 
-/** Verschiedene Konten aus allen Teilen – vier einfache Glieder (D1 lehnt mehr als etwa fünf UNION-Glieder ab). */
-const AUDIENCE_SQL = `SELECT COUNT(DISTINCT uid) AS n FROM (
+/**
+ * Verschiedene, nicht gesperrte Konten aus allen Teilen – vier einfache Glieder (D1 lehnt mehr als etwa fünf
+ * UNION-Glieder ab). Boote zählen nur, wenn weder ausgeblendet noch gesperrt.
+ */
+const AUDIENCE_SQL = `SELECT COUNT(DISTINCT x.uid) AS n FROM (
     SELECT m.user_id AS uid FROM json_each(?1) j JOIN group_members m ON m.group_id = j.value WHERE m.notify_level IS NOT 'muted'
     UNION ALL SELECT f.user_id FROM json_each(?2) j JOIN follows f ON f.target_kind = json_extract(j.value, '$[0]') AND f.target_id = json_extract(j.value, '$[1]')
       WHERE f.notify_level IS NOT 'muted'
     UNION ALL SELECT u.id FROM json_each(?3) j JOIN users u ON u.home_harbor_id = j.value
-    UNION ALL SELECT b.owner_id FROM json_each(?3) j JOIN boats b ON b.harbor_id = j.value)`;
+    UNION ALL SELECT b.owner_id FROM json_each(?3) j JOIN boats b ON b.harbor_id = j.value WHERE ${liveSql('b')}) x
+  WHERE ${notSuspendedSql('x.uid')}`;
 
 const merge = (a: Parts, b: Partial<Parts>): Parts => ({
   groups: [...a.groups, ...(b.groups ?? [])],

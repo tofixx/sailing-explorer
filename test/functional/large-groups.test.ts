@@ -211,8 +211,8 @@ describe('F-469 Schalter je Gruppe und Migration 0035', () => {
     const old = await startWorker({}, { migrateBefore: '0035' });
     try {
       const db = await old.db();
-      await db.prepare(`INSERT INTO users (id, email, created_at) VALUES ('MigOwnerAAAAAAAAAA', 'alt@example.org', 1)`).run();
-      await db.prepare(`INSERT INTO groups (id, kind, slug, name, owner_id, created_at, updated_at) VALUES ('MigGroupAAAAAAAAAA', 'club', 'alt-verein', 'Alt', 'MigOwnerAAAAAAAAAA', 1, 1)`).run();
+      await db.prepare(`INSERT INTO users (id, email, created_at) VALUES ('MigOwnerAAAAAAAAAA', 'alt@example.org', 1)`).bind().run();
+      await db.prepare(`INSERT INTO groups (id, kind, slug, name, owner_id, created_at, updated_at) VALUES ('MigGroupAAAAAAAAAA', 'club', 'alt-verein', 'Alt', 'MigOwnerAAAAAAAAAA', 1, 1)`).bind().run();
       await applyMigrations(db, migrationFiles({ from: '0035', before: '0036' }));
       expect(await db.prepare(`SELECT day_summary FROM groups WHERE id = 'MigGroupAAAAAAAAAA'`).first()).toEqual({ day_summary: 1 });
       expect(await db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'users_home_harbor'`).first()).toEqual({ name: 'users_home_harbor' });
@@ -246,10 +246,12 @@ describe('F-465 Publikum beim Schreiben', () => {
     expect((await s.send('GET', '/api/me/compose/audience?ctx=user', undefined)).status).toBe(401);
   });
 
-  it('[F-465] große Gruppe: auf 10 gerundet', async () => {
+  it('[F-465] große Gruppe: auf 10 gerundet, gesperrte Konten zählen nicht', async () => {
     const o = await s.person({ profile: 'public' });
     const g = await club(o, []);
-    await addMembers(g.id, 152);
+    await addMembers(g.id, 172);
+    // 20 gesperrt: 1 + 172 − 20 = 153 → 150 (ohne Sperre 173 → 170)
+    await (await s.db()).prepare(`UPDATE users SET suspended_at = 1 WHERE id IN (SELECT user_id FROM group_members WHERE group_id = ? AND role = 'member' LIMIT 20)`).bind(g.id).run();
     expect((await audience(o, `group:${g.id}`)).body).toMatchObject({ here: 150, members: 150 });
   });
 });
