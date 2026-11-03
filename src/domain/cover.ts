@@ -71,5 +71,5 @@ export function coverHoldText(heldUntil: number | null | undefined, now = Date.n
   if (coverShown(heldUntil, now)) return '';
   if (heldUntil! >= REPORT_HOLD) return 'Noch nicht öffentlich: Das Titelbild wurde gemeldet und ist ausgeblendet, bis die Moderation entschieden hat.';
   const day = new Date(heldUntil!).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric', timeZone: 'Europe/Berlin' });
-  return `Noch nicht öffentlich: Titelbilder neuer Konten erscheinen für andere erst nach 7 Tagen – ab ${day}.`;
+  return `Noch nicht öffentlich: Titelbilder neuer Konten erscheinen für andere erst nach 7 Tagen – ab ${day}`;
 }
