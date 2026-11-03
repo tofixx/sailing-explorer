@@ -37,7 +37,6 @@ ein.
 
 | Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
 |---|---|---|---|---|
-| **Export / Segellebenslauf** (Rest) | CSV und Druck des Fahrtenbuchs gibt es (Phase 8, F-457/F-458); offen: alle Saisons in einer Datei bzw. ein „Segellebenslauf“ über alle Jahre. Eigene Daten mitnehmen. Schafft Vertrauen und ist ein Argument gegen Lock-in | S–M | N (Lücken) | Phase 8 (gleiche Liste wie der Jahresbericht) |
 | **Routen und Heatmap auf der Community-Karte** (mit Cluster-Pins) | Das Revier wird sichtbar: „Hier wird gesegelt“. Starker Eindruck für Gäste | M | N (Quick Wins) | Nur Törns mit „Sichtbar bis: überall“ (`LISTED`). Cluster wie `src/domain/cluster.ts` |
 | **`sx-page-header`, `sx-entity-link`/`sx-avatar`, `sx-tabs`** | Ein Seitenkopf und klickbare Nennungen überall (N3, N5, N8). Weniger Sonderwege je Seite | M | [U 6](UX-NAVIGATION.md#6-optimierungsvorschläge-priorisiert-schnelle-gewinne-zuerst) 10–12, U B6, B7, B18 | #7 aus „Als Nächstes“ |
 | **`sx-invite-box`** und „Freunde einladen“ auf der eigenen Seite | Ein Einladungsmuster statt vier. Einladen geht nach „Später“ nicht mehr verloren | S–M | U 6 Nr. 13, U B14, B15 | – |
@@ -107,8 +106,8 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 
 ### Reservierungen
 
-Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-614**, **Konzept 38**, **Migration 0046** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
-sind F-615, Konzept 39 und Migration 0047. Neue Aufträge bekommen ihren Bereich hier, bevor
+Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-619**, **Konzept 38**, **Migration 0046** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
+sind F-620, Konzept 39 und Migration 0047. Neue Aufträge bekommen ihren Bereich hier, bevor
 sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
 | Branch / Auftrag | F-IDs | Konzept | Migration | Berührt | Stand |
@@ -154,7 +153,8 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
 | `feature/revier-heatmap` (Routen und Heatmap auf der Community-Karte, Cluster-Pins) | F-580 … F-589 | 37 | – | Karte (`src/map`), `worker/discover.ts` bzw. neuer öffentlicher Endpunkt, `src/domain/cluster.ts` | in Arbeit 03.11. |
 | `feature/invite-box` (`sx-invite-box`, „Freunde einladen“ auf der eigenen Seite) | F-590 … F-599 (vergeben bis F-592) | – | – | neu `sx-invite-box` (`friendInviteBox`); `sx-crew` (`voyageTitle`), `sx-group-page`, `sx-account-dialog` (Boots-Admins), `sx-home-feed` (Willkommens-Karte), `sx-profile-page` (Zahnrad „Freunde einladen“, `inviteLink`), `invite-text.ts` (`inviteShareText`), `controllers/session.ts` (`shareInvite`, `voyageTitle`), `controllers/groups.ts`/`social.ts` und `api.ts` (`{ to }` statt `email`), `app.ts` (2 Zeilen). Keine Endpunkte, keine Daten, kein Cache | gepusht 03.11., bereit zum Review |
 | `feature/gpx-nachreichen` (GPX zu gespeicherten Törns) | F-600 … F-609 | 38 | 0046 (falls nötig) | `worker/shares.ts`, Upload, Speicherzähler, Wetter, Vorschaubild, Fotos | in Arbeit 03.11. |
-| `feature/segellebenslauf` (Export über alle Saisons) | F-610 … F-614 | – | – | `worker/logbook-list.ts` (CSV), `sx-logbook-page` | in Arbeit 03.11. |
+| `feature/segellebenslauf` (Export über alle Saisons) | F-610 … F-613 | – | – | `worker/logbook-list.ts` (CSV), `sx-logbook-page` | gemergt 03.11. |
+| `fix/mobil-ueberlauf` (Bugs aus der Prüfung angemeldet: Anmelde-Dialog, Startseite mit langem Bootsnamen, Status-Chip über dem Kartenwechsler) | F-615 … F-619 | – | – | `shared.ts` (Dialog-`.body`), `sx-empty-state.ts`, `sx-discover.ts`, Törn-Karte (Status-Chip, Leaflet-Ebenen) | in Arbeit 03.11. |
 
 **Entscheidungen `feature/invite-box` (03.11., ohne Rückfrage getroffen):**
 - Ein Baustein `sx-invite-box` (F-590), rein darstellend; er meldet `invite-create`/`invite-revoke` nur an das
