@@ -44,12 +44,16 @@ body {
   display: none;
 }
 /* Startseite: die Karte ist nur Hintergrund – Zoom und Ebenen würden den Stream überdecken (Konzept 12.6) */
-.app[data-empty] .leaflet-control-container .leaflet-top {
+.app[data-empty] .leaflet-control-zoom,
+.app[data-empty] .leaflet-control-layers {
   display: none;
 }
 
 .map-area {
   position: relative;
+  /* Eigene Stapelebene: Leaflets Control-Ecken (z-index 1000) und der Kartenstil-Knopf bleiben in der Karte und
+     schieben sich beim Scrollen nicht vor die feste Kopfzeile (mobil sticky, z-index 1000) */
+  isolation: isolate;
   min-width: 0;
   min-height: 0;
 }
@@ -301,7 +305,8 @@ body {
 }
 .app[data-page][data-place] .sidebar,
 .app[data-page][data-place] sx-empty-state,
-.app[data-page][data-place] .leaflet-control-container .leaflet-top {
+.app[data-page][data-place] .leaflet-control-zoom,
+.app[data-page][data-place] .leaflet-control-layers {
   /* Zoom und Ebenen weg – die Quellenangabe (Lizenz) bleibt sichtbar */
   display: none;
 }
@@ -359,8 +364,11 @@ sx-map-style {
   display: none;
 }
 @media (max-width: 760px) {
-  /* das Bottom-Sheet überlappt die Karte um --s-4 */
+  /* das Bottom-Sheet überlappt die Karte um --s-4 und liegt jetzt darüber (Stapelebene der Karte) */
   sx-map-style {
     bottom: calc(28px + var(--s-4));
+  }
+  .leaflet-bottom {
+    bottom: var(--s-4);
   }
 }

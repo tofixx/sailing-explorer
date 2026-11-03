@@ -49,7 +49,6 @@ export class MapView {
     private cb: MapCallbacks,
   ) {
     this.map = L.map(el, { zoomControl: false, preferCanvas: true, attributionControl: true }).setView([54.4, 12.7], 8);
-    L.control.zoom({ position: 'topleft', zoomInTitle: 'Hineinzoomen', zoomOutTitle: 'Herauszoomen' }).addTo(this.map);
 
     // Grundkarten (src/domain/basemaps.ts). Standard folgt dem Farbschema und der Sprache der Beschriftung (MAP_LANG):
     // tagsüber deutsch beschriftet, nachts ohne Beschriftung – die Daten (Track, Wind, Wellen) bleiben im Vordergrund.
@@ -69,6 +68,8 @@ export class MapView {
     });
     L.control.layers(bases, undefined, { position: 'topright' }).addTo(this.map);
     L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(this.map);
+    // Zoom unten (mit dem Daumen erreichbar), über dem Maßstab: Leaflet stapelt in unteren Ecken das zuletzt Hinzugefügte oben
+    L.control.zoom({ position: 'bottomleft', zoomInTitle: 'Hineinzoomen', zoomOutTitle: 'Herauszoomen' }).addTo(this.map);
 
     this.seamarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenSeaMap' });
     const wms = 'https://ows.emodnet-bathymetry.eu/wms';
