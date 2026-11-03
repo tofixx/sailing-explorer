@@ -1,4 +1,4 @@
-# Sail Explorer – Hinweise für Agenten
+# Luv & Leute (vormals Sail Explorer) – Hinweise für Agenten
 
 Grundlagen: `docs/PRINCIPLES.md`, `docs/CONCEPT.md` (neue Abschnitte in `docs/concept/`), `docs/REQUIREMENTS.md`
 (Tests nach F-IDs benannt).

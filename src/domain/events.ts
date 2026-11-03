@@ -4,6 +4,7 @@
 import { cleanComment, commentLength } from './comment-text';
 import { POST_MAX } from './groups';
 import { LOG_LIMITS, type Logbook } from './logbook';
+import { APP_NAME } from './brand';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -239,7 +240,7 @@ export function eventIcs(
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Sail Explorer//Veranstaltungen//DE',
+    `PRODID:-//${APP_NAME}//Veranstaltungen//DE`,
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',

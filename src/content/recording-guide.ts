@@ -2,6 +2,8 @@
 // Rein, ohne DOM und Netz. App-Angaben (Preis, Export-Weg) sind mit Quellen in docs/CONCEPT.md (25.2) belegt –
 // wer hier etwas ändert, prüft die Quelle und den Stand dort mit.
 
+import { APP_NAME } from '../domain/brand';
+
 /** Pfad der Anleitung – auch Ziel der Hinweise in „+ Neu“, auf der Startseite und im Gäste-Slider. */
 export const RECORDING_GUIDE_PATH = '/anleitung/aufzeichnen';
 
@@ -45,7 +47,7 @@ export interface Guide {
 export const RECORDING_GUIDE: Guide = {
   title: 'So zeichnest du deinen Törn auf',
   lead:
-    'Sail Explorer liest GPX-Dateien – die Spur deines Törns mit Zeitstempeln. Aufzeichnen kann fast jedes Gerät an Bord: ' +
+    `${APP_NAME} liest GPX-Dateien – die Spur deines Törns mit Zeitstempeln. Aufzeichnen kann fast jedes Gerät an Bord: ` +
     'Handy, Uhr oder Kartenplotter. Such dir einen Weg aus; am einfachsten ist das Handy.',
   updated: 'November 2026',
   sections: [
@@ -122,7 +124,7 @@ export const RECORDING_GUIDE: Guide = {
           steps: [
             'Die .ADM-Datei in Garmin BaseCamp oder HomePort öffnen.',
             'Den Track (ACTIVE LOG) als GPX exportieren.',
-            'Die GPX-Datei in Sail Explorer laden (siehe unten).',
+            `Die GPX-Datei in ${APP_NAME} laden (siehe unten).`,
           ],
         },
       ],
@@ -175,7 +177,7 @@ export const RECORDING_GUIDE: Guide = {
       open: true,
       ways: [
         {
-          title: 'GPX in Sail Explorer laden',
+          title: `GPX in ${APP_NAME} laden`,
           steps: [
             'Oben „+ Neu → Törn (GPX)“ wählen und die Datei aussuchen – oder die Datei einfach auf die Karte ziehen.',
             'Der Track erscheint auf der Seekarte mit Geschwindigkeit, Wind und Wellen. Die Datei wird dabei nur in deinem Browser ausgewertet.',

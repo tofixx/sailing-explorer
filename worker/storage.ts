@@ -4,6 +4,7 @@ import type { Env } from './env';
 import { HttpError } from './http';
 import { storageThresholds } from './validate';
 import { brakeBlocks, brakeLevel, type BrakeLevel } from '../src/domain/limits';
+import { APP_NAME } from '../src/domain/brand';
 
 export const STORAGE_COUNTER = 'storage_bytes';
 
@@ -97,7 +98,7 @@ export function checkBrake(level: BrakeLevel, supporter: boolean, what = 'Törns
     503,
     'storage_paused',
     level === 'hard'
-      ? `Der Speicher von Sail Explorer ist gerade voll – neue ${what} sind vorübergehend pausiert. Bitte später erneut versuchen.`
-      : `Der Speicher von Sail Explorer ist gerade knapp – neue ${what} sind für kostenlose Konten vorübergehend pausiert. Unterstützer können weiter speichern.`,
+      ? `Der Speicher von ${APP_NAME} ist gerade voll – neue ${what} sind vorübergehend pausiert. Bitte später erneut versuchen.`
+      : `Der Speicher von ${APP_NAME} ist gerade knapp – neue ${what} sind für kostenlose Konten vorübergehend pausiert. Unterstützer können weiter speichern.`,
   );
 }

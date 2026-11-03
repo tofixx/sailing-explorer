@@ -4,6 +4,7 @@ import { photoLimitMessage } from '../domain/limits';
 import { fmtShort } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
+import { APP_NAME } from '../domain/brand';
 
 /** Foto mit fertigen Bild-URLs (der Controller hängt bei „Nur mit Link“ den Schlüssel an). */
 export type PhotoView = Photo & { thumbUrl: string; fullUrl: string };
@@ -17,7 +18,7 @@ export function uploadBlockText(u: PhotoUploadState | null): string {
   if (!u || u.allowed || !u.reason) return '';
   if (u.reason === 'supporter_required' || u.reason === 'quota') return photoLimitMessage(u.reason, !!u.supportOffered);
   if (u.reason === 'storage_full') return 'Dein Speicher ist voll – lösche ältere Törns oder Fotos, um neue hochzuladen.';
-  return 'Der Speicher von Sail Explorer ist gerade knapp – neue Fotos sind vorübergehend pausiert.';
+  return `Der Speicher von ${APP_NAME} ist gerade knapp – neue Fotos sind vorübergehend pausiert.`;
 }
 
 /**

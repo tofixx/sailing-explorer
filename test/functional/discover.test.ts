@@ -267,8 +267,8 @@ describe('F-74 Entdecken: Grenzen, Sortierung, Link-Vorschau', () => {
     const res = await h.fetch('/entdecken');
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(/<title>([^<]*)<\/title>/.exec(html)?.[1]).toBe('Entdecken · Sail Explorer');
-    expect(/<meta property="og:title" content="([^"]*)"/.exec(html)?.[1]).toBe('Entdecken · Sail Explorer');
+    expect(/<title>([^<]*)<\/title>/.exec(html)?.[1]).toBe('Entdecken · Luv &amp; Leute');
+    expect(/<meta property="og:title" content="([^"]*)"/.exec(html)?.[1]).toBe('Entdecken · Luv & Leute');
     expect(html).not.toContain('<meta name="robots" content="noindex">');
     expect((await h.fetch('/entdecken/')).status).toBe(200);
   });

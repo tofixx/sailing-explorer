@@ -187,7 +187,7 @@ describe('F-171 … F-174 Häfen', () => {
     const f = await s.send('PUT', `/api/follows/harbor/${hb.id}`, b.cookie);
     expect(await f.json()).toEqual({ followers: 1, isFollowing: true, notifyLevel: 'direct' });
     // Vorschau
-    expect(await (await h.fetch(`/h/${hb.slug}`)).text()).toContain(`Hafen ${hb.name} · Sail Explorer`);
+    expect(await (await h.fetch(`/h/${hb.slug}`)).text()).toContain(`Hafen ${hb.name} · Luv & Leute`);
     // ausgeblendet: 404 (Seite, Stream, Folgen); die Moderation sieht ihn
     await (await s.db()).prepare('UPDATE harbors SET hidden_at = ? WHERE id = ?').bind(Date.now(), hb.id).run();
     expect((await h.fetch(`/api/harbors/slug/${hb.slug}`)).status).toBe(404);

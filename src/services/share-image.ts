@@ -9,6 +9,7 @@ import { fitBounds, project, tilesFor, TILE_SIZE } from '../domain/projection';
 import { averageConditions, kpis } from '../domain/summary';
 import { bounds } from '../domain/weather';
 import type { MetricKey, Track } from '../domain/types';
+import { APP_NAME } from '../domain/brand';
 
 export type ImageFormat = 'landscape' | 'square';
 
@@ -370,7 +371,7 @@ function drawInfo(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box, opts
   drawLogo(ctx, x, footY - 18, 22);
   ctx.fillStyle = C.accent;
   ctx.font = `750 18px ${FONT}`;
-  ctx.fillText('Sail Explorer', x + 28, footY);
+  ctx.fillText(APP_NAME, x + 28, footY);
   ctx.textAlign = 'right';
   ctx.fillStyle = C.faint;
   ctx.font = `500 13px ${FONT}`;

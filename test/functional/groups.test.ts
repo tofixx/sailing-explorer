@@ -399,7 +399,7 @@ describe('F-156/F-157 Seite, Vorschau, Moderation', () => {
     const owner = await s.person({ supporter: true });
     const g = await s.group(owner, { name: 'Yachtclub <Nord>', homePort: 'Laboe' });
     const html = await (await h.fetch(`/g/${g.slug}`)).text();
-    expect(html).toContain('<title>Yachtclub &lt;Nord&gt; · Sail Explorer</title>');
+    expect(html).toContain('<title>Yachtclub &lt;Nord&gt; · Luv &amp; Leute</title>');
     expect(html).toContain('Heimathafen Laboe');
     expect(html).not.toContain('noindex');
     const closed = await s.group(owner, { visibility: 'private', name: 'Geheimbund' });
