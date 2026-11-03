@@ -1,7 +1,7 @@
 // Reine Regeln der Moderation (Konzept 36): neues Konto, Sichtbarkeit zurückgehaltener Titelbilder, Gründe je Ziel.
 import { describe, expect, it } from 'vitest';
 import { NEW_ACCOUNT_DAYS, isNewAccount, newAccountEnd } from '../src/domain/moderation';
-import { REPORT_HOLD, coverHoldText, coverShown } from '../src/domain/cover';
+import { NEW_REPORTER_HOLD_MS, REPORT_HOLD, coverHoldText, coverShown, reportHoldUntil } from '../src/domain/cover';
 import { REPORT_REASONS, reportReasonsFor } from '../src/domain/comment-text';
 
 const DAY = 86_400_000;
@@ -40,5 +40,13 @@ describe('reportReasonsFor', () => {
       expect(reportReasonsFor(k, false)).not.toContain('depicted');
     }
     for (const k of ['share', 'comment', 'post', 'harbor'] as const) expect(reportReasonsFor(k, true)).toEqual(['spam', 'abuse', 'illegal', 'other']);
+  });
+});
+
+describe('reportHoldUntil', () => {
+  it('[F-569] Bild-Meldung: unbefristet, von neuen Konten (Gewicht 0) 72 h', () => {
+    expect(reportHoldUntil(1, now)).toBe(REPORT_HOLD);
+    expect(reportHoldUntil(0, now)).toBe(now + NEW_REPORTER_HOLD_MS);
+    expect(NEW_REPORTER_HOLD_MS).toBe(72 * 3_600_000);
   });
 });

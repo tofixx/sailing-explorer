@@ -20,7 +20,7 @@ export class SxAdminReports extends LitElement {
   /** null = lädt */
   declare reports: AdminReport[] | null;
   declare busy: boolean;
-  /** "delete:<id>" oder "suspend:<userId>" wartet auf Bestätigung */
+  /** "delete:<id>", "cover:<id>" oder "suspend:<userId>" wartet auf Bestätigung */
   declare confirm: string | null;
 
   constructor() {
@@ -146,6 +146,7 @@ export class SxAdminReports extends LitElement {
         ${reasons.map(([k, n]) => html`<span class="chip ${IMAGE_REASONS.includes(k) || k === 'illegal' ? 'warn' : ''}">${REPORT_REASON_LABEL[k] ?? k}${n > 1 ? ` ×${n}` : ''}</span>`)}
         ${t?.hiddenAt ? html`<span class="chip warn">ausgeblendet seit ${fmtDate(t.hiddenAt)}</span>` : ''}
         ${t?.coverHeld ? html`<span class="chip warn">Titelbild zurückgehalten</span>` : ''}
+        ${r.newReporters ? html`<span class="chip">${r.newReporters === 1 ? 'Meldende:r ist neues Konto' : `${r.newReporters} Meldende sind neue Konten`}</span>` : ''}
       </div>
       ${r.notes.length ? html`<ul class="notes" aria-label="Anmerkungen">${r.notes.map((n) => html`<li>${n.note}</li>`)}</ul>` : ''}
       <p class="sub">Erste Meldung ${fmtDate(r.firstAt)}${owner ? html` · Eigentümer: ${owner.displayName}${owner.suspended ? ' (gesperrt)' : ''}` : ''}</p>
@@ -153,9 +154,12 @@ export class SxAdminReports extends LitElement {
         ${this.confirm === `delete:${r.id}`
           ? html`<button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'delete')}>${icon('trash')} Endgültig löschen</button>
               <button class="btn small" type="button" @click=${() => (this.confirm = null)}>Abbrechen</button>`
+          : this.confirm === `cover:${r.id}`
+          ? html`<button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'cover')}>${icon('trash')} Ja, Titelbild löschen</button>
+              <button class="btn small" type="button" @click=${() => (this.confirm = null)}>Abbrechen</button>`
           : html`<button class="btn small" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'keep')}>${icon('check')} Behalten${t?.hiddenAt ? ' & einblenden' : ''}</button>
               <button class="btn small" type="button" ?disabled=${this.busy || !t} @click=${() => this.decide(r.id, 'hide')}>${icon('eyeOff')} Ausblenden</button>
-              ${cover ? html`<button class="btn small" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'cover')}>${icon('image')} Nur Titelbild entfernen</button>` : ''}
+              ${cover ? html`<button class="btn small" type="button" ?disabled=${this.busy} @click=${() => (this.confirm = `cover:${r.id}`)}>${icon('image')} Nur Titelbild entfernen</button>` : ''}
               <button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => (this.confirm = `delete:${r.id}`)}>${icon('trash')} Löschen</button>`}
         ${owner
           ? this.confirm === `suspend:${owner.id}:${r.id}`

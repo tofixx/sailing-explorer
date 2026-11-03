@@ -583,7 +583,7 @@ export class SxGroupPage extends LitElement {
     const g = d.group;
     if (id === 'edit') this.startEdit(g);
     else if (id === 'leave' && confirm(`„${g.name}“ verlassen?`)) emit(this, 'sx-group-leave', { id: g.id, follow: offerFollow(g) });
-    else if (id === 'report') emit(this, 'sx-report', { kind: 'group', id: g.id, label: `die Gruppe ${g.name}`, image: !!d.cover });
+    else if (id === 'report') emit(this, 'sx-report', { kind: 'group', id: g.id, label: `die Gruppe ${g.name}`, image: !!d.cover && !d.coverHeldUntil });
     else if (id === 'delete' && confirm(`„${g.name}“ wirklich löschen? Mitglieder, Beiträge und Neuigkeiten der Gruppe werden gelöscht. Törns und Boote bleiben.`)) emit(this, 'sx-group-delete', { id: g.id });
   }
 

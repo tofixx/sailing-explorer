@@ -425,7 +425,7 @@ export class SxProfilePage extends LitElement {
     return html`<sx-page-menu label=${p.displayName} .items=${items} @sx-page-menu-pick=${(e: CustomEvent<{ id: string }>) => {
       const id = e.detail.id;
       if (id === 'edit') emit(this, 'sx-account', 'profile');
-      else if (id === 'report') emit(this, 'sx-report', { kind: 'profile', id: p.handle, label: `das Profil von ${p.displayName}`, image: !!d.cover });
+      else if (id === 'report') emit(this, 'sx-report', { kind: 'profile', id: p.handle, label: `das Profil von ${p.displayName}`, image: !!d.cover && !d.coverHeldUntil });
       else if (id === 'preview:end') emit(this, 'sx-profile-preview', { preview: null });
       else if (id.startsWith('preview:')) emit(this, 'sx-profile-preview', { preview: parseProfilePreview(id.slice('preview:'.length)) });
     }}></sx-page-menu>`;
@@ -523,7 +523,7 @@ export class SxProfilePage extends LitElement {
             ? html`<sx-follow kind="boat" target-id=${b.id} label=${b.name} .stats=${d.social} ?signed-in=${this.signedIn}></sx-follow>`
             : ''}
           ${this.shareButton('b', b.id, b.name, 'Boot teilen', b, !!b.role)}
-          ${this.simpleMenu(b.name, !!b.role, () => emit(this, 'sx-account', 'boats'), { kind: 'boat', id: b.id, label: `das Boot ${b.name}`, image: !!d.cover })}
+          ${this.simpleMenu(b.name, !!b.role, () => emit(this, 'sx-account', 'boats'), { kind: 'boat', id: b.id, label: `das Boot ${b.name}`, image: !!d.cover && !d.coverHeldUntil })}
         </div>
       </header>
       ${b.role && b.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}

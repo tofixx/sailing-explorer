@@ -18,7 +18,7 @@ import { deleteKeys } from './photo-keys';
 import { normalizeHandle } from './validate';
 import { COVER_BYTES, COVER_HEIGHT, COVER_LIMITS, COVER_WIDTH } from '../src/domain/limits';
 import { canManageGroup } from '../src/domain/groups';
-import { COVER_FOCUS_DEFAULT, REPORT_HOLD, coverPath, coverShown, parseFocusY, type CoverKind } from '../src/domain/cover';
+import { COVER_FOCUS_DEFAULT, REPORT_HOLD, coverPath, coverShown, parseFocusY, reportHoldUntil, type CoverKind } from '../src/domain/cover';
 import { IMAGE_REASONS, type ReportKind } from '../src/domain/comment-text';
 import type { Visibility } from '../src/domain/visibility';
 
@@ -35,8 +35,10 @@ export interface CoverRow {
   focus_y: number;
   user_id: string | null;
   created_at: number;
-  /** zurückgehalten bis (ms): neues Konto (F-562) oder offene Bild-Meldung (REPORT_HOLD, F-566); null = öffentlich */
+  /** zurückgehalten bis (ms): neues Konto (F-562) oder offene Bild-Meldung (F-566, F-569); null = öffentlich */
   held_until: number | null;
+  /** von der Moderation geprüfte Version (Admin-„Behalten“, F-568) – Bild-Meldungen darauf halten nicht mehr zurück */
+  kept_ver?: string | null;
 }
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Dieses Titelbild gibt es nicht (mehr).');
@@ -152,8 +154,9 @@ export async function getCover(request: Request, env: Env, kind: string, publicI
   const headers = new Headers({
     'Content-Type': c.format === 'jpeg' ? 'image/jpeg' : 'image/webp',
     ETag: obj.httpEtag,
-    // Die Version steht in der Adresse – öffentlich daher lange cachebar (zurückgehaltene nie).
-    'Cache-Control': t.open && shown ? 'public, max-age=86400' : 'private, no-cache',
+    // Die Version steht in der Adresse; trotzdem nur 5 min cachebar, damit ein gemeldetes oder entferntes Bild bald
+    // auch aus Browser- und Edge-Caches verschwindet (Konzept 36.2). Zurückgehaltene nie.
+    'Cache-Control': t.open && shown ? 'public, max-age=300' : 'private, no-cache',
     Vary: 'Cookie',
   });
   return withApiHeaders(new Response('body' in obj ? obj.body : null, { status: 'body' in obj ? 200 : 304, headers }));
@@ -169,17 +172,19 @@ async function managedTarget(request: Request, env: Env, kind: string, publicId:
 }
 
 /**
- * Zurückhalten eines neuen Titelbilds: unbefristet bei offener Bild-Meldung zum Objekt (F-566 – sonst ließe sich die
- * Sperre durch Löschen und neu Hochladen umgehen), bei neuen Konten bis zum Ende ihrer Neu-Phase (F-562), sonst null.
+ * Zurückhalten eines neuen Titelbilds – der späteste Zeitpunkt aus: offenen Bild-Meldungen zum Objekt (F-566,
+ * unbefristet bzw. 72 h bei neuen Konten, F-569 – sonst ließe sich die Zurückhaltung durch Löschen und neu Hochladen
+ * umgehen) und der Neu-Phase des hochladenden Kontos (F-562); null, wenn nichts (mehr) gilt. Alte offene Meldungen mit
+ * „Ich bin abgebildet“ aus der Zeit vor Migration 0044 zählen mit (Gewicht 1) – gewollt, sie betreffen dasselbe Objekt.
  */
 async function holdFor(env: Env, kind: CoverKind, objectId: string, userId: string, now: number): Promise<number | null> {
-  const reported = await env.DB.prepare(
-    `SELECT 1 AS x FROM reports WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL AND reason IN (${IMAGE_REASONS.map(() => '?').join(', ')}) LIMIT 1`,
+  const { results } = await env.DB.prepare(
+    `SELECT weight, created_at FROM reports WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL AND reason IN (${IMAGE_REASONS.map(() => '?').join(', ')})`,
   )
     .bind(COVER_REPORT_KIND[kind], objectId, ...IMAGE_REASONS)
-    .first();
-  if (reported) return REPORT_HOLD;
-  return newAccountUntil(env, userId, now);
+    .all<{ weight: number; created_at: number }>();
+  const until = Math.max(0, ...results.map((r) => reportHoldUntil(r.weight, r.created_at)), (await newAccountUntil(env, userId, now)) ?? 0);
+  return until > now ? until : null;
 }
 
 /** Tageslimit (F-561): trägt den Upload ein, wenn das Konto in 24 h noch keine 5 neuen Titelbilder hatte – sonst 429. */
@@ -234,8 +239,9 @@ export async function putCover(request: Request, env: Env, kind: string, publicI
     ),
     env.DB.prepare(
       `INSERT INTO covers (kind, object_id, ver, format, bytes, focus_y, user_id, created_at, held_until) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-       ON CONFLICT(kind, object_id) DO UPDATE SET ver = ?3, format = ?4, bytes = ?5, focus_y = ?6, user_id = ?7, created_at = ?8, held_until = ?9`,
-    ).bind(c.kind, c.object_id, c.ver, c.format, c.bytes, c.focus_y, c.user_id, c.created_at, c.held_until),
+       ON CONFLICT(kind, object_id) DO UPDATE SET ver = ?3, format = ?4, bytes = ?5, focus_y = ?6, user_id = ?7, created_at = ?8,
+         held_until = CASE WHEN covers.held_until = ?10 THEN ?10 ELSE ?9 END, kept_ver = NULL`,
+    ).bind(c.kind, c.object_id, c.ver, c.format, c.bytes, c.focus_y, c.user_id, c.created_at, c.held_until, REPORT_HOLD),
   ]);
   // Paralleles Ersetzen: hat ein anderer Upload gewonnen, ist die eigene Datei verwaist – sofort entfernen.
   const now = await loadCover(env, k, t.objectId);
@@ -302,10 +308,19 @@ export async function sweepOrphanCovers(env: Env, limit = 200): Promise<number> 
   return results.length;
 }
 
-/** Bild-Meldung (F-566): Titelbild des Objekts unbefristet zurückhalten, bis ein Admin entscheidet. */
-export const holdCoverStmt = (env: Env, kind: CoverKind, objectId: string): D1PreparedStatement =>
-  env.DB.prepare('UPDATE covers SET held_until = ? WHERE kind = ? AND object_id = ?').bind(REPORT_HOLD, kind, objectId);
+/**
+ * Bild-Meldung (F-566, F-569): Titelbild des Objekts bis `until` zurückhalten (eine längere Zurückhaltung bleibt) –
+ * nicht, wenn die Moderation genau diese Version schon geprüft hat (F-568).
+ */
+export const holdCoverStmt = (env: Env, kind: CoverKind, objectId: string, until: number): D1PreparedStatement =>
+  env.DB.prepare(
+    'UPDATE covers SET held_until = MAX(COALESCE(held_until, 0), ?1) WHERE kind = ?2 AND object_id = ?3 AND (kept_ver IS NULL OR kept_ver <> ver)',
+  ).bind(until, kind, objectId);
 
-/** Admin-Entscheidung „Behalten“/„Ausblenden“: die Melde-Sperre des Titelbilds aufheben (die Frist neuer Konten bleibt). */
+/** Admin „Behalten“ (F-568): Titelbild freigeben und diese Version als geprüft merken – auch die Frist neuer Konten endet. */
+export const keepCoverStmt = (env: Env, kind: CoverKind, objectId: string): D1PreparedStatement =>
+  env.DB.prepare('UPDATE covers SET held_until = NULL, kept_ver = ver WHERE kind = ? AND object_id = ?').bind(kind, objectId);
+
+/** Admin „Ausblenden“, Sperre: die unbefristete Melde-Sperre des Titelbilds aufheben (befristete laufen von selbst ab). */
 export const releaseCoverStmt = (env: Env, kind: CoverKind, objectId: string): D1PreparedStatement =>
   env.DB.prepare('UPDATE covers SET held_until = NULL WHERE kind = ? AND object_id = ? AND held_until = ?').bind(kind, objectId, REPORT_HOLD);

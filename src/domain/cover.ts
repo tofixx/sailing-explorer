@@ -61,6 +61,12 @@ export function focusAfterDrag(start: number, dy: number, slack: number): number
  */
 export const REPORT_HOLD = Number.MAX_SAFE_INTEGER;
 
+/** Bild-Meldungen neuer Konten (Gewicht 0, F-565) halten ein Titelbild nur so lange zurück, ohne Entscheidung (F-569). */
+export const NEW_REPORTER_HOLD_MS = 72 * 3_600_000;
+
+/** Ende der Zurückhaltung durch eine Bild-Meldung (F-566, F-569): unbefristet, bei neuen Konten 72 h. */
+export const reportHoldUntil = (weight: number, reportedAt: number): number => (weight > 0 ? REPORT_HOLD : reportedAt + NEW_REPORTER_HOLD_MS);
+
 /** Öffentlich sichtbar (nicht zurückgehalten)? Gleiche Regel wie `coverShownSql` (worker/visible-sql.ts). */
 export function coverShown(heldUntil: number | null | undefined, now = Date.now()): boolean {
   return heldUntil == null || heldUntil <= now;
@@ -71,5 +77,6 @@ export function coverHoldText(heldUntil: number | null | undefined, now = Date.n
   if (coverShown(heldUntil, now)) return '';
   if (heldUntil! >= REPORT_HOLD) return 'Noch nicht öffentlich: Das Titelbild wurde gemeldet und ist ausgeblendet, bis die Moderation entschieden hat.';
   const day = new Date(heldUntil!).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric', timeZone: 'Europe/Berlin' });
-  return `Noch nicht öffentlich: Titelbilder neuer Konten erscheinen für andere erst nach 7 Tagen – ab ${day}`;
+  // neues Konto (7 Tage) oder Bild-Meldung eines neuen Kontos (72 h) – beides endet von selbst
+  return `Noch nicht öffentlich: Titelbilder neuer Konten und gemeldete Titelbilder sehen andere erst nach einer Wartezeit – ab ${day}`;
 }

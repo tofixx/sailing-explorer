@@ -125,7 +125,9 @@ export const deleteOrphanReports = (env: Env): D1PreparedStatement =>
 
 /**
  * Neues Konto (F-560, `isNewAccount`)? Liefert das Ende der Neu-Phase (ms) oder null, wenn das Konto nicht (mehr) neu
- * ist – Unterstützer und Admins nie. Unbekanntes Konto: null.
+ * ist – Unterstützer und Admins nie. Unbekanntes Konto: null. Genutzt beim Titelbild-Upload (Zurückhalten bis zu
+ * diesem Zeitpunkt, F-562) und beim Melden (Gewicht 0, F-565). Der Unterstützer-Status wird erst abgefragt, wenn das
+ * Konto nach Alter überhaupt neu wäre – so kostet der häufige Fall (altes Konto) nur eine Abfrage.
  */
 export async function newAccountUntil(env: Env, userId: string, now = Date.now()): Promise<number | null> {
   const u = await env.DB.prepare('SELECT created_at FROM users WHERE id = ?').bind(userId).first<{ created_at: number }>();

@@ -649,6 +649,8 @@ export interface AdminReport {
   targetId: string;
   count: number;
   reporters: number;
+  /** davon Meldungen neuer Konten (Gewicht 0, F-565) – fehlt bei älteren Servern */
+  newReporters?: number;
   firstAt: number;
   lastAt: number;
   reasons: Partial<Record<ReportReason, number>>;

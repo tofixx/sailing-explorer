@@ -1,10 +1,11 @@
-// Funktionale Tests: Moderation von Titelbildern und Melde-Gewicht (Konzept 36, F-560 … F-566). Tageslimit,
-// Zurückhalten neuer Konten, Bild-Gründe, Admin-Entscheidung „Nur Titelbild entfernen“, Löschwege von `cover_log`.
+// Funktionale Tests: Moderation von Titelbildern und Melde-Gewicht (Konzept 36, F-560 … F-569). Tageslimit,
+// Zurückhalten neuer Konten, Bild-Gründe, Admin-Entscheidung „Nur Titelbild entfernen“, Löschwege von `cover_log`,
+// geprüfte Bilder, befristete Zurückhaltung durch neue Konten.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { grantSupport, login, startWorker, type Harness } from './worker-harness';
 import { social, type Person } from './social-helpers';
 import { COVER_LIMITS } from '../../src/domain/limits';
-import { REPORT_HOLD } from '../../src/domain/cover';
+import { NEW_REPORTER_HOLD_MS, REPORT_HOLD } from '../../src/domain/cover';
 
 const DAY = 86_400_000;
 const ADMIN_ID = 'AdminCoverModAAAA1';
@@ -84,7 +85,7 @@ describe('F-561 Tageslimit für Titelbilder', () => {
 });
 
 describe('F-562 Titelbilder neuer Konten zurückhalten', () => {
-  it('[F-560][F-562] neues Konto: Bild nur für Verwalter und Admins, nicht für Gäste, nicht in Listen; ab Tag 7 öffentlich', async () => {
+  it('[F-560][F-562][F-563] neues Konto: Bild nur für Verwalter und Admins (mit Zeitpunkt für den Hinweis), nicht für Gäste, nicht in Listen; ab Tag 7 öffentlich', async () => {
     const me = await s.person({ profile: 'public' });
     await makeNew(me);
     const b = await s.boat(me, { visibility: 'public' });
@@ -118,7 +119,7 @@ describe('F-562 Titelbilder neuer Konten zurückhalten', () => {
     expect(await boatPage(b.id)).toMatchObject({ cover: put.cover, coverHeldUntil: null });
     const pub = await h.fetch(put.cover);
     expect(pub.status).toBe(200);
-    expect(pub.headers.get('Cache-Control')).toBe('public, max-age=86400');
+    expect(pub.headers.get('Cache-Control')).toBe('public, max-age=300');
     expect((await discoverBoat(b.id))?.cover).toMatchObject({ src: put.cover });
   });
 
@@ -179,7 +180,6 @@ describe('F-566 Bild-Gründe', () => {
     const owner = await s.person({ profile: 'public' });
     expect((await putCover('u', owner.handle!, owner)).status).toBe(201);
     const reporter = await s.person();
-    await makeNew(reporter); // Bild-Gründe wirken auch von neuen Konten sofort (Konzept 36.2 Nr. 5)
     expect((await report(reporter, 'profile', owner.handle!, 'depicted')).status).toBe(201);
     expect((await h.fetch(`/api/profiles/${owner.handle}`)).status).toBe(200);
     expect((await profile(owner.handle!)).cover).toBeNull();
@@ -241,5 +241,147 @@ describe('F-564 Admin: nur das Titelbild entfernen', () => {
     expect((await report(await s.person(), 'share', sh.id, 'spam')).status).toBe(201);
     const r = await adminReport(sh.id);
     expect(await s.errorOf(await s.send('POST', `/api/admin/reports/${r!.id}`, admin.cookie, { action: 'cover' }))).toBe('invalid_action');
+  });
+});
+
+// ---------------------------------------------------------------- Review-Befunde (Konzept 36.2)
+
+const heldUntil = async (kind: string, id: string) =>
+  (await one<{ held_until: number | null }>('SELECT held_until FROM covers WHERE kind = ? AND object_id = ?', kind, id))?.held_until;
+const photoHidden = async (id: string) => (await one<{ hidden_at: number | null }>('SELECT hidden_at FROM photos WHERE id = ?', id))!.hidden_at;
+
+describe('F-568 Geprüftes Bild', () => {
+  it('[F-568] nach „Behalten“ hält eine neue Bild-Meldung dieselbe Version nicht erneut zurück, ein neues Bild schon', async () => {
+    const owner = await s.person({ profile: 'public' });
+    expect((await putCover('u', owner.handle!, owner)).status).toBe(201);
+    expect((await report(await s.person(), 'profile', owner.handle!, 'depicted')).status).toBe(201);
+    const r = await adminReport(owner.user.id);
+    expect((await s.send('POST', `/api/admin/reports/${r!.id}`, admin.cookie, { action: 'keep' })).status).toBe(200);
+    // erneut gemeldet: nur in der Liste, das Bild bleibt öffentlich
+    expect((await report(await s.person(), 'profile', owner.handle!, 'minors')).status).toBe(201);
+    expect((await profile(owner.handle!)).cover).not.toBeNull();
+    expect(await adminReport(owner.user.id)).toBeDefined();
+    // ein neues Bild ist nicht geprüft: die offene Bild-Meldung hält es zurück
+    expect((await putCover('u', owner.handle!, owner)).status).toBe(201);
+    expect((await profile(owner.handle!)).cover).toBeNull();
+  });
+
+  it('[F-568][F-566] „Kinder abgebildet“ blendet ein Foto aus; nach „Behalten“ nicht erneut', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const sh = await s.share(owner);
+    const photoId = `Ph${Date.now().toString(36)}abc`;
+    await run(
+      `INSERT INTO photos (id, share_id, user_id, visibility, width, height, format, bytes, created_at) VALUES (?, ?, ?, 'public', 10, 10, 'jpeg', 100, ?)`,
+      photoId, sh.id, owner.user.id, Date.now(),
+    );
+    expect((await report(await s.person(), 'photo', photoId, 'minors')).status).toBe(201);
+    expect(await photoHidden(photoId)).not.toBeNull();
+    const r = await adminReport(photoId);
+    expect((await s.send('POST', `/api/admin/reports/${r!.id}`, admin.cookie, { action: 'keep' })).status).toBe(200);
+    expect(await photoHidden(photoId)).toBeNull();
+    expect((await report(await s.person(), 'photo', photoId, 'depicted')).status).toBe(201);
+    expect(await photoHidden(photoId)).toBeNull();
+  });
+});
+
+describe('F-569 Bild-Meldungen neuer Konten', () => {
+  it('[F-569] halten ein Titelbild nur 72 h zurück, höchstens 3 am Tag; Admins sehen „neues Konto“', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true }); // mehr als 3 Boote
+    const boats: Array<{ id: string }> = [];
+    for (let i = 0; i < 4; i++) {
+      const b = await s.boat(owner, { visibility: 'public' });
+      expect((await putCover('b', b.id, owner)).status).toBe(201);
+      boats.push(b);
+    }
+    const fresh = await s.person();
+    await makeNew(fresh);
+    const before = Date.now();
+    expect((await report(fresh, 'boat', boats[0].id, 'depicted')).status).toBe(201);
+    const until = (await heldUntil('b', boats[0].id))!;
+    expect(until).toBeGreaterThanOrEqual(before + NEW_REPORTER_HOLD_MS);
+    expect(until).toBeLessThan(REPORT_HOLD);
+    expect((await boatPage(boats[0].id)).cover).toBeNull();
+    // ohne Entscheidung endet die Zurückhaltung von selbst (Zeitpunkt vorgezogen)
+    await run('UPDATE covers SET held_until = ? WHERE object_id = ?', Date.now() - 1, boats[0].id);
+    expect((await boatPage(boats[0].id)).cover).not.toBeNull();
+    // eine Meldung eines älteren Kontos hält unbefristet zurück
+    expect((await report(await s.person(), 'boat', boats[0].id, 'depicted')).status).toBe(201);
+    expect(await heldUntil('b', boats[0].id)).toBe(REPORT_HOLD);
+    // höchstens 3 Bild-Meldungen am Tag für neue Konten; andere Gründe begrenzt nur das allgemeine Limit
+    expect((await report(fresh, 'boat', boats[1].id, 'depicted')).status).toBe(201);
+    expect((await report(fresh, 'boat', boats[2].id, 'minors')).status).toBe(201);
+    expect(await s.errorOf(await report(fresh, 'boat', boats[3].id, 'depicted'))).toBe('report_quota');
+    expect((await report(fresh, 'boat', boats[3].id, 'spam')).status).toBe(201);
+
+    const list = ((await (await s.send('GET', '/api/admin/reports', admin.cookie)).json()) as { reports: Array<{ targetId: string; newReporters: number }> }).reports;
+    expect(list.find((x) => x.targetId === boats[0].id)?.newReporters).toBe(1);
+    expect(list.find((x) => x.targetId === boats[1].id)?.newReporters).toBe(1);
+  });
+});
+
+describe('Konzept 36: Wechselwirkungen', () => {
+  it('[F-566] Ausblenden hebt die Melde-Sperre des Titelbilds auf, Sperren (K 18) ebenso', async () => {
+    const owner = await s.person({ profile: 'public' });
+    expect((await putCover('u', owner.handle!, owner)).status).toBe(201);
+    expect((await report(await s.person(), 'profile', owner.handle!, 'depicted')).status).toBe(201);
+    expect(await heldUntil('u', owner.user.id)).toBe(REPORT_HOLD);
+    const r = await adminReport(owner.user.id);
+    expect((await s.send('POST', `/api/admin/reports/${r!.id}`, admin.cookie, { action: 'hide' })).status).toBe(200);
+    expect(await heldUntil('u', owner.user.id)).toBeNull();
+    expect((await h.fetch(`/api/profiles/${owner.handle}`)).status).toBe(404);
+
+    const other = await s.person({ profile: 'public' });
+    const b = await s.boat(other, { visibility: 'public' });
+    expect((await putCover('b', b.id, other)).status).toBe(201);
+    expect((await report(await s.person(), 'boat', b.id, 'minors')).status).toBe(201);
+    expect(await heldUntil('b', b.id)).toBe(REPORT_HOLD);
+    const lock = await s.send('PUT', `/api/admin/boats/${b.id}/lock`, admin.cookie, { reason: 'Prüfung' });
+    expect(lock.status, await lock.clone().text()).toBeLessThan(300);
+    expect(await heldUntil('b', b.id)).toBeNull();
+  });
+
+  it('[F-566] Upload während einer Melde-Sperre: die Sperre bleibt, auch wenn sie erst zwischen Prüfung und Speichern kam', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const b = await s.boat(owner, { visibility: 'public' });
+    expect((await putCover('b', b.id, owner)).status).toBe(201);
+    await run('UPDATE covers SET held_until = ? WHERE object_id = ?', REPORT_HOLD, b.id);
+    expect((await putCover('b', b.id, owner)).status).toBe(201);
+    expect(await heldUntil('b', b.id)).toBe(REPORT_HOLD);
+  });
+
+  it('[F-562] zurückgehaltene Titelbilder fehlen in Neuigkeiten (Person, Boot) und Entdecken (Personen, Gruppen) – für alle', async () => {
+    type Item = { kind: string; cover?: { src: string } };
+    const owner = await s.person({ profile: 'public' });
+    const g = await s.group(owner, { visibility: 'public' });
+    const crew = await s.person({ profile: 'public' });
+    await makeNew(crew);
+    await s.join(owner, g, crew);
+    const boat = await s.boat(crew, { visibility: 'public' });
+    await s.share(crew, { boatId: boat.id });
+    expect((await putCover('u', crew.handle!, crew)).status).toBe(201);
+    expect((await putCover('b', boat.id, crew)).status).toBe(201);
+    await s.send('POST', `/api/groups/${g.id}/boats`, crew.cookie, { boatId: boat.id });
+    for (const viewer of [owner, crew]) {
+      const items = ((await (await s.send('GET', `/api/groups/${g.id}/stream`, viewer.cookie)).json()) as { items: Item[] }).items;
+      expect(items.some((i) => i.kind === 'member')).toBe(true);
+      expect(items.find((i) => i.kind === 'member')?.cover).toBeUndefined();
+      expect(items.find((i) => i.kind === 'boat')?.cover).toBeUndefined();
+    }
+    const fresh = await s.person({ profile: 'public' });
+    await makeNew(fresh);
+    const g2 = await s.group(fresh, { visibility: 'public' });
+    expect((await putCover('g', g2.id, fresh)).status).toBe(201);
+    type Card = { cover?: unknown };
+    for (const viewer of [crew, fresh, undefined]) {
+      const d = (await (await s.send('GET', '/api/discover?limit=50', viewer?.cookie)).json()) as { people: (Card & { handle: string })[]; groups: (Card & { id: string })[] };
+      expect(d.people.some((x) => x.handle === crew.handle)).toBe(true);
+      expect(d.people.find((x) => x.handle === crew.handle)?.cover ?? null).toBeNull();
+      expect(d.groups.find((x) => x.id === g2.id)?.cover ?? null).toBeNull();
+    }
+    // Gruppen-Titelbild im Stream: Beitritt in der Gruppe des neuen Kontos
+    const joiner = await s.person({ profile: 'public' });
+    await s.join(fresh, g2, joiner);
+    const items2 = ((await (await s.send('GET', `/api/groups/${g2.id}/stream`, fresh.cookie)).json()) as { items: Item[] }).items;
+    expect(items2.every((i) => !i.cover?.src.startsWith('/api/covers/g/'))).toBe(true);
   });
 });

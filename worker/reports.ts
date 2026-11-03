@@ -5,7 +5,7 @@
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
-import { COVER_REPORT_KIND, holdCoverStmt, loadCover, releaseCoverStmt, removeCoverOf, type CoverKind } from './covers';
+import { COVER_REPORT_KIND, holdCoverStmt, keepCoverStmt, loadCover, releaseCoverStmt, removeCoverOf, type CoverKind } from './covers';
 import { removeBoat } from './boats';
 import { removeComment } from './comments';
 import { HttpError, countKeyFailure, json, readJson } from './http';
@@ -20,8 +20,8 @@ import { removePost, visiblePost } from './posts';
 import { harborVisible, loadHarbor, removeHarbor } from './harbors';
 import { canManageGroup } from '../src/domain/groups';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, normalizeHandle, parseReportKind, parseReportReason } from './validate';
-import { REPORT_NOTE_MAX, REPORT_REASONS, isImageReason, type ReportKind } from '../src/domain/comment-text';
-import { coverPath, coverShown } from '../src/domain/cover';
+import { IMAGE_REASONS, REPORT_NOTE_MAX, REPORT_REASONS, isImageReason, type ReportKind } from '../src/domain/comment-text';
+import { coverPath, coverShown, reportHoldUntil } from '../src/domain/cover';
 import { sharePath, type Visibility } from '../src/domain/visibility';
 import { funnyName } from '../src/domain/names';
 
@@ -32,6 +32,8 @@ export const REPORT_LIMITS = {
   autoHideReporters: 3,
   /** Meldungen pro Konto in 24 h */
   perUserPerDay: 20,
+  /** Meldungen mit Bild-Grund pro neuem Konto in 24 h (F-569) – sie blenden sofort aus */
+  imagePerNewUserPerDay: 3,
   /** Einträge in der Admin-Liste */
   adminList: 50,
 } as const;
@@ -165,6 +167,15 @@ export async function createReport(request: Request, env: Env): Promise<Response
 
   // Gewicht (F-565): Meldungen neuer Konten zählen nicht zur Schwelle
   const weight = (await newAccountUntil(env, user.id, now)) === null ? 1 : 0;
+  if (weight === 0 && isImageReason(reason)) {
+    // neue Konten: höchstens 3 Bild-Meldungen am Tag (F-569) – jede blendet sofort aus
+    const images = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM reports WHERE reporter_id = ? AND created_at > ? AND reason IN (${IMAGE_REASONS.map(() => '?').join(', ')})`,
+    )
+      .bind(user.id, now - DAY, ...IMAGE_REASONS)
+      .first<{ n: number }>();
+    if ((images?.n ?? 0) >= REPORT_LIMITS.imagePerNewUserPerDay) throw new HttpError(429, 'report_quota', 'Du hast heute schon mehrere Bilder gemeldet – bitte morgen weiter.');
+  }
   const res = await env.DB.prepare(
     `INSERT OR IGNORE INTO reports (id, target_kind, target_id, reporter_id, reason, note, created_at, weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )
@@ -172,9 +183,15 @@ export async function createReport(request: Request, env: Env): Promise<Response
     .run();
   const already = !res.meta.changes;
   if (!already) {
-    // Bild-Gründe blenden sofort nur das Bild aus (auch von neuen Konten, Konzept 36.2 Nr. 5); das Objekt selbst erst
-    // ab 3 verschiedenen nicht neuen Konten mit offener Meldung – jeweils bis zur Prüfung.
-    if (isImageReason(reason)) await (kind === 'photo' ? hideTarget(env, kind, target.id, now) : holdCoverStmt(env, coverKind!, target.id)).run();
+    // Bild-Gründe blenden sofort nur das Bild aus (Meldungen neuer Konten beim Titelbild für 72 h, F-569) – nicht, wenn
+    // die Moderation genau dieses Bild schon behalten hat (F-568, dann nur in die Liste); das Objekt selbst erst ab 3
+    // verschiedenen nicht neuen Konten mit offener Meldung – jeweils bis zur Prüfung.
+    if (isImageReason(reason)) {
+      await (kind === 'photo'
+        ? env.DB.prepare('UPDATE photos SET hidden_at = COALESCE(hidden_at, ?) WHERE id = ? AND kept_at IS NULL').bind(now, target.id)
+        : holdCoverStmt(env, coverKind!, target.id, reportHoldUntil(weight, now))
+      ).run();
+    }
     const open = await env.DB.prepare(
       'SELECT COUNT(DISTINCT reporter_id) AS n FROM reports WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL AND weight > 0',
     )
@@ -202,6 +219,8 @@ interface Group {
   first_at: number;
   last_at: number;
   reasons: string;
+  /** Meldungen neuer Konten (Gewicht 0, F-565) */
+  fresh: number;
 }
 
 /**
@@ -301,7 +320,7 @@ export async function listReports(request: Request, env: Env): Promise<Response>
   await requireAdmin(request, env);
   const { results: groups } = await env.DB.prepare(
     `SELECT target_kind, target_id, MIN(id) AS id, COUNT(*) AS n, COUNT(DISTINCT reporter_id) AS reporters,
-       MIN(created_at) AS first_at, MAX(created_at) AS last_at, GROUP_CONCAT(reason) AS reasons
+       MIN(created_at) AS first_at, MAX(created_at) AS last_at, GROUP_CONCAT(reason) AS reasons, SUM(weight = 0) AS fresh
      FROM reports WHERE resolved_at IS NULL GROUP BY target_kind, target_id ORDER BY first_at LIMIT ?`,
   )
     .bind(REPORT_LIMITS.adminList)
@@ -323,6 +342,7 @@ export async function listReports(request: Request, env: Env): Promise<Response>
       targetId: g.target_id,
       count: g.n,
       reporters: g.reporters,
+      newReporters: g.fresh ?? 0,
       firstAt: g.first_at,
       lastAt: g.last_at,
       reasons,
@@ -378,9 +398,10 @@ export async function decideReport(request: Request, env: Env, reportId: string)
     `UPDATE reports SET resolved_at = ?, resolution = ?, reporter_id = NULL, note = '' WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL`,
   ).bind(now, action === 'keep' ? 'kept' : action === 'hide' ? 'hidden' : action === 'cover' ? 'cover_removed' : 'deleted', kind, r.target_id);
   if (action === 'cover') {
-    // Das Bild war das Problem: das Objekt bleibt bzw. wird wieder sichtbar (wie „Behalten“), nur das Bild geht.
-    await env.DB.batch([env.DB.prepare(`UPDATE ${table} SET hidden_at = NULL WHERE ${idCol} = ?`).bind(r.target_id), resolve, log]);
+    // Das Bild war das Problem: erst das Bild löschen (scheitert das, bleiben die Meldungen offen), dann das Objekt
+    // wieder einblenden (wie „Behalten“) und die Meldungen schließen.
     await removeCoverOf(env, coverKind!, r.target_id);
+    await env.DB.batch([env.DB.prepare(`UPDATE ${table} SET hidden_at = NULL WHERE ${idCol} = ?`).bind(r.target_id), resolve, log]);
   } else if (action === 'delete') {
     await env.DB.batch([resolve, log]);
     await deleteTarget(env, kind, r.target_id);
@@ -391,7 +412,9 @@ export async function decideReport(request: Request, env: Env, reportId: string)
       action === 'keep'
         ? env.DB.prepare(`UPDATE ${table} SET hidden_at = NULL WHERE ${idCol} = ?`).bind(r.target_id)
         : hideTarget(env, kind, r.target_id, now),
-      ...(coverKind ? [releaseCoverStmt(env, coverKind, r.target_id)] : []),
+      // Behalten: Bild gilt als geprüft (F-568); Ausblenden: das Objekt ist ohnehin weg, die Melde-Sperre endet
+      ...(coverKind ? [action === 'keep' ? keepCoverStmt(env, coverKind, r.target_id) : releaseCoverStmt(env, coverKind, r.target_id)] : []),
+      ...(kind === 'photo' && action === 'keep' ? [env.DB.prepare('UPDATE photos SET kept_at = ? WHERE id = ?').bind(now, r.target_id)] : []),
       resolve,
       log,
     ]);

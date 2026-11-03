@@ -13,3 +13,8 @@ CREATE INDEX cover_log_user ON cover_log(user_id, created_at);
 
 -- Gewicht einer Meldung für die Ausblend-Schwelle (F-565): 0 = neues Konto, 1 = sonst (auch Altbestand).
 ALTER TABLE reports ADD COLUMN weight INTEGER NOT NULL DEFAULT 1;
+
+-- Von der Moderation geprüft (Admin-„Behalten“, F-568): Bild-Meldungen auf genau diese Titelbild-Version bzw. dieses
+-- Foto halten es nicht erneut zurück, sie landen nur in der Liste. Ein neues Titelbild hat eine neue Version.
+ALTER TABLE covers ADD COLUMN kept_ver TEXT;
+ALTER TABLE photos ADD COLUMN kept_at INTEGER;

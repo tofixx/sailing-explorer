@@ -67,16 +67,20 @@ describe('sx-report-dialog – Gründe je Ziel', () => {
 });
 
 describe('sx-admin-reports – nur das Titelbild entfernen', () => {
-  const base = { id: 'R1', targetId: 'B1', count: 1, reporters: 1, firstAt: Date.now(), lastAt: Date.now(), reasons: { minors: 1 }, notes: [] };
+  const base = { id: 'R1', targetId: 'B1', count: 1, reporters: 1, firstAt: Date.now(), lastAt: Date.now(), reasons: { minors: 1 }, notes: [], newReporters: 1 };
   const target = { title: 'Boot Möwe', text: '', path: '/b/B1', visibility: 'public', hiddenAt: null, owner: { id: 'U1', displayName: 'Anna', suspended: false } };
 
-  it('[F-564] Profil, Boot, Gruppe mit Titelbild: Vorschau, Hinweis und Knopf; ohne Bild bzw. bei anderen Arten keiner', async () => {
+  it('[F-564][F-569] Profil, Boot, Gruppe mit Titelbild: Vorschau, Hinweise, Knopf mit Bestätigung; ohne Bild bzw. bei anderen Arten keiner', async () => {
     const decided = listen('sx-admin-decide');
     const el = await mount('sx-admin-reports', { reports: [{ ...base, kind: 'boat', target: { ...target, imagePath: '/api/covers/b/B1/abc123', coverHeld: true } }] });
     expect(el.shadowRoot.querySelector('img.thumb')?.getAttribute('alt')).toBe('Titelbild');
     expect(text(el)).toContain('Kinder abgebildet');
     expect(text(el)).toContain('Titelbild zurückgehalten');
+    expect(text(el)).toContain('Meldende:r ist neues Konto');
     button(el, /Nur Titelbild entfernen/)!.click();
+    await el.updateComplete;
+    expect(decided).toEqual([]); // erst bestätigen
+    button(el, /Ja, Titelbild löschen/)!.click();
     expect(decided).toEqual([{ id: 'R1', action: 'cover' }]);
 
     const noImage = await mount('sx-admin-reports', { reports: [{ ...base, kind: 'boat', target }] });

@@ -18,9 +18,10 @@ afterAll(async () => {
 });
 
 describe('F-567 Migration Moderation Titelbilder', () => {
-  it('[F-567] Titelbilder nicht zurückgehalten, Meldungen mit Gewicht 1, cover_log leer', async () => {
+  it('[F-567] Titelbilder nicht zurückgehalten und ungeprüft, Meldungen mit Gewicht 1, cover_log leer', async () => {
     const db = await h.db();
-    expect(await db.prepare(`SELECT held_until FROM covers WHERE object_id = 'MigModBoatAAAAAAA'`).first()).toEqual({ held_until: null });
+    expect(await db.prepare(`SELECT held_until, kept_ver FROM covers WHERE object_id = 'MigModBoatAAAAAAA'`).first()).toEqual({ held_until: null, kept_ver: null });
+    expect(await db.prepare(`SELECT COUNT(*) AS n FROM pragma_table_info('photos') WHERE name = 'kept_at'`).first()).toEqual({ n: 1 });
     expect(await db.prepare(`SELECT weight, reason FROM reports WHERE id = 'MigRep1'`).first()).toEqual({ weight: 1, reason: 'depicted' });
     expect(await db.prepare('SELECT COUNT(*) AS n FROM cover_log').first()).toEqual({ n: 0 });
   });
