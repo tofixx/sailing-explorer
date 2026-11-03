@@ -165,6 +165,8 @@ export function parseLog(input: unknown): { log: Logbook } | { error: string } {
 
 /** Zahl in [min, max] (mit `step` 0,1 bzw. ganzzahlig) – null = Fehler. */
 function num(v: unknown, min: number, max: number, int: boolean): number | null {
+  // nur Zahl oder Text – Number(true), Number([2]) o. Ä. wären sonst gültige Zahlen
+  if (typeof v !== 'number' && typeof v !== 'string') return null;
   const n = Number(typeof v === 'string' ? v.replace(',', '.') : v);
   if (!Number.isFinite(n) || n < min || n > max || (int && !Number.isInteger(n))) return null;
   return int ? n : Math.round(n * 10) / 10;

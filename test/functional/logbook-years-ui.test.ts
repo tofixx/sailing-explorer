@@ -96,13 +96,12 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
   });
 
   it('[F-457] [F-458] CSV mit Saison und Filter, Drucken über den Browser; Druckzeile nennt Saison und Filter', async () => {
-    const print = vi.fn();
-    vi.stubGlobal('print', print);
     const el = await mount('sx-logbook-page', { entries, season: 2026, states: ['confirmed'] });
+    const print = events(el, 'sx-logbook-print');
     const csv = el.shadowRoot.querySelector<HTMLAnchorElement>('a[download]')!;
     expect(csv.getAttribute('href')).toBe('/api/me/logbook.csv?saison=2026&stand=confirmed');
     button(el.shadowRoot, /Drucken/)!.click();
-    expect(print).toHaveBeenCalledOnce();
+    expect(print).toHaveLength(1);
     expect(text(el.shadowRoot.querySelector('.print-only')!)).toContain('Saison 2026 · Bestätigt');
   });
 
@@ -157,6 +156,11 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
     await vi.waitFor(() => expect(calls).toContain('PATCH /api/shares/A'));
     page.dispatchEvent(new CustomEvent('sx-logbook-edit-entry', { detail: { id: 'A' } }));
     await vi.waitFor(() => expect(edited).toEqual([{ id: 'A' }]));
+    // Drucken (F-458): der Controller ruft den Druckdialog
+    const print = vi.fn();
+    vi.stubGlobal('print', print);
+    page.dispatchEvent(new CustomEvent('sx-logbook-print'));
+    expect(print).toHaveBeenCalledOnce();
   });
 });
 

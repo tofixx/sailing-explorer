@@ -785,7 +785,8 @@ export class App {
     on<{ email: string | null }>('sx-friend-invite', (d) => this.social.inviteFriend(d.email));
     // Fahrtenbuch (Konzept 19)
     on('sx-logbook-start', () => this.logbook.start());
-    // GPX-Törn: Vorschläge aus dem geladenen Track (F-460)
+    // GPX-Törn: Vorschläge aus dem geladenen Track (F-460). Bearbeiten gibt es nur am offenen Törn, und der Arbeitsbereich
+    // ist immer genau dieser Törn (Konzept 23) – die Tracks im Store sind also seine.
     on<ShareMeta>('sx-logbook-edit', (share) =>
       this.logbook.start(share, { suggestion: share.source === 'manual' ? null : suggestFromTracks(this.store.get().tracks) }),
     );

@@ -33,12 +33,13 @@ export class SxLogbookPanel extends LitElement {
       dl {
         margin: 0;
         display: grid;
-        grid-template-columns: auto 1fr;
+        grid-template-columns: minmax(0, auto) 1fr;
         gap: var(--s-1) var(--s-3);
         font-size: var(--fs-s);
       }
       dt {
         color: var(--text-3);
+        overflow-wrap: anywhere;
       }
       dd {
         margin: 0;

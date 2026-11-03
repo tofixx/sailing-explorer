@@ -38,6 +38,7 @@ describe('Zusatzangaben (F-412)', () => {
 
   it('[F-412] lehnt Unbekanntes und Grenzüberschreitungen mit deutscher Meldung ab', () => {
     const bad = [
+      { sailH: true }, { locks: [2] }, { area: 'inland', locks: { n: 2 } },
       { area: 'see' }, { sailH: 501 }, { daysAboard: 0 }, { daysAboard: 1.5 }, { locks: -1 }, { mast: 51 },
       { regatta: { name: '' } }, { regatta: { name: 'X', place: 5, starters: 3 } }, { regatta: 'X' },
       { items: 'Training' }, { items: Array.from({ length: LOG_LIMITS.itemsMax + 1 }, () => ({ name: 'a', n: 1 })) },
@@ -191,6 +192,9 @@ describe('Meilennachweis als CSV (F-457)', () => {
     expect(csvCell('Steg; B')).toBe('"Steg; B"');
     expect(csvCell('Werder')).toBe('Werder');
     expect(durationText(e({ endedAt: base.startedAt + 3 * H }))).toBe('');
+    // gekappt: Hinweis als letzte Zeile
+    expect(logbookCsv([e({})], true).trimEnd().split('\r\n').at(-1)).toMatch(/^Hinweis: nur die neuesten 1000 Einträge/);
+    expect(logbookCsv([e({})]).trimEnd().split('\r\n')).toHaveLength(2);
     expect(csvFileName(2026)).toBe('meilennachweis-2026.csv');
     expect(csvFileName(null)).toBe('meilennachweis.csv');
   });

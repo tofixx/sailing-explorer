@@ -236,13 +236,16 @@ export class SxLogbookForm extends LitElement {
     `,
   ];
 
+  /** Beim Öffnen den Zustand aus dem Eintrag setzen – vor dem Rendern, damit kein zweiter Durchlauf nötig ist. */
+  protected willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has('open') && this.open) this.reset();
+  }
+
   protected updated(changed: PropertyValues<this>): void {
     const dlg = this.renderRoot.querySelector('dialog')!;
     if (changed.has('open')) {
-      if (this.open && !dlg.open) {
-        this.reset();
-        dlg.showModal();
-      } else if (!this.open && dlg.open) dlg.close();
+      if (this.open && !dlg.open) dlg.showModal();
+      else if (!this.open && dlg.open) dlg.close();
     }
   }
 

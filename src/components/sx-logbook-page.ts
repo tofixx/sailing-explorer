@@ -12,7 +12,7 @@ import { base, emit, logbookTag } from './shared';
  * Saison, Filter nach Stand (Mehrfachauswahl, B14), Summen der gefilterten Einträge, Liste mit eigenen Törns und
  * Crew-Törns anderer (M1, nur Eckdaten), Meilennachweis als CSV und Druck. Rein präsentational – Daten setzt der
  * LogbookPageController. Events: `sx-logbook-season` { season }, `sx-logbook-filter` { states },
- * `sx-logbook-state` { id, logState }, `sx-logbook-edit-entry` { id }, `sx-logbook-start`, `sx-login`.
+ * `sx-logbook-state` { id, logState }, `sx-logbook-edit-entry` { id }, `sx-logbook-print`, `sx-logbook-start`, `sx-login`.
  */
 export class SxLogbookPage extends LitElement {
   static properties = {
@@ -125,6 +125,7 @@ export class SxLogbookPage extends LitElement {
         margin: 0;
       }
       .totals div {
+        overflow-wrap: anywhere;
         padding: var(--s-2) var(--s-3);
         border-radius: var(--radius);
         background: var(--surface);
@@ -132,6 +133,7 @@ export class SxLogbookPage extends LitElement {
         min-width: 0;
       }
       .totals dt {
+        overflow-wrap: anywhere;
         font-size: var(--fs-s);
         color: var(--text-3);
       }
@@ -368,7 +370,7 @@ export class SxLogbookPage extends LitElement {
         ${ready
           ? html`<div class="tools">
               <a class="btn" href=${this.csvHref()} download>${icon('download')} CSV</a>
-              <button class="btn" @click=${() => window.print()}>${icon('print')} Drucken</button>
+              <button class="btn" @click=${() => emit(this, 'sx-logbook-print')}>${icon('print')} Drucken</button>
             </div>`
           : ''}
       </header>

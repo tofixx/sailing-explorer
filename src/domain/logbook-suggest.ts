@@ -128,9 +128,12 @@ export function suggestFromTracks(tracks: Track[]): LogSuggestion {
     }
     // Motor: zusammenhängende Fahrt in Fenster von 10 Minuten schneiden
     let win: Leg[] = [];
+    // laufende Dauer des Fensters (h) statt erneuter Summe je Punkt
+    let winH = 0;
     const flush = () => {
-      if (win.length && looksMotored(win)) engine += win.reduce((a, l) => a + l.dtH, 0);
+      if (win.length && looksMotored(win)) engine += winH;
       win = [];
+      winH = 0;
     };
     for (const l of all) {
       if (l.kn < SUGGEST_RULES.movingKn) {
@@ -138,7 +141,8 @@ export function suggestFromTracks(tracks: Track[]): LogSuggestion {
         continue;
       }
       win.push(l);
-      if (win.reduce((a, x) => a + x.dtH, 0) * 60 >= SUGGEST_RULES.windowMin) flush();
+      winH += l.dtH;
+      if (winH * 60 >= SUGGEST_RULES.windowMin) flush();
     }
     flush();
   }

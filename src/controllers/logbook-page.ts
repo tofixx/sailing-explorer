@@ -28,6 +28,8 @@ export class LogbookPageController {
     on<{ states: LogState[] }>('sx-logbook-filter', (d) => this.setFilter(d.states));
     on<{ id: string; logState: LogState }>('sx-logbook-state', (d) => void this.setLogState(d.id, d.logState));
     on<{ id: string }>('sx-logbook-edit-entry', (d) => void this.edit(d.id));
+    // Druckdialog des Browsers (F-458) – der Druckstil zeigt nur die Fahrtenbuch-Seite
+    on('sx-logbook-print', () => window.print());
   }
 
   private get page() {

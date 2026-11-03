@@ -175,9 +175,9 @@ export const roleText = (e: Pick<LogbookEntry, 'role' | 'roleConfirmed'>): strin
 
 /**
  * Meilennachweis als CSV: Datum; Von; Nach; sm; Quelle; Rolle; Boot; Dauer – Semikolon, UTF-8 mit BOM (öffnet in Excel),
- * Zeilenende CRLF, älteste zuerst. Rundtörns nennen bei „Nach“ den Starthafen.
+ * Zeilenende CRLF, älteste zuerst. Rundtörns nennen bei „Nach“ den Starthafen. `truncated`: Hinweiszeile am Ende.
  */
-export function logbookCsv(entries: LogbookEntry[]): string {
+export function logbookCsv(entries: LogbookEntry[], truncated = false): string {
   const rows = [...entries]
     .sort((a, b) => a.startedAt - b.startedAt)
     .map((e) => [
@@ -190,7 +190,9 @@ export function logbookCsv(entries: LogbookEntry[]): string {
       e.boat ?? '',
       durationText(e),
     ]);
-  return '﻿' + [CSV_HEADER as readonly string[], ...rows].map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';
+  // gekappt (mehr als LOGBOOK_MAX_ENTRIES): Hinweis als letzte Zeile, damit der Nachweis nicht unbemerkt unvollständig ist
+  const note = truncated ? [[`Hinweis: nur die neuesten ${LOGBOOK_MAX_ENTRIES} Einträge – ältere fehlen in dieser Datei.`]] : [];
+  return '\uFEFF' + [CSV_HEADER as readonly string[], ...rows, ...note].map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';
 }
 
 /** Dateiname des Exports: `meilennachweis-2026.csv` bzw. `meilennachweis.csv` (alle Jahre). */

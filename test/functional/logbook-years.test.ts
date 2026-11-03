@@ -98,9 +98,22 @@ describe('F-456 Crew-Törns anderer (Ausnahme M1)', () => {
     const p = list.find((e) => e.id === priv.id)!;
     expect(p).toMatchObject({ own: false, path: null, title: null, logState: 'confirmed', role: 'co', roleConfirmed: true, boat: 'Möwe', log: {}, distNm: 6 });
     expect(list.find((e) => e.id === pub.id)).toMatchObject({ own: false, path: `/s/${pub.id}`, title: 'Öffentlicher Törn', logState: 'suggested', role: 'crew', roleConfirmed: false });
+    // unbestätigt, öffentlicher Törn, privates Boot: Bootsname nicht (F-82); bestätigt war man an Bord (M1)
+    await run('UPDATE shares SET boat_id = ? WHERE id = ?', boat.id, pub.id);
+    expect((await logbook(mate)).find((e) => e.id === pub.id)?.boat).toBeNull();
+    await run('UPDATE share_crew SET confirmed_at = ? WHERE share_id = ?', Date.now(), pub.id);
+    expect((await logbook(mate)).find((e) => e.id === pub.id)?.boat).toBe('Möwe');
+    // gesperrtes Boot nennt niemand
+    await run('UPDATE boats SET locked_at = ? WHERE id = ?', Date.now(), boat.id);
+    expect((await logbook(mate)).find((e) => e.id === priv.id)?.boat).toBeNull();
+    // Crew-Eintrag ohne GPX mit Uhrzeiten: Dauer auch ohne die Angaben der Eigentümer:in (`log.timed`)
+    const m = await manual(owner, { startedAt: Date.now() - 3 * DAY, endedAt: Date.now() - 3 * DAY + 4 * 3_600_000, timed: true });
+    await addCrew(m.id, mate, 'crew', true);
+    expect((await logbook(mate)).find((e) => e.id === m.id)).toMatchObject({ timed: true, log: {} });
+    await run('UPDATE share_crew SET confirmed_at = NULL WHERE share_id = ?', pub.id);
     // unbestätigt und nicht öffentlich: nicht im Fahrtenbuch
     await run('UPDATE share_crew SET confirmed_at = NULL WHERE share_id = ?', priv.id);
-    expect((await logbook(mate)).map((e) => e.id)).toEqual([pub.id]);
+    expect((await logbook(mate)).map((e) => e.id).sort()).toEqual([pub.id, m.id].sort());
   });
 
   it('[F-456] Domain-Regel und SQL-Baustein stimmen überein (Sichtbarkeit × Bestätigung × Stand × Ausblenden/Sperre/Konto gesperrt)', async () => {
