@@ -17,6 +17,7 @@ import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-stream';
+import { GROUP_LIMITS } from '../domain/limits';
 import './sx-follow';
 import './sx-notify-bell';
 import './sx-harbor-picker';
@@ -441,6 +442,7 @@ export class SxGroupPage extends LitElement {
         : ''}
       ${!create && owner && g ? this.postByOptions(g.kind, d.postBy ?? effectivePostBy(g.kind, g.postBy)) : ''}
       ${owner ? this.membersVisibleOptions(d.membersVisible ?? g?.membersVisible ?? DEFAULT_MEMBERS_VISIBLE) : ''}
+      ${!create && owner && g ? this.daySummaryOption(d.daySummary ?? g.daySummary ?? true) : ''}
       ${this.formError ? html`<p class="error" role="alert">${this.formError}</p>` : ''}
     `;
   }
@@ -454,6 +456,16 @@ export class SxGroupPage extends LitElement {
           <span><b>${MEMBERS_VISIBLE_LABEL[v]}</b>${v === DEFAULT_MEMBERS_VISIBLE ? html` <span class="faint">(Standard)</span>` : ''}</span></label>`,
       )}
       <p class="hint">Die Anzahl der Mitglieder sehen alle. Eigentümer und Admins sehen immer alle Anzeigenamen, nie E-Mail-Adressen. Die Boote der Gruppe folgen dieser Einstellung.</p>
+    </fieldset>`;
+  }
+
+  /** Tageszusammenfassung großer Verläufe (F-469) – nur der Eigner; Standard an. */
+  private daySummaryOption(on: boolean) {
+    return html`<fieldset class="opts" style="border:0;padding:0;margin:0">
+      <legend class="label">Große Gruppe</legend>
+      <label class="opt"><input type="checkbox" .checked=${on} @change=${(e: Event) => this.set({ daySummary: (e.target as HTMLInputElement).checked })} />
+        <span><b>Ältere Tage zusammenfassen</b> <span class="faint">(Standard)</span></span></label>
+      <p class="hint">Bei mehr als ${GROUP_LIMITS.summaryMembers} Mitgliedern oder mehr als ${GROUP_LIMITS.summaryPerDay} Einträgen an einem Tag zeigen die Neuigkeiten ältere Tage als eine Karte mit „Alle anzeigen“. Eigene Beiträge, die von Admins, Umfragen und Veranstaltungen bleiben einzeln.</p>
     </fieldset>`;
   }
 
@@ -504,7 +516,7 @@ export class SxGroupPage extends LitElement {
 
   /** Bearbeiten öffnen: Entwurf aus der aktuellen Gruppe. */
   private startEdit(g: GroupInfo) {
-    this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode, approveBy: g.approveBy ?? 'admins', postBy: effectivePostBy(g.kind, g.postBy), membersVisible: g.membersVisible ?? DEFAULT_MEMBERS_VISIBLE };
+    this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode, approveBy: g.approveBy ?? 'admins', postBy: effectivePostBy(g.kind, g.postBy), membersVisible: g.membersVisible ?? DEFAULT_MEMBERS_VISIBLE, ...(g.daySummary !== undefined ? { daySummary: g.daySummary } : {}) };
     this.editing = true;
   }
 
@@ -520,6 +532,7 @@ export class SxGroupPage extends LitElement {
           delete patch.approveBy;
           delete patch.postBy;
           delete patch.membersVisible;
+          delete patch.daySummary;
         }
         emit(this, 'sx-group-save', { id: g.id, patch });
       }}>
@@ -757,7 +770,7 @@ export class SxGroupPage extends LitElement {
             ${canWriteInGroup(g.role, effectivePostBy(g.kind, g.postBy)) ? writePostButton(this) : ''}
           </span>
         </div>
-        <sx-stream scope="group" in-group ?hide-auto=${this.hideAuto} .items=${this.stream?.items ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
+        <sx-stream scope="group" in-group ?hide-auto=${this.hideAuto} .items=${this.stream?.items ?? []} .days=${this.stream?.days ?? []} .cursor=${this.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight}
           .pins=${this.pins} ?manage=${this.manage}
           empty-text="Noch keine Neuigkeiten in dieser Gruppe."></sx-stream>
       </section>

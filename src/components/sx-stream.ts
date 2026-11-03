@@ -1,6 +1,7 @@
 import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
 import { photoImageUrl, shareImageUrl, type StreamItem } from '../services/api';
 import { GROUP_KIND_LABEL, streamHeadline, isAutomaticKind } from '../domain/groups';
+import { dayCardText, type DayCard } from '../domain/large-groups';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
 import { base, coverBanner, coverBannerStyles, emit, highlightStyles, linkedText, logbookTag, revealCard } from './shared';
@@ -24,6 +25,8 @@ const KIND_ICON: Record<StreamItem['kind'], IconName> = {
  * `highlight` scrollt zur Karte und hebt sie kurz hervor. Meldet `sx-stream-more` { scope } und `sx-post-delete` { id }.
  * Automatische Einträge (Beitritt, Boot, Meilenstein – `isAutomaticKind`, F-447) erscheinen als kompakte graue
  * Systemzeile ohne Kartenrahmen; `hideAuto` blendet sie aus (Schalter „Automatische Einträge“ auf dem Gerät).
+ * Tageskarten (`days`, F-466) stehen nach Zeit zwischen den Einträgen: Zähler, die meistbeachteten Einträge und
+ * „Alle anzeigen“ – meldet `sx-day-open` { scope, day, cursor } (erste bzw. weitere Seite des Tages, F-468).
  */
 export class SxStream extends LitElement {
   static properties = {
@@ -42,6 +45,8 @@ export class SxStream extends LitElement {
     manage: { type: Boolean },
     /** automatische Einträge ausblenden (F-447) */
     hideAuto: { type: Boolean, attribute: 'hide-auto' },
+    /** Tageskarten älterer Tage großer Verläufe (F-466) */
+    days: { attribute: false },
   };
   declare items: StreamItem[];
   declare cursor: string | null;
@@ -54,6 +59,7 @@ export class SxStream extends LitElement {
   declare pins: StreamItem[];
   declare manage: boolean;
   declare hideAuto: boolean;
+  declare days: DayCard[];
 
   constructor() {
     super();
@@ -67,6 +73,7 @@ export class SxStream extends LitElement {
     this.pins = [];
     this.manage = false;
     this.hideAuto = false;
+    this.days = [];
   }
 
   /** Hervorgehobene Karte einmal in den Blick holen, sobald sie gerendert ist. */
@@ -265,6 +272,30 @@ export class SxStream extends LitElement {
       li.pinned {
         border-color: var(--accent);
       }
+      /* Tageskarte (F-466): Zähler als Kopf, Vorschau bzw. aufgeklappte Einträge als innere Liste ohne eigenen Rahmen */
+      li.day {
+        background: var(--surface-2, var(--surface));
+      }
+      li.day > div {
+        display: grid;
+        gap: var(--s-2);
+        min-width: 0;
+      }
+      li.day ol li {
+        grid-template-columns: minmax(0, 1fr);
+        border: 0;
+        border-top: 1px solid var(--border-soft);
+        border-radius: 0;
+        padding: var(--s-2) 0 0;
+        background: none;
+      }
+      li.day ol li > .ic {
+        display: none;
+      }
+      li.day .more {
+        margin-top: 0;
+        justify-content: flex-start;
+      }
       .more {
         margin-top: var(--s-3);
         display: flex;
@@ -411,6 +442,40 @@ export class SxStream extends LitElement {
     </li>`;
   }
 
+  /** Tageskarte (F-466): Zähler, Vorschau der meistbeachteten bzw. alle geladenen Einträge, „Alle anzeigen“. */
+  private dayCard(d: DayCard) {
+    const shown = this.visible(d.open ? d.open.items : d.top);
+    const next = d.open ? d.open.cursor : null;
+    return html`<li class="day" aria-label=${dayCardText(d)}>
+      <span class="ic" aria-hidden="true">${icon('book')}</span>
+      <div>
+        <div class="head"><strong class="what">${dayCardText(d)}</strong></div>
+        ${shown.length ? html`<ol>${shown.map((i) => this.item(i))}</ol>` : ''}
+        ${!d.open || next
+          ? html`<div class="more"><button class="btn" type="button" ?disabled=${this.loading}
+              @click=${() => emit(this, 'sx-day-open', { scope: this.scope, day: d.day, cursor: next })}>${d.open ? 'Weitere laden' : `Alle anzeigen (${d.count}${d.more ? '+' : ''})`}</button></div>`
+          : ''}
+      </div>
+    </li>`;
+  }
+
+  private visible(items: StreamItem[]) {
+    return this.hideAuto ? items.filter((i) => !isAutomaticKind(i.kind)) : items;
+  }
+
+  /** Einträge und Tageskarten nach Zeit (neueste zuerst); die Karte steht über den Einzelnen ihres Tages. */
+  private entries() {
+    const days = [...this.days].sort((a, b) => b.at - a.at);
+    const out: Array<{ item: StreamItem } | { day: DayCard }> = [];
+    let k = 0;
+    for (const item of this.visible(this.items)) {
+      while (k < days.length && days[k].at >= item.createdAt) out.push({ day: days[k++] });
+      out.push({ item });
+    }
+    while (k < days.length) out.push({ day: days[k++] });
+    return out;
+  }
+
   render() {
     // „Mehr laden“ auch bei leerer Liste, solange es weitergeht – sonst bliebe ein ganz weggefilterter Stand stecken (F-350)
     const more = this.cursor
@@ -420,10 +485,10 @@ export class SxStream extends LitElement {
     const pinned = this.pins.length
       ? html`<section class="pins" aria-label="Angepinnt"><p class="eyebrow">${icon('pin')} Angepinnt</p><ol>${this.pins.map((i) => this.item(i, true))}</ol></section>`
       : '';
-    const items = this.hideAuto ? this.items.filter((i) => !isAutomaticKind(i.kind)) : this.items;
+    const items = this.entries();
     if (!items.length) return html`${pinned}${this.loading ? html`<div class="empty">Lade …</div>` : html`<div class="empty">${this.emptyText}</div>`}${more}`;
     return html`${pinned}<ol>
-        ${items.map((i) => this.item(i))}
+        ${items.map((e) => ('day' in e ? this.dayCard(e.day) : this.item(e.item)))}
       </ol>
       ${more}`;
   }

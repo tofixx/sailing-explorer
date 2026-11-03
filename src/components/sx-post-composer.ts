@@ -2,7 +2,8 @@ import { LitElement, css, html, type PropertyValues } from 'lit';
 import { commentLength } from '../domain/comment-text';
 import { POST_LINK_MAX, POST_MAX } from '../domain/groups';
 import { POST_VISIBILITY_CHOICE, type AttachableShare, type PostVisibility, type Reach, type ReachOption } from '../domain/posts';
-import { fmtDate } from '../util/html';
+import { fmtDate, fmtNum } from '../util/html';
+import { audienceHintText, audienceOf, needsAudienceHint, type Audience } from '../domain/large-groups';
 import { icon } from './icons';
 import { POST_VISIBILITY_ICON, base, emit } from './shared';
 import './sx-reach-picker';
@@ -11,8 +12,10 @@ import './sx-reach-picker';
  * Text-Beitrag schreiben (Konzept 11.4, 21): Text, optionaler Link, „Wer sieht es“ aus den Stufen des Verlaufs
  * (`choices`, F-402), „Sichtbar bis“ mit Kette (`reaches`, F-409; Vorschlag „überall“) und ein eigener Törn als Anhang
  * (`shares`, F-426). Gruppenseite, eigene Seite und der Plus-Knopf (`sx-compose-dialog`) nutzen dasselbe Formular.
- * Rein präsentational – meldet `sx-post-submit` { body, link, visibility, reach?, shareId }; der Host leert es nach
- * Erfolg mit `clear()`.
+ * Mit `audience` zeigt es ab 100 Personen den Publikums-Hinweis (F-465) mit kleineren Gruppen (`smaller`) und der
+ * Schnellwahl „Nur hier“ bzw. „Nur Mitglieder“; senden bleibt möglich.
+ * Rein präsentational – meldet `sx-post-submit` { body, link, visibility, reach?, shareId } und `sx-compose-pick`
+ * { key } (kleinere Gruppe gewählt); der Host leert es nach Erfolg mit `clear()`.
  */
 export class SxPostComposer extends LitElement {
   static properties = {
@@ -29,6 +32,10 @@ export class SxPostComposer extends LitElement {
     reaches: { attribute: false },
     /** eigene Törns zum Anhängen (leer: keine Auswahl) */
     shares: { attribute: false },
+    /** Publikum je Stufe (F-465); null = unbekannt, kein Hinweis */
+    audience: { attribute: false },
+    /** kleinere Verläufe zum Wechseln (eigene Teams des Vereins), Schlüssel `channelKey` */
+    smaller: { attribute: false },
     body: { state: true },
     link: { state: true },
     visibility: { state: true },
@@ -44,6 +51,8 @@ export class SxPostComposer extends LitElement {
   declare busy: boolean;
   declare reaches: ReachOption[];
   declare shares: AttachableShare[];
+  declare audience: Audience | null;
+  declare smaller: Array<{ key: string; label: string }>;
   declare reach: Reach;
   declare shareId: string;
   declare body: string;
@@ -65,6 +74,8 @@ export class SxPostComposer extends LitElement {
     this.visibility = null;
     this.reaches = [];
     this.shares = [];
+    this.audience = null;
+    this.smaller = [];
     this.reach = 'all';
     this.shareId = '';
   }
@@ -127,6 +138,24 @@ export class SxPostComposer extends LitElement {
         width: 16px;
         height: 16px;
       }
+      /* Publikums-Hinweis (F-465): ruhig, kein Fehler – senden bleibt möglich */
+      .audience {
+        display: grid;
+        gap: var(--s-2);
+        padding: var(--s-2) var(--s-3);
+        border-radius: var(--radius);
+        background: var(--warn-bg);
+      }
+      .audience p {
+        margin: 0;
+      }
+      /* lange Team-Namen brechen um statt das Formular bei 375 px zu verbreitern */
+      .audience .btn {
+        white-space: normal;
+        max-width: 100%;
+        height: auto;
+        text-align: left;
+      }
       .row {
         display: flex;
         flex-wrap: wrap;
@@ -175,6 +204,30 @@ export class SxPostComposer extends LitElement {
       @sx-reach-change=${(e: CustomEvent<{ reach: Reach }>) => (this.reach = e.detail.reach)}></sx-reach-picker>`;
   }
 
+  /**
+   * Publikums-Hinweis (F-465): ab 100 Personen „Geht an ca. N Personen – lieber in einer kleineren Gruppe schreiben?“
+   * mit Teams des Vereins und der Schnellwahl einer kleineren Stufe, wenn es die hier gibt. Keine Namen, nur Zahlen.
+   */
+  private audienceHint(visibility: PostVisibility) {
+    const reach = visibility === 'public' ? this.currentReach() : undefined;
+    const n = audienceOf(this.audience, visibility, reach);
+    if (!needsAudienceHint(n)) return '';
+    const here = audienceOf(this.audience, 'public', 'here');
+    const members = this.choices.includes('members') ? audienceOf(this.audience, 'members', undefined) : null;
+    return html`<div class="audience" role="note">
+      <p>${audienceHintText(n)}</p>
+      <div class="row">
+        ${this.smaller.map((s) => html`<button class="btn" type="button" @click=${() => emit(this, 'sx-compose-pick', { key: s.key })}>${s.label}</button>`)}
+        ${visibility === 'public' && reach !== 'here' && here !== null && here < n
+          ? html`<button class="btn" type="button" @click=${() => (this.reach = 'here')}>Nur hier (ca. ${fmtNum(here, 0)})</button>`
+          : ''}
+        ${visibility !== 'members' && members !== null && members < n
+          ? html`<button class="btn" type="button" @click=${() => (this.visibility = 'members')}>Nur Mitglieder (ca. ${fmtNum(members, 0)})</button>`
+          : ''}
+      </div>
+    </div>`;
+  }
+
   /** Eigenen Törn anhängen (F-426) – fällt für Leser weg, die den Törn nicht sehen dürfen. */
   private sharePicker() {
     if (!this.shares.length) return '';
@@ -209,7 +262,7 @@ export class SxPostComposer extends LitElement {
           </fieldset>
           ${this.choiceHints[current] ? html`<p class="hint">${this.choiceHints[current]}</p>` : ''}`
         : ''}
-      ${this.reachPicker(current)} ${this.sharePicker()}
+      ${this.reachPicker(current)} ${this.audienceHint(current)} ${this.sharePicker()}
       <div class="row"><button class="btn primary" type="submit" ?disabled=${this.busy || !len || len > POST_MAX}>${icon('comment')} Veröffentlichen</button>
         ${this.hint ? html`<span class="hint">${this.hint}</span>` : ''}</div>
     </form>`;

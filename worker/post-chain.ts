@@ -177,4 +177,5 @@ export const composeTarget = (c: WritableChannel, supporter: boolean): ComposeTa
   id: c.kind === 'user' ? '' : c.id,
   choices: postVisibilityChoices(c.kind).filter((v) => canChoosePostVisibility(v, supporter)),
   reaches: reachOptions(c.chain),
+  ...(c.kind === 'group' && c.chain.club ? { clubId: c.chain.club.id } : {}),
 });

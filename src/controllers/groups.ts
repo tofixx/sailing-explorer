@@ -7,6 +7,7 @@ import type { SxGroupPage } from '../components/sx-group-page';
 import type { SxHomeFeed } from '../components/sx-home-feed';
 import type { SxProfilePage } from '../components/sx-profile-page';
 import { errorText } from './session';
+import { withDayPage } from '../domain/large-groups';
 import { NOTIFY_LEVEL_LABEL, type NotifyLevel } from '../domain/notifications';
 
 export interface GroupsUi {
@@ -268,6 +269,22 @@ export class GroupsController {
 
   // ---------------------------------------------------------------- Neuigkeiten: mehr laden
 
+  /** Tageskarte aufklappen bzw. weiterblättern (F-468): Einträge dieses Tages einzeln. */
+  async openDay(day: string, cursor: string | null): Promise<void> {
+    const page = this.ui.page;
+    const id = page.data?.group.id;
+    if (!id || !page.stream) return;
+    page.streamLoading = true;
+    try {
+      const next = await groupApi.stream(id, cursor, this.current?.key, day);
+      if (page.stream) page.stream = { ...page.stream, days: withDayPage(page.stream.days ?? [], day, next, !!cursor) };
+    } catch (e) {
+      this.ui.toast(errorText(e));
+    } finally {
+      page.streamLoading = false;
+    }
+  }
+
   async more(scope: 'home' | 'group' | 'public'): Promise<void> {
     if (scope === 'group') {
       const page = this.ui.page;
@@ -276,7 +293,7 @@ export class GroupsController {
       page.streamLoading = true;
       try {
         const next = await groupApi.stream(id, page.stream.cursor, this.current?.key);
-        page.stream = { ...next, items: [...page.stream.items, ...next.items] };
+        page.stream = { ...next, items: [...page.stream.items, ...next.items], days: [...(page.stream.days ?? []), ...(next.days ?? [])] };
       } catch (e) {
         this.ui.toast(errorText(e));
       } finally {

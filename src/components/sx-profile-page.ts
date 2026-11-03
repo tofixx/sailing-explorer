@@ -679,7 +679,7 @@ export class SxProfilePage extends LitElement {
       </div>
       <section>
         <div class="news-head"><h2 class="eyebrow">Neuigkeiten</h2>${d.canPost ? writePostButton(this) : ''}</div>
-        <sx-stream scope="harbor" ?hide-auto=${this.hideAuto} .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight} .pins=${this.pins} ?manage=${this.manage}
+        <sx-stream scope="harbor" ?hide-auto=${this.hideAuto} .items=${d.stream?.items ?? []} .days=${d.stream?.days ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight} .pins=${this.pins} ?manage=${this.manage}
           empty-text="Noch nichts los in diesem Hafen. Neue Boote und öffentliche Törns erscheinen hier."></sx-stream>
       </section>
       ${this.harborGroups(d).length

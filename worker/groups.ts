@@ -56,6 +56,8 @@ export interface GroupRow {
   post_by?: string | null;
   /** wer die Mitgliederliste sieht (0032, F-440): members | public */
   members_visible?: string | null;
+  /** Tageszusammenfassung (0035, F-469): 1 an (Standard), 0 vom Eigner abgeschaltet */
+  day_summary?: number | null;
   owner_id: string;
   hidden_at: number | null;
   /** gesperrt (0023, Konzept 18.2): niemand hat dann eine Rolle */
@@ -151,6 +153,8 @@ export function groupShape(g: GroupRow, role: GroupRole | null) {
     postBy: effectivePostBy(g.kind, g.post_by),
     // wer die Mitgliederliste sieht (F-440) – unbekannt zählt wie „nur Mitglieder“
     membersVisible: (isMembersVisible(g.members_visible) ? g.members_visible : DEFAULT_MEMBERS_VISIBLE) as MembersVisible,
+    // Tageszusammenfassung großer Verläufe (F-469) – ohne Spalte (Altbestand) an
+    daySummary: g.day_summary !== 0,
     // Schlüssel und Link nur für Eigner und Admins (Konzept 2.4).
     shareKey: manager ? g.share_key : null,
     link: manager ? sharePath('g', g.slug, g.visibility, g.share_key) : null,
@@ -184,6 +188,8 @@ interface GroupInput {
   postBy?: unknown;
   /** wer die Mitgliederliste sieht (F-440) – nur der Eigner */
   membersVisible?: unknown;
+  /** Tageszusammenfassung an/aus (F-469) – nur der Eigner */
+  daySummary?: unknown;
   parentId?: unknown;
   rotateKey?: unknown;
 }
@@ -211,6 +217,10 @@ function applyInput(g: GroupRow, input: GroupInput): Visibility | null {
   if (input.membersVisible !== undefined) {
     if (!isMembersVisible(input.membersVisible)) throw new HttpError(400, 'invalid_members_visible', 'Unbekannte Regel, wer die Mitgliederliste sieht.');
     g.members_visible = input.membersVisible;
+  }
+  if (input.daySummary !== undefined) {
+    if (typeof input.daySummary !== 'boolean') throw new HttpError(400, 'invalid_day_summary', 'Tageszusammenfassung: an oder aus.');
+    g.day_summary = input.daySummary ? 1 : 0;
   }
   if (input.joinMode !== undefined) {
     if (!isJoinMode(input.joinMode)) throw new HttpError(400, 'invalid_join_mode', 'Unbekannte Beitrittsregel.');
@@ -289,10 +299,10 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   const { user, group: g, role } = await memberGroup(request, env, id, 'manager');
   const input = await readJson<GroupInput>(request);
   const previous = g.visibility;
-  const before = { approveBy: g.approve_by, joinMode: g.join_mode, postBy: effectivePostBy(g.kind, g.post_by), membersVisible: g.members_visible };
+  const before = { approveBy: g.approve_by, joinMode: g.join_mode, postBy: effectivePostBy(g.kind, g.post_by), membersVisible: g.members_visible, daySummary: g.day_summary };
   const next = applyInput(g, input);
-  if ((g.approve_by !== before.approveBy || g.join_mode !== before.joinMode || effectivePostBy(g.kind, g.post_by) !== before.postBy || g.members_visible !== before.membersVisible) && role !== 'owner') {
-    throw FORBIDDEN('Beitritt, wer Anfragen bestätigt, wer Beiträge schreibt und wer die Mitglieder sieht, legt der Eigentümer fest.');
+  if ((g.approve_by !== before.approveBy || g.join_mode !== before.joinMode || effectivePostBy(g.kind, g.post_by) !== before.postBy || g.members_visible !== before.membersVisible || g.day_summary !== before.daySummary) && role !== 'owner') {
+    throw FORBIDDEN('Beitritt, wer Anfragen bestätigt, wer Beiträge schreibt, wer die Mitglieder sieht und die Tageszusammenfassung legt der Eigentümer fest.');
   }
   await applyHarbor(env, user, g, input);
   // Bestehende Vereine ohne Hafen dürfen weiter bearbeitet werden – nur ausdrücklich entfernen geht nicht (F-354)
@@ -306,9 +316,9 @@ export async function updateGroup(request: Request, env: Env, id: string): Promi
   if (await slugTaken(env, g.slug, g.id)) throw SLUG_TAKEN();
   g.updated_at = Date.now();
   await env.DB.prepare(
-    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, approve_by = ?, post_by = ?, members_visible = ?, updated_at = ? WHERE id = ?',
+    'UPDATE groups SET slug = ?, name = ?, description = ?, home_port = ?, harbor_id = ?, visibility = ?, share_key = ?, join_mode = ?, approve_by = ?, post_by = ?, members_visible = ?, day_summary = ?, updated_at = ? WHERE id = ?',
   )
-    .bind(g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.members_visible ?? DEFAULT_MEMBERS_VISIBLE, g.updated_at, g.id)
+    .bind(g.slug, g.name, g.description, g.home_port, g.harbor_id ?? null, g.visibility, g.share_key, g.join_mode, g.approve_by, g.post_by ?? null, g.members_visible ?? DEFAULT_MEMBERS_VISIBLE, g.day_summary === 0 ? 0 : 1, g.updated_at, g.id)
     .run();
   return json({ group: groupShape(g, role) });
 }

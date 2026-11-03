@@ -56,6 +56,8 @@ export interface ActivityRow {
   p_reach?: string | null;
   /** Heimatverlauf des Beitrags, Schlüssel „Nur mit Link“ (Phase 2, F-406, F-425) */
   p_ck?: string | null;
+  /** Art des Beitrags (0029: text, später poll, event …) – Umfragen und Veranstaltungen bleiben einzeln (F-467) */
+  p_kind?: string | null;
   p_cid?: string | null;
   p_key?: string | null;
   /** Hafen- bzw. Boots-Verlauf des Beitrags */

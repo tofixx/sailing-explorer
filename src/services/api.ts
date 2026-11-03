@@ -8,6 +8,7 @@ import type { Placement } from '../domain/photo-place';
 import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
+import type { Audience, DayCard } from '../domain/large-groups';
 import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, MembersVisible, ShareGroupChoice, StreamItem, SuggestionReason } from '../domain/groups';
 import type { CoverKind, CoverRef } from '../domain/cover';
 import type { HarborRef } from '../domain/harbors';
@@ -773,6 +774,7 @@ export const photoApi = {
 // ================================================================ Vereine, Teams, Folgen, Neuigkeiten (Konzept 11)
 
 export type { StreamItem };
+export type { Audience, DayCard };
 
 export interface GroupInfo extends Linkable {
   id: string;
@@ -790,6 +792,8 @@ export interface GroupInfo extends Linkable {
   postBy?: PostBy;
   /** wer die Mitgliederliste sieht (F-440) – fehlt bei älteren Servern */
   membersVisible?: MembersVisible;
+  /** Tageszusammenfassung großer Verläufe an (F-469) – fehlt bei älteren Servern */
+  daySummary?: boolean;
   role: GroupRole | null;
   /** nur für Eigner und Admins: bis zur Prüfung ausgeblendet */
   hiddenAt?: number | null;
@@ -881,6 +885,8 @@ export interface StreamPage {
   at?: number;
   /** nur im persönlichen Stream: Heimatverein und Heimathafen (Konzept 12.4) */
   home?: { club: { slug: string; name: string } | null; harbor: { slug: string; name: string } | null };
+  /** nur Gruppen- und Hafen-Stream: Tageskarten älterer Tage (F-466) */
+  days?: DayCard[];
 }
 
 export interface Suggestion {
@@ -933,7 +939,7 @@ export interface DiscoverMembership {
   requested: string[];
 }
 
-export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy' | 'membersVisible'>> & {
+export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy' | 'membersVisible' | 'daySummary'>> & {
   kind?: GroupKind;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
@@ -970,8 +976,9 @@ export const groupApi = {
   addBoat: (id: string, boatId: string) => call<{ added: boolean }>(`/api/groups/${gid(id)}/boats`, jsonInit('POST', { boatId })),
   removeBoat: (id: string, boatId: string) => call<void>(`/api/groups/${gid(id)}/boats/${gid(boatId)}`, { method: 'DELETE' }),
   deletePost: (id: string) => call<void>(`/api/posts/${gid(id)}`, { method: 'DELETE' }),
-  stream: (id: string, cursor?: string | null, key?: string | null) =>
-    call<StreamPage>(`/api/groups/${gid(id)}/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, keyInit(key)),
+  /** `day`: die zusammengefassten Einträge dieses Tages („Alle anzeigen“, F-468) */
+  stream: (id: string, cursor?: string | null, key?: string | null, day?: string | null) =>
+    call<StreamPage>(`/api/groups/${gid(id)}/stream${q({ cursor, day })}`, keyInit(key)),
   myStream: (cursor?: string | null) => call<StreamPage>(`/api/stream${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
   /** Community-Badge (F-221): neue Einträge seit dem Gelesen-Zeitpunkt, höchstens 99 (`more`: mehr) */
   /** `joins` false: Beitritte nicht mitzählen (auf dem Gerät ausgeblendet, F-350) */
@@ -1088,7 +1095,7 @@ export const socialApi = {
     call<{ harbor: HarborRef; created: boolean }>('/api/harbors', jsonInit('POST', { name, ...(pos ? { lat: pos.lat, lon: pos.lon } : {}) })),
   harbor: (slug: string) => call<HarborPageData>(`/api/harbors/slug/${encodeURIComponent(slug)}`),
   updateHarbor: (id: string, patch: HarborPatch) => call<{ harbor: HarborPageData['harbor'] }>(`/api/harbors/${encodeURIComponent(id)}`, jsonInit('PATCH', patch)),
-  harborStream: (id: string, cursor?: string | null) => call<StreamPage>(`/api/harbors/${encodeURIComponent(id)}/stream${q({ cursor })}`),
+  harborStream: (id: string, cursor?: string | null, day?: string | null) => call<StreamPage>(`/api/harbors/${encodeURIComponent(id)}/stream${q({ cursor, day })}`),
   /** Neuigkeiten des Boots (F-425); Schlüssel bei „Nur mit Link“ */
   boatStream: (id: string, cursor?: string | null, key?: string | null) => call<StreamPage>(`/api/boats/${encodeURIComponent(id)}/stream${q({ cursor })}`, keyInit(key)),
   home: () => call<HomeInfo>('/api/me/home'),
@@ -1264,6 +1271,8 @@ export const postApi = {
   remove: (id: string) => call<void>(`/api/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   /** Verläufe zum Schreiben (F-405); `ctx` = Verlauf der offenen Seite, z. B. `group:<id>` */
   compose: (ctx?: string | null) => call<ComposeData>(`/api/me/compose${q({ ctx })}`),
+  /** Publikum eines Verlaufs je Stufe, gerundet (F-465) */
+  audience: (ctx: string) => call<{ audience: Audience }>(`/api/me/compose/audience${q({ ctx })}`),
   /** Beitrag in einen beliebigen Verlauf (F-405, F-425) */
   createIn: (input: ChannelPostInput) => call<{ post: CreatedPost }>('/api/posts', jsonInit('POST', input)),
   /** Sichtbarkeit bzw. „Sichtbar bis“ ändern (F-409) */

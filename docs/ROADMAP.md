@@ -86,7 +86,7 @@ ein.
 | **`feature/moderation-konzept`** (nur `docs/MODERATION.md`) | Empfehlung: Offene Teile (Textfilter, Vertrauensstufen, Bildprüfung) mit dem Admin-Bereich (K 18) abgleichen. Was noch fehlt, wird ein Konzept-Abschnitt mit Reservierung, der Branch wird danach gelöscht |
 | **Testkonto für Abläufe mit Anmeldung in der Vorschau** | Siehe Abwägung unten |
 | **Challenges vs. K6** | Ranglisten nur mit Opt-in und nur aus `dist_source = 'track'`? Oder bei „keine Ranglisten“ bleiben? |
-| Schwellen und Kontingente | Galerie 10/200 Fotos je Monat, Tageszusammenfassung 150/15, Hinweis 100 (K 21.10). Erst bei Umsetzung der jeweiligen Phase |
+| Schwellen und Kontingente | Galerie 10/200 Fotos je Monat (K 21.10), erst bei Umsetzung von Phase 7. Tageszusammenfassung 150/15 und Hinweis 100 umgesetzt in `GROUP_LIMITS` (K 28) – nach dem Pilot mit echten Vereinen prüfen |
 
 **Abwägung Testkonto in der Vorschau.** Die Vorschau `dev-<branch>` ist öffentlich und hat keine Secrets, und die
 Anmeldung ist dort bewusst gesperrt. Ein Testkonto bräuchte dort einen Anmeldeweg ohne Mail und ohne Passkey. Weil die

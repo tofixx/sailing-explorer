@@ -1,5 +1,6 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
 import { POST_VISIBILITY_CHOICE, channelKey, channelName, type AttachableShare, type ComposeTarget, type PostVisibility, defaultPostVisibility } from '../domain/posts';
+import type { Audience } from '../domain/large-groups';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import './sx-post-composer';
@@ -17,7 +18,8 @@ const HINT: Record<PostVisibility, string> = {
  * Text-Beitrag über den Plus-Knopf (Konzept 21.4, F-405): „Wo steht es?“ (Profil, Gruppen mit Schreibrecht, Häfen und
  * Boote), dann das gemeinsame Formular `sx-post-composer` mit den Stufen dieses Verlaufs. Mobil randlos als Vollbild
  * (`dialogStyles`). Rein präsentational – meldet `sx-compose-submit` { channel, body, link, visibility, reach?,
- * shareId } und `sx-compose-close`; der Controller leert es mit `clear()`.
+ * shareId }, `sx-compose-channel` { ctx } (anderer Verlauf gewählt – der Controller lädt dessen Publikum `audience`,
+ * F-465) und `sx-compose-close`; der Controller leert es mit `clear()`.
  */
 export class SxComposeDialog extends LitElement {
   static properties = {
@@ -29,6 +31,8 @@ export class SxComposeDialog extends LitElement {
     shares: { attribute: false },
     /** gewählter Verlauf (`channelKey`) */
     selected: { type: String },
+    /** Publikum des gewählten Verlaufs (F-465), null solange unbekannt */
+    audience: { attribute: false },
   };
   declare open: boolean;
   declare loading: boolean;
@@ -37,6 +41,7 @@ export class SxComposeDialog extends LitElement {
   declare targets: ComposeTarget[];
   declare shares: AttachableShare[];
   declare selected: string;
+  declare audience: Audience | null;
 
   constructor() {
     super();
@@ -47,6 +52,7 @@ export class SxComposeDialog extends LitElement {
     this.targets = [];
     this.shares = [];
     this.selected = 'user';
+    this.audience = null;
   }
 
   static styles = [
@@ -74,6 +80,20 @@ export class SxComposeDialog extends LitElement {
     return this.targets.find((t) => channelKey(t.ref) === this.selected) ?? this.targets[0];
   }
 
+  /** Verlauf wechseln (Auswahl oder kleinere Gruppe aus dem Hinweis) – das Publikum lädt der Controller neu. */
+  private pick(key: string) {
+    const t = this.targets.find((x) => channelKey(x.ref) === key);
+    if (!t) return;
+    this.selected = key;
+    this.audience = null;
+    emit(this, 'sx-compose-channel', { ctx: composeCtx(t) });
+  }
+
+  /** Eigene beschreibbare Teams des gewählten Vereins – die kleineren Gruppen im Hinweis (F-465). */
+  private smaller(t: ComposeTarget) {
+    return this.targets.filter((x) => t.ref.kind === 'group' && x.clubId === t.id).map((x) => ({ key: channelKey(x.ref), label: channelName(x.ref) }));
+  }
+
   private submit(e: CustomEvent) {
     e.stopPropagation();
     const t = this.target();
@@ -95,11 +115,12 @@ export class SxComposeDialog extends LitElement {
         ${this.loading
           ? html`<p class="muted" role="status">Lade …</p>`
           : html`<label><span class="label">Wo steht es?</span>
-                <select @change=${(e: Event) => (this.selected = (e.target as HTMLSelectElement).value)}>
+                <select @change=${(e: Event) => this.pick((e.target as HTMLSelectElement).value)}>
                   ${this.targets.map((x) => html`<option value=${channelKey(x.ref)} ?selected=${t === x}>${x.ref.kind === 'user' ? 'Mein Profil' : channelName(x.ref)}</option>`)}
                 </select></label>
               ${t
                 ? html`<sx-post-composer label="Text" placeholder="Was gibt es Neues?" ?busy=${this.busy} .choices=${t.choices} preset=${defaultPostVisibility(t.ref.kind)} .reaches=${t.reaches} .shares=${this.shares}
+                    .audience=${this.audience} .smaller=${this.smaller(t)} @sx-compose-pick=${(e: CustomEvent<{ key: string }>) => this.pick(e.detail.key)}
                     hint="Höchstens 5 Beiträge pro Tag und Verlauf. Reiner Text, Links werden klickbar."
                     .choiceHints=${Object.fromEntries(t.choices.map((v) => [v, `${POST_VISIBILITY_CHOICE[v]}: ${HINT[v]}`]))}
                     @sx-post-submit=${(e: CustomEvent) => this.submit(e)}></sx-post-composer>`
@@ -110,3 +131,6 @@ export class SxComposeDialog extends LitElement {
   }
 }
 customElements.define('sx-compose-dialog', SxComposeDialog);
+
+/** `ctx` eines Verlaufs für die API (`user` bzw. `<art>:<id>`). */
+export const composeCtx = (t: ComposeTarget): string => (t.ref.kind === 'user' ? 'user' : `${t.ref.kind}:${t.id}`);

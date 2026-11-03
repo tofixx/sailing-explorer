@@ -360,6 +360,8 @@ export interface ComposeTarget {
   id: string;
   choices: PostVisibility[];
   reaches: ReachOption[];
+  /** Team: ID seines Vereins – kleinere Gruppe im Publikums-Hinweis (F-465) */
+  clubId?: string;
 }
 
 /** Ein eigener Törn zum Anhängen (F-426). */

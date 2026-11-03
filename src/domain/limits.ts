@@ -180,6 +180,12 @@ export const GROUP_LIMITS = {
   digestsPerRun: 20,
   /** Gruppen, in denen ein Törn höchstens erscheint (Auswahl beim Speichern bzw. Teilen, F-373) */
   shareGroups: 50,
+  /** Große Gruppen (Konzept 28, B8, bestätigt nach 21.10): Hinweis vor dem Posten ab so vielen Personen (F-465) */
+  audienceHint: 100,
+  /** Tageszusammenfassung (F-466): Verläufe mit mehr als so vielen Mitgliedern bzw. Booten … */
+  summaryMembers: 150,
+  /** … oder Tage mit mehr als so vielen sichtbaren Einträgen */
+  summaryPerDay: 15,
 } as const;
 
 /** Darf das Konto noch eine Gruppe anlegen? Kostenlos 1, Unterstützer 10 (402 bzw. 409 wie bei Booten). */

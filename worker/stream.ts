@@ -16,6 +16,8 @@ import type { Visibility } from '../src/domain/visibility';
 import type { Reach } from '../src/domain/posts';
 import { logbookIds, shapeItem, type ActivityRow, type LogShare, type ReadAt, type Viewer } from './stream-shape';
 import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
+import { dayEntries, pageByDays, type Candidate, type DayPageOut } from './stream-days';
+import { DAY_CURSOR_ID, dayOfKey, isLargeChannel, staysSingle, type DayCard } from '../src/domain/large-groups';
 import {
   STREAM_PAGE, STREAM_SCAN, canManageGroup, canSeeMembers, decodeCursor, encodeCursor, isAutomaticKind, reactionSubjectOf,
   type GroupRole, type StreamCursor, type StreamItem,
@@ -35,7 +37,7 @@ const ROW_COLS_JOINS = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subje
     g.id AS g_id, g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.hidden_at AS g_hidden, gm.role AS g_role, g.members_visible AS g_members,
     EXISTS (SELECT 1 FROM users gu WHERE gu.id = g.owner_id AND gu.suspended_at IS NOT NULL) AS g_owner_suspended,
     p.id AS p_id, p.body AS p_body, p.link AS p_link, p.hidden_at AS p_hidden, p.author_id AS p_author, p.visibility AS p_vis, p.reach AS p_reach,
-    p.channel_kind AS p_ck, p.channel_id AS p_cid, p.link_key AS p_key,
+    p.channel_kind AS p_ck, p.channel_id AS p_cid, p.link_key AS p_key, p.kind AS p_kind,
     ph.slug AS ph_slug, ph.name AS ph_name, ph.hidden_at AS ph_hidden,
     pb.name AS pb_name, pb.visibility AS pb_vis, pb.hidden_at AS pb_hidden,
     EXISTS (SELECT 1 FROM users pbu WHERE pbu.id = pb.owner_id AND pbu.suspended_at IS NOT NULL) AS pb_owner_suspended,
@@ -68,10 +70,6 @@ const POST_ROW_SQL = `WITH a AS (SELECT p0.id AS id, 'post' AS kind, p0.author_i
     p0.group_id AS group_id, '{}' AS data, p0.created_at AS created_at FROM posts p0 WHERE p0.id = ?2 AND p0.share_id IS NULL)
   ${ROW_COLS_JOINS}`;
 
-interface Candidate {
-  id: string;
-  at: number;
-}
 
 export interface StreamPageOut {
   items: StreamItem[];
@@ -107,17 +105,16 @@ async function attachReactions(env: Env, items: StreamItem[], viewerId: string |
   });
 }
 
-/** Für gecachte (für alle gleiche) Seiten: die eigene Reaktion nachträglich eintragen. */
-async function addMine(env: Env, page: StreamPageOut, viewerId: string | null): Promise<StreamPageOut> {
-  if (!viewerId || !page.items.length) return page;
-  const keys = page.items.filter((i) => i.reactions).map((i) => [i.reactions!.subject, i.reactions!.id]);
+/** Für gecachte (für alle gleiche) Seiten: die eigene Reaktion nachträglich eintragen – auch in Tageskarten. */
+async function addMine<T extends StreamPageOut & { days?: DayCard[] }>(env: Env, page: T, viewerId: string | null): Promise<T> {
+  if (!viewerId) return page;
+  const all = [...page.items, ...(page.days ?? []).flatMap((d) => d.top)];
+  const keys = all.filter((i) => i.reactions).map((i) => [i.reactions!.subject, i.reactions!.id]);
   if (!keys.length) return page;
   const { results } = await env.DB.prepare(MINE_SQL).bind(JSON.stringify(keys), viewerId).all<{ sk: string; sid: string; kind: ReactionKind }>();
   const mine = new Map(results.map((r) => [`${r.sk}:${r.sid}`, r.kind]));
-  return {
-    ...page,
-    items: page.items.map((i) => (i.reactions ? { ...i, reactions: { ...i.reactions, mine: mine.get(`${i.reactions.subject}:${i.reactions.id}`) ?? null } } : i)),
-  };
+  const withMine = (i: StreamItem): StreamItem => (i.reactions ? { ...i, reactions: { ...i.reactions, mine: mine.get(`${i.reactions.subject}:${i.reactions.id}`) ?? null } } : i);
+  return { ...page, items: page.items.map(withMine), ...(page.days ? { days: page.days.map((d) => ({ ...d, top: d.top.map(withMine) })) } : {}) };
 }
 
 // ---------------------------------------------------------------- Prüfen beim Lesen
@@ -160,25 +157,34 @@ async function logbookShares(env: Env, rows: ActivityRow[], groupId?: string, le
 }
 
 /**
- * Prüft Kandidaten (neueste zuerst) und liefert höchstens eine Seite sichtbarer Einträge. Der Cursor zeigt auf den
- * letzten zurückgegebenen bzw. – wenn trotz voller Kandidatenliste weniger sichtbar waren – auf den letzten geprüften.
+ * Prüft Kandidaten (Reihenfolge bleibt) gegen den aktuellen Stand – je Kandidat die Zeile und der Eintrag (oder null).
  * `keep`: zusätzlicher Filter (z. B. Hafen-Stream: nur Törns öffentlicher Boote).
  */
-async function resolve(env: Env, viewer: Viewer, candidates: Candidate[], scanned: number, keep: (i: StreamItem) => boolean = () => true, groupId?: string): Promise<StreamPageOut> {
-  if (!candidates.length) return { items: [], cursor: null };
-  const ids = candidates.map((c) => c.id);
-  const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(viewer.id ?? '', JSON.stringify(ids)).all<ActivityRow>();
+async function shapeCandidates(env: Env, viewer: Viewer, candidates: Candidate[], keep: (i: StreamItem) => boolean = () => true, groupId?: string) {
+  if (!candidates.length) return [];
+  const { results: rows } = await env.DB.prepare(ROWS_SQL).bind(viewer.id ?? '', JSON.stringify(candidates.map((c) => c.id))).all<ActivityRow>();
   const byId = new Map(rows.map((r) => [r.id, r]));
   const thumbs = await photoThumbs(env, rows);
   const at = viewer.at?.kind;
   const logs = await logbookShares(env, rows, groupId, at === 'community' ? 'all' : at === 'harbor' ? 'harbor' : null);
+  return candidates.map((c) => {
+    const row = byId.get(c.id) ?? null;
+    const item = row ? shapeItem(row, viewer, thumbs.get(row.s_id ?? '') ?? [], logs.get(row.id) ?? []) : null;
+    return { c, row, item: item && keep(item) ? item : null };
+  });
+}
+
+/**
+ * Prüft Kandidaten (neueste zuerst) und liefert höchstens eine Seite sichtbarer Einträge. Der Cursor zeigt auf den
+ * letzten zurückgegebenen bzw. – wenn trotz voller Kandidatenliste weniger sichtbar waren – auf den letzten geprüften.
+ */
+async function resolve(env: Env, viewer: Viewer, candidates: Candidate[], scanned: number, keep: (i: StreamItem) => boolean = () => true, groupId?: string): Promise<StreamPageOut> {
+  if (!candidates.length) return { items: [], cursor: null };
   const items: StreamItem[] = [];
   let last: Candidate | null = null;
-  for (const c of candidates) {
-    const r = byId.get(c.id);
+  for (const { c, item } of await shapeCandidates(env, viewer, candidates, keep, groupId)) {
     last = c;
-    const item = r ? shapeItem(r, viewer, thumbs.get(r.s_id ?? '') ?? [], logs.get(r.id) ?? []) : null;
-    if (item && keep(item)) items.push(item);
+    if (item) items.push(item);
     if (items.length >= STREAM_PAGE) break;
   }
   await attachReactions(env, items, viewer.id);
@@ -294,16 +300,25 @@ export async function markStreamSeen(request: Request, env: Env): Promise<Respon
 
 // ---------------------------------------------------------------- Streams einzelner Ziele (Gruppe, Hafen)
 
-async function targetCandidates(env: Env, kind: 'group' | 'harbor' | 'boat', id: string, c: StreamCursor): Promise<Candidate[]> {
+/** Kandidaten eines Ziels ab dem Cursor; `since`: nur ab diesem Zeitpunkt (ein Tag, F-468). */
+async function targetCandidates(env: Env, kind: 'group' | 'harbor' | 'boat', id: string, c: StreamCursor, since = 0, limit = STREAM_SCAN): Promise<Candidate[]> {
   const { results } = await env.DB.prepare(
     `SELECT activity_id AS id, created_at AS at FROM activity_target
-     WHERE target_kind = ?1 AND target_id = ?2 AND (created_at < ?3 OR (created_at = ?3 AND activity_id < ?4))
+     WHERE target_kind = ?1 AND target_id = ?2 AND (created_at < ?3 OR (created_at = ?3 AND activity_id < ?4)) AND created_at >= ?6
      ORDER BY created_at DESC, activity_id DESC LIMIT ?5`,
   )
-    .bind(kind, id, c.at, c.id, STREAM_SCAN)
+    .bind(kind, id, c.at, c.id, limit, since)
     .all<Candidate>();
   return results;
 }
+
+/** Lesestelle Gruppe: Ausbreitung von oben (Verein eines Teams) und ob Inhalte der Mitglieder sichtbar sind (F-442). */
+const groupAt = (group: { id: string; parent_id?: string | null; members_visible?: string | null }, role: GroupRole | null) => ({
+  kind: 'group' as const,
+  id: group.id,
+  parentId: group.parent_id ?? null,
+  memberContent: canSeeMembers(group.members_visible, role),
+});
 
 /**
  * Einträge einer Gruppe (Ziel `group`) – auch für RSS (worker/feed.ts). Ausgebreitete Beiträge (Teams → Verein) nur,
@@ -312,8 +327,7 @@ async function targetCandidates(env: Env, kind: 'group' | 'harbor' | 'boat', id:
 export async function groupItems(env: Env, group: { id: string; parent_id?: string | null; members_visible?: string | null }, viewer: Viewer, c: StreamCursor, role: GroupRole | null = null) {
   // Törns der Mitglieder nur, wenn der Lesende die Mitglieder sehen darf (F-442, Konzept 24.7) – ohne Betrachter
   // (öffentlicher Cache, RSS, Community-Filter) bei Liste „nur Mitglieder“ also nie
-  const at = { kind: 'group' as const, id: group.id, parentId: group.parent_id ?? null, memberContent: canSeeMembers(group.members_visible, role) };
-  return resolve(env, { ...viewer, at }, await targetCandidates(env, 'group', group.id, c), STREAM_SCAN, undefined, group.id);
+  return resolve(env, { ...viewer, at: groupAt(group, role) }, await targetCandidates(env, 'group', group.id, c), STREAM_SCAN, undefined, group.id);
 }
 
 /** Hafen-Stream: Törns und Fotos nur mit (jetzt) öffentlichem Boot – sonst verriete er den Hafen eines privaten Boots. */
@@ -329,6 +343,67 @@ export async function boatItems(env: Env, boatId: string, viewer: Viewer, c: Str
   return resolve(env, { ...viewer, at: { kind: 'boat', id: boatId } }, await targetCandidates(env, 'boat', boatId, c), STREAM_SCAN);
 }
 
+// ---------------------------------------------------------------- Tageszusammenfassung (Konzept 28, F-466 … F-469)
+
+/** Für die Tageszusammenfassung: großer Verlauf? Wer verwaltet ihn (bleibt einzeln, F-467)? null = abgeschaltet (F-469). */
+interface DaySummary {
+  large: boolean;
+  managers: Set<string>;
+}
+
+async function groupSummary(env: Env, group: { id: string; day_summary?: number | null }): Promise<DaySummary | null> {
+  if (group.day_summary === 0) return null;
+  const [n, m] = await env.DB.batch([
+    env.DB.prepare('SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?').bind(group.id),
+    env.DB.prepare(`SELECT user_id FROM group_members WHERE group_id = ? AND role IN ('owner', 'admin')`).bind(group.id),
+  ]);
+  return { large: isLargeChannel((n.results[0] as { n: number }).n), managers: new Set((m.results as Array<{ user_id: string }>).map((r) => r.user_id)) };
+}
+
+/** Hafen: Boote mit diesem Heimathafen; Vertretung bzw. Anleger:in verwaltet ihn (`canManageChannel`). */
+async function harborSummary(env: Env, h: { id: string; created_by: string | null }): Promise<DaySummary> {
+  const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM boats WHERE harbor_id = ?').bind(h.id).first<{ n: number }>();
+  return { large: isLargeChannel(n?.n ?? 0), managers: new Set(h.created_by ? [h.created_by] : []) };
+}
+
+/**
+ * Eine Seite eines Gruppen- bzw. Hafen-Verlaufs mit Tageskarten (F-466, F-468) – oder mit `?day=YYYY-MM-DD` die
+ * zusammengefassten Einträge dieses Tages einzeln („Alle anzeigen“). Ohne Zusammenfassung wie bisher.
+ */
+async function channelPage(
+  env: Env,
+  request: Request,
+  viewer: Viewer,
+  target: { kind: 'group' | 'harbor'; id: string },
+  summary: DaySummary | null,
+  keep?: (i: StreamItem) => boolean,
+  groupId?: string,
+): Promise<StreamPageOut | DayPageOut> {
+  const url = new URL(request.url);
+  const c = cursorOf(request);
+  const shape = async (cs: Candidate[]) =>
+    (await shapeCandidates(env, viewer, cs, keep, groupId)).map(({ c: cand, row, item }) => ({
+      c: cand,
+      item,
+      single: !!row && staysSingle({ own: !!viewer.id && row.actor_id === viewer.id, byManager: !!row.actor_id && !!summary?.managers.has(row.actor_id), postKind: row.p_kind }),
+    }));
+  const react = (items: StreamItem[]) => attachReactions(env, items, viewer.id);
+  const dayParam = url.searchParams.get('day');
+  if (dayParam !== null) {
+    const day = dayOfKey(dayParam);
+    if (!day) throw new HttpError(400, 'invalid_day', 'Ungültiger Tag.');
+    const from = c.at > day.end ? { at: day.end, id: DAY_CURSOR_ID } : c;
+    return dayEntries(await targetCandidates(env, target.kind, target.id, from, day.start), STREAM_SCAN, { shape, react });
+  }
+  const candidates = await targetCandidates(env, target.kind, target.id, c);
+  if (!summary) return resolve(env, viewer, candidates, STREAM_SCAN, keep, groupId);
+  return pageByDays(candidates, STREAM_SCAN, Date.now(), summary.large, {
+    shape,
+    rest: (day, after, limit) => targetCandidates(env, target.kind, target.id, after, day.start, limit),
+    react,
+  });
+}
+
 const PUBLIC_TTL = 60;
 
 const defaultCache = (): Cache | undefined => (typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined);
@@ -337,7 +412,7 @@ const defaultCache = (): Cache | undefined => (typeof caches !== 'undefined' ? (
  * Für alle gleiche Seite aus dem Cache (60 s) bzw. berechnet und abgelegt; die eigene Reaktion kommt danach dazu.
  * Der Schlüssel enthält nur feste Teile und den Cursor bzw. Filter – nie etwas Persönliches.
  */
-async function cachedPage<T extends StreamPageOut>(request: Request, env: Env, cacheKey: string, compute: () => Promise<T>, viewerId: string | null): Promise<Response> {
+async function cachedPage<T extends StreamPageOut & { days?: DayCard[] }>(request: Request, env: Env, cacheKey: string, compute: () => Promise<T>, viewerId: string | null): Promise<Response> {
   const url = new URL(request.url);
   const key = new Request(`${url.origin}/__cache/${cacheKey}`);
   const cache = defaultCache();
@@ -353,6 +428,8 @@ async function cachedPage<T extends StreamPageOut>(request: Request, env: Env, c
 }
 
 const cursorParam = (request: Request) => encodeURIComponent(new URL(request.url).searchParams.get('cursor') ?? '');
+/** Cursor und Tag („Alle anzeigen“, F-468) für den Cache-Schlüssel – nie etwas Persönliches. */
+const pageParams = (request: Request) => `cursor=${cursorParam(request)}&day=${encodeURIComponent(new URL(request.url).searchParams.get('day') ?? '')}`;
 
 /**
  * GET /api/groups/:id/stream?cursor= – Neuigkeiten der Gruppe. Öffentliche Gruppen sind für alle (außer Eigner/Admins,
@@ -360,15 +437,14 @@ const cursorParam = (request: Request) => encodeURIComponent(new URL(request.url
  */
 export async function groupStream(request: Request, env: Env, id: string): Promise<Response> {
   const { group, role, user } = await visibleGroup(request, env, await loadGroup(env, id));
-  const c = cursorOf(request);
+  const summary = await groupSummary(env, group);
+  const page = (viewerId: string | null, r: GroupRole | null) =>
+    channelPage(env, request, { id: viewerId, at: groupAt(group, r) }, { kind: 'group', id: group.id }, summary, undefined, group.id);
   // Mitglieder nie aus dem Cache: er ist ohne Betrachter berechnet und enthält keine „Nur Mitglieder“-Beiträge (F-415)
   const shared = group.visibility === 'public' && !group.hidden_at && role === null;
-  if (!shared) {
-    const page = await groupItems(env, group, { id: user?.id ?? null }, c, role);
-    return json(page, { headers: { 'Cache-Control': 'private, no-store' } });
-  }
-  // Ohne Betrachter berechnet: gleich für alle, keine Löschen-Rechte im Cache.
-  return cachedPage(request, env, `groups/${group.id}/stream?cursor=${cursorParam(request)}`, () => groupItems(env, group, { id: null }, c), user?.id ?? null);
+  if (!shared) return json(await page(user?.id ?? null, role), { headers: { 'Cache-Control': 'private, no-store' } });
+  // Ohne Betrachter berechnet: gleich für alle, keine Löschen-Rechte und keine „eigenen“ Einträge im Cache (F-467).
+  return cachedPage(request, env, `groups/${group.id}/stream?${pageParams(request)}`, () => page(null, null), user?.id ?? null);
 }
 
 /**
@@ -398,8 +474,9 @@ export async function harborStream(request: Request, env: Env, id: string): Prom
   const user = await currentUser(request, env);
   const h = await loadHarbor(env, id);
   if (!harborVisible(h, isAdmin(env, user?.id))) throw HARBOR_NOT_FOUND();
-  const c = cursorOf(request);
-  return cachedPage(request, env, `harbors/${h.id}/stream?cursor=${cursorParam(request)}`, () => harborItems(env, h.id, { id: null }, c), user?.id ?? null);
+  const summary = await harborSummary(env, h);
+  const compute = () => channelPage(env, request, { id: null, at: { kind: 'harbor', id: h.id } }, { kind: 'harbor', id: h.id }, summary, harborKeep);
+  return cachedPage(request, env, `harbors/${h.id}/stream?${pageParams(request)}`, compute, user?.id ?? null);
 }
 
 // ---------------------------------------------------------------- Öffentlicher Community-Stream (F-178)

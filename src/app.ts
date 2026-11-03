@@ -829,10 +829,15 @@ export class App {
     on<{ scope: 'home' | 'group' | 'harbor' | 'boat' | 'public' }>('sx-stream-more', (d) =>
       d.scope === 'harbor' ? this.social.moreHarbor() : d.scope === 'boat' ? this.social.moreBoat() : g.more(d.scope),
     );
+    // Tageskarte großer Verläufe aufklappen (F-468) – nur Gruppen- und Hafen-Stream haben welche
+    on<{ scope: string; day: string; cursor: string | null }>('sx-day-open', (d) =>
+      d.scope === 'harbor' ? this.social.openHarborDay(d.day, d.cursor) : d.scope === 'group' ? g.openDay(d.day, d.cursor) : undefined,
+    );
     // „+ Neu“ (F-405): ein Event für alle Arten; Text-Dialog
     on<{ kind: ComposeKind }>('sx-compose-open', (d) => this.compose.open(d.kind));
     on<ChannelPostInput>('sx-compose-submit', (d) => void this.compose.submit(d));
     on('sx-compose-close', () => this.compose.close());
+    on<{ ctx: string }>('sx-compose-channel', (d) => void this.compose.loadAudience(d.ctx));
     on<{ kind: FollowKind; id: string; follow: boolean }>('sx-follow', (d) => g.follow(d));
 
     // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----

@@ -2854,6 +2854,8 @@ benachrichtigt nie (nur der Heimatverlauf).
 
 #### 21.7.1 Große Gruppen: Hinweis und Tageszusammenfassung (B8)
 
+Umgesetzt in Phase 6, Entscheidungen und Abweichungen in Konzept 28 (`docs/concept/28-grosse-gruppen.md`).
+
 **Hinweis vor dem Posten** (F-417): `sx-compose` zeigt das ungefähre Publikum der gewählten Kombination aus Verlauf,
 Sichtbarkeit und „Sichtbar bis“ – Mitglieder + Follower des Heimatverlaufs und der Stufen darüber (Hafen: Konten mit
 Boot oder Heimathafen dort + Follower; „überall“: „alle in der Community“). Ab **100** Personen: „Geht an ca. N
@@ -2909,7 +2911,7 @@ lesbaren `body` als Rückfall mitbringt.
 - **F-414** Vereinsliste der Punktesummen nur mit Opt-in, nur dort gezeigte Einträge, Gewichtung einstellbar.
 - **F-415** `members`-Beiträge nie aus öffentlichen Caches, nie für Nicht-Mitglieder, nie weiter ausgebreitet.
 - **F-416** Benachrichtigungen für Beiträge, Zusagen, Erinnerungen, Umfrage-Ende; Ausbreitung benachrichtigt nicht.
-- **F-417** Publikums-Hinweis ab 100 Personen und Tageszusammenfassung großer Verläufe.
+- **F-417** Publikums-Hinweis ab 100 Personen und Tageszusammenfassung großer Verläufe – ausformuliert als F-465 … F-469 (Konzept 28).
 - **F-418** Verwaltungsbereich im Konto mit Jahresbericht (CSV/Excel, druckbar). *Verwaltungsbereich und Meilennachweis (CSV, Druck) in Konzept 27; Jahresbericht für Vereine mit Phase 9.*
 - **F-419** Galerie-Kontingent: kostenlos 10 Fotos je Monat, Unterstützer mehr, Speicher gemeinsam mit Törn-Fotos.
 
@@ -3363,3 +3365,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 26. Diagramm-Großansicht: Zoomen und Verschieben (F-430) → [`docs/concept/26-diagramm-zoom.md`](concept/26-diagramm-zoom.md)
 
 ## 27. Verwaltungsbereich und Fahrtenbuch nach Jahren (Phase 8, F-411, F-412, F-418) → [`docs/concept/27-fahrtenbuch-jahre.md`](concept/27-fahrtenbuch-jahre.md)
+
+## 28. Große Gruppen: Publikums-Hinweis und Tageszusammenfassung (F-465 … F-469) → [`docs/concept/28-grosse-gruppen.md`](concept/28-grosse-gruppen.md)

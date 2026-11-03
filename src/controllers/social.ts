@@ -9,6 +9,7 @@ import type { SxProfilePage } from '../components/sx-profile-page';
 import type { ReactDetail, ReactionValue, SxReactions } from '../components/sx-reactions';
 import type { ReactionSubject, ReactionSummary } from '../domain/reactions';
 import { errorText } from './session';
+import { withDayPage } from '../domain/large-groups';
 
 export interface SocialUi {
   /** Profil-/Boots-/Hafenseite (eine Komponente) */
@@ -81,7 +82,24 @@ export class SocialController {
     page.streamLoading = true;
     try {
       const next = await socialApi.harborStream(d.harbor.id, d.stream.cursor);
-      page.data = { ...d, stream: { ...next, items: [...d.stream.items, ...next.items] } };
+      page.data = { ...d, stream: { ...next, items: [...d.stream.items, ...next.items], days: [...(d.stream.days ?? []), ...(next.days ?? [])] } };
+    } catch (e) {
+      this.ui.toast(errorText(e));
+    } finally {
+      page.streamLoading = false;
+    }
+  }
+
+  /** Tageskarte im Hafen-Stream aufklappen bzw. weiterblättern (F-468). */
+  async openHarborDay(day: string, cursor: string | null): Promise<void> {
+    const page = this.ui.page;
+    const d = page.data;
+    if (d?.kind !== 'harbor' || !d.stream) return;
+    page.streamLoading = true;
+    try {
+      const next = await socialApi.harborStream(d.harbor.id, cursor, day);
+      const cur = page.data;
+      if (cur?.kind === 'harbor' && cur.stream) page.data = { ...cur, stream: { ...cur.stream, days: withDayPage(cur.stream.days ?? [], day, next, !!cursor) } };
     } catch (e) {
       this.ui.toast(errorText(e));
     } finally {

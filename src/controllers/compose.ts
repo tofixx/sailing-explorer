@@ -2,7 +2,8 @@
 // es weiter, wie F-312), die offene Gruppen-, Hafen- bzw. Bootsseite ist vorausgewählt. Nach dem Veröffentlichen geht
 // es in den Heimatverlauf, die neue Karte wird hervorgehoben (F-406). Die Komponenten melden nur Absichten.
 import { postApi, type ChannelPostInput, type CreatedPost } from '../services/api';
-import type { SxComposeDialog } from '../components/sx-compose-dialog';
+import { composeCtx, type SxComposeDialog } from '../components/sx-compose-dialog';
+import { channelKey } from '../domain/posts';
 import type { ComposeKind } from '../components/sx-compose';
 import { pickGpx } from '../components/shared';
 import { errorText } from './session';
@@ -54,11 +55,29 @@ export class ComposeController {
     Object.assign(d, { open: true, loading: true, error: '', targets: [], shares: [] });
     try {
       const data = await postApi.compose(this.ctx ? `${this.ctx.kind}:${this.ctx.id}` : null);
-      Object.assign(d, { targets: data.targets, shares: data.shares, selected: data.preselect ?? 'user' });
+      const selected = data.preselect ?? 'user';
+      Object.assign(d, { targets: data.targets, shares: data.shares, selected, audience: null });
+      const t = data.targets.find((x) => channelKey(x.ref) === selected) ?? data.targets[0];
+      if (t) void this.loadAudience(composeCtx(t));
     } catch (e) {
       d.error = errorText(e);
     } finally {
       d.loading = false;
+    }
+  }
+
+  /**
+   * Publikum des gewählten Verlaufs für den Hinweis (F-465). Fehler sind still – ohne Zahl gibt es nur keinen Hinweis;
+   * eine verspätete Antwort für einen inzwischen anderen Verlauf wird verworfen.
+   */
+  async loadAudience(ctx: string): Promise<void> {
+    const d = this.ui.dialog;
+    try {
+      const { audience } = await postApi.audience(ctx);
+      const t = d.targets.find((x) => channelKey(x.ref) === d.selected);
+      if (t && composeCtx(t) === ctx) d.audience = audience;
+    } catch {
+      /* kein Hinweis */
     }
   }
 

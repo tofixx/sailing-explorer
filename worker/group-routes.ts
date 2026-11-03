@@ -7,6 +7,7 @@ import {
 import { inviteGroup } from './invites';
 import { createChannelPost, createPost, createProfilePost, deletePost, getCompose, getPost, listMyPosts, updatePost } from './posts';
 import { listPins, setPin } from './pins';
+import { getComposeAudience } from './compose-audience';
 import { boatStream, groupStream, markStreamSeen, personalStream, streamUnread } from './stream';
 import { follow, getSuggestions, unfollow } from './follows';
 import { listChannels, putDefaultLevel, putLevel } from './notify-levels';
@@ -49,6 +50,7 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['PATCH', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => updatePost(r, env, id)],
   ['POST', /^\/api\/posts$/, (r, env) => createChannelPost(r, env)],
   ['GET', /^\/api\/me\/compose$/, (r, env) => getCompose(r, env)],
+  ['GET', /^\/api\/me\/compose\/audience$/, (r, env) => getComposeAudience(r, env)],
   ['GET', new RegExp(`^/api/boats/${ID}/stream$`), (r, env, [id]) => boatStream(r, env, id)],
   // Beiträge als Grundtyp (Konzept 21): „Mein Verlauf“ und Text-Beiträge im eigenen Profil
   ['GET', /^\/api\/me\/posts$/, (r, env) => listMyPosts(r, env)],
