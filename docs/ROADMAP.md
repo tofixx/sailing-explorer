@@ -1,6 +1,6 @@
 # Roadmap
 
-Einzige Quelle für „was kommt als Nächstes“. Stand 02.11.2026, Code-Stand `feature/beitraege-phase2` (9316c24).
+Einzige Quelle für „was kommt als Nächstes“. Stand 03.11.2026, Code-Stand `main` (704ec12).
 Inhalte stehen in den verlinkten Abschnitten. Hier stehen nur Reihenfolge, Nutzen, Aufwand und Abhängigkeiten.
 Erledigtes fällt heraus.
 
@@ -81,13 +81,13 @@ ein.
 
 | Frage | Optionen / Empfehlung |
 |---|---|
-| **Neuer Name** (Vorschlag „Wendespur“) | Vor der Entscheidung Marke (DPMA/EUIPO) und Domains (`.de`, `.app`) prüfen. Möglichst vor dem Pilot mit Vereinen festlegen, damit Einladungen und Links nicht umziehen müssen |
-| **`feature/supporter-badges`** (7 Commits, Stand 27.10.) | Empfehlung: **verwerfen** und brauchbare Ideen neu aufsetzen. Die Migration `0015_paid_support.sql` kollidiert mit `0015_approvers.sql`. Gutschein (K 18.9a) und freie Eigner (K 13.5) sind inzwischen anders gelöst |
-| **`feature/moderation-konzept`** (nur `docs/MODERATION.md`) | Empfehlung: Offene Teile (Textfilter, Vertrauensstufen, Bildprüfung) mit dem Admin-Bereich (K 18) abgleichen. Was noch fehlt, wird ein Konzept-Abschnitt mit Reservierung, der Branch wird danach gelöscht |
-| **Testkonto für Abläufe mit Anmeldung in der Vorschau** | Siehe Abwägung unten |
-| **Challenges vs. K6** | Ranglisten nur mit Opt-in und nur aus `dist_source = 'track'`? Oder bei „keine Ranglisten“ bleiben? |
+| **Neuer Name** | **Entschieden 03.11.: „Luv & Leute“** (Betreiber). Umstellung in der App: `feature/name-luv-leute`. Marke (DPMA/EUIPO) und Domain prüft der Betreiber; `segeln-potsdam.de` bleibt bis dahin |
+| **`feature/supporter-badges`** (7 Commits, Stand 27.10.) | **Entschieden 03.11.: verworfen** (Stand gesichert als Tag `archiv/supporter-badges`). Begründung: und brauchbare Ideen neu aufsetzen. Die Migration `0015_paid_support.sql` kollidiert mit `0015_approvers.sql`. Gutschein (K 18.9a) und freie Eigner (K 13.5) sind inzwischen anders gelöst |
+| **`feature/moderation-konzept`** (nur `docs/MODERATION.md`) | **Entschieden 03.11.: abgleichen** auf `docs/moderation-abgleich` (Konzept 35). Vorgehen: Offene Teile (Textfilter, Vertrauensstufen, Bildprüfung) mit dem Admin-Bereich (K 18) abgleichen. Was noch fehlt, wird ein Konzept-Abschnitt mit Reservierung, der Branch wird danach gelöscht |
+| **Testkonto für Abläufe mit Anmeldung in der Vorschau** | **Entschieden 03.11.: nein**, siehe Abwägung unten |
+| **Challenges vs. K6** | **Entschieden 03.11.: bei K6 bleiben** (keine Ranglisten zwischen Personen). Vereinswertung (Phase 9) zeigt die Liste nur Eignern/Admins; Challenges höchstens als persönliche Ziele bzw. Vereinssummen ohne Personen-Rangfolge. Der Eintrag unter „Später“ bleibt zurückgestellt |
 | Schwellen und Kontingente | Galerie umgesetzt mit 10/200 Fotos je Monat, 30 je Beitrag, kostenlos 25 MB (K 31). Tageszusammenfassung 150/15 und Hinweis 100 umgesetzt in `GROUP_LIMITS` (K 28) – nach dem Pilot mit echten Vereinen prüfen |
-| **Ablauffrist für Galerie-Beiträge** | K 21.3.3 schlug „wie Fotos am Törn“ vor; umgesetzt ist vorerst keine Frist (wie Text-Beiträge), weil ein Ablauf Warn-Mails wie bei Törns bräuchte. Empfehlung: erst entscheiden, wenn der Speicher der Galerien messbar wächst (K 31.4) |
+| **Ablauffrist für Galerie-Beiträge** | K 21.3.3 schlug „wie Fotos am Törn“ vor; umgesetzt ist vorerst keine Frist (wie Text-Beiträge), weil ein Ablauf Warn-Mails wie bei Törns bräuchte. **Entschieden 03.11.: vorerst keine Frist**; neu bewerten, wenn der Speicher der Galerien messbar wächst (K 31.4) |
 
 **Abwägung Testkonto in der Vorschau.** Die Vorschau `dev-<branch>` ist öffentlich und hat keine Secrets, und die
 Anmeldung ist dort bewusst gesperrt. Ein Testkonto bräuchte dort einen Anmeldeweg ohne Mail und ohne Passkey. Weil die
@@ -113,8 +113,8 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 
 ### Reservierungen
 
-Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-514**, **Konzept 32**, **Migration 0040** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
-sind F-451, Konzept 27 (`docs/concept/27-….md`; Konzept 26 = Diagramm-Zoom, F-430) und Migration 0034. Neue Aufträge bekommen ihren Bereich hier, bevor
+Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-549**, **Konzept 35**, **Migration 0043** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
+sind F-550, Konzept 36 und Migration 0044. Neue Aufträge bekommen ihren Bereich hier, bevor
 sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
 | Branch / Auftrag | F-IDs | Konzept | Migration | Berührt | Stand |
@@ -129,3 +129,9 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
 | `feature/galerie` (Phase 7, Neubau `photos`) – Welle 2 nach dem Register | F-490 … F-499 | 31 | 0038 (`photos_rebuild`, nur Neubau), 0039 (`gallery`) | Neubau `photos`, `photo_log`; Art `gallery` an den Erweiterungspunkten der Beitragsarten (`COMPOSE_LIMITS`, `POST_KIND_LABEL`, `COMPOSE_KINDS`, `KINDS`, `KIND_FORMS`, `kindPayload`, `POST_KIND_ICON`) – je eine Zeile; `ROW_COLS_JOINS` (`p_photos`), `shapePost` (`own`), neu `sx-gallery-picker`, `sx-gallery-post`, `post-photos.ts`; `posts.ts` (`readPostInput`, Galerie-Kontingent, `visiblePost`, `removePost`), `photos.ts`, `photo-keys.ts`, Löschwege `groups.ts`, `boats.ts`, `harbors.ts`, `auth.ts`, `admin-merge.ts`, `retention.ts`, `reports.ts`, `notifications.ts`, `index.ts`, `limits.ts`, `cleanup-registry.ts`, `legal.ts` | gemergt 03.11. |
 | `feature/wertung` (Phase 9, F-413/F-414) – Welle 3 nach Phase 8 | F-500 … F-509 | 32 | 0040 | neu `scoring_templates`, `group_members.scoring_opt_in_at` (Lösch-Register), `shares.log.templateId` (`parseLog`), neu `src/domain/scoring.ts`, `worker/scoring.ts`, `worker/scoring-sql.ts`, `src/services/scoring-api.ts`, Seite `/konto/wertung` (`sx-scoring-page`, `sx-scoring-editor`, `controllers/scoring-page.ts`); geändert `logbook-list.ts` (CSV mit Punkten), `logbook-year.ts`, `worker/logbook.ts` (Vorlage prüfen), `sx-logbook-form` (Vorlage), `sx-logbook-page` (Punkte, Link „Wertung“), `url-state.ts`, `app.ts`, `index.html`, `worker/index.ts` (eine Zeile), `legal.ts`. Nicht: Streams, `sx-compose`, Gruppenseite, `groups.ts`, Fotos | gemergt 03.11. |
 | `feature/toern-ruhiger` (Törn-Seitenleiste: weniger sichtbare Schaltflächen, Crew/Einladen/Kommentare) | F-510 … F-514 | – | – | `sx-crew`, `sx-comments`, Törn-Seitenleiste, `sx-page-menu` | gemergt 03.11. |
+| `feature/name-luv-leute` (Markenname „Luv & Leute“ überall in der App) | F-515 … F-519 | – | – | sichtbare Texte, `index.html`, `manifest.webmanifest`, Mails, Teilen-Bild, `legal.ts`, `invite-text.ts`, Doku-Kopfzeilen | in Arbeit 03.11. |
+| `feature/saisonrueckblick` (Als Nächstes #2: „Meine Saison“-Bild, Abzeichen-Reihe) | F-520 … F-529 | 33 | 0041 (falls nötig) | `share-image.ts`, Saison-Summen (`logbook-year.ts`), `MILESTONES_NM`, Fahrtenbuch-Seite | in Arbeit 03.11. |
+| `feature/kleinkram-navigation` (Jetzt: doppelter Discover-Abruf, Zahnrad am Kartenstil; Als Nächstes #7: `ENTITY_ICON`, Byline mit Boot) | F-530 … F-534 | – | – | `app.ts` (`loadDiscoverStrip`), `GuestSliderController`, `sx-map-style`, `sx-voyage-byline`, `icons.ts`/`shared.ts` (`ENTITY_ICON`) | in Arbeit 03.11. |
+| `feature/bootsklasse` (Als Nächstes #8: Filter nach Bootsklasse in Entdecken) | F-535 … F-539 | 34 | 0042 | `boats.boat_type`/Klassenliste (`src/domain`), `worker/discover.ts`, Entdecken-Leiste | in Arbeit 03.11. |
+| `feature/web-url` (Web-URL für Vereine und Häfen) und Auffindbarkeit (Sitemap öffentlicher Seiten, SEO-Prüfung) | F-540 … F-549 | – | 0043 | `groups`, `harbors` (Spalte `web_url`), Gruppen-/Hafenseite, neue `/sitemap.xml`, `robots.txt` | in Arbeit 03.11. |
+| `docs/moderation-abgleich` (Moderations-Konzept gegen K 18 abgleichen) | – | 35 | – | nur `docs/` | in Arbeit 03.11. |
