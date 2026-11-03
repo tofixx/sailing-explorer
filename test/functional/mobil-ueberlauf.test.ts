@@ -1,14 +1,15 @@
 // @vitest-environment happy-dom
 // Überlauf bei 375 px (F-615 … F-617): Anmelde-Dialog nach „Link senden“, Startseite mit langem Bootsnamen,
 // Törn-Chip über der Grundkarten-Wahl.
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import L from 'leaflet';
 import { afterEach, describe, expect, it } from 'vitest';
 import { dialogStyles } from '../../src/components/shared';
 import '../../src/components/sx-login-dialog';
 import '../../src/components/sx-discover';
 import { SxEmptyState } from '../../src/components/sx-empty-state';
 import { SxTopbar } from '../../src/components/sx-topbar';
+import { SxEventDialog } from '../../src/components/sx-event-dialog';
+import { addBaseMapControl } from '../../src/map/basemap-control';
 
 type LitEl = HTMLElement & { updateComplete: Promise<boolean>; shadowRoot: ShadowRoot } & Record<string, unknown>;
 
@@ -69,8 +70,21 @@ describe('Überlauf bei 375 px', () => {
     expect(media(cssOf(SxTopbar.styles), '(max-width: 760px) { :host([home])')).toMatch(
       /\.chip\.toern \{[^}]*max-width: calc\(100vw - 2 \* 64px\)/,
     );
-    const src = readFileSync(resolve('src/map/map-view.ts'), 'utf8');
-    expect(src).toMatch(/leaflet-control-layers-toggle[\s\S]{0,200}setAttribute\('title', 'Grundkarte'\)/);
-    expect(src).toMatch(/setAttribute\('aria-label', 'Grundkarte'\)/);
+    const el = document.createElement('div');
+    document.body.append(el);
+    const map = L.map(el).setView([54.4, 12.7], 8);
+    const ctl = addBaseMapControl(map, { Tag: L.layerGroup(), Nacht: L.layerGroup() });
+    const toggle = ctl.getContainer()!.querySelector<HTMLElement>('.leaflet-control-layers-toggle')!;
+    expect(toggle.title).toBe('Grundkarte');
+    expect(toggle.getAttribute('aria-label')).toBe('Grundkarte');
+    expect(ctl.getContainer()!.closest('.leaflet-top.leaflet-right')).not.toBeNull();
+    map.remove();
+  });
+
+  it('[F-615] Dialoge mit eigener .body-Regel behalten die Spalte minmax(0, 1fr) (Termin-Dialog)', () => {
+    const own = cssOf(SxEventDialog.styles).split(cssOf(dialogStyles)).join('');
+    const bodies = own.match(/(^|[\s}])\.body \{[^}]*\}/g) ?? [];
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const b of bodies) expect(b).not.toMatch(/display:|grid-template-columns:/);
   });
 });
