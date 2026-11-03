@@ -17,3 +17,6 @@ export function seasonEndSql(t: string, extra: string | number = 0): string {
  * src/domain/support.ts bzw. manualExpiry() in src/domain/logbook.ts.
  */
 export const EXPIRES_SQL = `(MAX(${seasonEndSql('s.created_at', "(s.source = 'manual')")}, COALESCE((SELECT MAX(valid_until) FROM supports WHERE user_id = s.user_id), 0)) + ${GRACE_MS})`;
+
+/** Löschtermin nach Törn-Regel, auch für Einträge ohne GPX – was nach „GPX nachreichen“ gälte (Konzept 38, F-604). */
+export const TRACK_EXPIRES_SQL = `(MAX(${seasonEndSql('s.created_at')}, COALESCE((SELECT MAX(valid_until) FROM supports WHERE user_id = s.user_id), 0)) + ${GRACE_MS})`;

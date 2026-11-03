@@ -289,7 +289,7 @@ Konzept: `docs/CONCEPT.md` Abschnitt 17. Umsetzung: `migrations/0021_notificatio
 - **F-306** Aufbewahrung (L2): Einträge ohne GPX werden am 1. Februar nach der zweiten Saison ab Anlegen gelöscht (angelegt 2026 → 1.2.2028) bzw. nach der letzten unterstützten Saison, wenn die später endet (`manualExpiry` = `EXPIRES_SQL`, ein Test vergleicht beide). Erinnerung, Löschlauf und Löschwarnung wie F-65/F-66.
 - **F-307** Hafenposition (L3): Neue Häfen brauchen eine Lage (F-353, auch im Fahrtenbuch: sonst 400 `position_required`); im Fahrtenbuch-Formular fragt der Hafen-Picker bei neuen Häfen und `sx-place-picker` bei vorhandenen ohne Position danach. Ändern danach wie F-171 (Anleger:in, Moderation); fremde Häfen ohne Position: 403. Häfen ohne Position und ohne Anleger:in (Altbestand): wer als Erste:r die Position setzt (Fahrtenbuch oder PATCH), wird Anleger:in. Die Hafensuche liefert die Position mit.
 - **F-308** Stream und Meilensteine: Ein öffentlicher Eintrag erscheint wie ein Törn als `voyage` („hat einen Törn ins Fahrtenbuch eingetragen“, Abzeichen). Nachträge (Abfahrt mehr als 14 Tage vor dem Anlegen) kommen gebündelt als `logbook` je Konto und Tag („hat 6 Törns ins Fahrtenbuch nachgetragen (84 sm)“, bis zu 5 verlinkt); das Bündel merkt sich höchstens 100 Törns, zählt beim Lesen nur jetzt öffentliche, nicht ausgeblendete und verschwindet, wenn keiner mehr da ist (nachts endgültig). Meilensteine und Saison-Summen zählen Fahrtenbuch-Meilen mit (L4).
-- **F-309** Keine Medien (L6): Foto-Upload und Übersichtsbild an Einträgen ohne GPX → 409 `no_media_manual`, geprüft vor allen anderen Grenzen; die Payload ist auf 32 KB begrenzt und zählt zum Speicher; Link-Vorschau ohne Bild.
+- **F-309** Keine Medien (L6): Foto-Upload und Übersichtsbild an Einträgen ohne GPX → 409 `no_media_manual`, geprüft vor allen anderen Grenzen (mit nachgereichtem GPX ist es ein Törn, F-601); die Payload ist auf 32 KB begrenzt und zählt zum Speicher; Link-Vorschau ohne Bild.
 - **F-310** Löschen: keine neuen Pfade – Einzeln, Ablauf, Konto, inaktives Konto und Moderation entfernen Einträge samt Payload, Zähleranteil und Aktivitäten über `removeShare`; das Bündel `logbook` fällt mit den Aktivitäten des Kontos. Hafen gelöscht → Start-/Zielhafen der Törns leer (`ON DELETE SET NULL`); Häfen zusammengeführt → Törns zeigen auf den verbleibenden.
 - **F-311** GPX-Plausibilität (L8, `plausibleGpx`, gleich in Browser und Worker): höchstens 2.000 sm je Törn; mit Start und Ende (`X-Share-Ended`) Dauer ≤ 60 Tage und Distanz ≤ Dauer × 30 kn (mindestens eine Viertelstunde angesetzt) – sonst 400 `implausible_distance`; der Browser erklärt es vor dem Hochladen. GPS-Ausreißer zählen nicht zur Distanz (F-04).
 - **F-312** Gäste (L5): „+ Neu → Fahrtenbuch-Eintrag“ (F-405) öffnet erst die Anmeldung („Melde dich an, um ins Fahrtenbuch einzutragen“), danach geht das Formular direkt auf – auch wenn der Link in einem anderen Tab eingelöst wurde.
@@ -564,12 +564,55 @@ Nur eigene Werte, keine Vergleiche mit anderen und keine Ranglisten (K6). Nichts
 ## Revier-Wärmekarte und Cluster-Pins (Konzept 37)
 
 - **F-580** Raster eines Törns (`voyageCells`, `src/domain/heat.ts`, im Browser – der Worker parst kein GPX): Planquadrate von 0,003° × 0,005° (≈ 330 m), in der Reihenfolge des Wegs, jedes einmal, ohne Punkte innerhalb von 300 m Luftlinie um den ersten bzw. letzten Punkt jedes Tracks und ohne GPS-Ausreißer; GPS-Lücken bis 2 km werden geradlinig ergänzt (zusammenhängender Weg), längere sind ein Neuanfang; mehrere Tracks eines Törns werden vereinigt. Lange Wege enden, sobald 200 Zellen, 20 Neuanfänge oder eine Ausdehnung von 1,5° Breite × 2,5° Länge erreicht sind (es zählt der erste Abschnitt). Keine Zeiten, keine Namen.
-- **F-581** `PUT /api/shares/:id/heat { cells }` (nur Eigentümer:in, sonst 401/404; gesperrtes Konto 403; Fahrtenbuch-Eintrag ohne GPX 409 `no_media_manual`; ungültiges Raster – nicht ganzzahlig, ungerade Länge, leer, mehr als 200 Zellen, Index außerhalb der Erde, Ausdehnung über 1,5° × 2,5° oder nicht wegähnlich (jede Zelle höchstens 3 Zellen neben einer früheren, bis auf höchstens 20 Neuanfänge) – 400 `invalid_cells`; mehr als 10 je Minute und Konto 429 `rate_limited`) legt das Raster als R2-Datei `heat/<id>.json` ab bzw. ersetzt es; es zählt nicht zum Speicher. Wurde der Törn währenddessen gelöscht, wird die Datei sofort wieder entfernt (404). Die App sendet es nach dem Speichern eines GPX-Törns und – für ältere Törns – wenn die Eigentümerin einen eigenen öffentlichen GPX-Törn öffnet, je Törn einmal je Sitzung; Fehler bleiben still.
+- **F-581** `PUT /api/shares/:id/heat { cells }` (nur Eigentümer:in, sonst 401/404; gesperrtes Konto 403; Fahrtenbuch-Eintrag ohne GPX 409 `no_media_manual`; ungültiges Raster – nicht ganzzahlig, ungerade Länge, leer, mehr als 200 Zellen, Index außerhalb der Erde, Ausdehnung über 1,5° × 2,5° oder nicht wegähnlich (jede Zelle höchstens 3 Zellen neben einer früheren, bis auf höchstens 20 Neuanfänge) – 400 `invalid_cells`; mehr als 10 je Minute und Konto 429 `rate_limited`) legt das Raster als R2-Datei `heat/<id>.json` ab bzw. ersetzt es; es zählt nicht zum Speicher. Wurde der Törn währenddessen gelöscht, wird die Datei sofort wieder entfernt (404). Die App sendet es nach dem Speichern eines GPX-Törns, nach dem Nachreichen eines GPX (F-607) und – für ältere Törns – wenn die Eigentümerin einen eigenen öffentlichen GPX-Törn öffnet, je Törn einmal je Sitzung; Fehler bleiben still.
 - **F-582** `GET /api/discover/heat` (ohne Anmeldung, liest kein Cookie): Raster der neuesten 100 GPX-Törns (nach Abfahrt, die höchstens einen Tag in der Zukunft liegt), höchstens 10 je Konto, die auch /entdecken zeigt (`LISTED`: öffentlich, nicht ausgeblendet, „Sichtbar bis: überall“, Konto nicht gesperrt); fehlende oder kaputte Dateien fallen weg. Antwort `{ cells: [i, j, n, …], voyages: [[id, i, j], …] }` – je Zelle die Zahl der Törns, die sie berühren (ein Törn je Zelle einmal), meiste zuerst, höchstens 4.000; je Törn ein Pin auf der mittleren Zelle seines Wegs. Keine Titel, Namen, Konten oder Zeiten. Für alle gleich, im Worker-Cache 14 min und im Browser `public, max-age=60` gecacht – zusammen höchstens 15 min.
 - **F-583** Löschwege des Rasters: mit dem Törn (einzeln, Moderation, Aufbewahrung) und mit dem Konto – über `shareFileKeys` wie Track und Übersichtsbild, Präfix `heat/` im Lösch-Register (F-453). Privat gestellte, ausgeblendete, gesperrte oder enger gezeigte Törns fallen beim Lesen heraus, spätestens nach Ablauf des Caches.
 - **F-584** Ebene „Revier“ auf der Karte (`src/map/heat-layer.ts`): Zellen als Rechtecke in `--map-heat` (hell/dunkel) auf einer eigenen Ebene unter den Tracks, nicht anklickbar, Deckkraft 0,2 … 0,7 logarithmisch nach der Zahl der Törns; je Zoomstufe gröber zusammengefasst, bis eine Zelle mindestens 8 px breit ist (Wert = höchster darin). Schalter „Revier – wo gesegelt wird“ im Kartenstil-Menü (`sx-map-style`, aria-pressed, Menü bleibt offen, Event `sx-map-heat`), Standard an, gilt bis zum Neuladen, nichts gespeichert. Geladen wird erst, wenn die Ebene an ist und ein Backend da ist, und nur einmal je Seitenleben (nach einem Fehler beim nächsten Mal erneut).
 - **F-585** Cluster-Pins: wo die Karte Community-Hintergrund ist (Startseite, Hafen- und Vereinsseite mit Ort), je Törn ein Pin (Akzentfarbe, 44 px Tippfläche), je Zoomstufe mit `gridCluster` im 48-px-Raster zusammengefasst; ein Törn: „Törn ansehen“ öffnet `/s/<id>`, mehrere: Zahl, Klick passt die Karte auf sie ein (am selben Ort: öffnet den ersten). Per Tastatur erreichbar (Enter). In der Törn-Ansicht keine Pins.
 - **F-586** Startseite ohne geladene Tracks und ohne Ort: die Karte wird einmal je Seitenleben auf den dichtesten Bereich eingepasst (Zelle mit den meisten Törns und alle Zellen bis ±0,25° Breite bzw. ±0,4° Länge darum, höchstens Zoom 12).
+
+## GPX nachreichen (Konzept 38)
+
+Ein Endpunkt `PUT /api/shares/:id/track`, ein Menüeintrag, keine Migration. Entscheidungen in
+[`docs/concept/38-gpx-nachreichen.md`](concept/38-gpx-nachreichen.md).
+
+- **F-600** Nur die Eigentümer:in eines Fahrtenbuch-Eintrags ohne GPX (`source = 'manual'`) reicht einen Track nach:
+  fremde und gesperrte Törns 404, Gäste 401, gesperrte Konten 403 `suspended`, Törns mit GPX 409 `not_manual` (ein
+  vorhandener Track wird in v1 nicht ersetzt, auch kein zweites Nachreichen). Rate-Limit wie beim Hochladen.
+- **F-601** Danach ist der Eintrag ein GPX-Törn: `source = 'gpx'`, `dist_source = 'track'`, Distanz, Track-Zahl, Größe
+  und Kurzbeschreibung aus dem Upload, Abfahrt/Ankunft aus dem Track (ohne Zeitstempel bleiben die des Eintrags),
+  Post-Art `voyage`. Die Payload (gleiches Format wie `POST /api/shares`) ersetzt die Route in derselben Datei. ID, Link,
+  Titel, Sichtbarkeit, „Sichtbar bis“, Gruppen, Boot, Häfen, Angaben (`log`), Stand „Ins Fahrtenbuch“, eigene Rolle,
+  Crew samt Bestätigungen, Kommentare und Reaktionen bleiben; Neuigkeiten und Benachrichtigungen gibt es keine. Ist
+  der Törn öffentlich, prüft der Worker Meilensteine (F-166) für den Zuwachs an Strecke (`recordDistanceGain`).
+  Fotos und Übersichtsbild sind ab dann erlaubt (F-309 gilt nicht mehr).
+- **F-602** Plausibilität wie beim Hochladen (`plausibleGpx`, F-311: 400 `implausible_distance`; ungültiges Format 400
+  `invalid_payload`) und Zeitfenster (`trackDateError`): Ein Track mit Zeitstempeln muss die Kalendertage des Eintrags
+  (Abfahrt bis Ankunft, UTC) ± 1 Tag berühren, sonst 409 `track_mismatch` mit beiden Daten und dem Hinweis, erst das
+  Datum des Eintrags zu ändern. Der Browser prüft gleich und erklärt es vor dem Hochladen.
+- **F-603** Kontingente wie ein neuer Törn: Törn-Kontingent (`checkShareQuota`, 402 `supporter_required` bzw. 409
+  `quota`), Speicher (Grenze abzüglich der alten Route, 402/409/413), Notbremse. Der Speicherzähler wächst im selben
+  Batch um neue Payload − alte Route (`replaceManualPayloadStmt`, nur solange der Törn noch `manual` ist); das
+  Fahrtenbuch-Kontingent (F-305) wird frei.
+- **F-604** Aufbewahrung: Ab dem Nachreichen gilt die Frist der Törns (`shareExpiry` ab dem Anlegen, F-65), eine Saison
+  kürzer als ohne GPX (F-306); `expiry_warned_at` wird zurückgesetzt. Läge der neue Löschtermin innerhalb der Warnfrist
+  (14 Tage) oder schon vorbei, 409 `expiry_soon` mit Datum, der Eintrag bleibt unverändert. Die Einzelansicht liefert
+  der Eigentümer:in eines Eintrags ohne GPX dafür `trackExpiresAt` (Löschtermin nach Törn-Regel, `TRACK_EXPIRES_SQL`);
+  läge er in der Warnfrist, zeigt das Menü „GPX nachreichen“ nicht (F-605).
+- **F-605** Einziger Einstieg: „GPX nachreichen“ (Symbol `upload`) als erster Eintrag im Zahnrad-Menü des Törns
+  (`voyageMenuItems`, `offerAttachTrack`), nur für die Eigentümer:in eines Eintrags ohne GPX und nicht in der Warnfrist (F-604). Die Byline öffnet die Dateiauswahl (`.gpx`)
+  direkt aus dem Klick und meldet `sx-track-attach` { file }.
+- **F-606** Löschwege: keine neuen. Die Route wird überschrieben (eine Datei); Track und Übersichtsbild gehen mit dem
+  Törn (einzeln, Frist nach Törn-Regel, Konto, Moderation, Zusammenführen über die bestehenden Pfade). Gleichzeitigkeit:
+  Die Datei wird nur ersetzt, wenn ihr ETag seit dem Lesen gleich ist (sonst 409 `conflict`, nichts angefasst); scheitert
+  danach D1, kommt die alte Route zurück (Eintrag noch ohne GPX) bzw. die Datei wird entfernt (Törn gelöscht, 404); hat
+  ein paralleler Aufruf schon nachgereicht, 409 `conflict`. Auch `PATCH /api/shares/:id` schreibt eine neue Route nur
+  mit passendem ETag und ändert die Zeile nur auf dem gelesenen Stand von `source` (sonst 409 `conflict`) – eine
+  veraltete Änderung überschreibt keinen nachgereichten Track; Datei, `size_bytes` und Zähler bleiben stimmig.
+- **F-607** Ablauf im Browser (`WorkspaceController.attach`): GPX lesen, F-602 prüfen, Rückfrage (`sx-confirm`, nennt
+  Datei, Datum, Strecke, was bleibt und die kürzere Aufbewahrung), Wetter einmal laden und mitspeichern, hochladen,
+  Törn neu öffnen, Hinweis „Track nachgereicht“, Übersichtsbild im Querformat nachziehen (`SessionController.uploadPreview`,
+  wie nach dem Speichern). Abbrechen sendet nichts.
 
 ## Segellebenslauf (Konzept 27.5, Roadmap „Export / Segellebenslauf“)
 

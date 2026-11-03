@@ -81,6 +81,8 @@ export interface ShareMeta extends Linkable {
   logState?: LogState;
   /** „Sichtbar bis“ (F-427) – nur für die Eigentümer:in */
   reach?: Reach;
+  /** GPX nachreichen (F-604): Löschtermin nach Törn-Regel – nur für die Eigentümer:in eines Eintrags ohne GPX */
+  trackExpiresAt?: number | null;
 }
 
 /** Start- bzw. Zielhafen eines Törns (ausgeblendete Häfen: null) */
@@ -486,6 +488,21 @@ export const api = {
         ...(meta.boatId ? { 'X-Share-Boat': meta.boatId } : {}),
         ...(meta.groupIds ? { 'X-Share-Groups': JSON.stringify(meta.groupIds) } : {}),
         ...(meta.reach ? { 'X-Share-Reach': meta.reach } : {}),
+      },
+      body: gz,
+    }),
+
+  /** GPX nachreichen (Konzept 38, F-600): Track an einen Eintrag ohne GPX hängen – Header wie createShare */
+  attachTrack: (id: string, gz: Uint8Array<ArrayBuffer>, meta: { summary: string; trackCount: number; distNm: number; startedAt: number | null; endedAt: number | null }) =>
+    call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(id)}/track`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/gzip',
+        'X-Share-Summary': encodeURIComponent(meta.summary),
+        'X-Share-Tracks': String(meta.trackCount),
+        'X-Share-Distance': meta.distNm.toFixed(2),
+        ...(meta.startedAt ? { 'X-Share-Started': String(meta.startedAt) } : {}),
+        ...(meta.startedAt && meta.endedAt ? { 'X-Share-Ended': String(meta.endedAt) } : {}),
       },
       body: gz,
     }),
