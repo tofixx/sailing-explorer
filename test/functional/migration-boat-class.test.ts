@@ -13,7 +13,7 @@ const SAMPLES: string[] = [...BOAT_TYPE_SAMPLES.map(([t]) => t), "O'Day 23", '10
 beforeAll(async () => {
   h = await startWorker({}, { migrateBefore: '0042' });
   const db = await h.db();
-  await db.prepare(`INSERT INTO users (id, email, created_at) VALUES ('MigClassUser', 'mig-class@example.org', 1)`).run();
+  await db.prepare(`INSERT INTO users (id, email, created_at) VALUES ('MigClassUser', 'mig-class@example.org', 1)`).all();
   for (const [i, t] of SAMPLES.entries()) {
     await db
       .prepare(`INSERT INTO boats (id, owner_id, name, boat_type, visibility, created_at, updated_at) VALUES (?, 'MigClassUser', 'Boot', ?, 'public', 1, 1)`)
