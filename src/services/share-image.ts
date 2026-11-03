@@ -60,8 +60,8 @@ export interface ShareImageOptions {
   ramp?: readonly string[];
 }
 
-/** Feste Farben: Das Bild sieht in jedem Messenger gleich aus, unabhängig vom Farbschema. */
-const C = {
+/** Feste Farben: Das Bild sieht in jedem Messenger gleich aus, unabhängig vom Farbschema (auch für das Saison-Bild, F-523). */
+export const SHARE_COLORS = {
   water: '#b9d3e6',
   ink: '#0f1d2b',
   muted: '#5b6b7b',
@@ -70,19 +70,27 @@ const C = {
   line: '#e3e9ef',
   accent: '#0e6bd8',
   halo: '#ffffff',
+  /** Schrift auf Akzentfarbe (Saison-Abzeichen) */
+  onAccent: '#ffffff',
+  /** heller Wasserverlauf oben links im Saison-Bild */
+  sky: '#dcebf7',
+  /** offenes Abzeichen im Saison-Bild */
+  open: '#eef2f6',
   start: '#1f8a4c',
   end: '#c2372b',
   speed: '#7a55c7',
   wind: '#1f78d1',
   gust: '#db4b3f',
   wave: '#0f9a84',
-};
+} as const;
+const C = SHARE_COLORS;
 
-const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+export const SHARE_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
 /** Helle Grundkarte in der Sprache der App (wie die Karte tagsüber) – das Bild ist immer hell. */
 export const SHARE_IMAGE_BASE = defaultBaseMap(MAP_LANG, false);
 export const shareTileUrl = (z: number, x: number, y: number) =>
   SHARE_IMAGE_BASE.url.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
+const FONT = SHARE_FONT;
 
 interface InfoRow {
   label: string;
@@ -133,7 +141,7 @@ function loadTile(url: string, timeoutMs = 6000): Promise<HTMLImageElement | nul
   });
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -368,14 +376,22 @@ function drawInfo(ctx: CanvasRenderingContext2D, tracks: Track[], box: Box, opts
     ctx.font = `500 13px ${FONT}`;
     ctx.fillText(`Farbe: ${m.label} ${fmtNum(opts.range.lo, m.decimals)}–${fmtNum(opts.range.hi, m.decimals)} ${m.unit}`, x, footY - 38);
   }
-  drawLogo(ctx, x, footY - 18, 22);
+  drawBrand(ctx, x, box.x + box.w - pad, footY);
+}
+
+/**
+ * Markenzeile auf der Grundlinie `y`: Logo und Name ab `x`, Adresse rechtsbündig bis `right` – die eine Stelle für
+ * Törn- und Saison-Bild (Konzept 33).
+ */
+export function drawBrand(ctx: CanvasRenderingContext2D, x: number, right: number, y: number): void {
+  drawLogo(ctx, x, y - 18, 22);
   ctx.fillStyle = C.accent;
   ctx.font = `750 18px ${FONT}`;
-  ctx.fillText(APP_NAME, x + 28, footY);
+  ctx.fillText(APP_NAME, x + 28, y);
   ctx.textAlign = 'right';
   ctx.fillStyle = C.faint;
   ctx.font = `500 13px ${FONT}`;
-  ctx.fillText('segeln-potsdam.de', box.x + box.w - pad, footY);
+  ctx.fillText('segeln-potsdam.de', right, y);
   ctx.textAlign = 'left';
 }
 
@@ -447,9 +463,38 @@ export async function drawShareImage(canvas: HTMLCanvasElement, tracks: Track[],
 export async function renderShareImage(tracks: Track[], opts: ShareImageOptions): Promise<Blob> {
   const canvas = document.createElement('canvas');
   await drawShareImage(canvas, tracks, opts);
+  return canvasToJpeg(canvas);
+}
+
+/** Canvas als JPEG (klein genug für Messenger und den Upload) – für Törn- und Saison-Bild. */
+export function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Bild konnte nicht erzeugt werden'))), 'image/jpeg', 0.88),
   );
+}
+
+/** Datei im Browser herunterladen (nichts geht an den Server). */
+export function downloadFile(f: File): void {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(f);
+  a.download = f.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+/** Kann das Gerät Dateien (Bilder) teilen? Prüft mit einer echten Datei – `canShare` allein sagt das nicht. */
+export function canShareFiles(): boolean {
+  try {
+    return typeof navigator.canShare === 'function' && navigator.canShare({ files: [new File([''], 'bild.jpg', { type: 'image/jpeg' })] });
+  } catch {
+    return false;
+  }
+}
+
+/** Über das Teilen-Menü des Geräts teilen, wenn es Dateien teilen kann – sonst herunterladen. */
+export async function shareOrDownload(f: File, title: string): Promise<void> {
+  if (navigator.canShare?.({ files: [f] })) await navigator.share({ files: [f], title }).catch(() => {});
+  else downloadFile(f);
 }
 
 /** Dateiname aus dem Titel. */

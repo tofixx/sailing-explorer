@@ -3,6 +3,7 @@
 // Browser) und vom Worker (`GET /api/me/logbook`, `GET /api/me/logbook.csv`).
 import { VOYAGE_ROLE_SHORT, type VoyageRole } from './crew-roles';
 import { DIST_SOURCE_LABEL, LOG_AREA_LABEL, LOG_STATES, countsInLogbook, isLogState, type DistSource, type LogState, type Logbook, type ShareSource } from './logbook';
+import { fmtNum } from './format';
 import { calendarDaysBerlin } from './logbook-suggest';
 import { seasonOf } from './support';
 import type { Visibility } from './visibility';
@@ -145,6 +146,10 @@ export function logbookTotals(entries: LogbookEntry[]): LogbookTotals {
   t.items = [...items.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, 'de'));
   return t;
 }
+
+/** „davon … sm aufgezeichnet“, wenn geschätzte Meilen dabei sind (K3) – für Summen der Seite und Saison-Bild. */
+export const recordedNote = (t: Pick<LogbookTotals, 'nm' | 'recordedNm'>): string | undefined =>
+  t.recordedNm < t.nm - 0.05 ? `davon ${fmtNum(t.recordedNm, 1)} sm aufgezeichnet` : undefined;
 
 // ---------------------------------------------------------------- Meilennachweis als CSV (F-457)
 
