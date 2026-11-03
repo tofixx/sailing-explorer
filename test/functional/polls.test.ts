@@ -107,7 +107,7 @@ describe('F-478 Umfrage im Profil', () => {
 describe('F-471 Abstimmen', () => {
   it('[F-471] setzen, ändern, zurücknehmen; Mehrfachauswahl höchstens n; ungültige Wahl 400; Gast 401', async () => {
     const { owner, member, g } = await club();
-    const p = await poll(owner, { kind: 'group', id: g.id }, { options: ['a', 'b', 'c'], max: 2 });
+    const p = await poll(owner, { kind: 'group', id: g.id }, { options: ['a', 'b', 'c'], max: 2, results: 'always' });
     let r = await ok<{ poll: PollView }>(await vote(member, p!.id, [2, 0]));
     expect(r.poll.mine).toEqual([0, 2]);
     expect(r.poll.counts).toEqual([1, 0, 1]);
@@ -122,6 +122,25 @@ describe('F-471 Abstimmen', () => {
     expect(r.poll.mine).toEqual([]);
     expect(await votes(p!.id)).toBe(0);
     expect((await vote(null, p!.id, [0])).status).toBe(401);
+  });
+
+  it('[F-471] „nach eigener Stimme“: ändern ja, zurücknehmen nicht (409) – sonst sähe man das Ergebnis und nähme zurück', async () => {
+    const { owner, member, g } = await club();
+    const p = await poll(owner, { kind: 'group', id: g.id });
+    await ok(await vote(member, p!.id, [0]));
+    expect(await s.errorOf(await vote(member, p!.id, []))).toBe('vote_kept');
+    expect((await ok<{ poll: PollView }>(await vote(member, p!.id, [2]))).poll.mine).toEqual([2]);
+    expect(await votes(p!.id)).toBe(1);
+  });
+
+  it('[F-471] ausgeblendet (gemeldet): auch wer es noch sieht (Gruppen-Admin), stimmt nicht ab', async () => {
+    const { owner, g } = await club();
+    const author = await s.person({ profile: 'public' });
+    await s.join(owner, g, author);
+    await run(`UPDATE groups SET post_by = 'members' WHERE id = ?`, g.id);
+    const p = await poll(author, { kind: 'group', id: g.id });
+    await run('UPDATE posts SET hidden_at = ? WHERE id = ?', Date.now(), p!.id);
+    expect((await vote(owner, p!.id, [0])).status).toBe(404);
   });
 
   it('[F-471] nur wer die Umfrage sehen darf: „Nur Mitglieder“ für andere 404; ein Text-Beitrag ist keine Umfrage (404)', async () => {
@@ -236,6 +255,19 @@ describe('F-474 Namentlich', () => {
 });
 
 describe('F-475 Cache', () => {
+  it('[F-475] öffentlicher Cache enthält nur, was jeder Gast sieht: Ergebnis bei „immer“, nie eine eigene Wahl', async () => {
+    const { owner, member, g } = await club();
+    const p = await poll(owner, { kind: 'group', id: g.id }, { results: 'always' });
+    const fan = await s.person({ profile: 'public' });
+    await ok(await vote(fan, p!.id, [2]));
+    await ok(await vote(member, p!.id, [0]));
+    // Nicht-Mitglied mit Wahl füllt den Cache (ohne Betrachter berechnet), sieht aber seine Wahl
+    expect(cardIn(await ok<StreamPoll>(await s.send('GET', `/api/groups/${g.id}/stream`, fan.cookie)), p!.id)!.poll).toMatchObject({ mine: [2], counts: [1, 0, 1] });
+    const guest = await s.send('GET', `/api/groups/${g.id}/stream`, undefined);
+    expect(guest.headers.get('X-Stream-Cache')).toBe('hit');
+    expect(cardIn((await guest.json()) as StreamPoll, p!.id)!.poll).toMatchObject({ mine: [], counts: [1, 0, 1], voters: 2 });
+  });
+
   it('[F-475] Gast sieht weder eigene Wahl noch Ergebnis – auch nicht nach dem Abruf eines Mitglieds; Mitglied sieht seine Wahl', async () => {
     const { owner, member, g } = await club();
     const p = await poll(owner, { kind: 'group', id: g.id });

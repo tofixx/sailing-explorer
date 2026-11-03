@@ -7,7 +7,7 @@ import { channelKey } from '../domain/posts';
 import type { ComposeKind } from '../components/sx-compose';
 import { pickGpx } from '../components/shared';
 import { errorText } from './session';
-import type { ComposePostKind } from '../domain/polls';
+import type { ComposePostKind } from '../domain/posts';
 
 /** Verlauf der offenen Seite (vorausgewählt), z. B. `group:<id>`. */
 export type ComposeContext = { kind: 'group' | 'harbor' | 'boat'; id: string } | null;

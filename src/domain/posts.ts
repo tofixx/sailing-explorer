@@ -2,7 +2,8 @@
 // Sichtbarkeit („wer sieht es“), Reichweite („Sichtbar bis“), wer sieht und wer schreibt. Genutzt von Worker
 // (Prüfen beim Schreiben und Lesen) und Oberfläche (Texte, Auswahl).
 import type { GroupKind, GroupRole } from './groups';
-import { canManageGroup } from './groups';
+import { POST_MAX, canManageGroup } from './groups';
+import { POLL_LIMITS } from './polls';
 import type { Visibility } from './visibility';
 import type { LogState } from './logbook';
 
@@ -17,6 +18,28 @@ const oneOf =
 export const POST_KINDS = ['text', 'gallery', 'poll', 'event', 'voyage', 'logbook'] as const;
 export type PostKind = (typeof POST_KINDS)[number];
 export const isPostKind = oneOf(POST_KINDS);
+
+/**
+ * Arten, die man im Beitragsdialog anlegt (Konzept 21.4, 29), mit ihren Grenzen – genutzt vom Formular (`KIND_FORMS`)
+ * und vom Worker (`COMPOSE_KINDS`). `plain`: nur Text, kein Link und kein angehängter Törn. Neue Arten: eine Zeile.
+ */
+export const COMPOSE_LIMITS = {
+  text: { bodyMax: POST_MAX, plain: false },
+  poll: { bodyMax: POLL_LIMITS.question, plain: true },
+} as const;
+export type ComposePostKind = keyof typeof COMPOSE_LIMITS;
+
+/** Name der Art in Links und Überschriften („Umfrage öffnen“). */
+export const POST_KIND_LABEL: Partial<Record<PostKind, string>> = { poll: 'Umfrage' };
+
+/**
+ * Bringt die Art eine eigene Nutzlast mit, die nur die Stream-Karte zeigt (Umfrage …)? Dann verlinken Profil und „Mein
+ * Verlauf“ die Karte, und `/p/<id>` im Profil öffnet die einzelne Karte. Text und Törns nicht.
+ */
+export const hasKindCard = (kind: PostKind | null | undefined): boolean => !!kind && kind !== 'text' && kind !== 'voyage' && kind !== 'logbook';
+
+/** Schlüssel „Nur mit Link“ aus dem Pfad einer Karte (`/p/<id>/<schlüssel>`), sonst null. */
+export const postKeyOf = (path: string | null | undefined): string | null => /^\/p\/[^/]+\/([^/]+)$/.exec(path ?? '')?.[1] ?? null;
 
 /** Törn-Arten: Sichtbarkeit, Löschen und Aufbewahrung regelt weiter der Törn (`shares`). */
 export const isShareKind = (k: PostKind): k is 'voyage' | 'logbook' => k === 'voyage' || k === 'logbook';

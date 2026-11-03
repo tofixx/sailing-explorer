@@ -137,7 +137,7 @@ describe('F-478 Karte im Stream', () => {
   it('[F-478] mit Stimme und Ergebnis: Balken in Prozent, eigene markiert, ändern und zurücknehmen; namentlich „Wer hat was gewählt?“', async () => {
     const votes = listen('sx-poll-vote');
     const who = listen('sx-poll-who');
-    const { p } = await pollIn(card(view({ counts: [3, 1], voters: 4, mine: [0], named: true })));
+    const { p } = await pollIn(card(view({ counts: [3, 1], voters: 4, mine: [0], named: true, results: 'always' })));
     expect(text(p.shadowRoot)).toMatch(/Ja\s*75 %/);
     expect(p.shadowRoot.querySelector('.bar.mine')!.textContent).toContain('Ja');
     expect(text(p.shadowRoot)).toContain('4 Personen haben abgestimmt');
@@ -153,6 +153,12 @@ describe('F-478 Karte im Stream', () => {
     button(p.shadowRoot, /Stimme ändern/)!.click();
     await p.updateComplete;
     expect(p.shadowRoot.querySelectorAll('input[type="radio"]')).toHaveLength(2);
+  });
+
+  it('[F-471] „nach eigener Stimme“: kein „Zurücknehmen“, nur „Stimme ändern“', async () => {
+    const { p } = await pollIn(card(view({ counts: [1, 0], voters: 1, mine: [0] })));
+    expect(button(p.shadowRoot, /Stimme ändern/)).toBeDefined();
+    expect(button(p.shadowRoot, /Zurücknehmen/)).toBeUndefined();
   });
 
   it('[F-478] Stimme ohne sichtbares Ergebnis: Dank statt Zahlen; Mehrfachauswahl höchstens n', async () => {

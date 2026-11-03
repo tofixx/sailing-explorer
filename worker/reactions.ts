@@ -57,11 +57,17 @@ export async function reactionSummary(env: Env, subject: ReactionSubject, id: st
   return summarizeReactions(results);
 }
 
-/** Tagesgrenze: Änderungen der letzten 24 h (auch Zurücknehmen). */
-async function assertQuota(env: Env, userId: string, now: number): Promise<void> {
+/**
+ * Tagesgrenze: Änderungen der letzten 24 h (auch Zurücknehmen) – gemeinsam für Reaktionen und Stimmen in Umfragen
+ * (Konzept 29), ein Zähler für „Interaktionen“.
+ */
+export async function assertQuota(env: Env, userId: string, now: number): Promise<void> {
   const n = (await env.DB.prepare('SELECT COUNT(*) AS n FROM reaction_log WHERE user_id = ? AND created_at > ?').bind(userId, now - DAY).first<{ n: number }>())?.n ?? 0;
-  if (n >= REACTION_LIMITS.perDay) throw new HttpError(429, 'reaction_quota', 'Du hast heute schon sehr viel reagiert – morgen geht es weiter.');
+  if (n >= REACTION_LIMITS.perDay) throw new HttpError(429, 'reaction_quota', 'Du hast heute schon sehr viel reagiert und abgestimmt – morgen geht es weiter.');
 }
+
+/** Eine Änderung für die Tagesgrenze zählen – im selben Batch wie die Änderung. */
+export const reactionLogStmt = (env: Env, userId: string, now: number) => env.DB.prepare('INSERT INTO reaction_log (user_id, created_at) VALUES (?, ?)').bind(userId, now);
 
 /** PUT /api/reactions/:subject/:id – `{ kind }` setzt bzw. ersetzt die eigene Reaktion. */
 export async function putReaction(request: Request, env: Env, rawSubject: string, id: string): Promise<Response> {
@@ -79,7 +85,7 @@ export async function putReaction(request: Request, env: Env, rawSubject: string
       `INSERT INTO reactions (subject_kind, subject_id, user_id, kind, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
        ON CONFLICT(subject_kind, subject_id, user_id) DO UPDATE SET kind = ?4, created_at = ?5`,
     ).bind(subject, id, user.id, kind, now),
-    env.DB.prepare('INSERT INTO reaction_log (user_id, created_at) VALUES (?, ?)').bind(user.id, now),
+    reactionLogStmt(env, user.id, now),
   ]);
   // Nur eine neue Reaktion benachrichtigt – die Art zu wechseln nicht (Konzept 17.2).
   if (!had) await notifyReaction(env, subject, id, user.id);
@@ -96,7 +102,7 @@ export async function deleteReaction(request: Request, env: Env, rawSubject: str
   await assertQuota(env, user.id, now);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM reactions WHERE subject_kind = ? AND subject_id = ? AND user_id = ?').bind(subject, id, user.id),
-    env.DB.prepare('INSERT INTO reaction_log (user_id, created_at) VALUES (?, ?)').bind(user.id, now),
+    reactionLogStmt(env, user.id, now),
   ]);
   return json(await reactionSummary(env, subject, id, user.id));
 }

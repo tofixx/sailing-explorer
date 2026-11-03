@@ -501,7 +501,8 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
         if (r.p_vis !== 'public') return null;
         if (r.p_ck === 'harbor') return r.ph_name ? { ...base, title: r.ph_name, what: kindWhat, href } : null;
         if (r.p_ck === 'boat') return r.pb_name && (r.pb_vis === 'public' || r.pb_role) ? { ...base, title: r.pb_name, what: kindWhat, href } : null;
-        if (r.p_ck === 'user') return actor ? { ...base, title: actor.name, what: kindWhat, href } : null;
+        // Profil: Text-Beiträge „in <Name>“; eine Umfrage im Profil ohne Ort („hat eine Umfrage gestartet“)
+        if (r.p_ck === 'user') return actor ? { ...base, title: kindWhat ? '' : actor.name, what: kindWhat, href } : null;
         return null;
       }
       if (r.p_author !== userId || r.p_hidden) return null;

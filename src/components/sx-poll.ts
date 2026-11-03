@@ -217,7 +217,9 @@ export class SxPoll extends LitElement {
         ${p.open && !showChoose
           ? p.mine.length
             ? html`<button class="btn small" type="button" ?disabled=${this.busy} @click=${() => (this.editing = true)}>Stimme ändern</button>
-                <button class="btn small ghost" type="button" ?disabled=${this.busy} @click=${() => emit(this, 'sx-poll-vote', this.detail({ choices: [] }))}>Zurücknehmen</button>`
+                ${p.results === 'voted'
+                  ? '' /* die Stimme zeigte das Ergebnis – ändern ja, zurücknehmen nicht (F-471) */
+                  : html`<button class="btn small ghost" type="button" ?disabled=${this.busy} @click=${() => emit(this, 'sx-poll-vote', this.detail({ choices: [] }))}>Zurücknehmen</button>`}`
             : html`<button class="btn small" type="button" @click=${() => (this.editing = true)}>Abstimmen</button>`
           : ''}
         ${p.named && p.counts && !this.people && (p.voters ?? 0) > 0

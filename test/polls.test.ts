@@ -71,3 +71,25 @@ describe('F-477 Datenschutztext', () => {
     expect(t).toContain('deine Stimmen in Umfragen anderer');
   });
 });
+
+describe('F-476 Texte', () => {
+  it('[F-476] neue Umfrage: mit Ort „fragt in …“, im Profil ohne Ort; beendet mit bzw. ohne Gruppe', async () => {
+    const { notificationText } = await import('../src/domain/notifications');
+    const actor = { name: 'Anna', handle: 'anna' };
+    expect(notificationText({ kind: 'post', count: 1, actor, title: 'PYC', what: 'poll' })).toBe('Anna fragt in „PYC“: neue Umfrage');
+    expect(notificationText({ kind: 'post', count: 1, actor, title: '', what: 'poll' })).toBe('Anna hat eine Umfrage gestartet');
+    expect(notificationText({ kind: 'poll_closed', count: 1, actor: null, title: '', what: 'deinen Beitrag' })).toBe('Deine Umfrage ist beendet – das Ergebnis steht fest');
+    expect(notificationText({ kind: 'poll_closed', count: 1, actor: null, title: 'PYC', what: 'deinen Beitrag in' })).toBe('Deine Umfrage in „PYC“ ist beendet – das Ergebnis steht fest');
+  });
+});
+
+describe('F-478 Arten mit eigener Karte', () => {
+  it('[F-478] Schlüssel aus /p/<id>/<schlüssel>; Karte nur für Arten mit Nutzlast; Grenzen je Art an einer Stelle', async () => {
+    const { postKeyOf, hasKindCard, COMPOSE_LIMITS } = await import('../src/domain/posts');
+    expect(postKeyOf('/p/P1/KEY123')).toBe('KEY123');
+    expect(postKeyOf('/p/P1')).toBeNull();
+    expect(postKeyOf(undefined)).toBeNull();
+    expect([hasKindCard('poll'), hasKindCard('text'), hasKindCard('voyage'), hasKindCard(undefined)]).toEqual([true, false, false, false]);
+    expect(COMPOSE_LIMITS.poll).toEqual({ bodyMax: 300, plain: true });
+  });
+});

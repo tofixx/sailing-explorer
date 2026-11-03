@@ -6,11 +6,10 @@ import {
 } from '../domain/posts';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
-import { POST_VISIBILITY_ICON, base, emit, highlightStyles, linkedText, postCardStyles, revealCard } from './shared';
+import { POST_KIND_ICON, kindCardLink, POST_VISIBILITY_ICON, base, emit, highlightStyles, linkedText, postCardStyles, revealCard } from './shared';
 import './sx-reach-picker';
 import './sx-title-edit';
 
-const KIND_ICON: Partial<Record<MyPost['kind'], IconName>> = { voyage: 'map', logbook: 'book', text: 'comment', poll: 'poll' };
 
 /**
  * „Mein Verlauf“ auf der eigenen Seite (Konzept 21.2, B12, F-401): alle eigenen Törns, Fahrtenbuch-Einträge und
@@ -219,14 +218,14 @@ export class SxMyPosts extends LitElement {
     const hl = p.id === this.highlight;
     return html`<li class="post ${p.visibility === 'private' ? 'private' : ''} ${hl ? 'hl' : ''}" id="p-${p.id}" tabindex=${hl ? -1 : nothing}>
       <div class="head">
-        ${icon(KIND_ICON[p.kind] ?? 'comment')}
+        ${icon(POST_KIND_ICON[p.kind] ?? 'comment')}
         <span class="t">${voyage
           ? html`<sx-title-edit share-id=${p.id} scope="mine" editable .value=${voyage.title}></sx-title-edit>
               <a href=${voyage.path} aria-label="Törn öffnen: ${voyage.title}">Öffnen</a> <span class="note">${fmtNum(voyage.distNm, 1)} sm · ${fmtDate(voyage.startedAt ?? p.createdAt)}</span>`
           : this.textHead(p)}</span>
       </div>
       ${p.body ? html`<p class="body">${linkedText(p.body)}</p>` : ''}
-      ${p.kind === 'poll' && p.path ? html`<a class="note" href=${p.path}>${icon('poll')} Zur Umfrage – abstimmen und Ergebnis</a>` : ''}
+      ${p.path ? kindCardLink(p.kind, p.path, 'note') : ''}
       ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}
       ${p.attached ? html`<span class="note">${icon('map')} Törn: <a href="/s/${p.attached.id}">${p.attached.title}</a></span>` : ''}
       ${this.meta(p)}

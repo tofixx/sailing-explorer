@@ -120,6 +120,7 @@ export class SxPollForm extends LitElement {
   clear() {
     this.options = ['', ''];
     this.multi = false;
+    this.max = 2;
     this.ends = '';
     this.results = 'voted';
     this.named = false;

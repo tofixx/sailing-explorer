@@ -1,7 +1,5 @@
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from 'lit';
-import { POST_MAX } from '../domain/groups';
-import { POLL_LIMITS, type ComposePostKind } from '../domain/polls';
-import { POST_VISIBILITY_CHOICE, channelKey, channelName, type AttachableShare, type ComposeTarget, type PostVisibility, defaultPostVisibility } from '../domain/posts';
+import { COMPOSE_LIMITS, POST_VISIBILITY_CHOICE, type ComposePostKind, channelKey, channelName, type AttachableShare, type ComposeTarget, type PostVisibility, defaultPostVisibility } from '../domain/posts';
 import type { Audience } from '../domain/large-groups';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
@@ -10,24 +8,20 @@ import './sx-poll-form';
 import type { SxPostComposer } from './sx-post-composer';
 
 /**
- * Formular je Art (Konzept 21.4, 29): Titel, Beschriftung und Länge des Texts, ohne Link/Anhang (`plain`) und das
- * Formularteil im Slot von `sx-post-composer`, das seine Nutzlast als `sx-payload` meldet. Neue Arten: eine Zeile.
+ * Formular je Art (Konzept 21.4, 29): Titel, Beschriftung, Hinweis und das Formularteil im Slot von `sx-post-composer`,
+ * das seine Nutzlast als `sx-payload` meldet. Länge und `plain` (ohne Link/Anhang) kommen aus `COMPOSE_LIMITS`
+ * (src/domain/posts.ts, auch vom Worker genutzt). Neue Arten: eine Zeile.
  */
 interface KindForm {
   title: string;
   label: string;
   placeholder: string;
   hint: string;
-  max: number;
-  plain: boolean;
   part?: () => TemplateResult;
 }
 const KIND_FORMS: Record<ComposePostKind, KindForm> = {
-  text: { title: 'Neuer Beitrag', label: 'Text', placeholder: 'Was gibt es Neues?', hint: 'Höchstens 5 Beiträge pro Tag und Verlauf. Reiner Text, Links werden klickbar.', max: POST_MAX, plain: false },
-  poll: {
-    title: 'Neue Umfrage', label: 'Frage', placeholder: 'Wer segelt am Mittwoch?', hint: 'Zählt als Beitrag: höchstens 5 pro Tag und Verlauf.', max: POLL_LIMITS.question, plain: true,
-    part: () => html`<sx-poll-form></sx-poll-form>`,
-  },
+  text: { title: 'Neuer Beitrag', label: 'Text', placeholder: 'Was gibt es Neues?', hint: 'Höchstens 5 Beiträge pro Tag und Verlauf. Reiner Text, Links werden klickbar.' },
+  poll: { title: 'Neue Umfrage', label: 'Frage', placeholder: 'Wer segelt am Mittwoch?', hint: 'Zählt als Beitrag: höchstens 5 pro Tag und Verlauf.', part: () => html`<sx-poll-form></sx-poll-form>` },
 };
 
 /** Erklärung je Stufe „Wer sieht es“ – unabhängig vom Verlauf formuliert. */
@@ -155,7 +149,7 @@ export class SxComposeDialog extends LitElement {
                   ${this.targets.map((x) => html`<option value=${channelKey(x.ref)} ?selected=${t === x}>${x.ref.kind === 'user' ? 'Mein Profil' : channelName(x.ref)}</option>`)}
                 </select></label>
               ${t
-                ? html`<sx-post-composer label=${f.label} placeholder=${f.placeholder} max=${f.max} ?plain=${f.plain} .ready=${!f.part || !!this.payload}
+                ? html`<sx-post-composer label=${f.label} placeholder=${f.placeholder} max=${COMPOSE_LIMITS[this.kind].bodyMax} ?plain=${COMPOSE_LIMITS[this.kind].plain} .ready=${!f.part || !!this.payload}
                     ?busy=${this.busy} .choices=${t.choices} preset=${defaultPostVisibility(t.ref.kind)} .reaches=${t.reaches} .shares=${this.shares}
                     .audience=${this.audience} .smaller=${this.smaller(t)} @sx-compose-pick=${(e: CustomEvent<{ key: string }>) => this.pick(e.detail.key)}
                     hint=${f.hint}

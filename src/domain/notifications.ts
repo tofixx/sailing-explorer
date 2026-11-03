@@ -241,7 +241,8 @@ export function notificationText(n: Pick<NotificationItem, 'kind' | 'count' | 'a
       return n.count > 1 ? `${n.count} neue Beitrittsanfragen für ${quoted(n.title)}` : `${who} möchte ${quoted(n.title)} beitreten`;
     case 'post':
       if (n.what === 'voyage') return `${who} hat einen Törn geteilt: ${quoted(n.title)}`;
-      return n.what === 'poll' ? `${who} fragt in ${quoted(n.title)}: neue Umfrage` : `${who} hat in ${quoted(n.title)} geschrieben`;
+      if (n.what === 'poll') return n.title.trim() ? `${who} fragt in ${quoted(n.title)}: neue Umfrage` : `${who} hat eine Umfrage gestartet`;
+      return `${who} hat in ${quoted(n.title)} geschrieben`;
     case 'poll_closed':
       return `Deine Umfrage ${n.title.trim() ? `in ${quoted(n.title)} ` : ''}ist beendet – das Ergebnis steht fest`;
     case 'expiry':

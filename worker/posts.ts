@@ -18,14 +18,14 @@ import { canView, newShareKey, requestKey } from './access';
 import { chainOf, composeTarget, writableChannel, writableChannels, type WritableChannel } from './post-chain';
 import { postCard } from './stream';
 import { postLogKey } from './post-sql';
-import { COMPOSE_KINDS } from './post-kinds';
+import { COMPOSE_KINDS, isComposeKind } from './post-kinds';
 import { notifyPost } from './notifications';
 import { GROUP_LIMITS } from '../src/domain/limits';
 import { cleanComment, commentLength, countLinks } from '../src/domain/comment-text';
 import { POST_MAX_LINKS, STREAM_PAGE, canManageGroup, decodeCursor, encodeCursor, parsePostLink, type GroupKind, type GroupRole } from '../src/domain/groups';
 import {
   canChoosePostVisibility, canManageChannel, canSeePost, defaultPostVisibility, widensAudience, canWriteInGroup, channelKey, channelPath, effectivePostBy, effectivePostVisibility, isChannelKind, isMyPostArea,
-  isPostKind, isPostVisibility, isReach, postVisibilityChoices, reachChoices, reachFor, reachTargets, shareKindOf,
+  COMPOSE_LIMITS, hasKindCard, isPostVisibility, isReach, postVisibilityChoices, reachChoices, reachFor, reachTargets, shareKindOf,
   type AttachableShare, type ChannelKind, type ChannelRef, type MyPost, type PostKind, type PostLink, type PostVisibility, type ProfilePost, type Reach, type ReachChain,
 } from '../src/domain/posts';
 import { sharePath, type Visibility } from '../src/domain/visibility';
@@ -78,8 +78,8 @@ async function readShareId(env: Env, userId: string, raw: unknown): Promise<stri
  */
 async function readPostInput(env: Env, userId: string, input: RawPostInput, c: WritableChannel): Promise<PostInput> {
   const kind = input.kind === undefined ? 'text' : input.kind;
-  const def = isPostKind(kind) ? COMPOSE_KINDS[kind] : undefined;
-  if (!isPostKind(kind) || !def) throw new HttpError(400, 'invalid_kind', 'Diese Art von Beitrag gibt es nicht.');
+  if (!isComposeKind(kind)) throw new HttpError(400, 'invalid_kind', 'Diese Art von Beitrag gibt es nicht.');
+  const def = { ...COMPOSE_LIMITS[kind], ...COMPOSE_KINDS[kind] };
   const body = cleanComment(input.body);
   if (!body) throw new HttpError(400, 'empty', 'Bitte einen Text schreiben.');
   if (commentLength(body) > def.bodyMax) throw new HttpError(400, 'too_long', `Höchstens ${def.bodyMax} Zeichen.`);
@@ -89,7 +89,9 @@ async function readPostInput(env: Env, userId: string, input: RawPostInput, c: W
   // ohne Angabe: in Gruppen „Nur Mitglieder“, sonst öffentlich (F-445)
   const audience = readAudience(input, c, defaultPostVisibility(c.kind));
   const shareId = def.plain ? null : await readShareId(env, userId, input.shareId);
-  const data = { ...(shareId ? { shareId } : {}), ...(def.data ? def.data(input[kind], Date.now()) : {}) };
+  const payload = def.data ? def.data(input[kind], Date.now()) : {};
+  if ('error' in payload && typeof payload.error === 'string') throw new HttpError(400, payload.error, String(payload.message));
+  const data = { ...(shareId ? { shareId } : {}), ...payload };
   return { kind, body, link: link || null, ...audience, data };
 }
 
@@ -232,9 +234,9 @@ export async function getPost(request: Request, env: Env, id: string): Promise<R
     : p.where ? `${p.where.kind === 'harbor' ? 'Hafen' : 'Boot'} ${p.where.name}`
     : item.actor ? `Profil von ${item.actor.displayName}` : 'Profil';
   // im Verlauf steht, was dort für alle mit Zugang erscheint; die Autor:in findet alles in „Mein Verlauf“. Umfragen im
-  // Profil: die Profilseite zeigt Beiträge nur als Text – abgestimmt wird an der einzelnen Karte (Konzept 29)
-  const profilePoll = !!p.poll && !item.group && !p.where;
-  const inStream = !!home && !profilePoll && (!!isAuthor || p.visibility === 'public' || p.visibility === 'members');
+  // Profil: die Profilseite zeigt Beiträge nur als Text – Arten mit eigener Karte (Umfrage …) öffnen die einzelne Karte
+  const profileCard = hasKindCard(p.kind) && !item.group && !p.where;
+  const inStream = !!home && !profileCard && (!!isAuthor || p.visibility === 'public' || p.visibility === 'members');
   const link: PostLink = { home, inStream, where };
   return json({ item, link }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
@@ -576,7 +578,7 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
     );
     if (!ok) continue;
     out.push({
-      id: r.id, createdAt: r.created_at, body: r.body, link: r.link, ...(r.kind === 'poll' ? { kind: 'poll' as const } : {}),
+      id: r.id, createdAt: r.created_at, body: r.body, link: r.link, ...(hasKindCard(r.kind as PostKind) ? { kind: r.kind as PostKind } : {}),
       group: g ? { slug: g.g_slug!, name: g.g_name!, kind: g.g_kind! } : null,
       visibility: effectivePostVisibility(r.visibility, g ? g.g_vis : null),
       // im Profil angepinnt (F-403) – nur Profil-Beiträge, die Liste beginnt mit ihnen

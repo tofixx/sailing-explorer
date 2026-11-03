@@ -9,9 +9,9 @@ import { visiblePost } from './posts';
 import { notSuspendedSql, publicSql } from './visible-sql';
 import { POLL_LIMITS, isPollOpen, parsePollData, validChoices, viewPoll, type PollConfig, type PollTally, type PollView } from '../src/domain/polls';
 import { REACTION_LIMITS } from '../src/domain/reactions';
+import { assertQuota, reactionLogStmt } from './reactions';
 import type { StreamItem } from '../src/domain/groups';
 
-const DAY = 86_400_000;
 const NOT_POLL = () => new HttpError(404, 'not_found', 'Diese Umfrage gibt es nicht (mehr).');
 
 /** Noch offen (Bedingung in SQL, `?1` Beitrag, `?3` jetzt) – dieselbe Regel wie `isPollOpen`. */
@@ -67,12 +67,12 @@ export async function attachPolls(env: Env, items: StreamItem[], viewerId: strin
 }
 
 /** Sichtbare Umfrage für die Anfrage (sonst 404 wie „gibt es nicht“) mit ihren Einstellungen. */
-async function visiblePoll(request: Request, env: Env, id: string): Promise<{ id: string; authorId: string; config: PollConfig }> {
+async function visiblePoll(request: Request, env: Env, id: string): Promise<{ id: string; authorId: string; config: PollConfig; hidden: boolean }> {
   const p = await visiblePost(request, env, id);
-  const row = await env.DB.prepare(`SELECT kind, data FROM posts WHERE id = ?`).bind(p.id).first<{ kind: string; data: string }>();
+  const row = await env.DB.prepare(`SELECT kind, data, hidden_at FROM posts WHERE id = ?`).bind(p.id).first<{ kind: string; data: string; hidden_at: number | null }>();
   const config = row?.kind === 'poll' ? parsePollData(row.data) : null;
   if (!config) throw NOT_POLL();
-  return { id: p.id, authorId: p.authorId, config };
+  return { id: p.id, authorId: p.authorId, config, hidden: !!row?.hidden_at };
 }
 
 /** Stand einer Umfrage für ein Konto (Antwort auf Abstimmen und Beenden). */
@@ -90,14 +90,17 @@ async function viewFor(env: Env, id: string, config: PollConfig, viewerId: strin
 export async function putVote(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   await assertActive(env, user);
-  const { config } = await visiblePoll(request, env, id);
+  const { config, hidden } = await visiblePoll(request, env, id);
+  // ausgeblendet (gemeldet, Moderation sieht es noch): keine Stimmen
+  if (hidden) throw NOT_POLL();
   const body = await readJson<{ choices?: unknown }>(request);
   const choices = validChoices(config, body.choices);
   if (!choices) throw new HttpError(400, 'invalid_choices', config.max === 1 ? 'Bitte eine Antwort wählen.' : `Höchstens ${config.max} Antworten.`);
   const now = Date.now();
   if (!isPollOpen(config, now)) throw new HttpError(409, 'poll_closed', 'Diese Umfrage ist beendet.');
-  const used = (await env.DB.prepare('SELECT COUNT(*) AS n FROM reaction_log WHERE user_id = ? AND created_at > ?').bind(user.id, now - DAY).first<{ n: number }>())?.n ?? 0;
-  if (used >= REACTION_LIMITS.perDay) throw new HttpError(429, 'reaction_quota', 'Du hast heute schon sehr viel reagiert und abgestimmt – morgen geht es weiter.');
+  // „nach eigener Stimme“: wer abgestimmt und damit das Ergebnis gesehen hat, nimmt nicht mehr zurück (ändern geht)
+  if (!choices.length && config.results === 'voted') throw new HttpError(409, 'vote_kept', 'Bei dieser Umfrage zeigt die Stimme das Ergebnis – ändern geht, zurücknehmen nicht.');
+  await assertQuota(env, user.id, now);
   const [, inserted] = await env.DB.batch([
     env.DB.prepare(`DELETE FROM poll_votes WHERE post_id = ?1 AND user_id = ?2 AND ${OPEN_SQL}`).bind(id, user.id, now),
     env.DB.prepare(
@@ -105,7 +108,7 @@ export async function putVote(request: Request, env: Env, id: string): Promise<R
        SELECT ?1, ?2, c.value, ?3 FROM json_each(?4) c
        WHERE ${OPEN_SQL} AND (SELECT COUNT(DISTINCT x.user_id) FROM poll_votes x WHERE x.post_id = ?1 AND x.user_id <> ?2) < ?5`,
     ).bind(id, user.id, now, JSON.stringify(choices), POLL_LIMITS.voters),
-    env.DB.prepare('INSERT INTO reaction_log (user_id, created_at) VALUES (?, ?)').bind(user.id, now),
+    reactionLogStmt(env, user.id, now),
   ]);
   if (choices.length && inserted.meta.changes !== choices.length) {
     // offen war sie eben noch – also beendet in diesem Moment oder voll

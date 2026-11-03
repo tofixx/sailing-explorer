@@ -433,7 +433,10 @@ async function channelPage(
     shape: async (cs) => (await shapeCandidates(env, viewer, cs, keep, groupId)).map(({ c: cand, row, item }) => ({ c: cand, item, single: !!row && single(row) })),
     rest: (day, after, limit) => targetCandidates(env, target.kind, target.id, after, day.start, limit),
     score: (items) => reactionScores(env, items),
-    react: (items) => attachReactions(env, items, viewer.id),
+    react: async (items) => {
+      await attachReactions(env, items, viewer.id);
+      await attachKindData(env, items, viewer.id);
+    },
   });
 }
 

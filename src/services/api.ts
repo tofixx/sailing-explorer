@@ -1,7 +1,8 @@
 import type { LogbookEntry } from '../domain/logbook-year';
 import type { SupportTier } from '../domain/support';
 import type { SeasonStats } from '../domain/season-stats';
-import type { ComposePostKind, PollConfig, PollPeople, PollView } from '../domain/polls';
+import type { PollConfig, PollPeople, PollView } from '../domain/polls';
+import type { ComposePostKind } from '../domain/posts';
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { parseWeatherData, type WeatherData } from '../domain/weather';
 import type { PhotoVisibility, Visibility } from '../domain/visibility';

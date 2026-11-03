@@ -155,6 +155,3 @@ export interface PollPeople {
   people: Array<{ handle: string; displayName: string }>;
   others: number;
 }
-
-/** Arten, die „+ Neu“ als Beitrag im Dialog anlegt (Text, Umfrage – Konzept 21.4, 29). */
-export type ComposePostKind = 'text' | 'poll';

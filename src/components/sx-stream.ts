@@ -5,9 +5,10 @@ import { dayCardText, withoutAuto } from '../domain/large-groups';
 import type { ShownDay } from '../services/day-cards';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
-import { base, coverBanner, coverBannerStyles, emit, highlightStyles, linkedText, logbookTag, revealCard } from './shared';
+import { POST_KIND_ICON, base, coverBanner, coverBannerStyles, emit, highlightStyles, linkedText, logbookTag, revealCard } from './shared';
 import './sx-reactions';
 import './sx-poll';
+import { postKeyOf } from '../domain/posts';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
   voyage: 'map',
@@ -412,7 +413,7 @@ export class SxStream extends LitElement {
    * Der Schlüssel „Nur mit Link“ steckt in der Einzelkarte im Pfad `/p/<id>/<schlüssel>`.
    */
   private kindPayload(p: NonNullable<StreamItem['post']>) {
-    const key = p.path?.split('/')[3] ?? null;
+    const key = postKeyOf(p.path);
     if (p.poll) return html`<sx-poll .poll=${p.poll} post-id=${p.id} .shareKey=${key}></sx-poll>`;
     return nothing;
   }
@@ -446,7 +447,7 @@ export class SxStream extends LitElement {
     const pid = i.kind === 'post' ? i.post?.id : undefined;
     const hl = !asPin && !!pid && pid === this.highlight;
     return html`<li aria-label=${streamHeadline(i)} id=${pid && !asPin ? `p-${pid}` : nothing} class=${hl ? 'hl' : asPin ? 'pinned' : nothing} tabindex=${hl ? -1 : nothing}>
-      <span class="ic" aria-hidden="true">${icon(i.post?.poll ? 'poll' : (KIND_ICON[i.kind] ?? 'info'))}</span>
+      <span class="ic" aria-hidden="true">${icon((i.post?.kind && POST_KIND_ICON[i.post.kind]) || (KIND_ICON[i.kind] ?? 'info'))}</span>
       <div>
         ${this.content(i)} ${this.banner(i)}
         ${this.when(i)}

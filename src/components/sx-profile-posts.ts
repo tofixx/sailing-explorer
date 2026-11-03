@@ -3,7 +3,7 @@ import { GROUP_KIND_LABEL } from '../domain/groups';
 import { whoSeesLabel, type ProfilePost } from '../domain/posts';
 import { fmtDateTime } from '../util/html';
 import { icon } from './icons';
-import { POST_VISIBILITY_ICON, base, emit, highlightStyles, linkedText, postCardStyles, revealCard } from './shared';
+import { kindCardLink, POST_VISIBILITY_ICON, base, emit, highlightStyles, linkedText, postCardStyles, revealCard } from './shared';
 
 /**
  * Beiträge einer Person für Besucher (F-420): im Profil und in Gruppen, die der Betrachter sehen darf – der Server
@@ -46,7 +46,7 @@ export class SxProfilePosts extends LitElement {
               : html`<button class="btn small ghost" aria-label="Beitrag melden" @click=${() => emit(this, 'sx-report', { kind: 'post', id: p.id, label: 'diesen Beitrag' })}>${icon('flag')}</button>`}
           </div>
           <p class="body">${linkedText(p.body)}</p>
-          ${p.kind === 'poll' ? html`<a class="link" href="/p/${p.id}">${icon('poll')} Zur Umfrage – abstimmen und Ergebnis</a>` : ''}
+          ${kindCardLink(p.kind, `/p/${p.id}`)}
           ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}
           <div class="meta">
             ${p.visibility !== 'public' ? html`<span>${icon(POST_VISIBILITY_ICON[p.visibility])} ${whoSeesLabel(p.visibility, p.group?.name)}</span>` : ''}

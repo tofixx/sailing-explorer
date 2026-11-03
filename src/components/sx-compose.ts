@@ -3,7 +3,7 @@ import { icon, type IconName } from './icons';
 import { base, emit, menuStyles } from './shared';
 import { MenuController } from './menu-controller';
 import { RECORDING_GUIDE_PATH } from '../content/recording-guide';
-import type { ComposePostKind } from '../domain/polls';
+import type { ComposePostKind } from '../domain/posts';
 
 /** Arten (Konzept 21.4): Törn, Fahrtenbuch, Text, Umfrage (29) – Veranstaltung und Fotos folgen; je Art eine Zeile in KINDS. */
 export type ComposeKind = 'gpx' | 'logbook' | ComposePostKind | 'draft';
