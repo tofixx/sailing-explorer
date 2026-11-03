@@ -36,7 +36,7 @@ export async function shareContext(
     env.DB.prepare(
       `SELECT b.id, b.name FROM boats b LEFT JOIN boat_admins a ON a.boat_id = b.id AND a.user_id = ?2
        WHERE b.id = ?1 AND b.locked_at IS NULL
-         AND ((b.visibility = 'public' AND b.hidden_at IS NULL) OR b.owner_id = ?2 OR a.user_id IS NOT NULL)`,
+         AND (${publicSql('b')} OR b.owner_id = ?2 OR a.user_id IS NOT NULL)`,
     ).bind(share.boat_id ?? null, viewerId),
   ]);
   const p = (sailor.results as { handle: string; display_name: string }[])[0];
