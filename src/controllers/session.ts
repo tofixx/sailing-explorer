@@ -38,6 +38,7 @@ import type { SxInviteDialog } from '../components/sx-invite-dialog';
 import type { SxLoginDialog } from '../components/sx-login-dialog';
 import type { SxShareDialog } from '../components/sx-share-dialog';
 import { APP_NAME } from '../domain/brand';
+import { sendHeat } from './heat';
 
 /** Größte URL, die wir für Links mit eingebetteten Daten noch erzeugen. */
 const MAX_INLINE_URL = 32_000;
@@ -913,6 +914,8 @@ export class SessionController {
       this.ui.saved(share);
       if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: this.supportStatus.sharesUsed + 1 });
       this.showResult(share);
+      // Raster für die Revier-Wärmekarte (Konzept 37) – nicht kritisch
+      sendHeat(share.id, s.tracks);
       this.uploadPreview(share);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {

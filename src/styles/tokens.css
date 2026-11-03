@@ -48,6 +48,8 @@
   /* Karte */
   --map-bg: #aad3df;
   --map-halo: #ffffff;
+  /* Revier-Wärmekarte (Konzept 37): einfarbig, unterscheidbar von Track-Farbverläufen und Wasser */
+  --map-heat: #c2255c;
   --backdrop: rgb(6 18 31 / 0.45);
 
   /* Status */
@@ -134,6 +136,7 @@
     --c-track-6: #3cc9b0;
     --map-bg: #1b2631;
     --map-halo: #0a131c;
+    --map-heat: #f06595;
     --backdrop: rgb(0 0 0 / 0.6);
     --ok: #4cc37d;
     --warn: #f0b04f;

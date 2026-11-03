@@ -20,7 +20,8 @@ async function mount(props: Partial<SxMapStyle> = {}): Promise<LitEl> {
   return el;
 }
 
-const items = (el: LitEl) => [...el.shadowRoot.querySelectorAll<HTMLButtonElement>('.item')];
+// nur die Stile – der Schalter „Revier“ (F-584) ist ein eigener Eintrag
+const items = (el: LitEl) => [...el.shadowRoot.querySelectorAll<HTMLButtonElement>('.item:not(.heat)')];
 const byText = (el: LitEl, t: string) => [...el.shadowRoot.querySelectorAll('button')].find((b) => b.textContent!.includes(t));
 const menu = (el: LitEl) => el.shadowRoot.querySelector<HTMLElement>('#ms')!;
 

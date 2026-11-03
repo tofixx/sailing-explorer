@@ -201,6 +201,8 @@ export const KIND_COLUMNS: Record<string, Partial<Record<string, ArtWeg>> | { bl
 export const R2_PREFIXES: Record<string, { key: Fn; weg: Loeschweg }> = {
   'shares/': { key: 'shareKey', weg: { durch: ['removeShare', 'purgeUser'], nachts: 'mit dem Törn (Aufbewahrung)' } },
   'previews/': { key: 'previewKey', weg: { durch: ['removeShare', 'purgeUser'], nachts: 'mit dem Törn (Aufbewahrung)' } },
+  // Revier-Raster (Konzept 37): über shareFileKeys wie Track und Übersichtsbild
+  'heat/': { key: 'heatKey', weg: { durch: ['removeShare', 'purgeUser'], nachts: 'mit dem Törn (Aufbewahrung)' } },
   // photos/<shareId>/… bzw. photos/<postId>/… (Galerie, Konzept 31)
   'photos/': {
     key: 'photoKey',

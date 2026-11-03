@@ -27,6 +27,7 @@ vi.mock('../../src/map/map-view', async () => {
       focus = v.fn();
       showPlace = v.fn();
       photos = { set: v.fn(), highlight: v.fn(), focus: v.fn(), startPlacing: v.fn(), stopPlacing: v.fn(), callbacks: {} };
+      heat = { set: v.fn(), fitHotspot: v.fn(() => false) };
       constructor() {
         h.maps.push(this);
       }
@@ -141,6 +142,8 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
   }
   if (url.startsWith('/api/') && server.backend === 'html') return new Response('<!doctype html><html></html>', { headers: { 'Content-Type': 'text/html' } });
   if (url === '/api/discover/stats') return json(server.stats ?? { season: 2026, voyages: 0, nm: 0, boats: 0 });
+  // Revier-Wärmekarte (Konzept 37) lädt die Karte selbst – eigene Tests in heat-ui.test.ts
+  if (url === '/api/discover/heat') return json({ cells: [], voyages: [] });
   if (url.startsWith('/api/discover')) return server.discover ? json(server.discover) : json({ error: 'internal', message: 'Interner Fehler' }, 500);
   if (url === '/api/config') return json({ turnstileSiteKey: '', sharing: true, support: server.support ? { tiers: SUPPORT_TIERS } : null, freeShares: 3 });
   // ---- Verein, Hafen, Reaktionen (Konzept 12)
@@ -1220,7 +1223,8 @@ describe('F-70 Entdecken', () => {
   const voyage = (id: string) => ({ id, title: `Törn ${id}`, summary: '', distNm: 12.5, startedAt: T0, createdAt: T0, trackCount: 1, hasImage: false, boat: null, sailor: { handle: 'anna', displayName: 'Anna' } });
   const strip = () => el<{ hidden: boolean; data: { voyages: unknown[] } | null }>('sx-discover[slot="discover"]');
   const page = () => el<{ hidden: boolean; loading: boolean; error: string; data: { voyages: unknown[] } | null }>('#discover-page');
-  const discoverCalls = () => server.calls.filter((c) => c.url.startsWith('/api/discover'));
+  // ohne die Revier-Wärmekarte der Karte (F-582)
+  const discoverCalls = () => server.calls.filter((c) => c.url.startsWith('/api/discover') && c.url !== '/api/discover/heat');
 
   it('[F-70] Startseite: Leiste „Zuletzt gesegelt“ bekommt die neuesten öffentlichen Törns', async () => {
     server.discover = { voyages: [voyage('a'), voyage('b')], boats: [], people: [] };

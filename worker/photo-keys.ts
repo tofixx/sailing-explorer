@@ -5,10 +5,12 @@ import type { Env } from './env';
 import type { PhotoFormat } from './image';
 import { STORAGE_COUNTER } from './storage';
 
-/** R2-Schlüssel eines Törns: Track-Payload und Übersichtsbild (einzige Stelle für diese Präfixe). */
+/** R2-Schlüssel eines Törns: Track-Payload, Übersichtsbild und Revier-Raster (einzige Stelle für diese Präfixe). */
 export const shareKey = (id: string) => `shares/${id}`;
 export const previewKey = (id: string) => `previews/${id}.jpg`;
-export const shareFileKeys = (id: string) => [shareKey(id), previewKey(id)];
+/** Grobes Raster des Wegs für die Revier-Wärmekarte (Konzept 37, F-581) */
+export const heatKey = (id: string) => `heat/${id}.json`;
+export const shareFileKeys = (id: string) => [shareKey(id), previewKey(id), heatKey(id)];
 
 /**
  * photos/<parentId>/<photoId>.webp bzw. _t.webp (JPEG-Fallback: .jpg / _t.jpg). Eltern: der Törn (`share_id`) bzw.
