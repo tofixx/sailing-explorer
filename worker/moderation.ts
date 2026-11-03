@@ -6,6 +6,8 @@ import { randomId } from './crypto';
 import { HttpError } from './http';
 import { isAdmin } from './validate';
 import { ADMIN_LIMITS } from '../src/domain/admin';
+import { isNewAccount, newAccountEnd } from '../src/domain/moderation';
+import { isSupporter } from './supporter';
 
 // Admin-Liste ist eine reine Funktion (worker/validate.ts, unit-getestet).
 export { adminIds, isAdmin } from './validate';
@@ -120,3 +122,16 @@ export const deleteOrphanReports = (env: Env): D1PreparedStatement =>
        OR (target_kind = 'post' AND NOT EXISTS (SELECT 1 FROM posts WHERE id = reports.target_id))
        OR (target_kind = 'harbor' AND NOT EXISTS (SELECT 1 FROM harbors WHERE id = reports.target_id))`,
   );
+
+/**
+ * Neues Konto (F-560, `isNewAccount`)? Liefert das Ende der Neu-Phase (ms) oder null, wenn das Konto nicht (mehr) neu
+ * ist – Unterstützer und Admins nie. Unbekanntes Konto: null.
+ */
+export async function newAccountUntil(env: Env, userId: string, now = Date.now()): Promise<number | null> {
+  const u = await env.DB.prepare('SELECT created_at FROM users WHERE id = ?').bind(userId).first<{ created_at: number }>();
+  if (!u) return null;
+  const trust = { createdAt: u.created_at, admin: isAdmin(env, userId), supporter: false };
+  if (!isNewAccount(trust, now)) return null;
+  if (await isSupporter(env, userId, now)) return null;
+  return newAccountEnd(u.created_at);
+}

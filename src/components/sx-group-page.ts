@@ -583,7 +583,7 @@ export class SxGroupPage extends LitElement {
     const g = d.group;
     if (id === 'edit') this.startEdit(g);
     else if (id === 'leave' && confirm(`„${g.name}“ verlassen?`)) emit(this, 'sx-group-leave', { id: g.id, follow: offerFollow(g) });
-    else if (id === 'report') emit(this, 'sx-report', { kind: 'group', id: g.id, label: `die Gruppe ${g.name}` });
+    else if (id === 'report') emit(this, 'sx-report', { kind: 'group', id: g.id, label: `die Gruppe ${g.name}`, image: !!d.cover });
     else if (id === 'delete' && confirm(`„${g.name}“ wirklich löschen? Mitglieder, Beiträge und Neuigkeiten der Gruppe werden gelöscht. Törns und Boote bleiben.`)) emit(this, 'sx-group-delete', { id: g.id });
   }
 
@@ -757,7 +757,7 @@ export class SxGroupPage extends LitElement {
     const g = d.group;
     const manager = canManageGroup(g.role);
     return html`
-      <sx-cover kind="g" target-id=${g.id} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} ?can-edit=${manager} label="Titelbild von ${g.name}"></sx-cover>
+      <sx-cover kind="g" target-id=${g.id} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} .heldUntil=${d.coverHeldUntil ?? null} ?can-edit=${manager} label="Titelbild von ${g.name}"></sx-cover>
       ${this.hero(d)}
       ${manager && g.hiddenAt ? html`<p class="note" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.editing && manager ? this.editForm(g) : ''}

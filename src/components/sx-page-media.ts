@@ -1,13 +1,15 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
 import type { CoverKind, GalleryPhoto } from '../services/api';
-import { COVER_BANNER_RATIO, COVER_FOCUS_DEFAULT, focusAfterDrag, focusSlack } from '../domain/cover';
+import { COVER_BANNER_RATIO, COVER_FOCUS_DEFAULT, coverHoldText, focusAfterDrag, focusSlack } from '../domain/cover';
 import { fmtShort } from '../util/html';
 import { icon } from './icons';
 import { base, coverPosition, emit } from './shared';
 
 /**
  * Titelbild über Profil-, Boots- und Gruppenseite (Konzept 13.2). Ohne Bild sehen nur Verwalter einen Platzhalter
- * zum Hinzufügen. Das gespeicherte Bild ist meist höher als das 3:1-Banner; Verwalter wählen den sichtbaren Streifen
+ * zum Hinzufügen. Ist das Bild zurückgehalten (`heldUntil`, bekommen nur Verwalter und Admins; Konzept 36), steht
+ * darunter, ab wann bzw. warum andere es noch nicht sehen. Das gespeicherte Bild ist meist höher als das 3:1-Banner;
+ * Verwalter wählen den sichtbaren Streifen
  * unter „Ausschnitt“ durch Ziehen (Maus, Touch) oder per Schieberegler (Tastatur). Reine Darstellung – Events:
  * `sx-cover-change` { kind, id, file }, `sx-cover-remove` { kind, id }, `sx-cover-focus` { kind, id, focusY, previous }.
  */
@@ -15,6 +17,7 @@ export class SxCover extends LitElement {
   static properties = {
     src: { attribute: false },
     focusY: { attribute: false },
+    heldUntil: { attribute: false },
     kind: { type: String },
     targetId: { type: String, attribute: 'target-id' },
     canEdit: { type: Boolean, attribute: 'can-edit' },
@@ -27,6 +30,8 @@ export class SxCover extends LitElement {
   declare src: string | null;
   /** sichtbarer Ausschnitt: vertikale Fokus-Position in Prozent */
   declare focusY: number;
+  /** zurückgehalten bis (ms, F-562/F-566); null = öffentlich */
+  declare heldUntil: number | null;
   declare kind: CoverKind;
   declare targetId: string;
   declare canEdit: boolean;
@@ -45,6 +50,7 @@ export class SxCover extends LitElement {
     super();
     this.src = null;
     this.focusY = COVER_FOCUS_DEFAULT;
+    this.heldUntil = null;
     this.kind = 'u';
     this.targetId = '';
     this.canEdit = false;
@@ -135,6 +141,9 @@ export class SxCover extends LitElement {
       }
       :host([busy]) .frame {
         opacity: 0.6;
+      }
+      .held {
+        margin: var(--s-2) 0 0;
       }
     `,
   ];
@@ -244,6 +253,7 @@ export class SxCover extends LitElement {
       </div>`;
     }
     const y = this.editing ? this.draft : this.focusY;
+    const held = coverHoldText(this.heldUntil);
     return html`<div class="frame ${this.editing ? 'editing' : ''}">
         <img
           src=${this.src}
@@ -283,7 +293,8 @@ export class SxCover extends LitElement {
             <button class="btn small" @click=${this.close}>Abbrechen</button>
             <button class="btn small primary" @click=${this.save}>${icon('check')} Speichern</button>
           </div>`
-        : ''}`;
+        : ''}
+      ${held ? html`<p class="hint held" role="note">${icon('eyeOff')} ${held}</p>` : ''}`;
   }
 }
 customElements.define('sx-cover', SxCover);

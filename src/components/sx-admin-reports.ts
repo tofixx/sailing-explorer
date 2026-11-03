@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import type { AdminAction, AdminReport } from '../services/api';
-import { REPORT_KIND_LABEL, REPORT_REASON_LABEL, type ReportKind, type ReportReason } from '../domain/comment-text';
+import { COVER_REPORT_KINDS, IMAGE_REASONS, REPORT_KIND_LABEL, REPORT_REASON_LABEL, type ReportKind, type ReportReason } from '../domain/comment-text';
 import { fmtDate, plural } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
@@ -131,18 +131,21 @@ export class SxAdminReports extends LitElement {
     const t = r.target;
     const reasons = Object.entries(r.reasons) as Array<[ReportReason, number]>;
     const owner = t?.owner;
+    // Titelbild von Profil, Boot, Gruppe: einzeln entfernbar (F-564)
+    const cover = !!t?.imagePath && COVER_REPORT_KINDS.includes(r.kind);
     return html`<li>
       <div class="top">
         <span class="kind">${KIND[r.kind]}</span>
         <span class="title">${t ? t.title : 'Gibt es nicht mehr'}</span>
         ${t?.path ? html`<a href=${t.path} target="_blank" rel="noopener noreferrer">${icon('open')} Ansehen</a>` : ''}
       </div>
-      ${t?.imagePath ? html`<img class="thumb" src=${t.imagePath} alt="Gemeldetes Foto" loading="lazy" />` : ''}
+      ${t?.imagePath ? html`<img class="thumb" src=${t.imagePath} alt=${cover ? 'Titelbild' : 'Gemeldetes Foto'} loading="lazy" />` : ''}
       ${t?.text ? html`<p class="text">${t.text}</p>` : ''}
       <div class="chips">
         <span class="chip">${plural(r.count, 'Meldung', 'Meldungen')} von ${plural(r.reporters, 'Konto', 'Konten')}</span>
-        ${reasons.map(([k, n]) => html`<span class="chip ${k === 'depicted' || k === 'illegal' ? 'warn' : ''}">${REPORT_REASON_LABEL[k] ?? k}${n > 1 ? ` ×${n}` : ''}</span>`)}
+        ${reasons.map(([k, n]) => html`<span class="chip ${IMAGE_REASONS.includes(k) || k === 'illegal' ? 'warn' : ''}">${REPORT_REASON_LABEL[k] ?? k}${n > 1 ? ` ×${n}` : ''}</span>`)}
         ${t?.hiddenAt ? html`<span class="chip warn">ausgeblendet seit ${fmtDate(t.hiddenAt)}</span>` : ''}
+        ${t?.coverHeld ? html`<span class="chip warn">Titelbild zurückgehalten</span>` : ''}
       </div>
       ${r.notes.length ? html`<ul class="notes" aria-label="Anmerkungen">${r.notes.map((n) => html`<li>${n.note}</li>`)}</ul>` : ''}
       <p class="sub">Erste Meldung ${fmtDate(r.firstAt)}${owner ? html` · Eigentümer: ${owner.displayName}${owner.suspended ? ' (gesperrt)' : ''}` : ''}</p>
@@ -152,6 +155,7 @@ export class SxAdminReports extends LitElement {
               <button class="btn small" type="button" @click=${() => (this.confirm = null)}>Abbrechen</button>`
           : html`<button class="btn small" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'keep')}>${icon('check')} Behalten${t?.hiddenAt ? ' & einblenden' : ''}</button>
               <button class="btn small" type="button" ?disabled=${this.busy || !t} @click=${() => this.decide(r.id, 'hide')}>${icon('eyeOff')} Ausblenden</button>
+              ${cover ? html`<button class="btn small" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'cover')}>${icon('image')} Nur Titelbild entfernen</button>` : ''}
               <button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => (this.confirm = `delete:${r.id}`)}>${icon('trash')} Löschen</button>`}
         ${owner
           ? this.confirm === `suspend:${owner.id}:${r.id}`

@@ -1,12 +1,14 @@
 // Titelbilder (Konzept 13.2): ein Bild je Profil, Boot und Verein/Team. Für alle Konten (E6), nicht im Kontingent
 // des Kontos, aber im globalen Speicherzähler (Notbremse). Sichtbar wie das Objekt selbst; die Version steckt in
-// R2-Key und URL, ein Austausch erzeugt eine neue Adresse.
+// R2-Key und URL, ein Austausch erzeugt eine neue Adresse. Moderation (Konzept 36): höchstens 5 neue Bilder je Konto
+// und Tag; Bilder neuer Konten und gemeldete Bilder sind zurückgehalten (`held_until`) – nur Verwalter und Admins
+// sehen sie, Listen nie.
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
 import { HttpError, countKeyFailure, json, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, requestKey } from './access';
-import { assertActive, isAdmin } from './moderation';
+import { assertActive, isAdmin, newAccountUntil } from './moderation';
 import { roleFor } from './boats';
 import { canViewGroup, loadGroup, roleIn } from './groups';
 import { isSupporter } from './supporter';
@@ -14,9 +16,10 @@ import { STORAGE_COUNTER, checkBrake, currentBrake } from './storage';
 import { inspectImage } from './image';
 import { deleteKeys } from './photo-keys';
 import { normalizeHandle } from './validate';
-import { COVER_BYTES, COVER_HEIGHT, COVER_WIDTH } from '../src/domain/limits';
+import { COVER_BYTES, COVER_HEIGHT, COVER_LIMITS, COVER_WIDTH } from '../src/domain/limits';
 import { canManageGroup } from '../src/domain/groups';
-import { COVER_FOCUS_DEFAULT, coverPath, parseFocusY, type CoverKind } from '../src/domain/cover';
+import { COVER_FOCUS_DEFAULT, REPORT_HOLD, coverPath, coverShown, parseFocusY, type CoverKind } from '../src/domain/cover';
+import { IMAGE_REASONS, type ReportKind } from '../src/domain/comment-text';
 import type { Visibility } from '../src/domain/visibility';
 
 export type { CoverKind };
@@ -32,9 +35,15 @@ export interface CoverRow {
   focus_y: number;
   user_id: string | null;
   created_at: number;
+  /** zurückgehalten bis (ms): neues Konto (F-562) oder offene Bild-Meldung (REPORT_HOLD, F-566); null = öffentlich */
+  held_until: number | null;
 }
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Dieses Titelbild gibt es nicht (mehr).');
+const DAY = 86_400_000;
+
+/** Meldeart des Objekts, zu dem ein Titelbild gehört (Ziel-ID = object_id). */
+export const COVER_REPORT_KIND: Record<CoverKind, ReportKind> = { u: 'profile', b: 'boat', g: 'group' };
 const VER_RE = /^[A-Za-z0-9]{6,16}$/;
 
 export const coverKey = (c: Pick<CoverRow, 'kind' | 'object_id' | 'ver' | 'format'>) => `covers/${c.kind}/${c.object_id}/${c.ver}.${c.format}`;
@@ -47,9 +56,20 @@ export function coverUrl(kind: CoverKind, publicId: string, c: Pick<CoverRow, 'v
   return c ? coverPath(kind, publicId, c.ver, key) : null;
 }
 
-/** Titelbild-Felder einer Seiten-Antwort: Adresse (siehe coverUrl) und Ausschnitt. */
-export function pageCover(kind: CoverKind, publicId: string, c: CoverRow | null, key?: string | null): { cover: string | null; coverY: number } {
-  return { cover: coverUrl(kind, publicId, c, key), coverY: c?.focus_y ?? COVER_FOCUS_DEFAULT };
+/**
+ * Titelbild-Felder einer Seiten-Antwort: Adresse (siehe coverUrl) und Ausschnitt. Ein zurückgehaltenes Bild (F-562,
+ * F-566) bekommen nur Verwalter und Admins, mit `coverHeldUntil` für den Hinweis; für alle anderen gibt es keins.
+ */
+export function pageCover(
+  kind: CoverKind,
+  publicId: string,
+  c: CoverRow | null,
+  key: string | null | undefined,
+  viewer: { manager: boolean; admin: boolean },
+): { cover: string | null; coverY: number; coverHeldUntil: number | null } {
+  const shown = !c || coverShown(c.held_until);
+  if (!shown && !viewer.manager && !viewer.admin) return { cover: null, coverY: COVER_FOCUS_DEFAULT, coverHeldUntil: null };
+  return { cover: coverUrl(kind, publicId, c, key), coverY: c?.focus_y ?? COVER_FOCUS_DEFAULT, coverHeldUntil: shown ? null : c!.held_until };
 }
 
 export async function loadCover(env: Env, kind: CoverKind, objectId: string): Promise<CoverRow | null> {
@@ -64,6 +84,8 @@ interface Target {
   manager: boolean;
   /** öffentlich und nicht ausgeblendet – dann cachebar */
   open: boolean;
+  /** Plattform-Admin (sieht zurückgehaltene Titelbilder) */
+  admin: boolean;
 }
 
 /** Objekt zu Art und öffentlicher ID samt Rechten des Anfragenden – null, wenn es das Objekt nicht gibt. */
@@ -83,6 +105,7 @@ async function target(env: Env, kind: CoverKind, publicId: string, userId: strin
       manager,
       canSee: canView({ visibility: p.visibility, shareKey: p.share_key, hiddenAt: p.hidden_at }, { manager, key, admin }),
       open: p.visibility === 'public' && !p.hidden_at,
+      admin,
     };
   }
   if (kind === 'b') {
@@ -98,15 +121,19 @@ async function target(env: Env, kind: CoverKind, publicId: string, userId: strin
       manager,
       canSee: canView({ visibility: b.visibility, shareKey: b.share_key, hiddenAt: b.hidden_at }, { manager, key, admin }),
       open: b.visibility === 'public' && !b.hidden_at,
+      admin,
     };
   }
   const g = await loadGroup(env, publicId);
   if (!g) return null;
   const role = await roleIn(env, userId, g.id);
-  return { objectId: g.id, manager: canManageGroup(role), canSee: canViewGroup(g, role, key, admin), open: g.visibility === 'public' && !g.hidden_at };
+  return { objectId: g.id, manager: canManageGroup(role), canSee: canViewGroup(g, role, key, admin), open: g.visibility === 'public' && !g.hidden_at, admin };
 }
 
-/** GET /api/covers/:kind/:id/:ver[?k=] – Bilddaten, nur so sichtbar wie das Objekt. */
+/**
+ * GET /api/covers/:kind/:id/:ver[?k=] – Bilddaten, nur so sichtbar wie das Objekt. Zurückgehaltene Bilder (F-562,
+ * F-566) nur für Verwalter und Admins und nie öffentlich cachebar.
+ */
 export async function getCover(request: Request, env: Env, kind: string, publicId: string, ver: string): Promise<Response> {
   if (!isCoverKind(kind) || !VER_RE.test(ver)) throw NOT_FOUND();
   const user = await currentUser(request, env);
@@ -118,13 +145,15 @@ export async function getCover(request: Request, env: Env, kind: string, publicI
   }
   const c = await loadCover(env, kind, t.objectId);
   if (!c || c.ver !== ver) throw NOT_FOUND();
+  const shown = coverShown(c.held_until);
+  if (!shown && !t.manager && !t.admin) throw NOT_FOUND();
   const obj = await env.TRACKS.get(coverKey(c), { onlyIf: request.headers });
   if (!obj) throw NOT_FOUND();
   const headers = new Headers({
     'Content-Type': c.format === 'jpeg' ? 'image/jpeg' : 'image/webp',
     ETag: obj.httpEtag,
-    // Die Version steht in der Adresse – öffentlich daher lange cachebar.
-    'Cache-Control': t.open ? 'public, max-age=86400' : 'private, no-cache',
+    // Die Version steht in der Adresse – öffentlich daher lange cachebar (zurückgehaltene nie).
+    'Cache-Control': t.open && shown ? 'public, max-age=86400' : 'private, no-cache',
     Vary: 'Cookie',
   });
   return withApiHeaders(new Response('body' in obj ? obj.body : null, { status: 'body' in obj ? 200 : 304, headers }));
@@ -140,9 +169,36 @@ async function managedTarget(request: Request, env: Env, kind: string, publicId:
 }
 
 /**
+ * Zurückhalten eines neuen Titelbilds: unbefristet bei offener Bild-Meldung zum Objekt (F-566 – sonst ließe sich die
+ * Sperre durch Löschen und neu Hochladen umgehen), bei neuen Konten bis zum Ende ihrer Neu-Phase (F-562), sonst null.
+ */
+async function holdFor(env: Env, kind: CoverKind, objectId: string, userId: string, now: number): Promise<number | null> {
+  const reported = await env.DB.prepare(
+    `SELECT 1 AS x FROM reports WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL AND reason IN (${IMAGE_REASONS.map(() => '?').join(', ')}) LIMIT 1`,
+  )
+    .bind(COVER_REPORT_KIND[kind], objectId, ...IMAGE_REASONS)
+    .first();
+  if (reported) return REPORT_HOLD;
+  return newAccountUntil(env, userId, now);
+}
+
+/** Tageslimit (F-561): trägt den Upload ein, wenn das Konto in 24 h noch keine 5 neuen Titelbilder hatte – sonst 429. */
+async function takeCoverQuota(env: Env, userId: string, now: number): Promise<void> {
+  const res = await env.DB.prepare(
+    'INSERT INTO cover_log (user_id, created_at) SELECT ?1, ?2 WHERE (SELECT COUNT(*) FROM cover_log WHERE user_id = ?1 AND created_at > ?3) < ?4',
+  )
+    .bind(userId, now, now - DAY, COVER_LIMITS.perDay)
+    .run();
+  if (!res.meta.changes) throw new HttpError(429, 'cover_quota', `Höchstens ${COVER_LIMITS.perDay} neue Titelbilder am Tag – bitte morgen weiter.`);
+}
+
+/** Nachts: Einträge des Tageslimits nach 2 Tagen löschen (Konzept 36). */
+export const coverLogCleanup = (env: Env, now: number) => env.DB.prepare('DELETE FROM cover_log WHERE created_at < ?').bind(now - 2 * DAY);
+
+/**
  * PUT /api/covers/:kind/:id – Body = Bild (WebP oder JPEG, im Browser auf 3:1 … 3:2 zugeschnitten und neu kodiert,
  * ohne Metadaten). Ersetzt ein vorhandenes Titelbild samt Ausschnitt (wieder mittig); der Zähler verschiebt sich um
- * die Differenz.
+ * die Differenz. Zählt zum Tageslimit (F-561) und wird ggf. zurückgehalten (F-562, F-566).
  */
 export async function putCover(request: Request, env: Env, kind: string, publicId: string): Promise<Response> {
   const { user, t, kind: k } = await managedTarget(request, env, kind, publicId);
@@ -164,24 +220,29 @@ export async function putCover(request: Request, env: Env, kind: string, publicI
   // Querformat (der Browser liefert 3:1 … 3:2): ein Hochformat zeigte im Banner nur einen schmalen Streifen
   if (height > width) throw new HttpError(400, 'invalid_image', 'Titelbild bitte im Querformat.');
 
+  const created = Date.now();
+  await takeCoverQuota(env, user.id, created);
   const old = await loadCover(env, k, t.objectId);
-  const c: CoverRow = { kind: k, object_id: t.objectId, ver: randomId(10), format, bytes: bytes.length, focus_y: COVER_FOCUS_DEFAULT, user_id: user.id, created_at: Date.now() };
+  const c: CoverRow = {
+    kind: k, object_id: t.objectId, ver: randomId(10), format, bytes: bytes.length, focus_y: COVER_FOCUS_DEFAULT, user_id: user.id, created_at: created,
+    held_until: await holdFor(env, k, t.objectId, user.id, created),
+  };
   await env.TRACKS.put(coverKey(c), bytes, { httpMetadata: { contentType: format === 'jpeg' ? 'image/jpeg' : 'image/webp' }, customMetadata: { owner: user.id } });
   await env.DB.batch([
     env.DB.prepare('UPDATE counters SET value = MAX(0, value + ?1 - COALESCE((SELECT bytes FROM covers WHERE kind = ?2 AND object_id = ?3), 0)) WHERE name = ?4').bind(
       c.bytes, c.kind, c.object_id, STORAGE_COUNTER,
     ),
     env.DB.prepare(
-      `INSERT INTO covers (kind, object_id, ver, format, bytes, focus_y, user_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-       ON CONFLICT(kind, object_id) DO UPDATE SET ver = ?3, format = ?4, bytes = ?5, focus_y = ?6, user_id = ?7, created_at = ?8`,
-    ).bind(c.kind, c.object_id, c.ver, c.format, c.bytes, c.focus_y, c.user_id, c.created_at),
+      `INSERT INTO covers (kind, object_id, ver, format, bytes, focus_y, user_id, created_at, held_until) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+       ON CONFLICT(kind, object_id) DO UPDATE SET ver = ?3, format = ?4, bytes = ?5, focus_y = ?6, user_id = ?7, created_at = ?8, held_until = ?9`,
+    ).bind(c.kind, c.object_id, c.ver, c.format, c.bytes, c.focus_y, c.user_id, c.created_at, c.held_until),
   ]);
   // Paralleles Ersetzen: hat ein anderer Upload gewonnen, ist die eigene Datei verwaist – sofort entfernen.
   const now = await loadCover(env, k, t.objectId);
   if (now?.ver !== c.ver) await deleteKeys(env, [coverKey(c)]);
   if (old && old.ver !== now?.ver) await deleteKeys(env, [coverKey(old)]);
   // das tatsächlich gespeicherte Bild melden (bei parallelem Ersetzen das des anderen Uploads)
-  return json(pageCover(k, publicId, now ?? c), { status: 201 });
+  return json(pageCover(k, publicId, now ?? c, null, { manager: true, admin: t.admin }), { status: 201 });
 }
 
 /** PATCH /api/covers/:kind/:id { focusY } – nur den Ausschnitt ändern, ohne neues Bild (Verwalter). */
@@ -240,3 +301,11 @@ export async function sweepOrphanCovers(env: Env, limit = 200): Promise<number> 
   for (const c of results) await removeCover(env, c);
   return results.length;
 }
+
+/** Bild-Meldung (F-566): Titelbild des Objekts unbefristet zurückhalten, bis ein Admin entscheidet. */
+export const holdCoverStmt = (env: Env, kind: CoverKind, objectId: string): D1PreparedStatement =>
+  env.DB.prepare('UPDATE covers SET held_until = ? WHERE kind = ? AND object_id = ?').bind(REPORT_HOLD, kind, objectId);
+
+/** Admin-Entscheidung „Behalten“/„Ausblenden“: die Melde-Sperre des Titelbilds aufheben (die Frist neuer Konten bleibt). */
+export const releaseCoverStmt = (env: Env, kind: CoverKind, objectId: string): D1PreparedStatement =>
+  env.DB.prepare('UPDATE covers SET held_until = NULL WHERE kind = ? AND object_id = ? AND held_until = ?').bind(kind, objectId, REPORT_HOLD);

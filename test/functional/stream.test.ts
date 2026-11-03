@@ -339,14 +339,17 @@ describe('F-161/F-162 Beiträge und RSS', () => {
     expect(kinds((await groupStream(team, owner)).body)).not.toContain('post');
   });
 
-  it('[F-157] Beiträge melden: „Ich bin genannt“ blendet sofort aus; der Beitrag verschwindet aus dem Stream', async () => {
+  it('[F-157][F-566] Beiträge melden: drei Konten blenden aus, der Beitrag verschwindet aus dem Stream; Bild-Gründe gibt es für Texte nicht', async () => {
     const owner = await s.person();
     const g = await s.group(owner);
     const res = await s.send('POST', `/api/groups/${g.id}/posts`, owner.cookie, { visibility: 'public', body: 'Über jemanden' });
     const { post } = (await res.json()) as { post: { id: string } };
-    const reporter = await s.person();
-    const r = await s.send('POST', '/api/reports', reporter.cookie, { kind: 'post', id: post.id, reason: 'depicted' });
-    expect(r.status, await r.clone().text()).toBe(201);
+    const bad = await s.send('POST', '/api/reports', (await s.person()).cookie, { kind: 'post', id: post.id, reason: 'depicted' });
+    expect(bad.status).toBe(400);
+    for (let i = 0; i < 3; i++) {
+      const r = await s.send('POST', '/api/reports', (await s.person()).cookie, { kind: 'post', id: post.id, reason: 'abuse' });
+      expect(r.status, await r.clone().text()).toBe(201);
+    }
     expect(kinds((await groupStream(g, owner)).body)).not.toContain('post');
   });
 

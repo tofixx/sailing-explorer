@@ -10,7 +10,7 @@ import { harborVisible, loadHarborBySlug } from './harbors';
 import { placesNear } from './stream';
 import type { SeasonStats } from '../src/domain/season-stats';
 import { seasonOf, seasonStart } from '../src/domain/groups';
-import { notSuspendedSql, publicSql } from './visible-sql';
+import { coverShownSql, notSuspendedSql, publicSql } from './visible-sql';
 import { boatClassesOf } from '../src/domain/boat-class';
 
 /**
@@ -76,7 +76,7 @@ const BOATS = (m: string) => `SELECT b.id, b.name, b.boat_type, b.boat_class, b.
     (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.boat_id = b.id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_rec
   FROM boats b
   JOIN profiles p ON p.user_id = b.owner_id AND ${publicSql('p')}
-  LEFT JOIN covers c ON c.kind = 'b' AND c.object_id = b.id
+  LEFT JOIN covers c ON c.kind = 'b' AND c.object_id = b.id AND ${coverShownSql('c')}
   WHERE ${publicSql('b')} AND ${notSuspendedSql('b.owner_id')} ${m}
   ORDER BY ${m.includes('?3') ? `${nearRank('b.harbor_id')}, ` : ''}b.created_at DESC, b.id
   LIMIT ?1`;
@@ -88,7 +88,7 @@ const PEOPLE = (m: string) => `SELECT * FROM (
       (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.user_id = p.user_id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_rec,
       (SELECT COUNT(*) FROM boats b WHERE b.owner_id = p.user_id AND ${publicSql('b')}) AS boats
     FROM profiles p
-    LEFT JOIN covers c ON c.kind = 'u' AND c.object_id = p.user_id
+    LEFT JOIN covers c ON c.kind = 'u' AND c.object_id = p.user_id AND ${coverShownSql('c')}
     WHERE ${publicSql('p')} AND ${notSuspendedSql('p.user_id')} ${m}
   )
   WHERE voyages > 0 OR boats > 0

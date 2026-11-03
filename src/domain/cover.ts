@@ -54,3 +54,22 @@ export function focusAfterDrag(start: number, dy: number, slack: number): number
   if (slack <= 0) return start;
   return Math.min(100, Math.max(0, Math.round(start - (dy / slack) * 100)));
 }
+
+/**
+ * `covers.held_until` bei einer offenen Bild-Meldung (F-566): unbefristet zurückgehalten, bis ein Admin entscheidet.
+ * Neue Konten tragen dort das Ende ihrer Neu-Phase (F-562).
+ */
+export const REPORT_HOLD = Number.MAX_SAFE_INTEGER;
+
+/** Öffentlich sichtbar (nicht zurückgehalten)? Gleiche Regel wie `coverShownSql` (worker/visible-sql.ts). */
+export function coverShown(heldUntil: number | null | undefined, now = Date.now()): boolean {
+  return heldUntil == null || heldUntil <= now;
+}
+
+/** Hinweis für Verwalter zu einem zurückgehaltenen Titelbild (F-563); leer, wenn es öffentlich ist. */
+export function coverHoldText(heldUntil: number | null | undefined, now = Date.now()): string {
+  if (coverShown(heldUntil, now)) return '';
+  if (heldUntil! >= REPORT_HOLD) return 'Noch nicht öffentlich: Das Titelbild wurde gemeldet und ist ausgeblendet, bis die Moderation entschieden hat.';
+  const day = new Date(heldUntil!).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric', timeZone: 'Europe/Berlin' });
+  return `Noch nicht öffentlich: Titelbilder neuer Konten erscheinen für andere erst nach 7 Tagen – ab ${day}.`;
+}

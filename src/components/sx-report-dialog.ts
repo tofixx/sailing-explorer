@@ -1,5 +1,5 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import { REPORT_KIND_LABEL, REPORT_NOTE_MAX, REPORT_REASONS, REPORT_REASON_LABEL, type ReportKind, type ReportReason } from '../domain/comment-text';
+import { REPORT_KIND_LABEL, REPORT_NOTE_MAX, REPORT_REASON_LABEL, isImageReason, reportReasonsFor, type ReportKind, type ReportReason } from '../domain/comment-text';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 
@@ -9,6 +9,8 @@ export interface ReportTarget {
   id: string;
   /** für die Überschrift, z. B. „diesen Törn“ oder „Kommentar von Anna“ */
   label: string;
+  /** Profil, Boot, Gruppe mit sichtbarem Titelbild – dann gibt es die Bild-Gründe (F-566) */
+  image?: boolean;
 }
 
 const KIND_LABEL: Record<ReportKind, string> = REPORT_KIND_LABEL;
@@ -139,7 +141,7 @@ export class SxReportDialog extends LitElement {
   private content() {
     if (this.done) {
       return html`<div class="note" role="status">${icon('check')}<span>Danke für deine Meldung. Wir sehen sie uns an.
-          ${this.reason === 'depicted' ? 'Bis zur Prüfung ist der Inhalt ausgeblendet.' : ''}</span></div>
+          ${this.reason && isImageReason(this.reason) ? `Bis zur Prüfung ist ${this.target?.kind === 'photo' ? 'das Foto' : 'das Titelbild'} ausgeblendet.` : ''}</span></div>
         <div class="actions"><button class="btn primary" type="button" @click=${this.close}>Schließen</button></div>`;
     }
     if (!this.signedIn) {
@@ -153,7 +155,7 @@ export class SxReportDialog extends LitElement {
     return html`<form @submit=${this.submit}>
       <fieldset>
         <legend>Was stimmt damit nicht?</legend>
-        ${REPORT_REASONS.map(
+        ${reportReasonsFor(this.target?.kind ?? 'share', this.target?.image).map(
           (r) => html`<label class="opt">
             <input type="radio" name="reason" value=${r} .checked=${this.reason === r} @change=${() => (this.reason = r)} />
             <span>${REPORT_REASON_LABEL[r]}</span>

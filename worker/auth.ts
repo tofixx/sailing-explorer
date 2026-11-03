@@ -301,6 +301,8 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
     env.DB.prepare('DELETE FROM photos WHERE user_id = ?').bind(user.id),
     // Monatszähler der Galerie (fiele auch per ON DELETE CASCADE)
     env.DB.prepare('DELETE FROM photo_log WHERE user_id = ?').bind(user.id),
+    // Tageslimit der Titelbilder (Konzept 36, fiele auch per ON DELETE CASCADE)
+    env.DB.prepare('DELETE FROM cover_log WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM shares WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM login_tokens WHERE email = ?').bind(user.email),
