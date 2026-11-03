@@ -50,7 +50,7 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
   it('[F-411] [F-455] Saison-Reiter, Filter mit Mehrfachauswahl, Summen nur über die gefilterten Einträge (ausgeschlossene nie)', async () => {
     const el = await mount('sx-logbook-page', { entries, season: 2026, states: ['confirmed', 'suggested'] });
     const tabs = [...el.shadowRoot.querySelectorAll('[role="tab"]')].map((b) => [b.textContent!.trim(), b.getAttribute('aria-selected')]);
-    expect(tabs).toEqual([['2026', 'true'], ['2025', 'false'], ['Alle Saisons', 'false']]);
+    expect(tabs).toEqual([['Alle Saisons', 'false'], ['2026', 'true'], ['2025', 'false']]);
     expect(el.shadowRoot.querySelector('.seasons')!.hasAttribute('data-scroll-x')).toBe(true);
     expect([...el.shadowRoot.querySelectorAll('li')].map((li) => li.getAttribute('data-id'))).toEqual(['A', 'B', 'D']);
     const sums = text(el.shadowRoot.querySelector('.totals')!);
@@ -108,7 +108,7 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
   it('[F-611] [F-612] [F-613] Segellebenslauf: Reiter „Alle Saisons“, Summen je Saison und gesamt, CSV mit saison=alle, Druckzeile', async () => {
     const el = await mount('sx-logbook-page', { entries, season: 2026, states: ['confirmed', 'suggested'], all: true });
     const tabs = [...el.shadowRoot.querySelectorAll('[role="tab"]')].map((b) => [b.textContent!.trim(), b.getAttribute('aria-selected')]);
-    expect(tabs).toEqual([['2026', 'false'], ['2025', 'false'], ['Alle Saisons', 'true']]);
+    expect(tabs).toEqual([['Alle Saisons', 'true'], ['2026', 'false'], ['2025', 'false']]);
     const cells = (r: Element) => [...r.querySelectorAll('th, td')].map((c) => c.textContent!.trim());
     expect([...el.shadowRoot.querySelectorAll('.years tbody tr')].map(cells)).toEqual([['2026', '3', '35,0', '0,0', '3'], ['2025', '1', '3,0', '0,0', '1']]);
     expect(cells(el.shadowRoot.querySelector('.years tfoot tr')!)).toEqual(['Gesamt', '4', '38,0', '0,0', '4']);
@@ -116,6 +116,16 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
     expect(el.shadowRoot.querySelector('li')).toBeNull();
     expect(el.shadowRoot.querySelector('a[download]')!.getAttribute('href')).toBe('/api/me/logbook.csv?saison=alle&stand=confirmed,suggested');
     expect(text(el.shadowRoot.querySelector('.print-only')!)).toContain('Segellebenslauf · Bestätigt, Vorschläge');
+    expect(el.shadowRoot.querySelector('[role="status"]')).toBeNull();
+    el.truncated = true;
+    await el.updateComplete;
+    expect(text(el.shadowRoot.querySelector('[role="status"]')!)).toContain('Nur die neuesten 1000 Einträge');
+    el.states = ['excluded'];
+    await el.updateComplete;
+    expect(text(el.shadowRoot.querySelector('.years tbody')!)).toContain('Keine Einträge mit diesem Filter.');
+    el.states = ['confirmed', 'suggested'];
+    el.truncated = false;
+    await el.updateComplete;
     const seasons = events(el, 'sx-logbook-season');
     button(el.shadowRoot, /^ *2025/)!.click();
     button(el.shadowRoot, /Alle Saisons/)!.click(); // schon gewählt: nichts
@@ -155,7 +165,7 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? 'GET'} ${url}`);
-      if (url === '/api/me/logbook') return new Response(JSON.stringify({ entries }), { headers: { 'Content-Type': 'application/json' } });
+      if (url === '/api/me/logbook') return new Response(JSON.stringify({ entries, truncated: true }), { headers: { 'Content-Type': 'application/json' } });
       return new Response(JSON.stringify({ share: { id: 'A' } }), { headers: { 'Content-Type': 'application/json' } });
     }));
     const page = (await mount('sx-logbook-page', {})) as unknown as SxLogbookPage;
@@ -183,6 +193,14 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
     expect(page.all).toBe(true);
     expect(page.season).toBe(2025);
     expect(location.search).toBe('?saison=alle');
+    // bleibt nach Neuladen und erneutem Öffnen stehen (auch in anderer Schreibweise)
+    await c.reload();
+    expect(page.all).toBe(true);
+    expect(page.truncated).toBe(true);
+    history.replaceState(null, '', '/konto/fahrtenbuch?saison=Alle');
+    await c.open();
+    expect(page.all).toBe(true);
+    expect(location.search).toBe('?saison=Alle');
     c.setSeason(2025);
     expect(page.all).toBe(false);
     page.dispatchEvent(new CustomEvent('sx-logbook-state', { detail: { id: 'A', logState: 'confirmed' } }));

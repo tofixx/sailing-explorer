@@ -122,7 +122,7 @@ export async function getMyLogbookCsv(request: Request, env: Env): Promise<Respo
   const user = await requireUser(request, env);
   const url = new URL(request.url);
   const raw = url.searchParams.get('saison');
-  const all = raw === 'alle';
+  const all = raw?.toLowerCase() === 'alle';
   const season = raw && /^\d{4}$/.test(raw) ? Number(raw) : null;
   const [{ entries, truncated }, templates] = await Promise.all([entriesOf(env, user.id), templatesFor(env, user.id)]);
   const shown = filterEntries(entries, parseLogFilter(url.searchParams.get('stand')), season);

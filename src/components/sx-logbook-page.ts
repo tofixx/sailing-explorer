@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { DIST_SOURCE_LABEL, LOG_STATES, LOG_STATE_LABEL, type LogState } from '../domain/logbook';
 import {
-  LOG_FILTER_LABEL, areaText, entrySeason, recordedNote, filterEntries, logbookSeasons, logbookTotals, pickSeason, roleText, type LogbookEntry, type LogbookTotals,
+  LOGBOOK_MAX_ENTRIES, LOG_FILTER_LABEL, areaText, entrySeason, recordedNote, filterEntries, logbookSeasons, logbookTotals, pickSeason, roleText, type LogbookEntry, type LogbookTotals,
 } from '../domain/logbook-year';
 import { SCORING_NOTE, pointsByTemplate, scoreEntry, templateFor, templateLabel, usesTemplates, type ScoringTemplate } from '../domain/scoring';
 import { SCORING_PATH } from '../services/url-state';
@@ -29,6 +29,8 @@ export class SxLogbookPage extends LitElement {
     season: { type: Number },
     /** Segellebenslauf (F-610): Übersicht über alle Saisons statt einer Saison */
     all: { type: Boolean },
+    /** mehr Einträge als geliefert (höchstens 1.000) – Hinweis in der Übersicht */
+    truncated: { type: Boolean },
     states: { attribute: false },
     loading: { type: Boolean },
     busy: { type: Boolean },
@@ -46,6 +48,7 @@ export class SxLogbookPage extends LitElement {
   declare entries: LogbookEntry[] | null;
   declare season: number;
   declare all: boolean;
+  declare truncated: boolean;
   declare states: LogState[];
   declare loading: boolean;
   declare busy: boolean;
@@ -60,6 +63,7 @@ export class SxLogbookPage extends LitElement {
     this.entries = null;
     this.season = shownSeason(Date.now());
     this.all = false;
+    this.truncated = false;
     this.states = ['confirmed', 'suggested'];
     this.loading = false;
     this.busy = false;
@@ -366,9 +370,9 @@ export class SxLogbookPage extends LitElement {
     const { rows, total } = lifetimeReview(this.entries ?? [], this.states);
     const hours = (h: number) => fmtNum(h, h < 10 ? 1 : 0);
     return html`<table class="years">
-      <caption class="note">Summen je Saison (${this.filterLabel()}); ausgeschlossene zählen nie.</caption>
-      <thead><tr><th scope="col">Saison</th><th scope="col">Törns</th><th scope="col">sm</th><th scope="col">Std.</th><th scope="col">Tage</th></tr></thead>
-      <tbody>${rows.map((r) => html`<tr><th scope="row">${r.season}</th><td>${r.voyages}</td><td>${fmtNum(r.nm, 1)}</td><td>${hours(r.hours)}</td><td>${r.days}</td></tr>`)}</tbody>
+      <caption class="note">Stunden: Angaben unter Segel und Motor, sonst die Fahrtzeit am selben Tag.</caption>
+      <thead><tr><th scope="col">Saison</th><th scope="col">Törns</th><th scope="col">sm</th><th scope="col">Stunden</th><th scope="col">Tage</th></tr></thead>
+      <tbody>${rows.length ? '' : html`<tr><td colspan="5">Keine Einträge mit diesem Filter.</td></tr>`}${rows.map((r) => html`<tr><th scope="row">${r.season}</th><td>${r.voyages}</td><td>${fmtNum(r.nm, 1)}</td><td>${hours(r.hours)}</td><td>${r.days}</td></tr>`)}</tbody>
       <tfoot><tr><th scope="row">Gesamt</th><td>${total.voyages}</td><td>${fmtNum(total.nm, 1)}</td><td>${hours(total.hours)}</td><td>${total.days}</td></tr></tfoot>
     </table>`;
   }
@@ -444,8 +448,8 @@ export class SxLogbookPage extends LitElement {
     const seasons = this.seasons();
     const season = pickSeason(seasons, this.season);
     const tabs = html`<div class="seasons" role="tablist" aria-label="Saison" data-scroll-x>
-        ${seasons.map((s) => html`<button role="tab" aria-selected=${!this.all && s === season ? 'true' : 'false'} @click=${() => (this.all || s !== season) && emit(this, 'sx-logbook-season', { season: s })}>${s}</button>`)}
         <button role="tab" aria-selected=${this.all ? 'true' : 'false'} @click=${() => !this.all && emit(this, 'sx-logbook-season', { season: 'alle' })}>Alle Saisons</button>
+        ${seasons.map((s) => html`<button role="tab" aria-selected=${!this.all && s === season ? 'true' : 'false'} @click=${() => (this.all || s !== season) && emit(this, 'sx-logbook-season', { season: s })}>${s}</button>`)}
       </div>`;
     const filter = html`<div class="filter" role="group" aria-label="Stand im Fahrtenbuch">
         ${LOG_STATES.map((s) => html`<button aria-pressed=${this.states.includes(s) ? 'true' : 'false'} @click=${() => this.toggle(s)}>
@@ -458,6 +462,7 @@ export class SxLogbookPage extends LitElement {
         <section aria-labelledby="sum-h">
           <h2 id="sum-h">Segellebenslauf</h2>
           <p class="note">Summen aller Saisons (${this.filterLabel()}); ausgeschlossene zählen nie. Jeder Eintrag steht in der CSV-Datei.</p>
+          ${this.truncated ? html`<p class="note" role="status">Nur die neuesten ${LOGBOOK_MAX_ENTRIES} Einträge sind geladen – ältere fehlen in Übersicht und CSV.</p>` : nothing}
           ${this.totals(logbookTotals(everything))}
           ${this.lifetime()}
         </section>`;

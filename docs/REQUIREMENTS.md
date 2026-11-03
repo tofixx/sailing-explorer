@@ -565,7 +565,7 @@ Nur eigene Werte, keine Vergleiche mit anderen und keine Ranglisten (K6). Nichts
 
 - **F-610** Segellebenslauf als CSV: `GET /api/me/logbook.csv?saison=alle&stand=` liefert alle Saisons in einer Datei `segellebenslauf.csv` – wie F-457 (gleiche Spalten, Filter, Crew-Regeln, Formelschutz, Jahresbericht-Spalten bei Vorlagen), zusätzlich als erste Spalte „Saison“ (auch in den Summenzeilen); ohne `saison` bleibt die Datei ohne Saison-Spalte.
 - **F-611** Übersicht „Segellebenslauf“: Der Reiter „Alle Saisons“ auf `/konto/fahrtenbuch` zeigt die Summen über alle Saisons (wie die Saison-Summen, nach Stand-Filter, ausgeschlossene nie) und je Saison mit Einträgen eine Zeile Törns, sm, Stunden, Tage an Bord (Regeln von `seasonReview`) samt Gesamtzeile; keine Einzelliste (die steht in der CSV).
-- **F-612** Ein Einstieg: kein zweiter Knopf – der Reiter „Alle Saisons“ schaltet die Seite um, „CSV“ und „Drucken“ gelten dann für den Segellebenslauf (CSV mit `saison=alle`). Die Adresse trägt `?saison=alle`; die zuletzt gewählte Saison bleibt dahinter erhalten.
+- **F-612** Ein Einstieg: kein zweiter Knopf – der Reiter „Alle Saisons“ schaltet die Seite um, „CSV“ und „Drucken“ gelten dann für den Segellebenslauf (CSV mit `saison=alle`). Die Adresse trägt `?saison=alle` (Groß-/Kleinschreibung egal); die zuletzt gewählte Saison bleibt innerhalb der Sitzung dahinter erhalten, nach einem Neuladen gilt die Vorgabe. Sind es mehr als 1.000 Einträge, nennt die Übersicht, dass nur die neuesten geladen sind.
 - **F-613** Drucken des Segellebenslaufs: gedruckt werden Kopfzeile „Segellebenslauf · Filter · Stand“, Summen und Saison-Tabelle ohne Reiter, Filter und Knöpfe (Druckstil von F-458); bei 375 px passt die Tabelle ohne seitliches Scrollen.
 
 ## Betrieb

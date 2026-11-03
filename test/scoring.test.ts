@@ -125,6 +125,20 @@ describe('Gewichtung der Vereinsliste (F-504)', () => {
   });
 });
 
+describe('Segellebenslauf als CSV mit Punkten (F-610)', () => {
+  it('[F-610] Saison als erste Spalte auch in Kopf und Summenzeilen; Hinweiszeile bei gekappter Liste bleibt eine Zelle', () => {
+    const entries = [e({ distNm: 8 }), e({ startedAt: Date.UTC(2024, 6, 1, 10), distNm: 4 })];
+    const csv = logbookCsv(entries, true, reportScores(entries, [BASE_TEMPLATE]), true).replace(/^﻿/, '');
+    const lines = csv.trimEnd().split('\r\n');
+    expect(lines[0]).toBe('Saison;Datum;Von;Nach;sm;Quelle;Rolle;Boot;Dauer;Revier;Posten;Vorlage;Punkte');
+    expect(lines[1]).toBe('2024;01.07.2024;;;4,0;Angabe;;;;;;Nur Meilen;4,0');
+    expect(lines[2]).toMatch(/^2026;13\.06\.2026;/);
+    expect(lines).toContain(';Summe;;;12,0;;;;;;;Nur Meilen;12,0');
+    expect(lines.at(-1)).toMatch(/^Hinweis: nur die neuesten 1000 Einträge/);
+    expect(lines.at(-1)).not.toContain(';');
+  });
+});
+
 describe('Jahresbericht als CSV (F-505)', () => {
   it('[F-505] Spalten Revier, Posten, Vorlage, Punkte; Summen je Vorlage; Hinweis; Formel-Schutz bleibt', () => {
     const list = [BASE_TEMPLATE, tpl('=preis', { day: 5 }, { name: '=Preis' })];

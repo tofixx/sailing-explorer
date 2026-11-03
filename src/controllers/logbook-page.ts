@@ -57,7 +57,7 @@ export class LogbookPageController {
 
   async open(): Promise<void> {
     const q = new URLSearchParams(location.search);
-    this.page.all = q.get('saison') === 'alle';
+    this.page.all = q.get('saison')?.toLowerCase() === 'alle';
     const season = Number(q.get('saison'));
     this.page.season = Number.isInteger(season) && season > 2000 ? season : shownSeason(Date.now());
     this.page.states = parseLogFilter(q.get('stand'));
@@ -80,6 +80,7 @@ export class LogbookPageController {
       // Wertungsvorlagen für die Punkte (F-505) nebenbei – ohne Antwort rechnet alles mit „Nur Meilen“
       const [logbook, scoring] = await Promise.all([api.myLogbook(), scoringApi.mine().catch(() => null)]);
       page.entries = logbook.entries;
+      page.truncated = !!logbook.truncated;
       page.templates = scoring?.templates ?? [];
       // Einstieg „Wertung“ nur für Vereinsmitglieder und Admins der Vorschläge (F-507)
       page.scoringLink = (scoring?.clubs?.length ?? 0) > 0 || !!scoring?.admin;

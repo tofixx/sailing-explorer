@@ -193,14 +193,14 @@ describe('F-610 Segellebenslauf als CSV', () => {
   it('[F-610] saison=alle: Datei segellebenslauf.csv mit Saison als erster Spalte über alle Jahre, Stand-Filter und Crew-Regeln wie die Seite', async () => {
     const p = await s.person();
     const owner = await s.person();
-    const now = await manual(p, { distNm: 7 });
-    const old = await manual(p, { distNm: 5, startedAt: Date.UTC(2023, 6, 1, 10) });
+    await manual(p, { distNm: 7 });
+    await manual(p, { distNm: 5, startedAt: Date.UTC(2023, 6, 1, 10) });
     const crewShare = await gpx(owner, { distNm: 20 });
     await addCrew(crewShare.id, p, 'crew', true);
     const skip = await manual(p, { distNm: 99, startedAt: Date.UTC(2024, 6, 1, 10) });
     expect((await s.send('PATCH', `/api/shares/${skip.id}`, p.cookie, { logState: 'excluded' })).status).toBe(200);
     expect((await h.fetch('/api/me/logbook.csv?saison=alle')).status).toBe(401);
-    const res = await h.fetch('/api/me/logbook.csv?saison=alle', { cookie: p.cookie });
+    const res = await h.fetch('/api/me/logbook.csv?saison=ALLE', { cookie: p.cookie }); // Schreibweise egal
     expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="segellebenslauf.csv"');
     expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     const lines = new TextDecoder().decode(await res.arrayBuffer()).trimEnd().split('\r\n');
@@ -217,8 +217,6 @@ describe('F-610 Segellebenslauf als CSV', () => {
     const plain = new TextDecoder().decode(await (await h.fetch('/api/me/logbook.csv', { cookie: p.cookie })).arrayBuffer());
     expect(plain).toContain('Datum;Von;Nach;sm;Quelle;Rolle;Boot;Dauer');
     expect(plain).not.toContain('Saison');
-    expect(old.id).toBeTruthy();
-    expect(now.id).toBeTruthy();
   });
 });
 
