@@ -572,6 +572,13 @@ Nur eigene Werte, keine Vergleiche mit anderen und keine Ranglisten (K6). Nichts
 - **F-566** Die Gründe „Ich bin abgebildet“ (`depicted`) und „Kinder abgebildet“ (`minors`) gibt es nur für Fotos und für Profil, Boot oder Gruppe mit einem für die meldende Person sichtbaren Titelbild (sonst 400 `invalid_reason`; der Dialog bietet sie nur dort an). Sie blenden sofort nur das Bild aus – das Foto (`hidden_at`) bzw. das Titelbild (`held_until` unbefristet) –, auch wenn das meldende Konto neu ist; das Objekt selbst erst über die Schwelle. Ein neues Titelbild bleibt zurückgehalten, solange eine solche Meldung offen ist. „Behalten“ und „Ausblenden“ heben die Sperre des Titelbilds auf.
 - **F-567** Migration 0044 ist additiv: vorhandene Titelbilder bleiben öffentlich, vorhandene Meldungen zählen mit Gewicht 1.
 
+## Segellebenslauf (Konzept 27.5, Roadmap „Export / Segellebenslauf“)
+
+- **F-610** Segellebenslauf als CSV: `GET /api/me/logbook.csv?saison=alle&stand=` liefert alle Saisons in einer Datei `segellebenslauf.csv` – wie F-457 (gleiche Spalten, Filter, Crew-Regeln, Formelschutz, Jahresbericht-Spalten bei Vorlagen), zusätzlich als erste Spalte „Saison“ (auch in den Summenzeilen); ohne `saison` bleibt die Datei ohne Saison-Spalte.
+- **F-611** Übersicht „Segellebenslauf“: Der Reiter „Alle Saisons“ auf `/konto/fahrtenbuch` zeigt die Summen über alle Saisons (wie die Saison-Summen, nach Stand-Filter, ausgeschlossene nie) und je Saison mit Einträgen eine Zeile Törns, sm, Stunden, Tage an Bord (Regeln von `seasonReview`) samt Gesamtzeile; keine Einzelliste (die steht in der CSV).
+- **F-612** Ein Einstieg: kein zweiter Knopf – der Reiter „Alle Saisons“ schaltet die Seite um, „CSV“ und „Drucken“ gelten dann für den Segellebenslauf (CSV mit `saison=alle`). Die Adresse trägt `?saison=alle` (Groß-/Kleinschreibung egal); die zuletzt gewählte Saison bleibt innerhalb der Sitzung dahinter erhalten, nach einem Neuladen gilt die Vorgabe. Sind es mehr als 1.000 Einträge, nennt die Übersicht, dass nur die neuesten geladen sind.
+- **F-613** Drucken des Segellebenslaufs: gedruckt werden Kopfzeile „Segellebenslauf · Filter · Stand“, Summen und Saison-Tabelle ohne Reiter, Filter und Knöpfe (Druckstil von F-458); bei 375 px passt die Tabelle ohne seitliches Scrollen.
+
 ## Betrieb
 
 - **F-50** Lokale Entwicklung mit `npm run dev`, erreichbar im LAN (Handy) inkl. Login.
