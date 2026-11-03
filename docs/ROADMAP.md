@@ -1,6 +1,6 @@
 # Roadmap
 
-Einzige Quelle für „was kommt als Nächstes“. Stand 03.11.2026, Code-Stand `main` (704ec12).
+Einzige Quelle für „was kommt als Nächstes“. Stand 03.11.2026 abends, Code-Stand `main` (9654bc5).
 Inhalte stehen in den verlinkten Abschnitten. Hier stehen nur Reihenfolge, Nutzen, Aufwand und Abhängigkeiten.
 Erledigtes fällt heraus.
 
@@ -20,8 +20,6 @@ Das sind kleine Aufräumarbeiten ohne Konzeptänderung. Sie lassen sich nebenbei
 
 | Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
 |---|---|---|---|---|
-| ~~Doppelten Abruf `/api/discover?limit=6` beseitigen~~ – erledigt auf `feature/kleinkram-navigation` (F-530), fällt mit dem Merge heraus | Für Gäste fragen `loadDiscoverStrip` (`app.ts`) und `GuestSliderController` dasselbe ab. Ein Abruf weniger heißt: schnellere Startseite und weniger Last auf dem Worker | S | N (Todo) | – |
-| ~~Zahnrad am Kartenstil umstellen~~ – erledigt auf `feature/kleinkram-navigation` (F-531, Ebenen-Symbol) | `sx-map-style` trägt noch das Zahnrad. Nach N6 gehört es nur dem Seiten-Menü. `sx-page-menu` hat das nicht erledigt; das Titelbild ist dagegen richtig gelöst (direkt am Bild, K 21.13) | S | N (zurückgestellt), [U N6](UX-NAVIGATION.md#7-navigations--und-kopfbereich-regeln-vorschlag) | – |
 | Menüwege der empfohlenen Apps in echten Apps prüfen | Die Anleitung soll stimmen. Belegt sind die Menüpfade bisher nur teilweise | S | N (Todo), K 25.2 | Geräte bzw. Apps |
 | B&G/Simrad/Lowrance-GPX klären | Klären, ob diese Plotter GPX mit Zeitstempeln exportieren. Danach eine konkrete statt einer allgemeinen Anleitung | S | N (Todo), K 25.2 | Handbuch oder Testdatei |
 
@@ -33,27 +31,17 @@ ein.
 | # | Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
 |---|---|---|---|---|---|
 | 1 | **2–3 Potsdamer Vereine gewinnen** (Pilot) | Ohne Vereine ist der Stream leer. Jeder Verein bringt Mitglieder mit, und Rückmeldungen aus dem Pilot steuern die Phasen 4–9 | S (Betreiber) | N (Lücken) | Name/Domain-Entscheidung hilft; Veranstaltungen (#4) als Argument |
-| 3 | **Lösch-Register und Sichtbarkeits-Bausteine** | Das Register macht Prüfpunkt 6 maschinell, bevor neue Arten (Umfrage, Veranstaltung, Galerie) neue polymorphe Bezüge bringen. Es gibt noch 64 Kopien von `visibility = 'public'` und 104 von `hidden_at IS NULL` | M | R 1, R 3 | vor #4/#5. `reach-sql.ts` und `member-sql.ts` sind schon so gebaut |
-| 4 | **Veranstaltungen** (Phase 5) | Das stärkste Vereinsargument: Termine, Zusagen, Erinnerung und `.ics`. Danach „Ins Fahrtenbuch übernehmen“ | M | [K 21.5](CONCEPT.md#215-umfragen-und-veranstaltungen), [K 21.8](CONCEPT.md#218-phasenplan) | #3. Atomare Kapazität (R 10). Mail-Budget 100/Tag |
-| 5 | **Umfragen** (Phase 4) | Geringes Risiko, nützt Vereinen und Teams im Alltag („Wer segelt Mittwoch?“) | M | [K 21.5](CONCEPT.md#215-umfragen-und-veranstaltungen), K 21.8 | #3. Stufe „wichtig“ ist vorbereitet (K 24.7) |
 | 6 | **.ADM direkt importieren** | Garmin-Plotter-Nutzer sparen den Umweg über BaseCamp/HomePort. Das senkt die Einstiegshürde für Eigner größerer Boote | M | N (Todo), [K 25.1](CONCEPT.md#251-umsetzung) | Format-Analyse mit echten Dateien. Nur ACTIVE LOG mit Zeit |
-| 7 | ~~**`ENTITY_ICON` und Byline mit Boot**~~ – erledigt auf `feature/kleinkram-navigation` (F-532, F-533) | Ein Icon je Objektart (Team ≠ Boot, Verein ≠ Hafen). Die Törn-Byline nennt das Boot. Das sorgt für Wiedererkennung ohne neue Einstiege | S | U B12, B13, [U N4](UX-NAVIGATION.md#7-navigations--und-kopfbereich-regeln-vorschlag) | – |
-| 8 | **Filter nach Bootsklasse in Entdecken** | Man findet Gleichgesinnte (Jollen, Folkeboot, Fahrtenyachten) | S–M | N (Quick Wins) | `boats.boat_type` ist Freitext: Klassenliste bzw. Normalisierung nötig |
 
 ## Danach
 
 | Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
 |---|---|---|---|---|
-| **Verwaltungsbereich und Fahrtenbuch nach Jahren** (Phase 8) | Das Fahrtenbuch als Meilennachweis bringt Bindung über Jahre. Der Konto-Dialog (1098 Zeilen) hört auf zu wachsen | M–L | [K 21.6](CONCEPT.md#216-fahrtenbuch-jahre-zusatzangaben-wertung-jahresbericht), K 21.8, R 9 | Crew-Ausnahme M1. Konto-Dialog ohne Funktionsverlust ablösen |
-| **Export / Segellebenslauf** | Eigene Daten mitnehmen (CSV, druckbar). Schafft Vertrauen und ist ein Argument gegen Lock-in | S–M | N (Lücken) | Phase 8 (gleiche Liste wie der Jahresbericht) |
+| **Export / Segellebenslauf** (Rest) | CSV und Druck des Fahrtenbuchs gibt es (Phase 8, F-457/F-458); offen: alle Saisons in einer Datei bzw. ein „Segellebenslauf“ über alle Jahre. Eigene Daten mitnehmen. Schafft Vertrauen und ist ein Argument gegen Lock-in | S–M | N (Lücken) | Phase 8 (gleiche Liste wie der Jahresbericht) |
 | **Routen und Heatmap auf der Community-Karte** (mit Cluster-Pins) | Das Revier wird sichtbar: „Hier wird gesegelt“. Starker Eindruck für Gäste | M | N (Quick Wins) | Nur Törns mit „Sichtbar bis: überall“ (`LISTED`). Cluster wie `src/domain/cluster.ts` |
 | **`sx-page-header`, `sx-entity-link`/`sx-avatar`, `sx-tabs`** | Ein Seitenkopf und klickbare Nennungen überall (N3, N5, N8). Weniger Sonderwege je Seite | M | [U 6](UX-NAVIGATION.md#6-optimierungsvorschläge-priorisiert-schnelle-gewinne-zuerst) 10–12, U B6, B7, B18 | #7 aus „Als Nächstes“ |
 | **`sx-invite-box`** und „Freunde einladen“ auf der eigenen Seite | Ein Einladungsmuster statt vier. Einladen geht nach „Später“ nicht mehr verloren | S–M | U 6 Nr. 13, U B14, B15 | – |
-| **Web-URL für Vereine und Häfen** – gebaut auf `feature/web-url` (F-540 … F-543), wartet auf Review | Verlinkung zur Vereinsseite. Für Vereine ein kleiner, sichtbarer Gewinn | S | N (zurückgestellt) | Migration (reservieren). Link-Prüfung wie Beiträge |
 | **GPX zu gespeicherten Törns** | Vergessene Tracks lassen sich nachreichen, ohne den Törn neu anzulegen | M–L | N (Todo), [K 23.3](CONCEPT.md#233-offen) | Plausibilität, Speicherzähler, Wetter, Fotos, Vorschaubild |
-| **Große Gruppen** (Phase 6) | Hinweis vor dem Posten und Tageszusammenfassung. Erst nötig, wenn Verläufe über 100 Personen wachsen | M | K 21.7.1, K 21.8 | Erst mit echten großen Vereinen. Schwellen bestätigen |
-| **Galerie-Beiträge** (Phase 7) | Fotos ohne Törn (Vereinsfest, Arbeitsdienst) | L | K 21.3.4, K 21.8 | Größtes Migrationsrisiko (Neubau `photos`). #3. Neubau als eigener Schritt |
-| **Auffindbarkeit ohne App-Store** – Sitemap, `robots.txt`, `canonical` gebaut auf `feature/web-url` (F-544 … F-546), wartet auf Review | Gefunden werden über Suchmaschinen und Links (Vereins-/Hafenseiten, Link-Vorschau, Installieren-Hinweis) statt über einen Store | S–M | N (Lücken) | Manifest, `sx-install-hint` und OG-Vorschau gibt es. Fehlend: SEO-Prüfung, Sitemap öffentlicher Seiten |
 
 ## Später
 
@@ -67,8 +55,7 @@ ein.
 | **Moderation 6: Begründungsmail bei Meldungs-Entscheidungen** (DSA Art. 17) | Bisher nur beim Sperren (F-296) | S–M | K 35, F-296 | `lockNoticeMail` |
 | **Moderation 7: Seite „Regeln“** (Nutzungsregeln, Fristzusage, Einspruch per Mail) | Art. 14 DSA, Grundlage der Begründungen | S + Text | K 35 | Text vom Betreiber |
 | **Moderation 8: Admin-Hinweise beim Löschen** (Strafbares sperren statt löschen, Missbrauchsdarstellung nicht kopieren) | „Löschen“ in der Meldungs-Ansicht hebt den Beleg sofort auf | S | K 35, K 18.3 | – |
-| **Wertung und Jahresbericht** (Phase 9) – gebaut auf `feature/wertung` (Konzept 32), wartet auf Review | Vereins-Fahrtenpreise ohne Excel | L | [K 32](concept/32-wertung.md), K 21.6, K 21.8 | Gewichtung entschieden: Faktor je Vorlage, keine Normierung nach Mitgliederzahl (K 32.7) |
-| **Vereins- und Hafen-Challenges mit Opt-in-Rangliste** | Bindung über Wettbewerb zwischen Vereinen | M | N (Quick Wins) | Phase 9 (Opt-in-Muster). Widerspricht K6 („keine Ranglisten“), daher Entscheidung nötig |
+| **Vereins- und Hafen-Challenges** (zurückgestellt) | Bindung über gemeinsame Ziele | M | N (Quick Wins) | Entschieden 03.11.: keine Ranglisten zwischen Personen (K6); höchstens persönliche Ziele oder Vereinssummen |
 | **Segelschulen und Vereinsjugend mit Trainer-Rolle** | Eine neue Zielgruppe mit vielen Seglerinnen und Seglern | M–L | N (Quick Wins) | Rollenmodell (K 15, 12.12). Datenschutz Minderjährige |
 | **Aufzeichnen unterwegs** (PWA, später nativ) | Schließt die größte Lücke zur Konkurrenz: Man braucht keine zweite App mehr | L | N (Lücken) | Hintergrund-Ortung in PWAs (vor allem iOS) begrenzt, deshalb vorher ein Machbarkeitstest |
 | **Live-Standort teilen** | Sicherheit und Gemeinschaft auf dem Wasser | L | N (Lücken) | Aufzeichnen unterwegs. Datenschutz, Kosten (WebSocket/Durable Object) |
