@@ -5,6 +5,10 @@ import {
 } from '../domain/logbook-year';
 import { SCORING_NOTE, pointsByTemplate, scoreEntry, templateFor, templateLabel, usesTemplates, type ScoringTemplate } from '../domain/scoring';
 import { SCORING_PATH } from '../services/url-state';
+import { seasonReview } from '../domain/season-review';
+import type { SeasonImageState } from './sx-season-review';
+import './sx-season-badges';
+import './sx-season-review';
 import { fmtDate, fmtNum } from '../domain/format';
 import { icon } from './icons';
 import { base, emit, logbookTag } from './shared';
@@ -13,9 +17,10 @@ import { base, emit, logbookTag } from './shared';
  * Verwaltungsbereich „Mein Fahrtenbuch“ (`/konto/fahrtenbuch`, Konzept 27, F-411, F-418, F-455 … F-458): Reiter je
  * Saison, Filter nach Stand (Mehrfachauswahl, B14), Summen der gefilterten Einträge, Liste mit eigenen Törns und
  * Crew-Törns anderer (M1, nur Eckdaten), Punkte je Eintrag und je Vorlage (Konzept 32, F-505), Meilennachweis und
- * Jahresbericht als CSV und Druck. Rein präsentational – Daten setzt der
- * LogbookPageController. Events: `sx-logbook-season` { season }, `sx-logbook-filter` { states },
- * `sx-logbook-state` { id, logState }, `sx-logbook-edit-entry` { id }, `sx-logbook-print`, `sx-logbook-start`, `sx-login`.
+ * Jahresbericht als CSV und Druck, Abzeichen-Reihe und Saisonrückblick „Meine Saison“ (Konzept 33, F-521, F-522). Rein
+ * präsentational – Daten setzt der LogbookPageController. Events: `sx-logbook-season` { season }, `sx-logbook-filter`
+ * { states }, `sx-logbook-state` { id, logState }, `sx-logbook-edit-entry` { id }, `sx-logbook-print`,
+ * `sx-logbook-start`, `sx-login`, `sx-season-open`; aus dem Dialog `sx-season-*` (sx-season-review).
  */
 export class SxLogbookPage extends LitElement {
   static properties = {
@@ -31,6 +36,8 @@ export class SxLogbookPage extends LitElement {
     templates: { attribute: false },
     /** Link „Wertung“ (F-507): nur für Vereinsmitglieder (und Admins der Vorschläge) */
     scoringLink: { type: Boolean },
+    /** Vorschau des Saison-Bildes – gesetzt, solange der Dialog „Meine Saison“ offen ist (F-522) */
+    seasonImage: { attribute: false },
   };
   /** null = noch nicht geladen */
   declare entries: LogbookEntry[] | null;
@@ -42,6 +49,7 @@ export class SxLogbookPage extends LitElement {
   declare signedIn: boolean;
   declare templates: ScoringTemplate[];
   declare scoringLink: boolean;
+  declare seasonImage: SeasonImageState | null;
 
   constructor() {
     super();
@@ -54,6 +62,7 @@ export class SxLogbookPage extends LitElement {
     this.signedIn = true;
     this.templates = [];
     this.scoringLink = false;
+    this.seasonImage = null;
   }
 
   static styles = [
@@ -164,6 +173,19 @@ export class SxLogbookPage extends LitElement {
         margin: 0;
         font-size: var(--fs-l);
       }
+      .sum-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--s-2) var(--s-3);
+        align-items: center;
+        justify-content: space-between;
+      }
+      .sum-head .btn {
+        min-height: 44px;
+      }
+      sx-season-badges {
+        margin-top: var(--s-3);
+      }
       h3 {
         margin: var(--s-3) 0 var(--s-2);
         font-size: var(--fs-m);
@@ -242,6 +264,7 @@ export class SxLogbookPage extends LitElement {
         .seasons,
         .filter,
         .row-tools,
+        .sum-head .btn,
         .lead {
           display: none !important;
         }
@@ -259,6 +282,13 @@ export class SxLogbookPage extends LitElement {
 
   /** Punkte zeigen? (in `body()` je Ansicht gesetzt) */
   private scored = false;
+
+  /** Rückblick der Ansicht (gewählte Saison und Filter) – dieselbe Auswahl wie die Summen. */
+  review() {
+    const seasons = this.seasons();
+    const season = seasons.includes(this.season) ? this.season : seasons[0];
+    return seasonReview(filterEntries(this.entries ?? [], this.states, season), season);
+  }
 
   private seasons(): number[] {
     return logbookSeasons(this.entries ?? [], Date.now());
@@ -375,6 +405,7 @@ export class SxLogbookPage extends LitElement {
     // Punkte nur, wenn ein gezeigter Eintrag mehr als „Nur Meilen“ zählt (F-505)
     this.scored = usesTemplates(shown, this.templates);
     const inSeason = this.entries.filter((e) => entrySeason(e) === season).length;
+    const review = seasonReview(shown, season);
     return html`
       <div class="seasons" role="tablist" aria-label="Saison" data-scroll-x>
         ${seasons.map((s) => html`<button role="tab" aria-selected=${s === season ? 'true' : 'false'} @click=${() => s !== season && emit(this, 'sx-logbook-season', { season: s })}>${s}</button>`)}
@@ -385,9 +416,15 @@ export class SxLogbookPage extends LitElement {
       </div>
       <p class="print-only">Jahresbericht Saison ${season} · ${this.filterLabel()} · Stand ${fmtDate(Date.now())}</p>
       <section aria-labelledby="sum-h">
-        <h2 id="sum-h">Saison ${season}</h2>
+        <div class="sum-head">
+          <h2 id="sum-h">Saison ${season}</h2>
+          ${review.voyages
+            ? html`<button class="btn" @click=${() => emit(this, 'sx-season-open')}>${icon('share')} Meine Saison ${season}</button>`
+            : ''}
+        </div>
         <p class="note">Summen der gezeigten Einträge (${this.filterLabel()}); ausgeschlossene zählen nie.</p>
         ${this.totals(logbookTotals(shown))}
+        ${review.voyages ? html`<sx-season-badges .badges=${review.badges}></sx-season-badges>` : ''}
         ${this.points(shown)}
       </section>
       <section aria-label="Einträge ${season}">
@@ -416,7 +453,8 @@ export class SxLogbookPage extends LitElement {
           : ''}
       </header>
       ${this.body()}
-    </main>`;
+    </main>
+    <sx-season-review .open=${!!this.seasonImage} .review=${this.seasonImage ? this.review() : null} .image=${this.seasonImage}></sx-season-review>`;
   }
 }
 customElements.define('sx-logbook-page', SxLogbookPage);

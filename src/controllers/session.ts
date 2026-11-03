@@ -24,7 +24,7 @@ import {
   type User,
 } from '../services/api';
 import { deflateToBase64Url, gzipString } from '../services/compress';
-import { DEFAULT_CONTENT, imageFileName, renderShareImage, type ImageContent, type ImageFormat } from '../services/share-image';
+import { DEFAULT_CONTENT, downloadFile, imageFileName, renderShareImage, shareOrDownload, type ImageContent, type ImageFormat } from '../services/share-image';
 import { visibleTracks, type Store } from '../services/store';
 import { turnstileMount } from '../services/turnstile';
 import { absoluteLink, routePath, serializeView } from '../services/url-state';
@@ -834,19 +834,12 @@ export class SessionController {
 
   downloadImage(): void {
     const f = this.imageFile();
-    if (!f) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(f);
-    a.download = f.name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    if (f) downloadFile(f);
   }
 
   async shareImage(): Promise<void> {
     const f = this.imageFile();
-    if (!f) return;
-    if (navigator.canShare?.({ files: [f] })) await navigator.share({ files: [f], title: this.ui.share.defaultTitle }).catch(() => {});
-    else this.downloadImage();
+    if (f) await shareOrDownload(f, this.ui.share.defaultTitle);
   }
 
   async upload(d: ShareRequest): Promise<void> {
