@@ -88,6 +88,11 @@ Angaben); das Formular ändert dann nur Häfen und Angaben (Datum und Strecke ko
 - Kein Server-Speicher, kein Mailversand – abgegeben wird der Nachweis von der Person selbst. Er ersetzt keine
   Unterschrift der Skipper:in (Konzept 15).
 
+**Segellebenslauf (F-610 … F-613):** Der Reiter „Alle Saisons“ hinter den Saison-Reitern (`?saison=alle`) ist der eine Einstieg:
+Übersicht mit Summen und Tabelle je Saison (`lifetimeReview` in `src/domain/season-review.ts`, gleiche Regeln wie die
+Saison-Summen), „CSV“ ruft `?saison=alle` (Datei `segellebenslauf.csv`, erste Spalte „Saison“), „Drucken“ druckt die
+Übersicht. Keine Migration, nichts gespeichert.
+
 ## 27.6 Abweichungen und Offenes
 
 | Punkt | Umsetzung |

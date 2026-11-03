@@ -75,10 +75,12 @@ export class SxEmptyState extends LitElement {
         grid-template-columns: minmax(0, 1fr) 340px;
         align-items: start;
       }
+      /* Spalte minmax(0, 1fr) (F-616): ein langer Bootsname im Stream verbreitert die Startseite nicht */
       .feed,
       .side {
         min-width: 0;
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         gap: var(--s-3);
       }
       /* mitlaufend nur, wenn die Seitenleiste ganz auf den Bildschirm passt */

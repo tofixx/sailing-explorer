@@ -10,6 +10,7 @@ import { cssVar, escapeHtml, fmtDateTime, fmtNum } from '../util/html';
 import { endpointPin, waveChevron, waveChevronSize, windBadge, windBadgeSize } from './glyphs';
 import { PhotoLayer } from './photo-layer';
 import { HeatLayer } from './heat-layer';
+import { addBaseMapControl } from './basemap-control';
 
 export interface MapCallbacks {
   onHover: (p: TrackPoint | null) => void;
@@ -69,7 +70,7 @@ export class MapView {
       current.remove();
       current = auto(dark.matches).addTo(this.map);
     });
-    L.control.layers(bases, undefined, { position: 'topright' }).addTo(this.map);
+    addBaseMapControl(this.map, bases);
     L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(this.map);
     // Zoom unten (mit dem Daumen erreichbar), über dem Maßstab: Leaflet stapelt in unteren Ecken das zuletzt Hinzugefügte oben
     L.control.zoom({ position: 'bottomleft', zoomInTitle: 'Hineinzoomen', zoomOutTitle: 'Herauszoomen' }).addTo(this.map);
