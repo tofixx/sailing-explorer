@@ -10,7 +10,7 @@ import { POST_VISIBILITY_ICON, base, emit, highlightStyles, linkedText, postCard
 import './sx-reach-picker';
 import './sx-title-edit';
 
-const KIND_ICON: Partial<Record<MyPost['kind'], IconName>> = { voyage: 'map', logbook: 'book', text: 'comment' };
+const KIND_ICON: Partial<Record<MyPost['kind'], IconName>> = { voyage: 'map', logbook: 'book', text: 'comment', poll: 'poll' };
 
 /**
  * „Mein Verlauf“ auf der eigenen Seite (Konzept 21.2, B12, F-401): alle eigenen Törns, Fahrtenbuch-Einträge und
@@ -226,6 +226,7 @@ export class SxMyPosts extends LitElement {
           : this.textHead(p)}</span>
       </div>
       ${p.body ? html`<p class="body">${linkedText(p.body)}</p>` : ''}
+      ${p.kind === 'poll' && p.path ? html`<a class="note" href=${p.path}>${icon('poll')} Zur Umfrage – abstimmen und Ergebnis</a>` : ''}
       ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}
       ${p.attached ? html`<span class="note">${icon('map')} Törn: <a href="/s/${p.attached.id}">${p.attached.title}</a></span>` : ''}
       ${this.meta(p)}

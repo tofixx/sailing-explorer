@@ -389,6 +389,8 @@ export function firstLine(body: string, max = 140): string {
 /** Beitrag auf der Profilseite für Besucher (F-420): im Profil oder in einer Gruppe, die der Leser sehen darf. */
 export interface ProfilePost {
   id: string;
+  /** Art (Umfrage: Link zur Karte `/p/<id>`, Konzept 29); fehlt = Text */
+  kind?: PostKind;
   createdAt: number;
   body: string;
   link: string | null;

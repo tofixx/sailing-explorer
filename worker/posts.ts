@@ -231,8 +231,10 @@ export async function getPost(request: Request, env: Env, id: string): Promise<R
     item.group ? `${item.group.kind === 'team' ? 'Team' : 'Verein'} ${item.group.name}`
     : p.where ? `${p.where.kind === 'harbor' ? 'Hafen' : 'Boot'} ${p.where.name}`
     : item.actor ? `Profil von ${item.actor.displayName}` : 'Profil';
-  // im Verlauf steht, was dort für alle mit Zugang erscheint; die Autor:in findet alles in „Mein Verlauf“
-  const inStream = !!home && (!!isAuthor || p.visibility === 'public' || p.visibility === 'members');
+  // im Verlauf steht, was dort für alle mit Zugang erscheint; die Autor:in findet alles in „Mein Verlauf“. Umfragen im
+  // Profil: die Profilseite zeigt Beiträge nur als Text – abgestimmt wird an der einzelnen Karte (Konzept 29)
+  const profilePoll = !!p.poll && !item.group && !p.where;
+  const inStream = !!home && !profilePoll && (!!isAuthor || p.visibility === 'public' || p.visibility === 'members');
   const link: PostLink = { home, inStream, where };
   return json({ item, link }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
@@ -516,6 +518,7 @@ export type ProfileReader = { userId: string | null } | { preview: { memberOf: s
 
 interface VisitorRow {
   id: string;
+  kind: string;
   body: string;
   link: string | null;
   created_at: number;
@@ -542,7 +545,7 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
   const previewGroup = 'preview' in reader ? (reader.preview.memberOf ?? '') : '';
   // Sichtbarkeit schon im SQL (neueste 20 sichtbare, keine älteren fallen weg); canSeePost prüft danach noch einmal
   const { results } = await env.DB.prepare(
-    `SELECT p.id, p.body, p.link, p.created_at, p.visibility, p.group_id,
+    `SELECT p.id, p.kind, p.body, p.link, p.created_at, p.visibility, p.group_id,
        EXISTS (SELECT 1 FROM channel_pins cp WHERE cp.channel_kind = 'user' AND cp.channel_id = ?1 AND cp.post_id = p.id) AS pinned,
        g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden, g.locked_at AS g_locked,
        COALESCE((SELECT m.role FROM group_members m WHERE m.group_id = g.id AND m.user_id = ?2), CASE WHEN g.id = ?3 THEN 'member' END) AS role
@@ -573,7 +576,7 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
     );
     if (!ok) continue;
     out.push({
-      id: r.id, createdAt: r.created_at, body: r.body, link: r.link,
+      id: r.id, createdAt: r.created_at, body: r.body, link: r.link, ...(r.kind === 'poll' ? { kind: 'poll' as const } : {}),
       group: g ? { slug: g.g_slug!, name: g.g_name!, kind: g.g_kind! } : null,
       visibility: effectivePostVisibility(r.visibility, g ? g.g_vis : null),
       // im Profil angepinnt (F-403) – nur Profil-Beiträge, die Liste beginnt mit ihnen

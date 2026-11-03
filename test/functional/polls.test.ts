@@ -92,6 +92,18 @@ describe('F-470 Umfrage anlegen', () => {
   });
 });
 
+describe('F-478 Umfrage im Profil', () => {
+  it('[F-478] /p/<id> zeigt die einzelne Karte (die Profilseite zeigt Beiträge nur als Text) und die Profilseite verlinkt sie', async () => {
+    const me = await s.person({ profile: 'public' });
+    const p = await poll(me, { kind: 'user' }, { reach: 'all' });
+    const r = await ok<{ item: { post: { poll: PollView } }; link: { inStream: boolean } }>(await s.send('GET', `/api/posts/${p!.id}`, undefined));
+    expect(r.link.inStream).toBe(false);
+    expect(r.item.post.poll.options).toEqual(['Ja', 'Nein', 'Vielleicht']);
+    const page = await ok<{ posts: Array<{ id: string; kind?: string }> }>(await s.send('GET', `/api/profiles/${me.handle}`, undefined));
+    expect(page.posts.find((x) => x.id === p!.id)?.kind).toBe('poll');
+  });
+});
+
 describe('F-471 Abstimmen', () => {
   it('[F-471] setzen, ändern, zurücknehmen; Mehrfachauswahl höchstens n; ungültige Wahl 400; Gast 401', async () => {
     const { owner, member, g } = await club();

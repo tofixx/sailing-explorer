@@ -46,6 +46,7 @@ export class SxProfilePosts extends LitElement {
               : html`<button class="btn small ghost" aria-label="Beitrag melden" @click=${() => emit(this, 'sx-report', { kind: 'post', id: p.id, label: 'diesen Beitrag' })}>${icon('flag')}</button>`}
           </div>
           <p class="body">${linkedText(p.body)}</p>
+          ${p.kind === 'poll' ? html`<a class="link" href="/p/${p.id}">${icon('poll')} Zur Umfrage – abstimmen und Ergebnis</a>` : ''}
           ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}
           <div class="meta">
             ${p.visibility !== 'public' ? html`<span>${icon(POST_VISIBILITY_ICON[p.visibility])} ${whoSeesLabel(p.visibility, p.group?.name)}</span>` : ''}

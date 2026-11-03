@@ -48,4 +48,6 @@ eigene Seite, kein eigener Einstieg.
 - **Mehrfachauswahl** „höchstens n“ mit n von 2 bis zur Zahl der Antworten.
 - **Ohne eigene Stimme sichtbar** ist das Ergebnis bei „nach eigener Stimme“ auch nach dem Ende – sonst bliebe es für
   Spätkommende für immer verborgen.
-- Profilseite für Besucher und „Mein Verlauf“ zeigen die Umfrage als Text (Frage) mit Link `/p/<id>` zur Karte.
+- Profilseite für Besucher und „Mein Verlauf“ zeigen die Umfrage als Text (Frage) mit Link „Zur Umfrage“; `/p/<id>`
+  einer Umfrage im Profil öffnet die einzelne Karte statt des Ankers im Profil (dort gibt es keine Stream-Karte).
+- Die Tagesgrenze von 5 Beiträgen je Verlauf gilt für Text und Umfragen zusammen.
