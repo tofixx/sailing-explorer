@@ -107,8 +107,8 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 
 ### Reservierungen
 
-Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-559**, **Konzept 35**, **Migration 0043** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
-sind F-560, Konzept 36 und Migration 0044. Neue Aufträge bekommen ihren Bereich hier, bevor
+Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-614**, **Konzept 38**, **Migration 0046** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
+sind F-615, Konzept 39 und Migration 0047. Neue Aufträge bekommen ihren Bereich hier, bevor
 sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
 | Branch / Auftrag | F-IDs | Konzept | Migration | Berührt | Stand |
@@ -149,3 +149,9 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
   Plattform-Admins sehen ausgeblendete Boote dort nicht (enger als `getBoat`). Gesperrte Boote fallen auch aus `boat`.
   Wortlaut „auf <Boot>“.
 | `fix/saison-ab-maerz` (Fahrtenbuch und Wertung wählen bis Ende Februar die abgelaufene Saison) | F-555 … F-559 | – | – | `src/domain/support.ts` (`shownSeason`), `logbook-year.ts`, `controllers/logbook-page.ts`, `scoring.ts` (`clubListSeason`), `controllers/scoring-page.ts` | gemergt 03.11. |
+| `feature/moderation-titelbilder` (Moderation 1 und 4: Titelbilder absichern, Melde-Gewicht und Gründe) | F-560 … F-569 | 36 | 0044 | `worker/covers.ts`, `worker/reports.ts`, Admin-Liste, `isNewAccount` (`src/domain`), `legal.ts` | in Arbeit 03.11. |
+| `feature/moderation-admin` (Moderation 3, 6, 8: Hinweis auf offene Meldungen, Begründungsmail, Hinweise beim Löschen) | F-570 … F-579 | – | 0045 (falls nötig) | Nachtlauf (`retention.ts`), `worker/mail.ts`, Admin-Meldungsansicht, Konto-Knopf | in Arbeit 03.11. |
+| `feature/revier-heatmap` (Routen und Heatmap auf der Community-Karte, Cluster-Pins) | F-580 … F-589 | 37 | – | Karte (`src/map`), `worker/discover.ts` bzw. neuer öffentlicher Endpunkt, `src/domain/cluster.ts` | in Arbeit 03.11. |
+| `feature/invite-box` (`sx-invite-box`, „Freunde einladen“ auf der eigenen Seite) | F-590 … F-599 | – | – | Einladungs-Komponenten, `sx-profile-page`, `sx-group-page`, `sx-crew`, `invite-text.ts` | in Arbeit 03.11. |
+| `feature/gpx-nachreichen` (GPX zu gespeicherten Törns) | F-600 … F-609 | 38 | 0046 (falls nötig) | `worker/shares.ts`, Upload, Speicherzähler, Wetter, Vorschaubild, Fotos | in Arbeit 03.11. |
+| `feature/segellebenslauf` (Export über alle Saisons) | F-610 … F-614 | – | – | `worker/logbook-list.ts` (CSV), `sx-logbook-page` | in Arbeit 03.11. |
