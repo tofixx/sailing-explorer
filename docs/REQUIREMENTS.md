@@ -525,6 +525,16 @@ ohne gespeicherten Zustand.
   `sail-explorer`, Stripe-Metadaten `app: sail-explorer`, Speicher-Schlüssel und Cookies (`sx…`), Worker- und
   Ressourcennamen (`sailing-explorer`, D1, R2), Paket- und Repo-Name, CI-Konfiguration und die Domain `segeln-potsdam.de`.
 
+## Saisonrückblick (Konzept 33)
+
+Nur eigene Werte, keine Vergleiche mit anderen und keine Ranglisten (K6). Nichts wird gespeichert oder an den Server geschickt.
+
+- **F-520** Zahlen der Saison (`seasonReview`, `src/domain/season-review.ts`) aus genau den Einträgen, die „Mein Fahrtenbuch“ in der gewählten Saison und dem gewählten Stand-Filter summiert; ausgeschlossene zählen nie: Seemeilen (mit „davon … aufgezeichnet“, wenn geschätzte dabei sind), Törns, Stunden (je Eintrag „unter Segel“ + „unter Motor“, auch eine Angabe 0 h gilt; ohne Angaben die Zeit von Abfahrt bis Ankunft nur mit echten Uhrzeiten am selben Tag), Tage an Bord und Häfen wie die Summen, Boote (verschiedene Namen, Groß-/Kleinschreibung egal), längster Törn nur aus eigenen Törns mit aufgezeichneter Strecke (Seemeilen und Datum). Kacheln nur für vorhandene Werte.
+- **F-521** Abzeichen-Reihe aus `MILESTONES_NM` (100, 500, 1.000 sm), gerechnet mit den auf eine Nachkommastelle gerundeten Seemeilen (99,97 sm = erreicht): erreichte hervorgehoben mit „erreicht“, das nächste mit „noch … sm“ und Fortschritt, die übrigen gedämpft; steht auf „Mein Fahrtenbuch“ unter den Summen der Saison (nur mit mindestens einem zählenden Eintrag) und im Bild. Gezählt wird die Fahrtenbuch-Saison mit Crew-Törns (M1); nichts wird gespeichert, die Stream-Meilensteine (F-166) bleiben unverändert.
+- **F-522** Einziger Einstieg: Knopf „Meine Saison <Jahr>“ neben der Saison-Überschrift von „Mein Fahrtenbuch“ (nur mit mindestens einem zählenden Eintrag, nicht im Druck). Er öffnet den Dialog `sx-season-review` mit Vorschau (Alternativtext mit allen Zahlen und Abzeichen), Format „Quadrat“ (Standard) oder „Querformat“, „Teilen …“ (nur, wenn das Gerät Dateien teilen kann – `canShareFiles`, wie beim Törn-Bild; Titel „Meine Saison <Jahr> · <App-Name>“) und „Herunterladen“, beide gesperrt, solange gezeichnet wird (Stand per `aria-live`); scheitert das Zeichnen, bleibt die bisherige Vorschau samt Format; Schließen verwirft die Vorschau.
+- **F-523** Saison-Bild (`drawSeasonImage`, `src/services/season-image.ts`) mit den Bausteinen des Törn-Bildes (Formate, feste helle Farben, Markenzeile `drawBrand`, JPEG): „Meine Saison“, Jahr, Seemeilen groß, Kacheln aus F-520, Abzeichen aus F-521. Ohne Namen, Titel, Orte und Karte. Dateiname `meine-saison-<jahr>.jpg`.
+- **F-524** Datenschutz: kein neuer Endpunkt und keine Speicherung – Grundlage ist die geladene Liste aus `GET /api/me/logbook`; das Bild entsteht im Browser, Herunterladen legt es auf dem eigenen Gerät ab, das Gerät verlässt es nur, wenn die Person es selbst teilt. Der Datenschutztext nennt das.
+
 ## Betrieb
 
 - **F-50** Lokale Entwicklung mit `npm run dev`, erreichbar im LAN (Handy) inkl. Login.

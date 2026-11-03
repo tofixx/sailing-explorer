@@ -1,6 +1,7 @@
 // Verwaltungsbereich „Mein Fahrtenbuch“ (`/konto/fahrtenbuch`, Konzept 27): Fahrtenbuch laden (Gäste melden sich erst
 // an), Saison und Filter in der Adresse merken (`?saison=2026&stand=confirmed`), Stand ändern (F-422) und Einträge über
-// das vorhandene Fahrtenbuch-Formular bearbeiten. Wird mit der Seite erst auf `/konto/fahrtenbuch` nachgeladen; die Seite
+// das vorhandene Fahrtenbuch-Formular bearbeiten; Saisonrückblick „Meine Saison“ als Bild (Konzept 33: zeichnen, teilen,
+// herunterladen – alles im Browser, nichts geht an den Server). Wird mit der Seite erst auf `/konto/fahrtenbuch` nachgeladen; die Seite
 // meldet nur Absichten (Events an ihr selbst).
 import '../components/sx-logbook-page';
 import { ApiError, api, type ShareMeta } from '../services/api';
@@ -10,6 +11,10 @@ import type { LogState } from '../domain/logbook';
 import { seasonOf } from '../domain/support';
 import { errorText } from './session';
 import { scoringApi } from '../services/scoring-api';
+import { APP_NAME } from '../domain/brand';
+import { seasonImageFileName } from '../domain/season-review';
+import { renderSeasonImage } from '../services/season-image';
+import { downloadFile, shareOrDownload, type ImageFormat } from '../services/share-image';
 
 interface LogbookPageUi {
   page: SxLogbookPage;
@@ -31,7 +36,20 @@ export class LogbookPageController {
     on<{ id: string }>('sx-logbook-edit-entry', (d) => void this.edit(d.id));
     // Druckdialog des Browsers (F-458) – der Druckstil zeigt nur die Fahrtenbuch-Seite
     on('sx-logbook-print', () => window.print());
+    // Saisonrückblick (F-522, F-523)
+    on('sx-season-open', () => void this.renderSeason('square'));
+    on<{ format: ImageFormat }>('sx-season-format', (d) => void this.renderSeason(d.format));
+    on('sx-season-share', () => void this.shareSeason());
+    on('sx-season-download', () => {
+      const f = this.seasonFile();
+      if (f) downloadFile(f);
+    });
+    on('sx-season-close', () => this.closeSeason());
   }
+
+  /** zuletzt gezeichnetes Saison-Bild (nur im Speicher) und Zähler gegen überholte Läufe */
+  private seasonBlob: Blob | null = null;
+  private seasonSeq = 0;
 
   private get page() {
     return this.ui.page;
@@ -114,6 +132,41 @@ export class LogbookPageController {
     } finally {
       this.page.busy = false;
     }
+  }
+
+  /** Saison-Bild (neu) zeichnen und als Vorschau zeigen – öffnet den Dialog „Meine Saison“. */
+  async renderSeason(format: ImageFormat): Promise<void> {
+    const seq = ++this.seasonSeq;
+    const prev = this.page.seasonImage;
+    this.page.seasonImage = { url: prev?.url ?? '', busy: true, format };
+    try {
+      const blob = await renderSeasonImage(this.page.review(), format);
+      if (seq !== this.seasonSeq || !this.page.seasonImage) return;
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      this.seasonBlob = blob;
+      this.page.seasonImage = { url: URL.createObjectURL(blob), busy: false, format };
+    } catch (e) {
+      if (seq !== this.seasonSeq) return;
+      this.page.seasonImage = prev ? { ...prev, busy: false } : null;
+      this.ui.toast(`Bild: ${errorText(e)}`);
+    }
+  }
+
+  private seasonFile(): File | null {
+    return this.seasonBlob ? new File([this.seasonBlob], seasonImageFileName(this.page.review().season), { type: 'image/jpeg' }) : null;
+  }
+
+  private async shareSeason(): Promise<void> {
+    const f = this.seasonFile();
+    if (f) await shareOrDownload(f, `Meine Saison ${this.page.review().season} · ${APP_NAME}`);
+  }
+
+  /** Dialog schließen: Vorschau verwerfen, nichts bleibt zurück. */
+  closeSeason(): void {
+    this.seasonSeq++;
+    if (this.page.seasonImage?.url) URL.revokeObjectURL(this.page.seasonImage.url);
+    this.page.seasonImage = null;
+    this.seasonBlob = null;
   }
 
   /** Saison und Filter in der Adresse (Neuladen, Lesezeichen); der Standard-Filter steht nicht darin. */
