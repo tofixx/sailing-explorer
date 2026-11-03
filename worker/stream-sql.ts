@@ -1,6 +1,6 @@
 // Abfragen des persönlichen Streams (Konzept 12.4, F-177) – reine Zeichenketten ohne Worker-APIs, damit Tests den
 // Abfrageplan prüfen können.
-import { MEMBER_CONTENT_KINDS, POST_KINDS } from '../src/domain/groups';
+import { MEMBER_CONTENT_KINDS, STREAM_POST_KINDS } from '../src/domain/groups';
 
 /** Höchstens so viele Ziele (Folgen 1000 + Gruppen + Teammitglieder 500 + Rest). */
 export const STREAM_TARGETS_MAX = 1600;
@@ -35,9 +35,9 @@ const TEXT_ONLY_SQL = `(COALESCE(json_extract(k.value, '$[2]'), 0) = 0 OR (SELEC
 
 /**
  * Nur Beiträge, keine automatischen Einträge (F-550) – Bedingung auf die Art der Aktivität `kindExpr`, als Positivliste
- * (`POST_KINDS`): unbekannte Arten fallen heraus. Im SQL statt nach dem Formen, damit Seiten nicht kürzer werden.
+ * (`STREAM_POST_KINDS`): unbekannte Arten fallen heraus. Im SQL statt nach dem Formen, damit Seiten nicht kürzer werden.
  */
-export const postKindsSql = (kindExpr: string) => `${kindExpr} IN (${POST_KINDS.map((x) => `'${x}'`).join(', ')})`;
+export const postKindsSql = (kindExpr: string) => `${kindExpr} IN (${STREAM_POST_KINDS.map((x) => `'${x}'`).join(', ')})`;
 
 /** Kandidaten über die Schlüsselliste ab dem Cursor; `extra`: weitere Bedingung je Zeile `t` von activity_target. */
 const targetsSql = (extra = '') => `SELECT t.activity_id AS id, MAX(t.created_at) AS at
@@ -53,6 +53,14 @@ const targetsSql = (extra = '') => `SELECT t.activity_id AS id, MAX(t.created_at
  * activity_target(target_kind, target_id, created_at), gruppiert nach Aktivität, neueste zuerst, ab dem Cursor.
  */
 export const PERSONAL_SQL = targetsSql();
+
+/**
+ * Neueste Beiträge der ganzen Plattform ab dem Cursor (`?1` Zeit, `?2` ID, `?3` Grenze) für „Alles“ im öffentlichen
+ * Community-Stream (F-178) – Index activity_recent, ohne automatische Einträge (F-550).
+ */
+export const RECENT_POSTS_SQL = `SELECT id, created_at AS at FROM activity
+  WHERE (created_at < ?1 OR (created_at = ?1 AND id < ?2)) AND ${postKindsSql('kind')}
+  ORDER BY created_at DESC, id DESC LIMIT ?3`;
 
 /** Dieselbe Abfrage für die öffentliche Umgebung (F-340): nur Beiträge, keine automatischen Einträge (F-550). */
 export const PUBLIC_TARGETS_SQL = targetsSql(` AND ${postKindsSql('(SELECT a.kind FROM activity a WHERE a.id = t.activity_id)')}`);

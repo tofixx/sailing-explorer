@@ -1901,6 +1901,34 @@ describe('F-343 Startseite: Umgebung als Standard', () => {
     expect(JSON.parse(localStorage.getItem('sx-near')!)).toEqual({ mode: 'near', radius: 50, geo: { lat: 52.4, lon: 13 }, geoFrom: 'device', joins: true });
   });
 
+  it('[F-551] gemerktes „Automatische Einträge ausblenden“ gilt nur angemeldet: Gäste sehen alles, auch nach dem Abmelden; gemerkt bleibt es', async () => {
+    const pref = { mode: 'all', radius: 25, joins: false };
+    localStorage.setItem('sx-near', JSON.stringify(pref));
+    const hidden = () => ({
+      feed: el<{ joins: boolean }>('sx-home-feed').joins,
+      group: el<{ hideAuto: boolean }>('sx-group-page').hideAuto,
+      profile: el<{ hideAuto: boolean }>('sx-profile-page').hideAuto,
+    });
+    server.user = { id: 'U1', email: 'a@example.org' };
+    server.groups = { publicStream: { items: [], cursor: null, filters: { harbors: [], clubs: [] } }, myStream: { items: [], cursor: null, hasGroups: false }, mine: { groups: [], requests: [] } };
+    await startApp();
+    await vi.waitFor(() => expect(feed().hidden).toBe(false));
+    await vi.waitFor(() => expect(hidden()).toEqual({ feed: false, group: true, profile: true }));
+    emit('sx-logout');
+    await vi.waitFor(() => expect(hidden()).toEqual({ feed: true, group: false, profile: false }));
+    expect(JSON.parse(localStorage.getItem('sx-near')!).joins).toBe(false);
+  });
+
+  it('[F-551] Gast mit gemerktem „ausblenden“ auf dem Gerät: alle Streams zeigen automatische Einträge', async () => {
+    localStorage.setItem('sx-near', JSON.stringify({ mode: 'all', radius: 25, joins: false }));
+    server.groups = { publicStream: { items: [], cursor: null, filters: { harbors: [], clubs: [] } } };
+    await startApp();
+    await vi.waitFor(() => expect(feed().hidden).toBe(false));
+    expect(el<{ joins: boolean }>('sx-home-feed').joins).toBe(true);
+    expect(el<{ hideAuto: boolean }>('sx-group-page').hideAuto).toBe(false);
+    expect(el<{ hideAuto: boolean }>('sx-profile-page').hideAuto).toBe(false);
+  });
+
   it('[F-342] gespeicherter Standort (gerundet) ist der Mittelpunkt', async () => {
     localStorage.setItem('sx-near', JSON.stringify({ mode: 'near', radius: 50, geo: { lat: 52.4, lon: 13 } }));
     server.groups = { nearStream: { items: [], cursor: null, near: { places: 1, center: null } } };

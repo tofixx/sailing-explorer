@@ -3,7 +3,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startWorker, type Harness } from './worker-harness';
 import { social, type Person, type StreamOut } from './social-helpers';
-import { STREAM_SCAN, isAutomaticKind } from '../../src/domain/groups';
+import { ACTIVITY_KINDS, AUTOMATIC_KINDS, STREAM_POST_KINDS, STREAM_SCAN, isAutomaticKind } from '../../src/domain/groups';
+import { PUBLIC_TARGETS_SQL, RECENT_POSTS_SQL } from '../../worker/stream-sql';
 
 let h: Harness;
 let s: ReturnType<typeof social>;
@@ -82,5 +83,24 @@ describe('F-550 Öffentlicher Stream ohne automatische Einträge', () => {
     // angemeldet dieselben Einträge (Cache ohne Betrachter)
     const signed = await get(paths.all, owner);
     expect(signed.items.map((i) => i.id)).toEqual((await get(paths.all)).items.map((i) => i.id));
+  });
+
+  it('[F-550] Beiträge und automatische Arten teilen ACTIVITY_KINDS lückenlos und überschneidungsfrei', () => {
+    expect(STREAM_POST_KINDS.filter((k) => (AUTOMATIC_KINDS as readonly string[]).includes(k))).toEqual([]);
+    expect([...STREAM_POST_KINDS, ...AUTOMATIC_KINDS].sort()).toEqual([...ACTIVITY_KINDS].sort());
+    expect(STREAM_POST_KINDS.some((k) => isAutomaticKind(k))).toBe(false);
+  });
+
+  it('[F-550] die Abfragen ohne automatische Einträge nutzen ihren Index (kein SCAN, keine Sortierung im Speicher)', async () => {
+    const db = await s.db();
+    const plan = async (sql: string, ...args: unknown[]) =>
+      (await db.prepare(`EXPLAIN QUERY PLAN ${sql}`).bind(...args).all<{ detail: string }>()).results.map((r) => r.detail).join('\n');
+    const near = await plan(PUBLIC_TARGETS_SQL, '[["harbor","x"]]', Date.now(), '~', STREAM_SCAN);
+    expect(near).toMatch(/SEARCH t USING (COVERING )?INDEX (activity_target_feed|sqlite_autoindex_activity_target_1)/);
+    expect(near).toMatch(/SEARCH a USING INDEX sqlite_autoindex_activity_1/);
+    expect(near).not.toMatch(/SCAN t\b/);
+    const recent = await plan(RECENT_POSTS_SQL, Date.now(), '~', STREAM_SCAN);
+    expect(recent).toMatch(/(SCAN|SEARCH) activity USING INDEX activity_recent/);
+    expect(recent).not.toMatch(/TEMP B-TREE/);
   });
 });

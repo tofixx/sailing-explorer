@@ -211,7 +211,7 @@ export const AUTOMATIC_KINDS = ACTIVITY_KINDS.filter((k) => STREAM_KIND_CLASS[k]
  * Arten, die als Beitrag zählen – Positivliste für SQL (F-550): Der öffentliche Community-Stream zeigt nur diese,
  * unbekannte Arten fallen damit wie automatische heraus (fail closed).
  */
-export const POST_KINDS = ACTIVITY_KINDS.filter((k) => STREAM_KIND_CLASS[k] === 'post');
+export const STREAM_POST_KINDS = ACTIVITY_KINDS.filter((k) => STREAM_KIND_CLASS[k] === 'post');
 
 /** Saison-Meilensteine in Seemeilen (Konzept 11.3). */
 export const MILESTONES_NM = [100, 500, 1000] as const;

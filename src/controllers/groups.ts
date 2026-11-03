@@ -52,8 +52,14 @@ export class GroupsController {
     private store: Store,
     private ui: GroupsUi,
   ) {
-    this.applyAutoPref(readNearPrefs().joins);
+    this.applyAutoPref(this.autoPref());
   }
+
+  /**
+   * Gemerkte Wahl „Automatische Einträge“ (F-350) – nur angemeldet: Gäste sehen den Schalter nie (er steht nur unter
+   * „Meine“, F-551), also gilt für sie immer „zeigen“; die gemerkte Wahl bleibt für die nächste Anmeldung erhalten.
+   */
+  private autoPref = () => (this.signedIn() ? readNearPrefs().joins : true);
 
   /** Schalter „Automatische Einträge“ (Gerät) an Startseite, Gruppen-, Hafen- und Bootsseite. */
   private applyAutoPref(show: boolean) {
@@ -110,6 +116,8 @@ export class GroupsController {
 
   /** Nach der Anmeldung (auch aus einem anderen Tab) Seite mit Rolle neu laden. */
   async userChanged(): Promise<void> {
+    // An- bzw. Abmeldung: gemerkte Wahl gilt nur angemeldet (F-551)
+    this.applyAutoPref(this.autoPref());
     if (this.current && !this.ui.page.hidden) await this.reload().catch(() => undefined);
     else if (this.ui.page.mode === 'create' && !this.ui.page.hidden) await this.openCreate();
   }
@@ -399,7 +407,7 @@ export class GroupsController {
         filters = page.filters ?? filters;
       }
       this.shown = chosen === 'near' && near?.state === 'ok' ? 'near' : chosen === 'mine' ? 'mine' : 'all';
-      Object.assign(home, { stream, personal, mode: chosen, shown: this.shown, radius: prefs.radius, joins: prefs.joins, near, filters, filter: this.filter });
+      Object.assign(home, { stream, personal, mode: chosen, shown: this.shown, radius: prefs.radius, joins: signedIn ? prefs.joins : true, near, filters, filter: this.filter });
       home.hidden = false;
       this.ui.onCommunity?.(true);
       // „Gelesen“ (F-222) nur, wenn der persönliche Stream wirklich angezeigt wird

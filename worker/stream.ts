@@ -18,7 +18,7 @@ import type { Reach } from '../src/domain/posts';
 import { attachPolls } from './polls';
 import { attachEvents } from './events';
 import { logbookIds, shapeItem, type ActivityRow, type LogShare, type ReadAt, type Viewer } from './stream-shape';
-import { PERSONAL_SQL, PUBLIC_TARGETS_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL, postKindsSql } from './stream-sql';
+import { PERSONAL_SQL, PUBLIC_TARGETS_SQL, RECENT_POSTS_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL, postKindsSql } from './stream-sql';
 import { pageByDays, type Candidate, type DayPageOut } from './stream-days';
 import { DAY_CURSOR_ID, dayOfKey, isLargeChannel, staysSingle, type DayCard } from '../src/domain/large-groups';
 import {
@@ -381,9 +381,12 @@ export async function groupItems(env: Env, group: { id: string; parent_id?: stri
 /** Hafen-Stream: Törns und Fotos nur mit (jetzt) öffentlichem Boot – sonst verriete er den Hafen eines privaten Boots. */
 const harborKeep = (i: StreamItem) => (i.kind === 'voyage' || i.kind === 'photos' ? !!i.voyage?.boat : true);
 
-/** Hafen-Stream (F-425): eigene Beiträge und Ausbreitung bis „Sichtbar bis: Hafen“ (F-409); `postsOnly` wie F-550. */
-export async function harborItems(env: Env, harborId: string, viewer: Viewer, c: StreamCursor, postsOnly = false) {
-  return resolve(env, { ...viewer, at: { kind: 'harbor', id: harborId } }, await targetCandidates(env, 'harbor', harborId, c, 0, STREAM_SCAN, postsOnly), STREAM_SCAN, harborKeep);
+/**
+ * Hafen-Filter des öffentlichen Community-Streams (F-178): eigene Beiträge und Ausbreitung bis „Sichtbar bis: Hafen“
+ * (F-409), nur Beiträge (F-550). Die Hafenseite selbst liest über `channelPage` – dort bleiben automatische Einträge.
+ */
+async function harborPosts(env: Env, harborId: string, viewer: Viewer, c: StreamCursor) {
+  return resolve(env, { ...viewer, at: { kind: 'harbor', id: harborId } }, await targetCandidates(env, 'harbor', harborId, c, 0, STREAM_SCAN, true), STREAM_SCAN, harborKeep);
 }
 
 /** Boots-Stream (F-425): Beiträge am Boot, seine Törns (ab „Sichtbar bis: Hafen“), neue Gruppen und Häfen. */
@@ -558,9 +561,7 @@ async function publicFilters(env: Env) {
 
 /** Neueste Beiträge der ganzen Plattform (Index activity_recent) – ohne automatische Einträge (F-550). */
 async function recentCandidates(env: Env, c: StreamCursor): Promise<Candidate[]> {
-  const { results } = await env.DB.prepare(
-    `SELECT id, created_at AS at FROM activity WHERE (created_at < ?1 OR (created_at = ?1 AND id < ?2)) AND ${postKindsSql('kind')} ORDER BY created_at DESC, id DESC LIMIT ?3`,
-  )
+  const { results } = await env.DB.prepare(RECENT_POSTS_SQL)
     .bind(c.at, c.id, STREAM_SCAN)
     .all<Candidate>();
   return results;
@@ -585,7 +586,7 @@ export async function publicStream(request: Request, env: Env): Promise<Response
     const h = await loadHarborBySlug(env, harborSlug);
     if (!harborVisible(h)) throw HARBOR_NOT_FOUND();
     filterKey = `harbor=${h.id}`;
-    compute = () => harborItems(env, h.id, { id: null }, c, true);
+    compute = () => harborPosts(env, h.id, { id: null }, c);
   } else if (clubSlug) {
     const g = await loadGroupBySlug(env, clubSlug);
     if (!g || g.visibility !== 'public' || g.hidden_at) throw new HttpError(404, 'not_found', 'Diese Gruppe gibt es nicht oder sie ist nicht öffentlich.');
