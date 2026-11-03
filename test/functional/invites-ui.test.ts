@@ -112,7 +112,7 @@ describe('sx-invite-dialog', () => {
 
   it('[F-203] Freundes-Einladung: eigener Text vor und nach dem Annehmen, Link zum Profil', async () => {
     const el = await mount('sx-invite-dialog', { open: true, state: 'ready', peek: peek({ kind: 'friend', target: null, bound: false, emailMatches: null }), signedIn: true, userEmail: 'b@example.org' });
-    expect(text(el)).toContain('Anna lädt dich zu Sail Explorer ein.');
+    expect(text(el)).toContain('Anna lädt dich zu Luv & Leute ein.');
     expect(text(el)).toContain('folgt ihr einander');
     expect(text(el)).not.toContain('Boot');
     const done = await mount('sx-invite-dialog', { open: true, state: 'done', peek: peek({ kind: 'friend' }), result: { kind: 'friend', path: '/u/anna', target: 'Anna', already: false } });

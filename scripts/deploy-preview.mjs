@@ -117,7 +117,7 @@ cfg.name = workerName;
 cfg.routes = [{ pattern: `${host}/*`, zone_name: ZONE }];
 cfg.d1_databases = cfg.d1_databases.map((d) => ({ ...d, database_name: DB_NAME, database_id: db.uuid }));
 cfg.r2_buckets = cfg.r2_buckets.map((b) => ({ ...b, bucket_name: BUCKET }));
-cfg.vars = { ...cfg.vars, APP_NAME: `Sail Explorer (Vorschau ${s})`, APP_ORIGIN: `https://${host}`, CANONICAL_HOST: '', ALIAS_HOSTS: '' };
+cfg.vars = { ...cfg.vars, APP_NAME: `Luv & Leute (Vorschau ${s})`, APP_ORIGIN: `https://${host}`, CANONICAL_HOST: '', ALIAS_HOSTS: '' };
 // Kein nächtlicher Cron in Vorschauen (Free-Tier: wenige Cron-Trigger pro Account)
 cfg.triggers = { crons: [] };
 writeFileSync(CONFIG, JSON.stringify(cfg, null, 2));

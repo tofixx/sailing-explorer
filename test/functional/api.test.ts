@@ -512,8 +512,8 @@ describe('F-39 Link-Vorschau /s/:id', () => {
     const res = await h.fetch(`/s/${share.id}`);
     expect(res.status).toBe(200);
     const m = await head(res);
-    expect(m.title).toBe('Prerow → Rostock · Sail Explorer');
-    expect(m.ogTitle).toBe('Prerow → Rostock · Sail Explorer');
+    expect(m.title).toBe('Prerow → Rostock · Luv &amp; Leute');
+    expect(m.ogTitle).toBe('Prerow → Rostock · Luv & Leute');
     expect(m.ogDesc).toBe('31,2 sm · 14.06.2026');
     expect(m.desc).toBe('31,2 sm · 14.06.2026');
     expect(m.html).not.toContain('noindex');
@@ -526,8 +526,8 @@ describe('F-39 Link-Vorschau /s/:id', () => {
     const res = await h.fetch(`/s/${share.id}`, { cookie }); // auch für den Besitzer (Crawler hätten kein Cookie)
     const m = await head(res);
     expect(m.html).not.toContain('Geheim');
-    expect(m.title).toBe('Sail Explorer');
-    expect(m.ogTitle).toBe('Sail Explorer');
+    expect(m.title).toBe('Luv &amp; Leute');
+    expect(m.ogTitle).toBe('Luv & Leute');
   });
 
   it('[F-39] unbekannte Freigabe sieht aus wie eine private', async () => {
@@ -545,11 +545,11 @@ describe('F-39 Link-Vorschau /s/:id', () => {
     const share = await newShare(cookie, { title: '<script>alert(1)</script>', summary: '"><img src=x>' });
     const m = await head(await h.fetch(`/s/${share.id}`));
     // im Elementtext escaped, in Attributen kann der Wert nicht aus den Anführungszeichen ausbrechen
-    expect(m.title).toBe('&lt;script&gt;alert(1)&lt;/script&gt; · Sail Explorer');
+    expect(m.title).toBe('&lt;script&gt;alert(1)&lt;/script&gt; · Luv &amp; Leute');
     expect(m.ogDesc).toBe('&quot;><img src=x>');
     expect(m.desc).toBe('&quot;><img src=x>');
     expect(m.html.match(/<script/g) ?? []).toHaveLength(1); // nur innerhalb des og:title-Attributs
-    expect(m.ogTitle).toBe('<script>alert(1)</script> · Sail Explorer');
+    expect(m.ogTitle).toBe('<script>alert(1)</script> · Luv & Leute');
   });
 });
 

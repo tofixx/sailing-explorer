@@ -2,6 +2,7 @@
 // Rein, ohne DOM: Ziel- und Personennamen sind Nutzertext und werden von Lit beim Einsetzen escaped.
 
 import { VOYAGE_ROLE_SHORT, type VoyageRole } from './crew-roles';
+import { APP_NAME } from './brand';
 
 export type InviteKindText = 'boat_admin' | 'crew' | 'group' | 'friend';
 
@@ -19,7 +20,7 @@ const quote = (s: string | null, fallback: string) => `„${s || fallback}“`;
 export function inviteWhat(i: InviteLike): string {
   switch (i.kind) {
     case 'friend':
-      return 'zu Sail Explorer ein';
+      return `zu ${APP_NAME} ein`;
     case 'group':
       return `${i.groupKind === 'team' ? 'ins Team' : 'in den Verein'} ${quote(i.target, 'Gruppe')} ein`;
     case 'boat_admin':
@@ -45,7 +46,7 @@ export function inviteExplain(i: Pick<InviteLike, 'kind'>): string {
 
 /** Ergebnis nach dem Annehmen – für Dialog und Hinweis. */
 export function inviteAcceptedText(r: InviteLike & { requested?: boolean }): string {
-  if (r.kind === 'friend') return `Ihr folgt euch jetzt: ${r.target || 'Sail Explorer'}`;
+  if (r.kind === 'friend') return `Ihr folgt euch jetzt: ${r.target || APP_NAME}`;
   if (r.kind === 'group' && r.requested) return `Deine Beitrittsanfrage an ${quote(r.target, 'die Gruppe')} ist gestellt – sie wird noch bestätigt.`;
   if (r.kind === 'group') return `Du bist jetzt Mitglied von ${quote(r.target, 'der Gruppe')}`;
   if (r.kind === 'boat_admin') return `Du bist jetzt Admin von ${quote(r.target, 'dem Boot')}`;

@@ -90,7 +90,7 @@ describe('F-175 Migration der Heimathäfen', () => {
     expect(body.harbor.name).toBe('Hafen (Kiel)');
     expect(body.boats.map((b) => b.id).sort()).toEqual(['BoatKiel2AAAAAAAAA', 'BoatKielAAAAAAAAAA']);
     const page = await h.fetch('/h/hafen-kiel');
-    expect(await page.text()).toContain('<title>Hafen Hafen (Kiel) · Sail Explorer</title>');
+    expect(await page.text()).toContain('<title>Hafen Hafen (Kiel) · Luv &amp; Leute</title>');
   });
 
   it('[F-175] nach der Migration erkennt das Anlegen die Dubletten (gleiche Regel in SQL und TypeScript)', async () => {
