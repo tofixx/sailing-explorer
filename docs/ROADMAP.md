@@ -37,7 +37,6 @@ ein.
 
 | Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
 |---|---|---|---|---|
-| **Export / Segellebenslauf** (Rest) | CSV und Druck des Fahrtenbuchs gibt es (Phase 8, F-457/F-458); offen: alle Saisons in einer Datei bzw. ein „Segellebenslauf“ über alle Jahre. Eigene Daten mitnehmen. Schafft Vertrauen und ist ein Argument gegen Lock-in | S–M | N (Lücken) | Phase 8 (gleiche Liste wie der Jahresbericht) |
 | **Routen und Heatmap auf der Community-Karte** (mit Cluster-Pins) | Das Revier wird sichtbar: „Hier wird gesegelt“. Starker Eindruck für Gäste | M | N (Quick Wins) | Nur Törns mit „Sichtbar bis: überall“ (`LISTED`). Cluster wie `src/domain/cluster.ts` |
 | **`sx-page-header`, `sx-entity-link`/`sx-avatar`, `sx-tabs`** | Ein Seitenkopf und klickbare Nennungen überall (N3, N5, N8). Weniger Sonderwege je Seite | M | [U 6](UX-NAVIGATION.md#6-optimierungsvorschläge-priorisiert-schnelle-gewinne-zuerst) 10–12, U B6, B7, B18 | #7 aus „Als Nächstes“ |
 | **`sx-invite-box`** und „Freunde einladen“ auf der eigenen Seite | Ein Einladungsmuster statt vier. Einladen geht nach „Später“ nicht mehr verloren | S–M | U 6 Nr. 13, U B14, B15 | – |
@@ -154,5 +153,5 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
 | `feature/revier-heatmap` (Routen und Heatmap auf der Community-Karte, Cluster-Pins) | F-580 … F-589 | 37 | – | Karte (`src/map`), `worker/discover.ts` bzw. neuer öffentlicher Endpunkt, `src/domain/cluster.ts` | in Arbeit 03.11. |
 | `feature/invite-box` (`sx-invite-box`, „Freunde einladen“ auf der eigenen Seite) | F-590 … F-599 | – | – | Einladungs-Komponenten, `sx-profile-page`, `sx-group-page`, `sx-crew`, `invite-text.ts` | in Arbeit 03.11. |
 | `feature/gpx-nachreichen` (GPX zu gespeicherten Törns) | F-600 … F-609 | 38 | 0046 (falls nötig) | `worker/shares.ts`, Upload, Speicherzähler, Wetter, Vorschaubild, Fotos | in Arbeit 03.11. |
-| `feature/segellebenslauf` (Export über alle Saisons) | F-610 … F-614 | – | – | `worker/logbook-list.ts` (CSV), `sx-logbook-page` | in Arbeit 03.11. |
-| `fix/mobil-ueberlauf` (Bugs aus der Prüfung angemeldet: Anmelde-Dialog, Startseite mit langem Bootsnamen, Status-Chip über dem Kartenwechsler) | F-615 … F-619 | – | – | `shared.ts` (Dialog-`.body`), `sx-empty-state.ts`, `sx-discover.ts`, `sx-login-dialog.ts`, `sx-topbar.ts` (Törn-Chip), `map-view.ts` (Leaflet-Ebenen) | F-615 … F-617 vergeben, F-618/619 frei; gepusht, wartet auf Review 03.11. |
+| `feature/segellebenslauf` (Export über alle Saisons) | F-610 … F-613 | – | – | `worker/logbook-list.ts` (CSV), `sx-logbook-page` | gemergt 03.11. |
+| `fix/mobil-ueberlauf` (Bugs aus der Prüfung angemeldet: Anmelde-Dialog, Startseite mit langem Bootsnamen, Status-Chip über dem Kartenwechsler) | F-615 … F-619 | – | – | `shared.ts` (Dialog-`.body`), `sx-empty-state.ts`, `sx-discover.ts`, `sx-login-dialog.ts`, `sx-topbar.ts` (Törn-Chip), `map-view.ts` (Leaflet-Ebenen), `sx-event-dialog.ts`, `map/basemap-control.ts` | F-615 … F-617 vergeben, F-618/619 frei; Review-Befunde S1, S2 behoben 03.11. |
