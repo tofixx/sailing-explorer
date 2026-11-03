@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { membersVisibleSql } from './member-sql';
+import { liveSql, publicSql } from './visible-sql';
 
 /**
  * Wem gehört ein Törn und in welchen Gruppen ist er erschienen (F-228)? Beides nur, soweit der Betrachter es sehen
@@ -20,11 +21,11 @@ export async function shareContext(
   const [sailor, groups] = await env.DB.batch([
     env.DB.prepare(
       `SELECT p.handle, p.display_name FROM profiles p JOIN users u ON u.id = p.user_id AND u.suspended_at IS NULL
-       WHERE p.user_id = ?1 AND (?2 OR (p.visibility = 'public' AND p.hidden_at IS NULL))`,
+       WHERE p.user_id = ?1 AND (?2 OR (${publicSql('p')}))`,
     ).bind(share.user_id, isOwner ? 1 : 0),
     env.DB.prepare(
       `SELECT g.slug, g.name, g.kind FROM share_groups sg
-       JOIN groups g ON g.id = sg.group_id AND g.hidden_at IS NULL AND g.locked_at IS NULL
+       JOIN groups g ON g.id = sg.group_id AND ${liveSql('g')}
        LEFT JOIN group_members m ON m.group_id = g.id AND m.user_id = ?2
        JOIN users u ON u.id = ?4 AND u.suspended_at IS NULL
        WHERE ?3 AND sg.share_id = ?1 AND (g.visibility = 'public' OR m.user_id IS NOT NULL) AND ${membersVisibleSql('g', '?2')}

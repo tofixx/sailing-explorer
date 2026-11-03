@@ -3,6 +3,7 @@
 // gesperrt) – die Galerie macht nichts sichtbarer, als es am Törn schon ist.
 import type { Env } from './env';
 import { GALLERY_PHOTOS } from '../src/domain/limits';
+import { notSuspendedSql, publicSql } from './visible-sql';
 
 export type GalleryOf = 'user' | 'boat' | 'group';
 
@@ -28,8 +29,8 @@ export async function galleryPhotos(env: Env, of: GalleryOf, id: string, limit =
     `SELECT p.id, p.share_id, s.title, p.caption, p.taken_at, p.width, p.height
      FROM photos p JOIN shares s ON s.id = p.share_id
      WHERE ${SCOPE[of]}
-       AND p.visibility = 'public' AND p.hidden_at IS NULL AND s.visibility = 'public' AND s.hidden_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = s.user_id AND u.suspended_at IS NOT NULL)
+       AND ${publicSql('p')} AND ${publicSql('s')}
+       AND ${notSuspendedSql('s.user_id')}
      ORDER BY COALESCE(p.taken_at, p.created_at) DESC LIMIT ?2`,
   )
     .bind(id, limit)

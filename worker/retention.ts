@@ -4,16 +4,15 @@ import type { Env } from './env';
 import { purgeUser } from './auth';
 import { repairSharePostsStmt } from './post-sql';
 import { expiryWarningMail, seasonReminderMail, sendMail } from './mail';
-import { EXPIRES_SQL } from './shares';
-import { recomputeStorage, storageTotal, subtractShareStmt } from './storage';
-import { deleteOrphanReports, deleteShareReports, ownsLockedSql } from './moderation';
+import { EXPIRES_SQL, shareDeleteStmts } from './shares';
+import { recomputeStorage, storageTotal } from './storage';
+import { deleteOrphanReports, ownsLockedSql } from './moderation';
 import { expireLocks, orphanLocksStmt, remindLocks } from './locks';
 import { sendNotificationDigests } from './notification-mail';
 import { notifyExpiry } from './notifications';
 import { deleteKeys, photoKeysForShares, shareFileKeys } from './photo-keys';
-import { deleteShareNotifications, nightlyNotificationCleanup } from './notification-cleanup';
-import { deleteShareActivity, deleteShareGroups, nightlyActivityCleanup } from './activity';
-import { deleteShareReactions } from './reaction-cleanup';
+import { nightlyNotificationCleanup } from './notification-cleanup';
+import { nightlyActivityCleanup } from './activity';
 import { sendGroupDigests } from './group-digest';
 import { sweepOrphanCovers } from './covers';
 import { expireClaims } from './claims';
@@ -78,10 +77,8 @@ async function deleteExpired(env: Env, now: number): Promise<number> {
   for (const part of chunks(results)) {
     const photoKeys = await photoKeysForShares(env, part.map((r) => r.id));
     await deleteKeys(env, [...part.flatMap((r) => shareFileKeys(r.id)), ...photoKeys]);
-    // Speicher vom globalen Zähler abziehen und Meldungen zum Törn entfernen – im selben Batch wie das Löschen.
-    await env.DB.batch(
-      part.flatMap((r) => [subtractShareStmt(env, r.id), deleteShareReports(env, r.id), deleteShareReactions(env, r.id), deleteShareActivity(env, r.id), deleteShareGroups(env, r.id), deleteShareNotifications(env, r.id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(r.id)]),
-    );
+    // derselbe D1-Teil wie beim einzelnen Löschen (Zähler, Meldungen, Reaktionen, Aktivitäten …) – ein Batch je Portion
+    await env.DB.batch(part.flatMap((r) => shareDeleteStmts(env, r.id)));
   }
   return results.length;
 }

@@ -16,6 +16,7 @@ import { galleryPhotos } from './gallery';
 import { checkBoatQuota, checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
+import { publicSql } from './visible-sql';
 
 interface BoatRow {
   id: string;
@@ -69,7 +70,7 @@ export async function roleFor(env: Env, userId: string, boatId: string): Promise
   return row?.role ?? null;
 }
 
-const BOAT_SELECT = `SELECT b.*, p.handle AS owner_handle, p.display_name AS owner_name, (p.visibility = 'public' AND p.hidden_at IS NULL) AS owner_public,
+const BOAT_SELECT = `SELECT b.*, p.handle AS owner_handle, p.display_name AS owner_name, (${publicSql('p')}) AS owner_public,
     h.slug AS harbor_slug, h.name AS harbor_name
   FROM boats b LEFT JOIN profiles p ON p.user_id = b.owner_id LEFT JOIN harbors h ON h.id = b.harbor_id AND h.hidden_at IS NULL`;
 
@@ -79,7 +80,7 @@ export const BOAT_HARBOR_COLS = `(SELECT slug FROM harbors WHERE id = b.harbor_i
 
 async function stats(env: Env, boatId: string) {
   const s = await env.DB.prepare(
-    `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec FROM shares s WHERE s.boat_id = ? AND s.visibility = 'public' AND s.hidden_at IS NULL AND ${IN_LOGBOOK_SQL}`,
+    `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec FROM shares s WHERE s.boat_id = ? AND ${publicSql('s')} AND ${IN_LOGBOOK_SQL}`,
   )
     .bind(boatId)
     .first<{ voyages: number; dist: number; rec: number }>();
@@ -237,7 +238,7 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
     clubs: (
       await env.DB.prepare(
         `SELECT g.slug, g.name, g.kind FROM group_boats gb JOIN groups g ON g.id = gb.group_id
-         WHERE gb.boat_id = ?1 AND g.kind = 'club' AND g.visibility = 'public' AND g.hidden_at IS NULL AND ${membersVisibleSql('g', '?2')} ORDER BY g.name`,
+         WHERE gb.boat_id = ?1 AND g.kind = 'club' AND ${publicSql('g')} AND ${membersVisibleSql('g', '?2')} ORDER BY g.name`,
       )
         .bind(id, user?.id ?? '')
         .all<{ slug: string; name: string; kind: 'club' }>()

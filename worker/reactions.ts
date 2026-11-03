@@ -11,6 +11,7 @@ import { visibleActivity } from './stream';
 import { SHARE_ID_RE } from './validate';
 import { REACTION_LIMITS, isReactionKind, isReactionSubject, summarizeReactions, type ReactionSubject } from '../src/domain/reactions';
 import { notifyReaction } from './notifications';
+import { notSuspendedSql, publicSql } from './visible-sql';
 
 const DAY = 86_400_000;
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Das gibt es nicht (mehr) oder du kannst es nicht sehen.');
@@ -48,7 +49,7 @@ export async function reactionSummary(env: Env, subject: ReactionSubject, id: st
   const { results } = await env.DB.prepare(
     `SELECT r.kind, COUNT(*) AS n, MAX(r.user_id = ?3) AS mine FROM reactions r
      WHERE r.subject_kind = ?1 AND r.subject_id = ?2
-       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = r.user_id AND u.suspended_at IS NOT NULL)
+       AND ${notSuspendedSql('r.user_id')}
      GROUP BY r.kind`,
   )
     .bind(subject, id, viewerId ?? '')
@@ -111,7 +112,7 @@ export async function getReactions(request: Request, env: Env, rawSubject: strin
   const { results } = await env.DB.prepare(
     `SELECT r.kind, p.handle, p.display_name FROM reactions r
        JOIN users u ON u.id = r.user_id AND u.suspended_at IS NULL
-       LEFT JOIN profiles p ON p.user_id = r.user_id AND p.visibility = 'public' AND p.hidden_at IS NULL
+       LEFT JOIN profiles p ON p.user_id = r.user_id AND ${publicSql('p')}
      WHERE r.subject_kind = ? AND r.subject_id = ? ORDER BY r.created_at DESC`,
   )
     .bind(subject, id)

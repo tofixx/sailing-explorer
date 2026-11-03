@@ -120,7 +120,7 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
 |---|---|---|---|---|---|
 | `docs/roadmap` (diese Roadmap, Prozess-Fixes) | – | – | – | `CLAUDE.md`, `vite.config.ts`, `worker-harness.ts`, `data-scroll-x` in 8 Komponenten | lokal committet |
 | `feature/mitglieder-sichtbarkeit` (Mitgliedschaften, Folgen, Glocke) | F-440 … F-449 | 24 | 0032, **0033** (`follows_cleanup`, Altbestand der Vorschau) | Streams, Benachrichtigungen, Gruppen, Profil, Konto | gemergt |
-| `feature/loesch-register` (Lösch-Register, Sichtbarkeits-Bausteine, R 1/R 3) – Welle 1 | F-451 … F-454 | – | – | | gestartet 03.11. |
+| `feature/loesch-register` (Lösch-Register, Sichtbarkeits-Bausteine, R 1/R 3) – Welle 1 | F-451 … F-454 | – | – | neu `worker/cleanup-registry.ts`, `worker/visible-sql.ts`; SQL-Literale (Sichtbarkeit/Sperre) in `discover.ts`, `gallery.ts`, `harbors.ts`, `boats.ts`, `posts.ts`, `shares.ts`, `follows.ts`, `share-context.ts`, `share-groups.ts`, `post-chain.ts`, `groups.ts` (nur Lese-SQL); Löschbatch Törn `shares.ts`/`retention.ts`. Nicht: `stream*.ts`, `activity.ts`, `notifications.ts`, `group-digest.ts`, `profiles.ts`, `logbook.ts` | gepusht 03.11., Review offen |
 | `feature/fahrtenbuch-jahre` (Phase 8: Verwaltungsbereich, Fahrtenbuch nach Jahren, F-411/F-412/F-418) – Welle 1 | F-455 … F-464 | 27 | 0034 | | gestartet 03.11. |
 | `feature/grosse-gruppen` (Phase 6: Publikums-Hinweis, Tageszusammenfassung, F-417) – Welle 1 | F-465 … F-469 | 28 | 0035 | | gestartet 03.11. |
 | `feature/umfragen` (Phase 4, F-407) – Welle 2 nach dem Register | F-470 … F-479 | 29 | 0036 | | reserviert |

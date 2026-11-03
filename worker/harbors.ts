@@ -15,6 +15,7 @@ import { LIMITS, SHARE_ID_RE, cleanText } from './validate';
 import { HARBOR_LIMITS, harborKey, harborSlugBase, isHarborSlug, mayPlaceHarbor, parseHarborPosition, type HarborRef } from '../src/domain/harbors';
 import { canManageGroup, seasonStart } from '../src/domain/groups';
 import { claimTargetCleanup, mayAdoptHarbor } from './claim-cleanup';
+import { notSuspendedSql, publicSql } from './visible-sql';
 
 const DAY = 86_400_000;
 
@@ -161,7 +162,7 @@ export async function createHarbor(request: Request, env: Env): Promise<Response
 /** Verein des Hafens nur, wenn öffentlich und nicht ausgeblendet. */
 async function harborClub(env: Env, clubId: string | null) {
   if (!clubId) return null;
-  return env.DB.prepare(`SELECT id, slug, name, kind FROM groups WHERE id = ? AND kind = 'club' AND visibility = 'public' AND hidden_at IS NULL`)
+  return env.DB.prepare(`SELECT id, slug, name, kind FROM groups WHERE id = ? AND kind = 'club' AND ${publicSql()}`)
     .bind(clubId)
     .first<{ id: string; slug: string; name: string; kind: 'club' }>();
 }
@@ -192,16 +193,16 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
   if (!harborVisible(h, isAdmin(env, user?.id))) throw HARBOR_NOT_FOUND();
   const { results: boats } = await env.DB.prepare(
     `SELECT b.id, b.name, b.boat_type, b.length_m, p.handle AS owner_handle, p.display_name AS owner_name,
-       (p.visibility = 'public' AND p.hidden_at IS NULL) AS owner_public
+       (${publicSql('p')}) AS owner_public
      FROM boats b LEFT JOIN profiles p ON p.user_id = b.owner_id
-     WHERE b.harbor_id = ? AND b.visibility = 'public' AND b.hidden_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = b.owner_id AND u.suspended_at IS NOT NULL)
+     WHERE b.harbor_id = ? AND ${publicSql('b')}
+       AND ${notSuspendedSql('b.owner_id')}
      ORDER BY b.name LIMIT 200`,
   )
     .bind(h.id)
     .all<{ id: string; name: string; boat_type: string; length_m: number | null; owner_handle: string | null; owner_name: string | null; owner_public: number | null }>();
   const { results: voyages } = await env.DB.prepare(
-    `${SHARE_SELECT} WHERE b.harbor_id = ? AND b.visibility = 'public' AND b.hidden_at IS NULL AND s.visibility = 'public' AND s.hidden_at IS NULL AND ${REACHES_HARBOR}
+    `${SHARE_SELECT} WHERE b.harbor_id = ? AND ${publicSql('b')} AND ${publicSql('s')} AND ${REACHES_HARBOR}
      ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 30`,
   )
     .bind(h.id)
@@ -211,7 +212,7 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
     `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec,
        COALESCE(SUM(CASE WHEN COALESCE(s.started_at, s.created_at) >= ?2 THEN s.dist_nm END), 0) AS season
      FROM shares s JOIN boats b ON b.id = s.boat_id
-     WHERE b.harbor_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL AND s.visibility = 'public' AND s.hidden_at IS NULL AND ${IN_LOGBOOK_SQL} AND ${REACHES_HARBOR}`,
+     WHERE b.harbor_id = ?1 AND ${publicSql('b')} AND ${publicSql('s')} AND ${IN_LOGBOOK_SQL} AND ${REACHES_HARBOR}`,
   )
     .bind(h.id, yearStart)
     .first<{ voyages: number; dist: number; rec: number; season: number }>();
@@ -227,7 +228,7 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
   const club = await harborClub(env, h.club_id);
   // Vereine und Teams mit diesem Heimathafen (Konzept 13.3) – nur öffentliche
   const { results: groups } = await env.DB.prepare(
-    `SELECT slug, name, kind FROM groups WHERE harbor_id = ? AND visibility = 'public' AND hidden_at IS NULL ORDER BY kind, name LIMIT 100`,
+    `SELECT slug, name, kind FROM groups WHERE harbor_id = ? AND ${publicSql()} ORDER BY kind, name LIMIT 100`,
   )
     .bind(h.id)
     .all<{ slug: string; name: string; kind: 'club' | 'team' }>();

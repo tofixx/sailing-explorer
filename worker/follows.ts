@@ -9,6 +9,7 @@ import { GROUP_LIMITS } from '../src/domain/limits';
 import { isFollowKind, suggestionReasonText, type FollowKind, type SuggestionReason } from '../src/domain/groups';
 import { notifyFollow } from './notifications';
 import { viewerLevel } from './notify-levels';
+import { publicSql } from './visible-sql';
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Das gibt es nicht (mehr) oder es ist nicht öffentlich.');
 
@@ -37,7 +38,7 @@ export async function followStats(env: Env, kind: FollowKind, id: string, viewer
  * ausgeblendete Ziele – sonst null (wie „gibt es nicht“). Zum Entfolgen genügt, dass es die Zeile gibt.
  */
 export async function resolveTarget(env: Env, kind: FollowKind, raw: string, mustBePublic: boolean): Promise<{ id: string; ownerId: string | null } | null> {
-  const pub = (alias: string) => (mustBePublic ? ` AND ${alias}.visibility = 'public' AND ${alias}.hidden_at IS NULL` : '');
+  const pub = (alias: string) => (mustBePublic ? ` AND ${publicSql(alias)}` : '');
   if (kind === 'user') {
     const handle = normalizeHandle(raw);
     if (!handle) return null;
@@ -119,15 +120,15 @@ const CANDIDATES: Array<[SuggestionReason, string]> = [
   [
     'boat',
     `SELECT DISTINCT b.owner_id AS user_id, NULL AS port FROM group_members m JOIN group_boats gb ON gb.group_id = m.group_id
-       JOIN boats b ON b.id = gb.boat_id AND b.visibility = 'public' AND b.hidden_at IS NULL WHERE m.user_id = ?1
+       JOIN boats b ON b.id = gb.boat_id AND ${publicSql('b')} WHERE m.user_id = ?1
      UNION SELECT a.user_id, NULL FROM group_members m JOIN group_boats gb ON gb.group_id = m.group_id
-       JOIN boats b ON b.id = gb.boat_id AND b.visibility = 'public' AND b.hidden_at IS NULL JOIN boat_admins a ON a.boat_id = b.id WHERE m.user_id = ?1 LIMIT 200`,
+       JOIN boats b ON b.id = gb.boat_id AND ${publicSql('b')} JOIN boat_admins a ON a.boat_id = b.id WHERE m.user_id = ?1 LIMIT 200`,
   ],
   [
     'port',
     // Gleicher Hafen (Konzept 12.2) statt gleichem Freitext
     `SELECT DISTINCT b2.owner_id AS user_id, h.name AS port FROM boats b1
-       JOIN boats b2 ON b2.harbor_id = b1.harbor_id AND b2.owner_id <> b1.owner_id AND b2.visibility = 'public' AND b2.hidden_at IS NULL
+       JOIN boats b2 ON b2.harbor_id = b1.harbor_id AND b2.owner_id <> b1.owner_id AND ${publicSql('b2')}
        JOIN harbors h ON h.id = b1.harbor_id AND h.hidden_at IS NULL
      WHERE b1.owner_id = ?1 AND b1.harbor_id IS NOT NULL LIMIT 200`,
   ],
@@ -155,7 +156,7 @@ export async function suggestionsFor(env: Env, userId: string) {
   if (!score.size) return [];
   const { results } = await env.DB.prepare(
     `SELECT p.user_id, p.handle, p.display_name FROM profiles p JOIN users u ON u.id = p.user_id AND u.suspended_at IS NULL
-     WHERE p.user_id IN (SELECT value FROM json_each(?2)) AND p.visibility = 'public' AND p.hidden_at IS NULL
+     WHERE p.user_id IN (SELECT value FROM json_each(?2)) AND ${publicSql('p')}
        AND NOT EXISTS (SELECT 1 FROM follows f WHERE f.user_id = ?1 AND f.target_kind = 'user' AND f.target_id = p.user_id)`,
   )
     .bind(userId, JSON.stringify([...score.keys()]))

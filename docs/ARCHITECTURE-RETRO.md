@@ -76,6 +76,15 @@ Gezählt in den Fix-Commit-Texten (Mehrfachnennung möglich) und in den Review-B
 
 Nur beschrieben, nicht umgesetzt. Die Spalte „Phase 2“ markiert, was sofort in `feature/beitraege-phase2` greift.
 
+**Stand 03.11.2026 (`feature/loesch-register`, F-451 … F-454):** R 1 umgesetzt als `worker/visible-sql.ts` (`publicSql`,
+`liveSql`, `notSuspendedSql`; Test gegen `canView`). Ersetzt sind die Kopien in Entdecken, Galerie, Hafen, Boot, Gruppe,
+Beiträgen, Folgen, Einladungen und Reaktionen (`visibility = 'public'` 64 → 32, `hidden_at IS NULL` 104 → 68); bewusst
+nicht in Dateien paralleler Branches (`stream*.ts`, `activity.ts`, `notifications.ts`, `group-digest.ts`, `profiles.ts`,
+`home.ts`) – eine Sperrklinke im Test lässt die Rest-Kopien nur sinken. R 3 umgesetzt als Register
+`worker/cleanup-registry.ts` (Tabellen, `*_kind`-Arten, R2-Präfixe) mit Test gegen das Schema und einer Waisen-Prüfung je
+Art; die Löschfunktionen holen ihre Anweisungen noch nicht aus dem Register (nur der Törn-Batch ist geteilt,
+`shareDeleteStmts`).
+
 | Prio | Maßnahme | Nutzen | Aufwand | Phase 2 |
 |---|---|---|---|---|
 | 1 | **Sichtbarkeits-Bausteine** `worker/visible-sql.ts`: `publicShareSql(alias)`, `publicBoatSql`, `publicProfileSql`, `notHiddenSql`, `reachAtLeastSql(param, level)`; Stufen aus `src/domain` erzeugt. Ein Test vergleicht SQL und Domain-Regel für alle Kombinationen. Bestehende Kopien schrittweise ersetzen, sobald eine Datei ohnehin angefasst wird | größte Befundklasse | S für neue Stellen, M für die Migration aller Kopien | **ja**: reach steht schon in `activity.ts` und `harbors.ts` doppelt |

@@ -8,10 +8,11 @@ import { HttpError, json } from './http';
 import { syncShareActivity } from './activity';
 import { GROUP_LIMITS } from '../src/domain/limits';
 import { parseGroupIds, type GroupKind, type ShareGroupChoice } from '../src/domain/groups';
+import { liveSql } from './visible-sql';
 
 /** Teilabfrage: wählbare Gruppen des Kontos im Bind-Parameter `user` – Mitglied, nicht ausgeblendet, nicht gesperrt. */
 const choosable = (user: string) => `SELECT g.id FROM group_members m JOIN groups g ON g.id = m.group_id
-  WHERE m.user_id = ${user} AND g.hidden_at IS NULL AND g.locked_at IS NULL`;
+  WHERE m.user_id = ${user} AND ${liveSql('g')}`;
 
 /** Wählbare Gruppen mit den eigenen bzw. verwalteten Booten darin (für die Vorauswahl im Dialog). */
 export async function choosableGroups(env: Env, userId: string): Promise<ShareGroupChoice[]> {
@@ -20,7 +21,7 @@ export async function choosableGroups(env: Env, userId: string): Promise<ShareGr
        (SELECT json_group_array(gb.boat_id) FROM group_boats gb JOIN boats b ON b.id = gb.boat_id
          WHERE gb.group_id = g.id AND (b.owner_id = ?1 OR EXISTS (SELECT 1 FROM boat_admins a WHERE a.boat_id = b.id AND a.user_id = ?1))) AS boats
      FROM group_members m JOIN groups g ON g.id = m.group_id
-     WHERE m.user_id = ?1 AND g.hidden_at IS NULL AND g.locked_at IS NULL
+     WHERE m.user_id = ?1 AND ${liveSql('g')}
      ORDER BY g.kind, g.name LIMIT ?2`,
   )
     .bind(userId, GROUP_LIMITS.shareGroups)

@@ -69,9 +69,11 @@ gelten ab der Architektur-Skizze (`CLAUDE.md`), nicht erst im Review.
 2. **Eine Regel, ein Modul – auch in SQL.** Sichtbarkeit, Sperre, Reichweite und
    Zählregeln stehen einmal als reine Funktion in `src/domain` und einmal als
    SQL-Baustein in einem `worker/*-sql.ts` (Vorbild `IN_LOGBOOK_SQL`). Neue
-   Listen, Streams und Kennzahlen nutzen die Bausteine. Literale wie
-   `visibility = 'public'` oder `hidden_at IS NULL` werden nicht neu kopiert.
-   Ein Test hält Domain-Regel und SQL-Baustein gleich.
+   Listen, Streams und Kennzahlen nutzen die Bausteine (`visible-sql.ts`:
+   `publicSql`, `liveSql`, `notSuspendedSql`; `reach-sql.ts`, `member-sql.ts`).
+   Literale wie `visibility = 'public'` oder `hidden_at IS NULL` werden nicht
+   neu kopiert (Sperrklinke im Test, F-454). Ein Test hält Domain-Regel und
+   SQL-Baustein gleich.
 3. **Öffentliche Caches nur für Antworten, die für alle gleich sind.** Was vom
    Betrachter abhängt („Nur Mitglieder“, Schlüssel, Vorschau, eigene Rechte),
    wird `private, no-store` ausgeliefert. Die Verzögerung des Caches nach dem
@@ -86,7 +88,9 @@ gelten ab der Architektur-Skizze (`CLAUDE.md`), nicht erst im Review.
    Art eine Aufräumfunktion, die alle Löschwege (einzeln, Eltern-Objekt, Konto,
    inaktiv, Ablauf, Moderation, Zusammenführen) aufrufen. R2-Schlüssel und
    Zähleranteile werden vor einem Cascade eingesammelt. Für jeden Weg gibt es
-   einen Test.
+   einen Test. Jede Tabelle, jede Spalte `*_kind` und jedes R2-Präfix steht im
+   Lösch-Register `worker/cleanup-registry.ts` – zuerst dort eintragen, der
+   Test gegen das Schema (F-451 … F-453) wird sonst rot.
 6. **Migrationen: Nummer zuerst reservieren, nur additiv.** Vor dem ersten Code
    die nächste freie Nummer über alle Branches prüfen (`git ls-tree <branch>
    migrations/`) und sofort eine Datei `00NN_name.sql` committen. Eine

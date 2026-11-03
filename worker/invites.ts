@@ -21,6 +21,7 @@ import { deleteInviteNotifications } from './notification-cleanup';
 import { prefsOf } from './notification-mail';
 import { isSelfRole, voyageRole, type VoyageRole } from '../src/domain/crew-roles';
 import { skipperOf } from './crew-roles';
+import { publicSql } from './visible-sql';
 
 const DAY = 86_400_000;
 
@@ -131,7 +132,7 @@ async function readRecipient(env: Env, body: { email?: unknown; handle?: unknown
   if (!empty(body.handle)) {
     const handle = normalizeHandle(typeof body.handle === 'string' ? body.handle.replace(/^@/, '') : body.handle);
     const p = handle
-      ? await env.DB.prepare("SELECT user_id, display_name, handle FROM profiles WHERE handle = ? AND visibility = 'public' AND hidden_at IS NULL")
+      ? await env.DB.prepare(`SELECT user_id, display_name, handle FROM profiles WHERE handle = ? AND ${publicSql()}`)
           .bind(handle)
           .first<{ user_id: string; display_name: string; handle: string }>()
       : null;
@@ -309,7 +310,7 @@ async function crewRows(env: Env, shareId: string): Promise<CrewRow[]> {
   const { results } = await env.DB.prepare(
     `SELECT c.user_id, c.created_at, p.handle, p.display_name, CASE WHEN p.hidden_at IS NULL THEN p.visibility END AS visibility,
        c.role, c.confirmed_at, c.confirmed_by,
-       CASE WHEN q.visibility = 'public' AND q.hidden_at IS NULL THEN q.display_name END AS confirmer_name
+       CASE WHEN ${publicSql('q')} THEN q.display_name END AS confirmer_name
      FROM share_crew c LEFT JOIN profiles p ON p.user_id = c.user_id LEFT JOIN profiles q ON q.user_id = c.confirmed_by
      WHERE c.share_id = ? ORDER BY c.created_at`,
   )
@@ -341,7 +342,7 @@ export async function getCrew(request: Request, env: Env, id: string): Promise<R
   if (isOwner || isSkipper) {
     const invites = isOwner ? (await env.DB.prepare(pendingSql('share_id')).bind(row.id, Date.now()).all<InviteRow>()).results.map(inviteShape) : [];
     const ownerBy = row.role_confirmed_by
-      ? await env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ? AND visibility = 'public' AND hidden_at IS NULL`).bind(row.role_confirmed_by).first<{ display_name: string }>()
+      ? await env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ? AND ${publicSql()}`).bind(row.role_confirmed_by).first<{ display_name: string }>()
       : null;
     return json({
       ...base,
@@ -629,7 +630,7 @@ async function acceptGroupInvite(env: Env, inv: LoadedInvite, user: User) {
 /** Einladung ohne Ziel einlösen: beide folgen einander (Konzept 14.2). Pfad: Profil der einladenden Person, falls öffentlich. */
 async function acceptFriendInvite(env: Env, inv: LoadedInvite, user: User) {
   if (user.id === inv.inviter_id) throw new HttpError(409, 'own_object', 'Das ist deine eigene Einladung.');
-  const p = await env.DB.prepare(`SELECT handle, display_name FROM profiles WHERE user_id = ? AND visibility = 'public' AND hidden_at IS NULL`)
+  const p = await env.DB.prepare(`SELECT handle, display_name FROM profiles WHERE user_id = ? AND ${publicSql()}`)
     .bind(inv.inviter_id)
     .first<{ handle: string; display_name: string }>();
   const result = { kind: inv.kind, path: p ? `/u/${p.handle}` : '/', target: p?.display_name ?? (await displayName(env, inv.inviter_id)) };

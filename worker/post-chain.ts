@@ -8,6 +8,7 @@ import {
   canChoosePostVisibility, canWriteInGroup, canWriteInHarbor, canWriteOnBoat, effectivePostBy, postVisibilityChoices, reachOptions,
   type ChannelKind, type ChannelRef, type ComposeTarget, type ReachChain,
 } from '../src/domain/posts';
+import { liveSql, publicSql } from './visible-sql';
 
 /** Ein Verlauf, in den das Konto gerade schreiben darf – mit Kette und Gruppe (für `posts.group_id`). */
 export interface WritableChannel {
@@ -38,9 +39,9 @@ const GROUP_CHAIN_SQL = `SELECT g.id, g.slug, g.name, g.kind, g.visibility, g.hi
     (SELECT role FROM group_members WHERE group_id = g.id AND user_id = ?1) AS role,
     c.id AS c_id, c.name AS c_name, h.id AS h_id, h.name AS h_name
   FROM groups g
-  LEFT JOIN groups c ON g.kind = 'team' AND c.id = g.parent_id AND c.hidden_at IS NULL AND c.locked_at IS NULL
+  LEFT JOIN groups c ON g.kind = 'team' AND c.id = g.parent_id AND ${liveSql('c')}
   LEFT JOIN harbors h ON h.id = COALESCE(c.harbor_id, g.harbor_id) AND h.hidden_at IS NULL
-  WHERE g.hidden_at IS NULL AND g.locked_at IS NULL`;
+  WHERE ${liveSql('g')}`;
 
 const groupChannel = (r: GroupChainRow): WritableChannel => ({
   kind: 'group',
@@ -88,7 +89,7 @@ const HARBORS_SQL = `SELECT h.id, h.slug, h.name FROM harbors h WHERE h.hidden_a
 
 async function profileChannel(env: Env, userId: string): Promise<WritableChannel> {
   const r = await env.DB.prepare(
-    `SELECT h.id AS h_id, h.name AS h_name, (p.visibility = 'public' AND p.hidden_at IS NULL) AS open
+    `SELECT h.id AS h_id, h.name AS h_name, (${publicSql('p')}) AS open
      FROM users u LEFT JOIN profiles p ON p.user_id = u.id LEFT JOIN harbors h ON h.id = u.home_harbor_id AND h.hidden_at IS NULL WHERE u.id = ?`,
   )
     .bind(userId)

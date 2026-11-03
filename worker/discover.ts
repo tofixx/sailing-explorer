@@ -10,6 +10,7 @@ import { harborVisible, loadHarborBySlug } from './harbors';
 import { placesNear } from './stream';
 import type { SeasonStats } from '../src/domain/season-stats';
 import { seasonOf, seasonStart } from '../src/domain/groups';
+import { notSuspendedSql, publicSql } from './visible-sql';
 
 /**
  * Entdecken (F-70 … F-74): zuletzt gesegelte Törns, neue Boote und Segler.
@@ -28,9 +29,8 @@ export const DISCOVER_LIMIT = { default: 12, max: 24 };
  * Inhalte gesperrter Konten aus den Listen (Konzept 4.4). /entdecken gehört zur Community: nur Törns mit „Sichtbar bis:
  * überall“ (F-427), auch in den Zahlen der Boots- und Segler-Karten.
  */
-const LISTED = `s.visibility = 'public' AND s.hidden_at IS NULL AND NOT EXISTS (SELECT 1 FROM users su WHERE su.id = s.user_id AND su.suspended_at IS NOT NULL)
+const LISTED = `${publicSql('s')} AND ${notSuspendedSql('s.user_id')}
   AND ${reachAtLeastSql('s.id', 'all')}`;
-const ACTIVE = (col: string) => `NOT EXISTS (SELECT 1 FROM users su WHERE su.id = ${col} AND su.suspended_at IS NOT NULL)`;
 
 /**
  * Suche (F-331): Bedingung „eine der Spalten enthält ?2“ in der Vergleichsform von `searchKey` – ohne Suche leer,
@@ -43,7 +43,7 @@ const matching = (search: boolean, ...cols: string[]) =>
 const NEAR = {
   voyage: `AND b.visibility = 'public' AND b.harbor_id IN (SELECT value FROM json_each(?3))`,
   boat: `AND b.harbor_id IN (SELECT value FROM json_each(?3))`,
-  person: `AND EXISTS (SELECT 1 FROM boats nb WHERE nb.owner_id = p.user_id AND nb.visibility = 'public' AND nb.hidden_at IS NULL AND nb.harbor_id IN (SELECT value FROM json_each(?3)))`,
+  person: `AND EXISTS (SELECT 1 FROM boats nb WHERE nb.owner_id = p.user_id AND ${publicSql('nb')} AND nb.harbor_id IN (SELECT value FROM json_each(?3)))`,
   harbor: `AND h.id IN (SELECT value FROM json_each(?3))`,
 };
 
@@ -51,7 +51,7 @@ const VOYAGES = (m: string) => `SELECT s.id, s.title, s.summary, s.dist_nm, s.so
     b.id AS boat_id, b.name AS boat_name, b.visibility AS boat_visibility,
     p.handle, p.display_name
   FROM shares s
-  LEFT JOIN profiles p ON p.user_id = s.user_id AND p.visibility = 'public' AND p.hidden_at IS NULL
+  LEFT JOIN profiles p ON p.user_id = s.user_id AND ${publicSql('p')}
   LEFT JOIN boats b ON b.id = s.boat_id AND b.hidden_at IS NULL
   WHERE ${LISTED} ${m}
   ORDER BY COALESCE(s.started_at, s.created_at) DESC, s.id
@@ -62,9 +62,9 @@ const BOATS = (m: string) => `SELECT b.id, b.name, b.boat_type, b.length_m, b.ho
     (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.boat_id = b.id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_nm,
     (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.boat_id = b.id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_rec
   FROM boats b
-  JOIN profiles p ON p.user_id = b.owner_id AND p.visibility = 'public' AND p.hidden_at IS NULL
+  JOIN profiles p ON p.user_id = b.owner_id AND ${publicSql('p')}
   LEFT JOIN covers c ON c.kind = 'b' AND c.object_id = b.id
-  WHERE b.visibility = 'public' AND b.hidden_at IS NULL AND ${ACTIVE('b.owner_id')} ${m}
+  WHERE ${publicSql('b')} AND ${notSuspendedSql('b.owner_id')} ${m}
   ORDER BY ${m.includes('?3') ? `${nearRank('b.harbor_id')}, ` : ''}b.created_at DESC, b.id
   LIMIT ?1`;
 
@@ -73,10 +73,10 @@ const PEOPLE = (m: string) => `SELECT * FROM (
       (SELECT COUNT(*) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS voyages,
       (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.user_id = p.user_id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_nm,
       (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.user_id = p.user_id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_rec,
-      (SELECT COUNT(*) FROM boats b WHERE b.owner_id = p.user_id AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats
+      (SELECT COUNT(*) FROM boats b WHERE b.owner_id = p.user_id AND ${publicSql('b')}) AS boats
     FROM profiles p
     LEFT JOIN covers c ON c.kind = 'u' AND c.object_id = p.user_id
-    WHERE p.visibility = 'public' AND p.hidden_at IS NULL AND ${ACTIVE('p.user_id')} ${m}
+    WHERE ${publicSql('p')} AND ${notSuspendedSql('p.user_id')} ${m}
   )
   WHERE voyages > 0 OR boats > 0
   ORDER BY created_at DESC, handle
@@ -88,8 +88,8 @@ const PEOPLE = (m: string) => `SELECT * FROM (
  */
 const HARBORS = (m: string) => `SELECT * FROM (
     SELECT h.id, h.slug, h.name,
-      (SELECT COUNT(*) FROM boats b WHERE b.harbor_id = h.id AND b.visibility = 'public' AND b.hidden_at IS NULL AND ${ACTIVE('b.owner_id')}) AS boats,
-      (SELECT COUNT(*) FROM groups g WHERE g.harbor_id = h.id AND g.visibility = 'public' AND g.hidden_at IS NULL AND ${ACTIVE('g.owner_id')}) AS clubs
+      (SELECT COUNT(*) FROM boats b WHERE b.harbor_id = h.id AND ${publicSql('b')} AND ${notSuspendedSql('b.owner_id')}) AS boats,
+      (SELECT COUNT(*) FROM groups g WHERE g.harbor_id = h.id AND ${publicSql('g')} AND ${notSuspendedSql('g.owner_id')}) AS clubs
     FROM harbors h
     WHERE h.hidden_at IS NULL ${m}
   )
@@ -264,7 +264,7 @@ const STATS_TTL = 600;
 /** Öffentliche Törns der Saison (Kalenderjahr wie Gruppen- und Hafen-Kennzahlen), ihre Seemeilen und Boote. */
 const SEASON = `SELECT COUNT(*) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS nm, COUNT(DISTINCT b.id) AS boats
   FROM shares s
-  LEFT JOIN boats b ON b.id = s.boat_id AND b.visibility = 'public' AND b.hidden_at IS NULL
+  LEFT JOIN boats b ON b.id = s.boat_id AND ${publicSql('b')}
   WHERE ${LISTED} AND ${IN_LOGBOOK_SQL} AND COALESCE(s.started_at, s.created_at) >= ?1`;
 
 /**

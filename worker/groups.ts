@@ -29,6 +29,7 @@ import { isNotifyLevel, parseDefaultLevel } from '../src/domain/notifications';
 import { coverRef } from '../src/domain/cover';
 import { notifyRequest } from './notifications';
 import { claimTargetCleanup, displacedSql } from './claim-cleanup';
+import { notSuspendedSql, publicSql } from './visible-sql';
 
 const DAY = 86_400_000;
 
@@ -421,7 +422,7 @@ export async function listMyGroups(request: Request, env: Env): Promise<Response
   });
 }
 
-const PUBLIC_SHARE = `s.visibility = 'public' AND s.hidden_at IS NULL`;
+const PUBLIC_SHARE = publicSql('s');
 /** Törns der Gruppe = die in ihr ausgewählten (share_groups, F-376) – nicht mehr alle der Mitglieder und Boote. */
 const GROUP_SHARES = `s.id IN (SELECT share_id FROM share_groups WHERE group_id = ?1)`;
 
@@ -430,7 +431,7 @@ async function groupStats(env: Env, groupId: string, now = Date.now()) {
   const yearStart = seasonStart(now);
   const row = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM group_members WHERE group_id = ?1) AS members,
-       (SELECT COUNT(*) FROM group_boats gb JOIN boats b ON b.id = gb.boat_id WHERE gb.group_id = ?1 AND b.visibility = 'public' AND b.hidden_at IS NULL) AS boats,
+       (SELECT COUNT(*) FROM group_boats gb JOIN boats b ON b.id = gb.boat_id WHERE gb.group_id = ?1 AND ${publicSql('b')}) AS boats,
        COUNT(s.id) AS voyages, COALESCE(SUM(s.dist_nm), 0) AS dist, ${RECORDED_NM_SQL} AS rec,
        COALESCE(SUM(CASE WHEN COALESCE(s.started_at, s.created_at) >= ?2 THEN s.dist_nm END), 0) AS season
      FROM shares s WHERE ${PUBLIC_SHARE} AND ${GROUP_SHARES} AND ${IN_LOGBOOK_SQL}`,
@@ -456,7 +457,7 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
   const manager = canManageGroup(role);
 
   const { results: members } = await env.DB.prepare(
-    `SELECT m.user_id, m.role, m.created_at, p.handle, p.display_name, (p.visibility = 'public' AND p.hidden_at IS NULL) AS public_profile
+    `SELECT m.user_id, m.role, m.created_at, p.handle, p.display_name, (${publicSql('p')}) AS public_profile
      FROM group_members m LEFT JOIN profiles p ON p.user_id = m.user_id
      WHERE m.group_id = ? ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, m.created_at`,
   )
@@ -546,7 +547,7 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
 /** Offene Beitrittsanfragen mit Anzeigenamen – für alle, die bestätigen dürfen. */
 async function openRequests(env: Env, groupId: string) {
   const { results: requests } = await env.DB.prepare(
-    `SELECT r.user_id, r.message, r.created_at, p.handle, p.display_name, (p.visibility = 'public' AND p.hidden_at IS NULL) AS public_profile
+    `SELECT r.user_id, r.message, r.created_at, p.handle, p.display_name, (${publicSql('p')}) AS public_profile
      FROM group_requests r LEFT JOIN profiles p ON p.user_id = r.user_id WHERE r.group_id = ? ORDER BY r.created_at`,
   )
     .bind(groupId)
@@ -789,8 +790,8 @@ export async function publicGroups(env: Env, limit: number, search?: { where: st
     `SELECT g.id, g.slug, g.name, g.kind, g.home_port, g.description, g.join_mode, g.created_at, g.verified_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members,
        c.ver AS cover_ver, c.focus_y AS cover_y
      FROM groups g LEFT JOIN covers c ON c.kind = 'g' AND c.object_id = g.id
-     WHERE g.visibility = 'public' AND g.hidden_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = g.owner_id AND u.suspended_at IS NOT NULL) ${search?.where ?? ''}
+     WHERE ${publicSql('g')}
+       AND ${notSuspendedSql('g.owner_id')} ${search?.where ?? ''}
        ${near ? `AND g.harbor_id IN (SELECT value FROM json_each(?3))` : ''}
      ORDER BY ${near ? `${nearRank('g.harbor_id')}, ` : ''}g.created_at DESC, g.id LIMIT ?1`,
   );

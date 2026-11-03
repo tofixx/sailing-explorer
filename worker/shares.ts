@@ -25,6 +25,7 @@ import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } f
 import { isReach, type Reach } from '../src/domain/posts';
 import { initialLogState, isBackfill, isDistSource, isLogState, plausibleGpx, readLog, type DistSource, type LogState, type ShareSource } from '../src/domain/logbook';
 import { applyLogPatch, type LogPatchBody } from './logbook';
+import { publicSql } from './visible-sql';
 
 export interface ShareRow {
   id: string;
@@ -462,9 +463,23 @@ export async function removeShare(env: Env, id: string): Promise<void> {
   // Dateien zuerst (Track, Übersichtsbild, Fotos aus der D1-Liste): scheitert danach D1, bleibt nur eine Zeile ohne
   // Datei zurück statt einer Datei, die niemand mehr findet. Die Foto-Zeilen fallen per ON DELETE CASCADE.
   await deleteKeys(env, [shareKey(id), previewKey(id), ...(await photoKeysForShares(env, [id]))]);
-  // Speicher vom globalen Zähler abziehen (vor dem Löschen der Zeile), Meldungen entfernen, Törn löschen – ein Batch.
-  await env.DB.batch([subtractShareStmt(env, id), deleteShareReports(env, id), deleteShareReactions(env, id), deleteShareActivity(env, id), deleteShareGroups(env, id), deleteShareNotifications(env, id), env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id)]);
+  await env.DB.batch(shareDeleteStmts(env, id));
 }
+
+/**
+ * D1-Teil des Törn-Löschens (einzeln, Moderation, Frist in retention.ts; Register: worker/cleanup-registry.ts): Speicher
+ * vom globalen Zähler abziehen (vor dem Löschen der Zeile), Meldungen, Reaktionen, Aktivitäten, Gruppen-Auswahl und
+ * Benachrichtigungen entfernen, Törn löschen – für einen Batch. R2-Dateien löscht der Aufrufer vorher.
+ */
+export const shareDeleteStmts = (env: Env, id: string): D1PreparedStatement[] => [
+  subtractShareStmt(env, id),
+  deleteShareReports(env, id),
+  deleteShareReactions(env, id),
+  deleteShareActivity(env, id),
+  deleteShareGroups(env, id),
+  deleteShareNotifications(env, id),
+  env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(id),
+];
 
 /**
  * Öffentliche Törns für Profil- und Bootsseiten (F-83) – nie „Nur mit Link“ oder „Nur ich“, auch nicht für Verwalter:
@@ -473,7 +488,7 @@ export async function removeShare(env: Env, id: string): Promise<void> {
 export async function publicShares(env: Env, where: 'user' | 'boat', id: string): Promise<ReturnType<typeof shareShape>[]> {
   const col = where === 'user' ? 's.user_id' : 's.boat_id';
   const { results } = await env.DB.prepare(
-    `${SHARE_SELECT} WHERE ${col} = ? AND s.visibility = 'public' AND s.hidden_at IS NULL ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
+    `${SHARE_SELECT} WHERE ${col} = ? AND ${publicSql('s')} ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
   )
     .bind(id)
     .all<ShareRow>();
@@ -484,7 +499,7 @@ export async function publicShares(env: Env, where: 'user' | 'boat', id: string)
 export async function crewShares(env: Env, userId: string): Promise<Array<ReturnType<typeof shareShape> & { crewRole: VoyageRole }>> {
   const { results } = await env.DB.prepare(
     `SELECT ${SHARE_COLS}, c.role AS crew_role FROM ${SHARE_FROM} JOIN share_crew c ON c.share_id = s.id
-     WHERE c.user_id = ? AND s.visibility = 'public' AND s.hidden_at IS NULL ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
+     WHERE c.user_id = ? AND ${publicSql('s')} ORDER BY COALESCE(s.started_at, s.created_at) DESC LIMIT 200`,
   )
     .bind(userId)
     .all<ShareRow & { crew_role: string }>();

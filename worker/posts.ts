@@ -29,6 +29,7 @@ import {
 } from '../src/domain/posts';
 import { sharePath, type Visibility } from '../src/domain/visibility';
 import { isLogState } from '../src/domain/logbook';
+import { liveSql, notSuspendedSql, publicSql } from './visible-sql';
 
 const DAY = 86_400_000;
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diesen Beitrag gibt es nicht (mehr).');
@@ -284,7 +285,7 @@ export async function visiblePost(request: Request, env: Env, id: string): Promi
   const p = SHARE_ID_RE.test(id)
     ? await env.DB.prepare(
         `SELECT p.id, p.author_id, p.group_id, p.visibility, p.hidden_at, p.share_id, p.channel_kind, p.channel_id, p.link_key,
-           (u.suspended_at IS NOT NULL) AS suspended, (pr.visibility = 'public' AND pr.hidden_at IS NULL) AS author_public,
+           (u.suspended_at IS NOT NULL) AS suspended, (${publicSql('pr')}) AS author_public,
            (SELECT 1 FROM harbors h WHERE p.channel_kind = 'harbor' AND h.id = p.channel_id AND h.hidden_at IS NULL) AS harbor_ok,
            b.visibility AS b_vis, b.share_key AS b_key, b.hidden_at AS b_hidden, b.locked_at AS b_locked
          FROM posts p JOIN users u ON u.id = p.author_id LEFT JOIN profiles pr ON pr.user_id = p.author_id
@@ -421,7 +422,7 @@ interface MyRow {
 const MY_POSTS_SQL = `SELECT p.id, p.kind, p.visibility, p.body, p.link, p.hidden_at, p.created_at, p.share_id, p.channel_kind, p.reach, p.link_key,
     s.title AS s_title, s.visibility AS s_vis, s.share_key AS s_key, s.dist_nm AS s_dist, s.started_at AS s_started, s.hidden_at AS s_hidden, s.source AS s_source, s.log_state AS s_log,
     (SELECT json_group_array(json_object('slug', sg.slug, 'name', sg.name)) FROM share_groups x JOIN groups sg ON sg.id = x.group_id
-       WHERE x.share_id = p.share_id AND sg.hidden_at IS NULL AND sg.locked_at IS NULL) AS s_groups,
+       WHERE x.share_id = p.share_id AND ${liveSql('sg')}) AS s_groups,
     g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis,
     h.slug AS h_slug, h.name AS h_name, b.id AS b_id, b.name AS b_name, b.visibility AS b_vis,
     a.id AS a_id, a.title AS a_title,
@@ -536,11 +537,11 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
        COALESCE((SELECT m.role FROM group_members m WHERE m.group_id = g.id AND m.user_id = ?2), CASE WHEN g.id = ?3 THEN 'member' END) AS role
      FROM posts p LEFT JOIN groups g ON g.id = p.group_id
      WHERE p.author_id = ?1 AND p.share_id IS NULL AND p.hidden_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ?1 AND u.suspended_at IS NOT NULL)
+       AND ${notSuspendedSql('?1')}
        AND (
          (p.channel_kind = 'user' AND p.visibility = 'public')
          OR (g.id IS NOT NULL AND g.locked_at IS NULL AND p.visibility IN ('public', 'members') AND (
-           (p.visibility = 'public' AND g.visibility = 'public' AND g.hidden_at IS NULL)
+           (p.visibility = 'public' AND ${publicSql('g')})
            OR EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.user_id = ?2)
            OR g.id = ?3))
        )
