@@ -40,7 +40,7 @@ export class ScoringPageController {
   }
 
   async open(): Promise<void> {
-    // laufende Saison und die zwei davor; vorgewählt bis Ende Februar die abgelaufene (clubListSeason)
+    // Saison nach seasonOf und die zwei davor; vorgewählt bis Ende Februar die abgelaufene (clubListSeason)
     const now = Date.now();
     const current = seasonOf(now);
     this.page.seasons = [current, current - 1, current - 2];

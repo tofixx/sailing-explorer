@@ -509,7 +509,7 @@ Skizze (kein eigener Konzept-Abschnitt): Erweiterung bestehender Objekte, keine 
 
 ## Vorgewählte Saison ab 1. März (Betreiber 03.11.)
 
-- **F-555** Fahrtenbuch (`/konto/fahrtenbuch` ohne `?saison=`), Saison-Bild und Vereinsliste der Wertung wählen ohne Angabe `shownSeason` (`src/domain/support.ts`): bis Ende Februar die abgelaufene Saison, ab dem 1. März die neue – im November also nicht schon die nächste, obwohl Einträge ab November nach `seasonOf` zur nächsten Saison zählen (das bleibt so, auch für Kontingent und Aufbewahrung). Hat das Fahrtenbuch in der vorgewählten Saison keine Einträge, nimmt es die nächstältere mit Einträgen, sonst die älteste. Eine gesetzte Saison in der Adresse gilt unverändert.
+- **F-555** Fahrtenbuch (`/konto/fahrtenbuch` ohne `?saison=`), Saison-Bild und Vereinsliste der Wertung wählen ohne Angabe `shownSeason` (`src/domain/support.ts`): bis Ende Februar die abgelaufene Saison, ab dem 1. März die neue – im November also nicht schon die nächste, obwohl Einträge ab November nach `seasonOf` zur nächsten Saison zählen (das bleibt so, auch für Kontingent und Aufbewahrung). Hat das Fahrtenbuch in der vorgewählten Saison keine Einträge, nimmt es die nächstältere mit Einträgen, sonst die älteste. Eine Saison aus der Adresse gilt, solange sie Einträge hat; sonst wie oben.
 
 ## Markenname „Luv & Leute“ (vormals Sail Explorer)
 

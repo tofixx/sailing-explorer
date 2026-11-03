@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { DIST_SOURCE_LABEL, LOG_STATES, LOG_STATE_LABEL, type LogState } from '../domain/logbook';
 import {
-  LOG_FILTER_LABEL, areaText, entrySeason, recordedNote, filterEntries, logbookSeasons, logbookTotals, roleText, type LogbookEntry, type LogbookTotals,
+  LOG_FILTER_LABEL, areaText, entrySeason, recordedNote, filterEntries, logbookSeasons, logbookTotals, pickSeason, roleText, type LogbookEntry, type LogbookTotals,
 } from '../domain/logbook-year';
 import { SCORING_NOTE, pointsByTemplate, scoreEntry, templateFor, templateLabel, usesTemplates, type ScoringTemplate } from '../domain/scoring';
 import { SCORING_PATH } from '../services/url-state';
@@ -10,6 +10,7 @@ import type { SeasonImageState } from './sx-season-review';
 import './sx-season-badges';
 import './sx-season-review';
 import { fmtDate, fmtNum } from '../domain/format';
+import { shownSeason } from '../domain/support';
 import { ENTITY_ICON, icon } from './icons';
 import { base, emit, logbookTag } from './shared';
 
@@ -54,7 +55,7 @@ export class SxLogbookPage extends LitElement {
   constructor() {
     super();
     this.entries = null;
-    this.season = new Date().getFullYear();
+    this.season = shownSeason(Date.now());
     this.states = ['confirmed', 'suggested'];
     this.loading = false;
     this.busy = false;
@@ -287,7 +288,7 @@ export class SxLogbookPage extends LitElement {
   /** Rückblick der Ansicht (gewählte Saison und Filter) – dieselbe Auswahl wie die Summen. */
   review() {
     const seasons = this.seasons();
-    const season = seasons.includes(this.season) ? this.season : seasons[0];
+    const season = pickSeason(seasons, this.season);
     return seasonReview(filterEntries(this.entries ?? [], this.states, season), season);
   }
 
@@ -401,7 +402,7 @@ export class SxLogbookPage extends LitElement {
       return html`<p class="empty">Noch nichts im Fahrtenbuch. Törns mit GPX und Einträge ohne GPX landen hier – angelegt wird über „+ Neu“.</p>
         <p><button class="btn" @click=${() => emit(this, 'sx-logbook-start')}>${icon('plus')} Eintrag hinzufügen</button></p>`;
     const seasons = this.seasons();
-    const season = seasons.includes(this.season) ? this.season : seasons[0];
+    const season = pickSeason(seasons, this.season);
     const shown = filterEntries(this.entries, this.states, season);
     // Punkte nur, wenn ein gezeigter Eintrag mehr als „Nur Meilen“ zählt (F-505)
     this.scored = usesTemplates(shown, this.templates);
