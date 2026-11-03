@@ -48,6 +48,8 @@ describe('F-531 Zahnrad nur im Seiten-Menü', () => {
     const dir = resolve('src/components');
     const users = readdirSync(dir).filter((f) => f.endsWith('.ts') && readFileSync(resolve(dir, f), 'utf8').includes("icon('gear')"));
     expect(users).toEqual(['sx-page-menu.ts']);
+    // „Konto & Einstellungen“ unterscheidet sich von „Meine Seite“ (Person): Schieberegler
+    expect(readFileSync(resolve(dir, 'sx-account-menu.ts'), 'utf8')).toContain("icon('sliders')}</span><span>Konto &amp; Einstellungen");
   });
 });
 

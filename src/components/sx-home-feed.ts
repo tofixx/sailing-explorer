@@ -398,7 +398,7 @@ export class SxHomeFeed extends LitElement {
             const picker = (e.target as HTMLFormElement).querySelector<SxHarborPicker>('sx-harbor-picker');
             if (picker) emit(this, 'sx-home-harbor', { harbor: picker.choice });
           }}>
-            <label class="label" for="wh">${icon('anchor')} Dein Heimathafen</label>
+            <label class="label" for="wh">${icon(ENTITY_ICON.harbor)} Dein Heimathafen</label>
             <div class="row"><sx-harbor-picker input-id="wh" label="Heimathafen" style="flex:1;min-width:180px"></sx-harbor-picker>
               <button class="btn small primary" type="submit">Speichern</button></div>
           </form>`
@@ -500,7 +500,7 @@ export class SxHomeFeed extends LitElement {
     const modes: StreamMode[] = this.signedIn ? ['near', 'all', 'mine'] : ['near', 'all'];
     return html`<div class="modebar">
       <div class="modes" data-scroll-x role="toolbar" aria-label="Was zeigen?">
-        ${modes.map((m) => html`<button type="button" aria-pressed=${this.mode === m ? 'true' : 'false'} @click=${() => this.mode !== m && emit(this, 'sx-stream-mode', { mode: m })}>${m === 'near' ? icon('anchor') : ''}${MODE_LABEL[m]}</button>`)}
+        ${modes.map((m) => html`<button type="button" aria-pressed=${this.mode === m ? 'true' : 'false'} @click=${() => this.mode !== m && emit(this, 'sx-stream-mode', { mode: m })}>${m === 'near' ? icon('location') : ''}${MODE_LABEL[m]}</button>`)}
       </div>
       <button type="button" class="chip" aria-pressed=${this.joins ? 'true' : 'false'} title=${this.joins ? 'Automatische Einträge (Beitritte, neue Boote, Meilensteine) ausblenden – gilt für alle Neuigkeiten auf diesem Gerät' : 'Automatische Einträge zeigen'}
         @click=${() => emit(this, 'sx-stream-joins', { show: !this.joins })}>${icon('info')} Automatische Einträge</button>

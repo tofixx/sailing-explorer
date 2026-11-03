@@ -209,7 +209,7 @@ export class SxEvent extends LitElement {
         </div>
         <div>
           <p class="meta">${icon('calendar')} ${EVENT_TYPE_LABEL[e.type]} · <time datetime=${start.toISOString()}>${eventWhen(e)}</time>${over && !e.cancelled ? ' · vorbei' : ''}</p>
-          ${e.place ? html`<p class="meta">${icon('anchor')} ${e.place}</p>` : ''}
+          ${e.place ? html`<p class="meta">${icon('location')} ${e.place}</p>` : ''}
           ${e.cancelled ? html`<span class="cancelled">Abgesagt</span>` : ''}
         </div>
       </div>

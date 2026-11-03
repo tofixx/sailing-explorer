@@ -1,6 +1,6 @@
 import type { Env } from './env';
 import { membersVisibleSql } from './member-sql';
-import { liveSql, publicSql } from './visible-sql';
+import { liveSql, notSuspendedSql, publicSql } from './visible-sql';
 
 /**
  * Wem gehört ein Törn und in welchen Gruppen ist er erschienen (F-228)? Beides nur, soweit der Betrachter es sehen
@@ -11,7 +11,9 @@ import { liveSql, publicSql } from './visible-sql';
  * Gesperrte Konten nennen weder Profil noch Gruppen (wie Entdecken). Gruppen mit Mitgliederliste „nur Mitglieder“ nennt der
  * Törn nur ihren Mitgliedern – sonst verriete er die Mitgliedschaft der Eigentümer:in (F-442, Konzept 24.7).
  * Das Boot (`boatPage`, F-533) nur, wenn der Betrachter dessen Seite öffnen darf: öffentlich und nicht ausgeblendet oder
- * er verwaltet es; gesperrte Boote nie, „Nur mit Link“ ohne Schlüssel nicht (fail closed, wie `getBoat`).
+ * er verwaltet es; gesperrte Boote nie, „Nur mit Link“ ohne Schlüssel nicht, Plattform-Admins bei ausgeblendeten Booten
+ * nicht (fail closed, enger als `getBoat`). Gesperrte Konten (Eigentümer:in des Törns oder Eigner des Boots) nennen
+ * kein Boot – wie Profil und Gruppen.
  */
 export async function shareContext(
   env: Env,
@@ -34,10 +36,11 @@ export async function shareContext(
        ORDER BY g.kind, g.name LIMIT 10`,
     ).bind(share.id, viewerId, listed, share.user_id),
     env.DB.prepare(
+      // Verwalter-Bedingung wie roleFor (worker/boats.ts): Eigner oder Eintrag in boat_admins, gesperrte Boote nie
       `SELECT b.id, b.name FROM boats b LEFT JOIN boat_admins a ON a.boat_id = b.id AND a.user_id = ?2
-       WHERE b.id = ?1 AND b.locked_at IS NULL
+       WHERE b.id = ?1 AND b.locked_at IS NULL AND ${notSuspendedSql('b.owner_id')} AND ${notSuspendedSql('?3')}
          AND (${publicSql('b')} OR b.owner_id = ?2 OR a.user_id IS NOT NULL)`,
-    ).bind(share.boat_id ?? null, viewerId),
+    ).bind(share.boat_id ?? null, viewerId, share.user_id),
   ]);
   const p = (sailor.results as { handle: string; display_name: string }[])[0];
   const b = (boat.results as { id: string; name: string }[])[0];

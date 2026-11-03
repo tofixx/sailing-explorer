@@ -80,7 +80,7 @@ export class SxAccountMenu extends LitElement {
         ${this.item('Meine Seite', 'user', handle ? `/u/${handle}` : null)}
         ${this.item('Mein Fahrtenbuch', 'book', LOGBOOK_PATH)}
         <hr />
-        <button class="item" type="button" @click=${() => this.account()}><span class="mark">${icon('user')}</span><span>Konto &amp; Einstellungen</span></button>
+        <button class="item" type="button" @click=${() => this.account()}><span class="mark">${icon('sliders')}</span><span>Konto &amp; Einstellungen</span></button>
       </div>
     </div>`;
   }

@@ -38,7 +38,7 @@ const paths = {
   logout: svg`<path d="M14.5 4H18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3.5M10 16.5 14.5 12 10 7.5M14.5 12H4"/>`,
   // Seekarte mit Kompassrose
   map: svg`<path class="f" d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z"/><path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20zM9 4v13.5M15 6.5V20"/>`,
-  // Einstellungen: Zahnrad
+  // Zahnrad: nur das Seiten-Menü (`sx-page-menu`, UX N6, F-531)
   gear: svg`<circle class="f" cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/><circle cx="12" cy="12" r="6.3"/>`,
   info: svg`<circle class="f" cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8v.2"/>`,
   check: svg`<path d="m5 12.5 4.5 4.5L19 7.5"/>`,
@@ -99,6 +99,10 @@ const paths = {
   print: svg`<rect class="f" x="4" y="9" width="16" height="7.5" rx="2"/><path d="M7 9V3.5h10V9M7 14h10v6.5H7zM4 16.5h3M17 16.5h3M4 16.5V11a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5.5"/>`,
   // Kartenstil (F-531): Ebenen statt Zahnrad – das Zahnrad gehört nur dem Seiten-Menü (UX N6)
   layers: svg`<path class="f" d="M12 4 21 8.5 12 13 3 8.5z"/><path d="M12 4 21 8.5 12 13 3 8.5z"/><path d="m3 12.5 9 4.5 9-4.5M3 16.5l9 4.5 9-4.5"/>`,
+  // Konto & Einstellungen (F-531): Schieberegler – das Zahnrad gehört dem Seiten-Menü
+  sliders: svg`<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle class="f" cx="15" cy="7" r="2.2"/><circle cx="15" cy="7" r="2.2"/><circle class="f" cx="9" cy="17" r="2.2"/><circle cx="9" cy="17" r="2.2"/>`,
+  // Ort/Standort (F-532): Stecknadel – der Anker bleibt dem Hafen
+  location: svg`<path class="f" d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>`,
   // Team (F-532): Crew aus drei Köpfen – unterscheidbar von Boot (`sail`) und Verein (`pennant`)
   team: svg`<circle class="f" cx="12" cy="7.5" r="2.8"/><circle cx="12" cy="7.5" r="2.8"/><circle cx="5.8" cy="9.5" r="2.2"/><circle cx="18.2" cy="9.5" r="2.2"/><path d="M7.5 19.5c.5-3.3 2.2-5.2 4.5-5.2s4 1.9 4.5 5.2M2.5 18c.3-2.4 1.5-3.9 3.3-3.9M21.5 18c-.3-2.4-1.5-3.9-3.3-3.9"/>`,
 };

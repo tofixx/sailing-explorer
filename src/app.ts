@@ -202,8 +202,10 @@ export class App {
   private notifications: NotificationsController;
   /** Startseite als Einstieg (nicht Profil-, Boots-, Gruppen- oder Entdecken-Seite) – nur dort lädt die Startseite Neuigkeiten */
   private homeRoute = false;
-  /** Ein Abruf `/api/discover?limit=6` für Community-Leiste und Gäste-Slider (F-530); nach Fehler neu versuchbar */
+  /** Ein Abruf `/api/discover?limit=6` für Community-Leiste und Gäste-Slider (F-530) */
   private homeDiscover: Promise<DiscoverData> | null = null;
+  /** der letzte Abruf ist fehlgeschlagen – die Leiste versucht es beim nächsten Weg zur Startseite neu */
+  private homeDiscoverFailed = false;
   private timelinePts: TimedPoint[] = [];
 
   constructor() {
@@ -1134,7 +1136,7 @@ export class App {
   private async loadDiscoverStrip() {
     const strip = this.ui.discoverStrip;
     try {
-      const data = await this.loadHomeDiscover();
+      const data = await this.loadHomeDiscover(true);
       strip.data = data;
       this.groups.setPublicGroups(data.groups);
       strip.hidden = false;
@@ -1143,12 +1145,20 @@ export class App {
     }
   }
 
-  /** Entdecken-Auszug der Startseite (F-530): geteilt von Leiste und Gäste-Slider, solange die Seite lebt. */
-  private loadHomeDiscover(): Promise<DiscoverData> {
-    return (this.homeDiscover ??= api.discover(6).catch((err: unknown) => {
-      this.homeDiscover = null;
-      throw err;
-    }));
+  /**
+   * Entdecken-Auszug der Startseite (F-530): geteilt von Leiste und Gäste-Slider, solange die Seite lebt. Ein Fehler
+   * bleibt stehen (beide sehen denselben), bis die Leiste mit `retry` neu lädt – den neuen Abruf teilt der Slider wieder.
+   */
+  private loadHomeDiscover(retry = false): Promise<DiscoverData> {
+    if (retry && this.homeDiscoverFailed) this.homeDiscover = null;
+    if (!this.homeDiscover) {
+      this.homeDiscoverFailed = false;
+      this.homeDiscover = api.discover(6).catch((err: unknown) => {
+        this.homeDiscoverFailed = true;
+        throw err;
+      });
+    }
+    return this.homeDiscover;
   }
 
   /**

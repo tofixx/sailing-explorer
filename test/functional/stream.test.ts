@@ -606,9 +606,11 @@ describe('F-228 Törn: von wem, in welcher Gruppe', () => {
 
     const other = await s.person({ profile: 'public' });
     const locked = await s.group(other, { name: 'Club Gesperrt' });
-    const pub = await s.share(other, { groups: [locked.id] });
+    const otherBoat = await s.boat(other);
+    const pub = await s.share(other, { groups: [locked.id], boatId: otherBoat.id });
+    expect(((await meta(pub.id)) as Meta & { boatPage: unknown }).boatPage).toEqual({ id: otherBoat.id, name: otherBoat.name });
     await (await s.db()).prepare('UPDATE users SET suspended_at = 1 WHERE id = ?').bind(other.user.id).run();
-    expect(await meta(pub.id)).toMatchObject({ sailor: null, groups: [] });
+    expect(await meta(pub.id)).toMatchObject({ sailor: null, groups: [], boatPage: null });
   });
 
   it('[F-533] Boot am Törn nur, wenn der Betrachter die Bootsseite öffnen darf (öffentlich, verwaltet; nie gesperrt)', async () => {
@@ -637,7 +639,20 @@ describe('F-228 Törn: von wem, in welcher Gruppe', () => {
     expect(await boatPage(admin)).toEqual({ id: boat.id, name: 'Möwe' });
     await db.prepare('UPDATE boats SET hidden_at = NULL, locked_at = 1 WHERE id = ?').bind(boat.id).run();
     expect(await boatPage(owner)).toBeNull();
+    // auch das Listen-Feld `boat` nennt ein gesperrtes Boot nicht mehr (Gast und Eigentümer:in)
+    expect(((await meta(share.id)) as Meta & { boat: unknown }).boat).toBeNull();
+    expect(((await meta(share.id, owner)) as Meta & { boat: unknown }).boat).toBeNull();
     expect(await page(owner)).toBe(404);
+    // Eigner des Boots gesperrt (Eigentümer:in des Törns ist Boots-Admin): kein Boot, auch nicht für sie selbst
+    const skipper = await s.person({ profile: 'public' });
+    const lent = await s.boat(owner, { name: 'Leihboot' });
+    await db.prepare('INSERT INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)').bind(lent.id, skipper.user.id, Date.now()).run();
+    const trip = await s.share(skipper, { boatId: lent.id });
+    expect(((await meta(trip.id)) as Meta & { boatPage: unknown }).boatPage).toEqual({ id: lent.id, name: 'Leihboot' });
+    await db.prepare('UPDATE users SET suspended_at = 1 WHERE id = ?').bind(owner.user.id).run();
+    expect(((await meta(trip.id)) as Meta & { boatPage: unknown }).boatPage).toBeNull();
+    expect(((await meta(trip.id, skipper)) as Meta & { boatPage: unknown }).boatPage).toBeNull();
+    await db.prepare('UPDATE users SET suspended_at = NULL WHERE id = ?').bind(owner.user.id).run();
     // ohne Boot: null
     expect(((await meta((await s.share(owner)).id)) as Meta & { boatPage: unknown }).boatPage).toBeNull();
   });

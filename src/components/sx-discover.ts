@@ -485,7 +485,7 @@ export class SxDiscover extends LitElement {
         <div class="chips">
           ${v.sailor
             ? html`<a class="chip" href="/u/${v.sailor.handle}" title="Profil von ${v.sailor.displayName}">${icon(ENTITY_ICON.user)}${v.sailor.displayName}</a>`
-            : html`<span class="chip anon" title="Profil nicht öffentlich">${icon('user')}Segler:in</span>`}
+            : html`<span class="chip anon" title="Profil nicht öffentlich">${icon(ENTITY_ICON.user)}Segler:in</span>`}
           ${v.boat ? html`<a class="chip" href="/b/${v.boat.id}" title="Boot ${v.boat.name}">${icon(ENTITY_ICON.boat)}${v.boat.name}</a>` : ''}
         </div>
       </div>
@@ -606,7 +606,7 @@ export class SxDiscover extends LitElement {
   private nearTools() {
     const n = this.near;
     if (!n) return '';
-    const locate = html`<button class="chip" type="button" @click=${() => emit(this, 'sx-discover-locate')}>${icon('anchor')} Meinen Standort verwenden</button>`;
+    const locate = html`<button class="chip" type="button" @click=${() => emit(this, 'sx-discover-locate')}>${icon('location')} Meinen Standort verwenden</button>`;
     return html`<div class="tabs" data-scroll-x role="group" aria-label="Umgebung">
       <button class="chip" type="button" aria-pressed=${n.on ? 'true' : 'false'} @click=${() => !n.on && emit(this, 'sx-discover-near', { on: true })}>In der Nähe</button>
       <button class="chip" type="button" aria-pressed=${n.on ? 'false' : 'true'} @click=${() => n.on && emit(this, 'sx-discover-near', { on: false })}>Überall</button>

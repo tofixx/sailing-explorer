@@ -38,7 +38,8 @@ export class GuestSliderController {
     },
   ) {
     store.subscribe((s, prev) => {
-      if (s.user !== prev?.user || s.backend !== prev?.backend) void this.sync();
+      // `home`: Weg zurück zur Startseite – nach einem Fehler lädt der Slider dann neu (F-530)
+      if (s.user !== prev?.user || s.backend !== prev?.backend || s.home !== prev?.home) void this.sync();
     });
     // Daten erst, wenn der Stream der Startseite steht – auf anderen Seiten (z. B. /entdecken) nichts laden
     new MutationObserver(() => void this.sync()).observe(ui.feed, { attributes: true, attributeFilter: ['hidden'] });
@@ -65,6 +66,8 @@ export class GuestSliderController {
       (near ? api.discover(6, '', { center: near.center, r: readNearPrefs().radius }) : this.ui.discover()).catch(() => null),
     ]);
     Object.assign(this.ui.slider, { stats, groups: discover?.groups ?? [], harbors: discover?.harbors ?? [] });
+    // Fehler beim (geteilten) Entdecken-Abruf: beim nächsten Weg zur Startseite neu versuchen (F-530)
+    if (!discover) this.loaded = false;
   }
 
   /** × – auf diesem Gerät nicht mehr zeigen; der Stream bleibt. */

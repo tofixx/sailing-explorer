@@ -483,7 +483,7 @@ export class SxGroupPage extends LitElement {
   private createForm() {
     return html`<div class="page">
       <header class="hero">
-        <div class="mark" aria-hidden="true">${icon('pennant')}</div>
+        <div class="mark" aria-hidden="true">${icon(ENTITY_ICON.club)}</div>
         <div class="head"><h1>Verein oder Team gründen</h1><div class="lead">Bring deine Leute zusammen: Mitglieder, Boote, Törns und Neuigkeiten an einem Ort.</div></div>
       </header>
       ${this.signedIn

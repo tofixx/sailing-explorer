@@ -465,7 +465,7 @@ export class SxStream extends LitElement {
     const shown = this.visible(d.open ? d.open.items : d.top);
     const next = d.open ? d.open.cursor : null;
     return html`<li class="day" aria-label=${dayCardText(d)}>
-      <span class="ic" aria-hidden="true">${icon('book')}</span>
+      <span class="ic" aria-hidden="true">${icon(ENTITY_ICON.logbook)}</span>
       <div>
         <div class="head"><strong class="what">${dayCardText(d)}</strong></div>
         ${shown.length ? html`<ol>${shown.map((i) => this.item(i))}</ol>` : ''}

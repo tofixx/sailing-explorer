@@ -622,7 +622,7 @@ export class SxProfilePage extends LitElement {
             <sx-place-picker label="Lage des Hafens auf der Karte antippen" .value=${h.lat != null && h.lon != null ? { lat: h.lat, lon: h.lon } : null}
               @sx-place-pick=${(e: CustomEvent<{ lat: number; lon: number }>) => this.setPosition(e)}></sx-place-picker>
             <div class="row">
-              <button class="btn small" type="button" @click=${(e: Event) => this.fillPosition(e)}>${icon('anchor')} Position von hier übernehmen</button>
+              <button class="btn small" type="button" @click=${(e: Event) => this.fillPosition(e)}>${icon('location')} Position von hier übernehmen</button>
               <span class="hint pos-hint" role="status">Ohne Position erscheint der Hafen nicht unter „Umgebung“.</span>
             </div>`
         : ''}

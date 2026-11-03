@@ -139,21 +139,25 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
 | `feature/toern-ruhiger` (Törn-Seitenleiste: weniger sichtbare Schaltflächen, Crew/Einladen/Kommentare) | F-510 … F-514 | – | – | `sx-crew`, `sx-comments`, Törn-Seitenleiste, `sx-page-menu` | gemergt 03.11. |
 | `feature/name-luv-leute` (Markenname „Luv & Leute“ überall in der App) | F-515 … F-517 (F-518/F-519 frei) | – | – | sichtbare Texte in rund 25 Dateien (`document.title` in Controllern, `sx-topbar`, `sx-support`, `share-image.ts`, `invite-text.ts`, `claims.ts`, `limits.ts`, Worker-Hinweise), neu `src/domain/brand.ts`, `index.html`, `manifest.webmanifest`, `sw.js`, `APP_NAME`/`MAIL_FROM` in `wrangler.jsonc`, `deploy-preview.mjs`, `mail.ts` (Escaping), Tests mit Seitentiteln, Doku-Kopfzeilen; `legal.ts` unverändert (nennt keinen Produktnamen) | gemergt 03.11. |
 | `feature/saisonrueckblick` (Als Nächstes #2: „Meine Saison“-Bild, Abzeichen-Reihe) | F-520 … F-529 | 33 | 0041 (falls nötig) | `share-image.ts`, Saison-Summen (`logbook-year.ts`), `MILESTONES_NM`, Fahrtenbuch-Seite | in Arbeit 03.11. |
-| `feature/kleinkram-navigation` (Jetzt: doppelter Discover-Abruf, Zahnrad am Kartenstil; Als Nächstes #7: `ENTITY_ICON`, Byline mit Boot) | F-530 … F-533 (F-534 frei geblieben) | – | – | `app.ts` (`loadDiscoverStrip`), `GuestSliderController`, `sx-map-style`, `sx-account-menu`, `sx-voyage-byline`, `icons.ts` (`ENTITY_ICON`, `groupIcon`, Symbole `layers`/`team`), `shared.ts` (`POST_KIND_ICON`), Icon-Zeilen in `sx-discover`, `sx-group-page`, `sx-home-feed`, `sx-profile-page`, `sx-stream`, `sx-my-posts`, `sx-logbook-page`; `worker/share-context.ts` (`boatPage`). Keine Migration, kein Cache | fertig 03.11., wartet auf Review. Entscheidungen siehe unten |
+| `feature/kleinkram-navigation` (Jetzt: doppelter Discover-Abruf, Zahnrad am Kartenstil; Als Nächstes #7: `ENTITY_ICON`, Byline mit Boot) | F-530 … F-533 (F-534 frei geblieben) | – | – | `app.ts` (`loadDiscoverStrip`), `GuestSliderController`, `sx-map-style`, `sx-account-menu`, `sx-voyage-byline`, `icons.ts` (`ENTITY_ICON`, `groupIcon`, Symbole `layers`/`team`), `shared.ts` (`POST_KIND_ICON`), Icon-Zeilen in `sx-discover`, `sx-group-page`, `sx-home-feed`, `sx-profile-page`, `sx-stream`, `sx-my-posts`, `sx-logbook-page`; `worker/share-context.ts` (`boatPage`). Keine Migration, kein Cache | gebaut, Review-Befunde behoben 03.11. Entscheidungen siehe unten |
 | `feature/bootsklasse` (Als Nächstes #8: Filter nach Bootsklasse in Entdecken) | F-535 … F-539 | 34 | 0042 | `boats.boat_type`/Klassenliste (`src/domain`), `worker/discover.ts`, Entdecken-Leiste | in Arbeit 03.11. |
 | `feature/web-url` (Web-URL für Vereine und Häfen) und Auffindbarkeit (Sitemap öffentlicher Seiten, SEO-Prüfung) | F-540 … F-549 | – | 0043 | `groups`, `harbors` (Spalte `web_url`), Gruppen-/Hafenseite, neue `/sitemap.xml`, `robots.txt` | in Arbeit 03.11. |
 | `docs/moderation-abgleich` (Moderations-Konzept gegen K 18 abgleichen) | – | 35 | – | nur `docs/` | gemergt 03.11. |
 
 **Entscheidungen `feature/kleinkram-navigation` (03.11., ohne Rückfrage getroffen):**
 - Ein Abruf für Leiste und Slider (F-530): die App hält das Versprechen von `api.discover(6)`, solange die Seite lebt,
-  und gibt es beiden; nach einem Fehler wird es verworfen (nächster Weg zur Startseite versucht neu). Hat der Gast einen
+  und gibt es beiden; nach einem Fehler lädt die Leiste beim nächsten Weg zur Startseite neu, der Slider (lauscht auf
+  `home`) teilt diesen Versuch. Hat der Gast einen
   Ort gemerkt, bleibt der Umgebungs-Abruf des Sliders eigen – das sind andere Daten.
 - Kartenstil (F-531): neues Symbol `layers`, Beschriftung „Kartenstil“ statt „Ansicht konfigurieren“. Das Zahnrad im
-  Konto-Menü („Konto & Einstellungen“) wird zum Personen-Symbol, damit N6 („kein anderes Element trägt das Zahnrad“) gilt;
+  Konto-Menü („Konto & Einstellungen“) wird zu Schiebereglern (`sliders`, unterscheidbar von „Meine Seite“), damit N6 gilt;
   ein Test prüft, dass `icon('gear')` nur in `sx-page-menu` vorkommt.
 - `ENTITY_ICON` (F-532) liegt in `icons.ts` (neben den Symbolen, ohne `shared.ts` wachsen zu lassen); Team bekommt das neue
   Symbol `team` (drei Köpfe). Allgemeine Knöpfe „Verein oder Team gründen“ behalten `pennant`; Hinweise ohne Objekt
-  (Unterstützer-`pennant`, „Position übernehmen“-`anchor`) bleiben. `sx-entity-link` (Danach) baut darauf auf.
+  (Unterstützer-`pennant`) bleiben; Orte ohne Objekt bekommen die Stecknadel `location`, der Anker heißt nur noch Hafen.
+  `sx-entity-link` (Danach) baut darauf auf.
 - Boot in der Byline (F-533): eigenes Feld `boatPage` aus `shareContext` statt `boat` umzudeuten – `boat` nennt der
   Eigentümer:in auch Boote, deren Seite sie nicht (mehr) öffnen darf. „Nur mit Link“-Boote nennt die Byline nur
-  Verwaltern (der Boots-Schlüssel fehlt dem Betrachter), gesperrte nie. Wortlaut „auf <Boot>“.
+  Verwaltern (der Boots-Schlüssel fehlt dem Betrachter), gesperrte nie, bei gesperrtem Konto (Törn oder Boot) nichts;
+  Plattform-Admins sehen ausgeblendete Boote dort nicht (enger als `getBoat`). Gesperrte Boote fallen auch aus `boat`.
+  Wortlaut „auf <Boot>“.

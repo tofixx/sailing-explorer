@@ -1550,32 +1550,38 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     await vi.waitFor(() => expect(slider().hidden).toBe(false));
   });
 
-  it('[F-530] Gast ohne gemerkten Ort: Community-Leiste und Slider teilen einen Abruf von /api/discover?limit=6', async () => {
-    localStorage.removeItem('sx-guest-slider-dismissed');
-    server.groups = {};
-    server.discover = { voyages: [], boats: [], people: [], groups: [{ slug: 'pyc', name: 'PYC', kind: 'club', members: 3 }], harbors: [] };
-    await startApp();
-    await vi.waitFor(() => expect(slider().groups).toEqual(server.discover!.groups));
-    await vi.waitFor(() => expect(el<{ hidden: boolean }>('sx-discover[slot="discover"]').hidden).toBe(false));
-    // zurück zur Startseite lädt die Leiste nicht erneut
-    emit('sx-home');
-    await new Promise((r) => setTimeout(r, 0));
-    expect(server.calls.filter((c) => c.url.startsWith('/api/discover?')).map((c) => c.url)).toEqual(['/api/discover?limit=6']);
-  });
-
-  it('[F-530] nach einem Fehler versucht die Leiste es beim nächsten Weg zur Startseite erneut', async () => {
-    localStorage.setItem('sx-guest-slider-dismissed', '1');
-    server.groups = {};
-    server.discover = null;
-    await startApp();
+  describe('F-530 ein Entdecken-Abruf für Leiste und Slider', () => {
+    const discoverCalls = () => server.calls.filter((c) => c.url.startsWith('/api/discover?')).map((c) => c.url);
     const strip = () => el<{ hidden: boolean }>('sx-discover[slot="discover"]');
-    await vi.waitFor(() => expect(server.calls.filter((c) => c.url.startsWith('/api/discover?'))).toHaveLength(1));
-    await vi.waitFor(() => expect(strip().hidden).toBe(true));
-    server.discover = { voyages: [], boats: [], people: [] };
-    emit('sx-home');
-    await vi.waitFor(() => expect(strip().hidden).toBe(false));
-    expect(server.calls.filter((c) => c.url.startsWith('/api/discover?'))).toHaveLength(2);
-    localStorage.removeItem('sx-guest-slider-dismissed');
+    beforeEach(() => localStorage.removeItem('sx-guest-slider-dismissed'));
+    afterEach(() => localStorage.removeItem('sx-guest-slider-dismissed'));
+
+    it('[F-530] Gast ohne gemerkten Ort: Community-Leiste und Slider teilen einen Abruf von /api/discover?limit=6', async () => {
+      server.groups = {};
+      server.discover = { voyages: [], boats: [], people: [], groups: [{ slug: 'pyc', name: 'PYC', kind: 'club', members: 3 }], harbors: [] };
+      await startApp();
+      await vi.waitFor(() => expect(slider().groups).toEqual(server.discover!.groups));
+      await vi.waitFor(() => expect(strip().hidden).toBe(false));
+      expect(discoverCalls()).toEqual(['/api/discover?limit=6']);
+    });
+
+    it('[F-530] nach einem Fehler versuchen Leiste und Slider es beim nächsten Weg zur Startseite erneut', async () => {
+      server.groups = {};
+      server.discover = null;
+      await startApp();
+      await vi.waitFor(() => expect(discoverCalls()).toHaveLength(1));
+      await vi.waitFor(() => expect(strip().hidden).toBe(true));
+      await vi.waitFor(() => expect(slider().groups).toEqual([]));
+      server.discover = { voyages: [], boats: [], people: [], groups: [{ slug: 'pyc', name: 'PYC', kind: 'club', members: 3 }], harbors: [] };
+      // Weg zurück zur Startseite: erst ein Törn (Stream verdeckt), dann wieder die Startseite
+      await load(file('a.gpx', leg('A')));
+      expect(state().home).toBe(false);
+      emit('sx-home');
+      await vi.waitFor(() => expect(strip().hidden).toBe(false));
+      await vi.waitFor(() => expect(slider().groups).toEqual(server.discover!.groups));
+      // Leiste und Slider teilen auch den zweiten Versuch
+      expect(discoverCalls()).toEqual(['/api/discover?limit=6', '/api/discover?limit=6']);
+    });
   });
 
   it('[F-260] Startseite angemeldet: Stream zuerst', async () => {

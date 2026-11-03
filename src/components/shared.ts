@@ -441,8 +441,9 @@ export const kindCardLink = (kind: PostKind | undefined, path: string, cls = 'li
 export const POST_VISIBILITY_ICON: Record<PostVisibility, IconName> = { public: 'globe', members: 'community', unlisted: 'link', private: 'lock' };
 
 /**
- * Aufklapp-Menü am Zahnrad (Kartenstil, „Ansehen als …“): Tafel, Überschrift, Einträge mit `aria-pressed`. Die Lage
- * der Tafel (über bzw. unter dem Knopf) setzt jede Komponente selbst; mobil kommt sie als Sheet vom unteren Rand.
+ * Aufklapp-Menü an einem Knopf (Kartenstil mit Ebenen-Symbol, „Ansehen als …“ im Zahnrad des Seiten-Menüs): Tafel,
+ * Überschrift, Einträge mit `aria-pressed`. Die Lage der Tafel (über bzw. unter dem Knopf) setzt jede Komponente selbst;
+ * mobil kommt sie als Sheet vom unteren Rand.
  */
 export const menuStyles = css`
   .menu {

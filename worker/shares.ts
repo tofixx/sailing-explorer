@@ -76,6 +76,7 @@ export interface ShareRow {
   boat_name?: string | null;
   boat_visibility?: string | null;
   boat_hidden_at?: number | null;
+  boat_locked_at?: number | null;
   /** aus den JOINs mit harbors (nur nicht ausgeblendete) */
   hf_slug?: string | null;
   hf_name?: string | null;
@@ -93,7 +94,7 @@ const harborAt = (id: string | null | undefined, slug: string | null | undefined
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
-const SHARE_COLS = `s.*, (SELECT reach FROM posts WHERE id = s.id) AS reach, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, ${EXPIRES_SQL} AS expires_at,
+const SHARE_COLS = `s.*, (SELECT reach FROM posts WHERE id = s.id) AS reach, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, b.locked_at AS boat_locked_at, ${EXPIRES_SQL} AS expires_at,
   hf.slug AS hf_slug, hf.name AS hf_name, hf.lat AS hf_lat, hf.lon AS hf_lon, ht.slug AS ht_slug, ht.name AS ht_name, ht.lat AS ht_lat, ht.lon AS ht_lon`;
 const SHARE_FROM = `shares s LEFT JOIN boats b ON b.id = s.boat_id
   LEFT JOIN harbors hf ON hf.id = s.from_harbor_id AND hf.hidden_at IS NULL
@@ -103,8 +104,8 @@ export const SHARE_SELECT = `SELECT ${SHARE_COLS} FROM ${SHARE_FROM}`;
 /** `withLog`: Fahrtenbuch-Angaben mitliefern (Einzelansicht, eigene Liste) – öffentliche Listen brauchen sie nicht. */
 export function shareShape(row: ShareRow, isOwner: boolean, withLog = true) {
   // Nicht öffentliche Boote nennt nur der Eigentümer der Freigabe (F-82).
-  // Ausgeblendete Boote (Meldung) ebenso.
-  const boat = row.boat_id && (isOwner || (row.boat_visibility === 'public' && !row.boat_hidden_at)) ? { id: row.boat_id, name: row.boat_name ?? '' } : null;
+  // Ausgeblendete Boote (Meldung) ebenso; gesperrte (Moderation) nennt niemand, auch nicht der Eigentümer (F-533).
+  const boat = row.boat_id && !row.boat_locked_at && (isOwner || (row.boat_visibility === 'public' && !row.boat_hidden_at)) ? { id: row.boat_id, name: row.boat_name ?? '' } : null;
   return {
     id: row.id,
     title: row.title,

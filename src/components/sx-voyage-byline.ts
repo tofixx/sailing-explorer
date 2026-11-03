@@ -86,6 +86,12 @@ export class SxVoyageByline extends LitElement {
         gap: 4px;
         font-weight: 600;
       }
+      /* lange Namen (Boot, Gruppen) brechen um statt bei 375 px über den Rand zu ragen (F-533) */
+      p > span,
+      p a {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
     `,
   ];
 

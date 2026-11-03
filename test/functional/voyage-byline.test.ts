@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Geteilter Törn: „von <Profil> auf <Boot> in <Verein/Team>“ mit Links (F-228, F-533); Icons je Objektart (F-532).
 import { describe, expect, it } from 'vitest';
-import '../../src/components/sx-voyage-byline';
+import { SxVoyageByline } from '../../src/components/sx-voyage-byline';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ENTITY_ICON, groupIcon } from '../../src/components/icons';
@@ -40,6 +40,13 @@ describe('Törn-Zeile „von … in …“', () => {
   });
 });
 
+describe('Byline bei 375 px (F-533)', () => {
+  it('[F-533] lange Namen brechen um (min-width: 0, overflow-wrap: anywhere)', () => {
+    const css = ([SxVoyageByline.styles].flat(Infinity) as Array<{ cssText: string }>).map((c) => c.cssText).join(' ').replace(/\s+/g, ' ');
+    expect(css).toMatch(/p > span, p a \{ min-width: 0; overflow-wrap: anywhere; \}/);
+  });
+});
+
 describe('ENTITY_ICON (F-532)', () => {
   it('[F-532] ein Icon je Objektart, alle verschieden; Team ≠ Boot, Verein ≠ Hafen', () => {
     const values = Object.values(ENTITY_ICON);
@@ -53,6 +60,9 @@ describe('ENTITY_ICON (F-532)', () => {
     const dir = resolve('src/components');
     const adHoc = readdirSync(dir).filter((f) => f.endsWith('.ts') && /icon\(g\.kind === /.test(readFileSync(resolve(dir, f), 'utf8')));
     expect(adHoc).toEqual([]);
+    // Anker heißt Hafen: Orte/Standorte nehmen die Stecknadel, kein Bauteil wählt den Anker an ENTITY_ICON vorbei
+    const anchors = readdirSync(dir).filter((f) => f.endsWith('.ts') && readFileSync(resolve(dir, f), 'utf8').includes("icon('anchor')"));
+    expect(anchors).toEqual([]);
     const byline = readFileSync(resolve(dir, 'sx-voyage-byline.ts'), 'utf8');
     expect(byline).toContain('groupIcon(g.kind)');
     expect(byline).not.toContain("icon('sail')");
