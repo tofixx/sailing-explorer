@@ -211,6 +211,8 @@ export class App {
       invite: this.ui.invite,
       crew: this.ui.crew,
       crewPanel: this.ui.crewPanel,
+      crewChanged: (crew) => (this.ui.byline.crew = crew),
+      ask: (req) => this.ui.confirm.ask(req),
       toast: (msg, ms) => this.toast(msg, ms),
       signedOut: () => this.ws.signedOut(),
       saved: (share) => this.ws.saved(share),
@@ -715,6 +717,7 @@ export class App {
     on<{ userId: string }>('sx-crew-unconfirm', (d) => s.unconfirmCrew(d.userId));
     on<{ userId: string }>('sx-crew-remove', (d) => s.removeCrew(d.userId));
     on('sx-crew-leave', () => s.leaveCrew());
+    on('sx-crew-edit', () => this.editCrew());
     on<string>('sx-boat-admins', (id) => s.loadAdmins(id));
     on<{ boatId: string; to: { email: string } | { handle: string } }>('sx-boat-admin-invite', (d) => s.inviteAdmin(d.boatId, d.to));
     on<string>('sx-my-invite-accept', (id) => s.acceptMyInvite(id));
@@ -1038,6 +1041,12 @@ export class App {
     } else if (this.ui.page.data && this.ui.page.data.kind !== 'harbor') {
       this.ui.page.data = { ...this.ui.page.data, ...media };
     }
+  }
+
+  /** „Crew bearbeiten“ aus dem Zahnrad-Menü des Törns (F-512): Bearbeiten-Modus an und das Panel in den Blick holen. */
+  private editCrew() {
+    this.ui.crew.editing = true;
+    this.ui.crewPanel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   /**

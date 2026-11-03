@@ -343,9 +343,10 @@ Abweichungen vom ursprünglichen Vorschlag sind unten vermerkt („Umgesetzt:“
 Abschnitt): Liste, Formular, Zeichenzähler, „Melden“, für Eigentümer „Löschen“
 und der Schalter Kommentare an/aus. Anzahl als Badge in der Lightbox.
 
-Umgesetzt: Panel „Kommentare“ nach „Crew“; ohne Anmeldung, ohne Profil, gesperrt oder abgeschaltet erscheint statt
-des Formulars der Grund (mit „Anmelden“ bzw. „Profil anlegen“). „Törn melden“ unter der Liste, „Melden“ auf Profil-
-und Bootsseiten. Die tägliche Sammelmail schaltet man im Konto unter „Einstellungen“.
+Umgesetzt: Panel „Kommentare“ nach „Crew“; das Formular erscheint erst nach „Kommentieren“ (ohne Anmeldung führt
+der Knopf zur Anmeldung, ohne Profil zum Hinweis „Profil anlegen“; gesperrt oder abgeschaltet steht der Grund da).
+„Törn melden“ und der Schalter Kommentare an/aus liegen im Zahnrad des Törns (F-510, F-514), „Melden“ auf Profil-
+und Bootsseiten ebenfalls im Zahnrad. Die tägliche Sammelmail schaltet man im Konto unter „Einstellungen“.
 
 ### 4.4 Melden (DSA)
 
@@ -956,7 +957,7 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
 - Der Törn-Eigentümer und der Eigner sehen die Anzeigenamen ihrer Crew bzw.
   Admins auch bei nicht öffentlichem Profil – sie haben die Einladung
   angenommen.
-- Jeder kann sich selbst entfernen (Crew: „Mich entfernen“, Admin: „Boot
+- Jeder kann sich selbst entfernen (Crew: „Crew verlassen“ im Zahnrad des Törns, Admin: „Boot
   verlassen“); der Eigentümer kann jederzeit entfernen. Konto löschen entfernt
   alle Mitgliedschaften und Einladungen.
 
@@ -966,7 +967,7 @@ Reichweite, 5.4). Einladen braucht keinen Unterstützer-Status.
 |---|---|
 | `sx-account-dialog`, Reiter Boote | Knopf „Admins“ je Boot: Liste, entfernen, offene Einladungen zurückziehen, Feld „E-Mail oder Profilname“ (nur Eigner); als Admin „Boot verlassen“ mit Bestätigung |
 | `sx-account-dialog`, oben | „Einladungen an dich“: Einladender, Ziel, Annehmen/Ablehnen |
-| `sx-crew` (neu, Panel „Crew“ in der Törn-Ansicht) | Besucher: Namen mit Profil-Link, „+ n weitere“; Eigentümer: entfernen, „Einladungslink erzeugen“ (einmal anzeigen, kopieren), per E-Mail oder Profilname einladen, offene Einladungen; Crew: „Mich entfernen“ |
+| `sx-crew` (neu, Panel „Crew“ in der Törn-Ansicht) | Besucher: Namen mit Profil-Link, „+ n weitere“; Eigentümer: „+ Einladen“ klappt auf: „Einladungslink erzeugen“ (einmal anzeigen, kopieren), per E-Mail oder Profilname einladen, offene Einladungen (F-513); Entfernen und Rollen im Bearbeiten-Modus (F-512); Crew: „Crew verlassen“ im Zahnrad des Törns (F-510) |
 | `sx-invite-dialog` (neu) | Einladung zeigen, anmelden, annehmen, Ergebnis |
 | `sx-profile-page` | Abschnitt „Mitgesegelt“ (öffentliche Törns, auf denen die Person Crew ist) |
 | `SessionController` | alle Aufrufe; Komponenten melden nur Absichten (Events) |

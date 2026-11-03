@@ -82,6 +82,8 @@ describe('sx-comments', () => {
   it('[F-110] Formular: Zeichenzähler, zu lang oder zu viele Links sperren das Absenden; Absenden meldet den bereinigten Text', async () => {
     const posted = listen('sx-comment-post');
     const el = await mount('sx-comments', { shareId: 'S1', data: list() });
+    button(el, /Kommentieren/)!.click(); // Formular erst nach dem Klick (F-514)
+    await el.updateComplete;
     const ta = el.shadowRoot.querySelector('textarea')!;
     ta.value = '  Ahoi!  ';
     ta.dispatchEvent(new Event('input'));
@@ -109,18 +111,19 @@ describe('sx-comments', () => {
     const account = listen('sx-account');
     const anon = await mount('sx-comments', { data: list({ canComment: false, block: 'login' }) });
     expect(anon.shadowRoot.querySelector('textarea')).toBeNull();
-    button(anon, /Anmelden/)!.click();
+    button(anon, /Kommentieren/)!.click(); // ohne Anmeldung führt „Kommentieren“ gleich zur Anmeldung (F-514)
     expect(login).toHaveLength(1);
     const noProfile = await mount('sx-comments', { data: list({ canComment: false, block: 'profile' }) });
+    button(noProfile, /Kommentieren/)!.click();
+    await noProfile.updateComplete;
     button(noProfile, /Profil anlegen/)!.click();
     expect(account).toEqual(['profile']);
     expect(text(await mount('sx-comments', { data: list({ canComment: false, block: 'suspended' }) }))).toContain('gesperrt');
     expect(text(await mount('sx-comments', { data: list({ mode: 'off', canComment: false, block: 'off' }) }))).toContain('abgeschaltet');
   });
 
-  it('[F-111] Löschen mit Bestätigung; Eigentümer stellt Kommentare um; „Törn melden“ nur für andere', async () => {
+  it('[F-111] Löschen mit Bestätigung; Kommentare anderer melden (Kommentar-Einstellung und „Törn melden“: F-510)', async () => {
     const deleted = listen('sx-comment-delete');
-    const modes = listen('sx-comments-mode');
     const reports = listen('sx-report');
     const el = await mount('sx-comments', { shareId: 'S1', data: list({ isOwner: true, comments: [comment({ canDelete: true })] }) });
     button(el, /löschen/i)!.click();
@@ -129,20 +132,9 @@ describe('sx-comments', () => {
     button(el, /Ja, löschen/)!.click();
     expect(deleted).toEqual([{ id: 'C1' }]);
 
-    const select = el.shadowRoot.querySelector('select')!;
-    select.value = 'hidden';
-    select.dispatchEvent(new Event('change'));
-    expect(modes).toEqual([{ mode: 'hidden' }]);
-    expect(button(el, /Törn melden/)).toBeUndefined();
-
     const visitor = await mount('sx-comments', { shareId: 'S1', data: list() });
-    expect(visitor.shadowRoot.querySelector('select')).toBeNull();
     button(visitor, /Kommentar von Anna melden/)!.click();
-    button(visitor, /Törn melden/)!.click();
-    expect(reports).toEqual([
-      { kind: 'comment', id: 'C1', label: 'Kommentar von Anna' },
-      { kind: 'share', id: 'S1', label: 'diesen Törn' },
-    ]);
+    expect(reports).toEqual([{ kind: 'comment', id: 'C1', label: 'Kommentar von Anna' }]);
   });
 
   it('[F-114] eigene ausgeblendete Kommentare sind markiert; ausgeblendeter Thread für Besucher mit Hinweis', async () => {

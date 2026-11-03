@@ -1,15 +1,17 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing, type PropertyValues } from 'lit';
 import type { CommentItem, CommentList } from '../services/api';
-import { COMMENTS_MODES, COMMENTS_MODE_LABEL, cleanComment, commentLength, countLinks, linkify, type CommentsMode } from '../domain/comment-text';
+import { cleanComment, commentLength, countLinks, linkify } from '../domain/comment-text';
 import { fmtDateTime } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
 
 /**
  * Kommentare eines geteilten Törns (Konzept 4.3) – reine Darstellung, Aktionen gehen als Events raus:
- * `sx-comment-post` { body }, `sx-comment-delete` { id }, `sx-comments-mode` { mode }, `sx-report` { kind, id, label },
- * `sx-login`, `sx-account` ('profile'). Text wird nie als HTML ausgewertet; Links entstehen aus dem geparsten Text
+ * `sx-comment-post` { body }, `sx-comment-delete` { id }, `sx-report` { kind, id, label }, `sx-login`,
+ * `sx-account` ('profile'). Text wird nie als HTML ausgewertet; Links entstehen aus dem geparsten Text
  * und tragen rel="nofollow ugc noopener noreferrer".
+ * Ruhig (F-514): das Formular erscheint erst nach „Kommentieren“, Melden/Löschen je Kommentar mit Maus erst bei Hover.
+ * Kommentar-Einstellung und „Törn melden“ liegen im Zahnrad-Menü des Törns (F-510).
  */
 export class SxComments extends LitElement {
   static properties = {
@@ -19,9 +21,10 @@ export class SxComments extends LitElement {
     error: { type: String },
     draft: { type: String },
     confirm: { state: true },
+    writing: { state: true },
   };
   declare data: CommentList | null;
-  /** Törn, zu dem die Kommentare gehören (für „Törn melden“) */
+  /** Törn, zu dem die Kommentare gehören */
   declare shareId: string;
   declare busy: boolean;
   declare error: string;
@@ -29,6 +32,8 @@ export class SxComments extends LitElement {
   declare draft: string;
   /** Löschen eines Kommentars wartet auf Bestätigung */
   declare confirm: string | null;
+  /** Formular aufgeklappt („Kommentieren“ geklickt) */
+  declare writing: boolean;
 
   constructor() {
     super();
@@ -38,6 +43,7 @@ export class SxComments extends LitElement {
     this.error = '';
     this.draft = '';
     this.confirm = null;
+    this.writing = false;
   }
 
   static styles = [
@@ -84,6 +90,17 @@ export class SxComments extends LitElement {
         margin-left: auto;
         display: flex;
         gap: 2px;
+      }
+      /* Mit Maus: Melden/Löschen erst bei Hover bzw. Fokus über dem Kommentar (F-514); auf Touch immer sichtbar */
+      @media (hover: hover) and (pointer: fine) {
+        li .tools {
+          opacity: 0;
+          transition: opacity 0.12s;
+        }
+        li:hover .tools,
+        li:focus-within .tools {
+          opacity: 1;
+        }
       }
       .body {
         margin: 0;
@@ -175,32 +192,31 @@ export class SxComments extends LitElement {
         flex-wrap: wrap;
         font-size: var(--fs-s);
       }
-      select {
-        width: auto;
-        min-height: var(--control-h-s);
-        font-size: var(--fs-s);
-      }
-      .mode {
-        display: flex;
-        align-items: center;
-        gap: var(--s-2);
-        font-size: var(--fs-s);
-        color: var(--text-2);
-      }
       .btn.small.icon svg {
         width: 15px;
         height: 15px;
       }
+      /* Tippziele ≥ 44 px (UX N11) */
       @media (pointer: coarse) {
         .btn.small {
-          min-height: 40px;
+          min-height: 44px;
         }
         .btn.small.icon {
-          width: 40px;
+          width: 44px;
         }
       }
     `,
   ];
+
+  willUpdate(changed: PropertyValues<this>) {
+    // Nach dem Absenden leert der Controller den Text: dann klappt das Formular wieder zu. Ein anderer Törn auch.
+    if (changed.has('busy') && changed.get('busy') && !this.busy && !this.draft && !this.error) this.writing = false;
+    if (changed.has('shareId')) this.writing = false;
+  }
+
+  updated(changed: PropertyValues<this>) {
+    if (changed.has('writing') && this.writing) this.renderRoot.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+  }
 
   private submit(e: Event) {
     e.preventDefault();
@@ -256,14 +272,19 @@ export class SxComments extends LitElement {
     </li>`;
   }
 
+  /** „Kommentieren“ – der eine Einstieg; ohne Anmeldung öffnet er gleich die Anmeldung. */
+  private startButton(d: CommentList) {
+    return html`<div><button class="btn small" type="button" aria-expanded=${d.block === 'login' ? nothing : 'false'}
+      @click=${() => (d.block === 'login' ? emit(this, 'sx-login') : (this.writing = true))}>${icon('comment')} Kommentieren</button></div>`;
+  }
+
   private form(d: CommentList) {
+    const open = this.writing || !!this.draft;
     switch (d.block) {
       case 'login':
-        return html`<div class="row">
-          <p class="sub">Zum Kommentieren meldest du dich an.</p>
-          <button class="btn small" type="button" @click=${() => emit(this, 'sx-login')}>${icon('user')} Anmelden</button>
-        </div>`;
+        return this.startButton(d);
       case 'profile':
+        if (!open) return this.startButton(d);
         return html`<div class="row">
           <p class="sub">Zum Kommentieren brauchst du ein Profil mit Anzeigenamen – deine E-Mail-Adresse bleibt verborgen.</p>
           <button class="btn small" type="button" @click=${() => emit(this, 'sx-account', 'profile')}>${icon('pencil')} Profil anlegen</button>
@@ -273,6 +294,7 @@ export class SxComments extends LitElement {
       case 'off':
         return d.mode === 'off' ? html`<p class="note">${icon('lock')}<span>Neue Kommentare sind für diesen Törn abgeschaltet.</span></p>` : '';
       default: {
+        if (!open) return this.startButton(d);
         const body = cleanComment(this.draft);
         const len = commentLength(body);
         const problem = this.problem(body);
@@ -282,6 +304,7 @@ export class SxComments extends LitElement {
             aria-invalid=${problem ? 'true' : 'false'} @input=${(e: Event) => (this.draft = (e.target as HTMLTextAreaElement).value)}></textarea>
           <div class="row">
             <span id="c-count" class="count ${len > d.limits.maxLength ? 'over' : ''}" aria-live="polite">${problem || `${len} / ${d.limits.maxLength}`}</span>
+            <button class="btn small ghost" type="button" @click=${() => Object.assign(this, { writing: false, draft: '' })}>Abbrechen</button>
             <button class="btn small primary" type="submit" ?disabled=${this.busy || !body || !!problem}>${icon('comment')} Kommentieren</button>
           </div>
           <p id="c-rules" class="sub">Reiner Text, höchstens ${d.limits.maxLinks} Links. Sichtbar für alle, die den Törn sehen.</p>
@@ -290,22 +313,11 @@ export class SxComments extends LitElement {
     }
   }
 
-  private modeSelect(d: CommentList) {
-    return html`<label class="mode">${icon('comment')}
-      <span>Für diesen Törn:</span>
-      <select aria-label="Kommentare für diesen Törn" ?disabled=${this.busy}
-        @change=${(e: Event) => emit(this, 'sx-comments-mode', { mode: (e.target as HTMLSelectElement).value as CommentsMode })}>
-        ${COMMENTS_MODES.map((m) => html`<option value=${m} ?selected=${d.mode === m}>${COMMENTS_MODE_LABEL[m]}</option>`)}
-      </select>
-    </label>`;
-  }
-
   render() {
     const d = this.data;
     if (!d) return html`<p class="sub">Lade Kommentare …</p>`;
     const hiddenForOthers = d.mode === 'hidden';
     return html`
-      ${d.isOwner ? this.modeSelect(d) : ''}
       ${hiddenForOthers && d.isOwner ? html`<p class="note">${icon('eyeOff')}<span>Kommentare sind für andere ausgeblendet – nur du siehst sie.</span></p>` : ''}
       ${hiddenForOthers && !d.isOwner && !d.comments.length
         ? html`<p class="sub">Die Kommentare zu diesem Törn sind ausgeblendet.</p>`
@@ -314,9 +326,6 @@ export class SxComments extends LitElement {
           : html`<p class="sub">Noch keine Kommentare.</p>`}
       ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
       ${this.form(d)}
-      ${!d.isOwner && this.shareId
-        ? html`<div><button class="btn ghost small" type="button" @click=${() => emit(this, 'sx-report', { kind: 'share', id: this.shareId, label: 'diesen Törn' })}>${icon('flag')} Törn melden</button></div>`
-        : ''}
     `;
   }
 }

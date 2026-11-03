@@ -1361,6 +1361,30 @@ describe('F-139 Crew in der Törn-Ansicht', () => {
     await vi.waitFor(() => expect(clipboard).toEqual([crew().newLink]));
   });
 
+  it('[F-510] Zahnrad des Törns: das Menü bekommt die Crew; „Crew verlassen“ erst nach Rückfrage, „Crew bearbeiten“ schaltet den Bearbeiten-Modus', async () => {
+    seed(false);
+    server.user = { id: 'u2', email: 'mats@example.org' };
+    server.crew = { members: [{ id: null, handle: 'mats', displayName: 'Mats' }], others: 0, isOwner: false, isCrew: true, isSkipper: true, invites: [] };
+    await startApp('/s/AbCdEfGhJkLmNpQr23');
+    await settled();
+    await vi.waitFor(() => expect(el<{ crew: unknown }>('sx-voyage-byline').crew).toMatchObject({ isCrew: true }));
+    const confirm = el<HTMLElement & { open: boolean; updateComplete: Promise<boolean>; shadowRoot: ShadowRoot }>('sx-confirm');
+    const leaves = () => server.calls.filter((c) => c.method === 'DELETE' && c.url.endsWith('/crew/me'));
+    emit('sx-crew-leave');
+    await vi.waitFor(() => expect(confirm.open).toBe(true));
+    await confirm.updateComplete;
+    [...confirm.shadowRoot.querySelectorAll('button')].find((b) => /Abbrechen/.test(b.textContent ?? ''))!.click();
+    await vi.waitFor(() => expect(confirm.open).toBe(false));
+    expect(leaves()).toEqual([]);
+    emit('sx-crew-leave');
+    await vi.waitFor(() => expect(confirm.open).toBe(true));
+    await confirm.updateComplete;
+    (confirm.shadowRoot.querySelector('.btn.primary') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(leaves()).toHaveLength(1));
+    emit('sx-crew-edit');
+    expect(el<{ editing: boolean }>('sx-crew').editing).toBe(true);
+  });
+
   it('[F-139] zurück zum eigenen Arbeitsbereich blendet das Panel aus', async () => {
     seed(false);
     server.crew = { members: [{ id: null, handle: 'mats', displayName: 'Mats' }], others: 0, isOwner: false, isCrew: false, invites: [] };

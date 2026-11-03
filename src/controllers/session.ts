@@ -15,6 +15,7 @@ import {
   api,
   validatePayload,
   type BoatInput,
+  type Crew,
   type InviteTo,
   type ProfileInput,
   type ShareMeta,
@@ -31,6 +32,7 @@ import { DEFAULT_VISIBILITY, isAppPath, type Visibility } from '../domain/visibi
 import type { Reach } from '../domain/posts';
 import type { AccountTab, SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxCrew } from '../components/sx-crew';
+import type { ConfirmRequest } from '../components/sx-confirm';
 import type { SxInviteDialog } from '../components/sx-invite-dialog';
 import type { SxLoginDialog } from '../components/sx-login-dialog';
 import type { SxShareDialog } from '../components/sx-share-dialog';
@@ -47,6 +49,10 @@ export interface SessionUi {
   crew: SxCrew;
   /** Panel „Crew“ in der Törn-Ansicht (sichtbar, wenn es etwas zu zeigen oder zu verwalten gibt) */
   crewPanel: HTMLElement;
+  /** Crew geladen bzw. weg (null) – das Zahnrad-Menü des Törns richtet seine Crew-Einträge danach (F-510) */
+  crewChanged: (crew: Crew | null) => void;
+  /** Rückfrage über sx-confirm (z. B. „Crew verlassen?“) */
+  ask: (req: ConfirmRequest) => Promise<boolean>;
   toast: (msg: string, ms?: number) => void;
   /** abgemeldet (auch in einem anderen Tab, Konto gelöscht): Arbeitsbereich und Entwurf leeren (F-438) */
   signedOut: () => void;
@@ -457,8 +463,10 @@ export class SessionController {
 
   /** Crew des geöffneten Törns laden; das Panel erscheint nur, wenn es etwas zu zeigen oder zu verwalten gibt. */
   async loadCrew(share: ShareMeta, key?: string): Promise<void> {
-    this.crewShare = { share, key };
     const crewEl = this.ui.crew;
+    // anderer Törn: Bearbeiten-Modus (F-512) endet
+    if (this.crewShare?.share.id !== share.id) crewEl.editing = false;
+    this.crewShare = { share, key };
     Object.assign(crewEl, { visibility: share.visibility, error: '', busy: false });
     try {
       const crew = await api.crew(share.id, key);
@@ -466,15 +474,18 @@ export class SessionController {
       Object.assign(crewEl, { crew, isOwner: crew.isOwner });
       if (!crew.isOwner) crewEl.newLink = '';
       this.ui.crewPanel.hidden = !(crew.isOwner || crew.isCrew || crew.members.length || crew.others);
+      this.ui.crewChanged(crew);
     } catch {
       this.ui.crewPanel.hidden = true; // ohne Backend oder ohne Zugriff: kein Panel
+      this.ui.crewChanged(null);
     }
   }
 
   hideCrew(): void {
     this.crewShare = null;
     this.ui.crewPanel.hidden = true;
-    Object.assign(this.ui.crew, { crew: null, newLink: '' });
+    Object.assign(this.ui.crew, { crew: null, newLink: '', editing: false });
+    this.ui.crewChanged(null);
   }
 
   private async crewAct(fn: (shareId: string) => Promise<void>, done?: string) {
@@ -531,8 +542,10 @@ export class SessionController {
     return this.crewAct((id) => api.unconfirmCrew(id, userId), 'Bestätigung zurückgezogen');
   }
 
-  leaveCrew() {
-    return this.crewAct((id) => api.removeCrew(id, 'me'), 'Du bist nicht mehr in der Crew dieses Törns');
+  /** Crew verlassen (Zahnrad-Menü des Törns, F-510) – erst nach Rückfrage. */
+  async leaveCrew() {
+    const ok = await this.ui.ask({ heading: 'Crew verlassen?', text: 'Dich aus der Crew dieses Törns entfernen? Wieder dabei bist du nur mit einer neuen Einladung.', confirmLabel: 'Crew verlassen' });
+    if (ok) await this.crewAct((id) => api.removeCrew(id, 'me'), 'Du bist nicht mehr in der Crew dieses Törns');
   }
 
   /** Einladungslink kopieren – nur eigene Links dieser Origin. */

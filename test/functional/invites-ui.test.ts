@@ -171,16 +171,6 @@ describe('sx-crew', () => {
     expect(owner.shadowRoot.querySelector('.pseudo')).toBeNull();
   });
 
-  it('[F-135] Crew-Mitglied: „Mich aus der Crew entfernen“ mit Bestätigung → sx-crew-leave', async () => {
-    const leave = listen('sx-crew-leave');
-    const el = await mount('sx-crew', { crew: crew({ isCrew: true, others: 1 }) });
-    button(el, /Mich aus der Crew entfernen/)!.click();
-    await el.updateComplete;
-    expect(leave).toEqual([]);
-    expect(text(el)).toContain('Dich aus der Crew dieses Törns entfernen?');
-    button(el, /Ja, entfernen/)!.click();
-    expect(leave).toHaveLength(1);
-  });
 
   it('[F-133] Eigentümer: Einladungslink erzeugen, per E-Mail einladen, offene Einladungen zurückziehen', async () => {
     const invites = listen('sx-crew-invite');
@@ -193,6 +183,9 @@ describe('sx-crew', () => {
         { id: 'I3', email: null, invitee: { handle: 'mats', displayName: 'Mats' }, usesLeft: 1, createdAt: 0, expiresAt: Date.now() + DAY },
       ] }),
     });
+    expect(el.shadowRoot.querySelector('form')).toBeNull(); // erst nach „+ Einladen“ (F-513)
+    button(el, /Einladen/)!.click();
+    await el.updateComplete;
     expect(text(el)).toContain('Die Crew sehen andere erst, wenn der Törn öffentlich ist.');
     expect(text(el)).toContain('Einladungslink · noch 28×');
     expect(text(el)).toContain('Mats (@mats)'); // per Profilname eingeladen: Name statt Adresse
@@ -224,7 +217,7 @@ describe('sx-crew', () => {
 
   it('[F-135] Eigentümer entfernt Mitglieder nach Bestätigung (sx-crew-remove)', async () => {
     const removes = listen('sx-crew-remove');
-    const el = await mount('sx-crew', { isOwner: true, crew: crew({ isOwner: true, members: [{ id: 'U1', handle: null, displayName: 'Privat' }] }) });
+    const el = await mount('sx-crew', { isOwner: true, editing: true, crew: crew({ isOwner: true, members: [{ id: 'U1', handle: null, displayName: 'Privat' }] }) });
     expect(el.shadowRoot.querySelector('a')).toBeNull(); // privates Profil: kein Link
     button(el, /Aus der Crew entfernen: Privat/)!.click();
     await el.updateComplete;
@@ -245,12 +238,18 @@ describe('sx-crew: Rollen und Bestätigung (Konzept 15)', () => {
     const roles = listen('sx-crew-role');
     const own = listen('sx-crew-own-role');
     const invites = listen('sx-crew-invite');
-    const el = await mount('sx-crew', { isOwner: true, crew: crew({ isOwner: true, members: [{ id: 'U1', handle: null, displayName: 'Tom', role: 'crew', confirmed: null }] }) });
+    const el = await mount('sx-crew', { isOwner: true, editing: true, crew: crew({ isOwner: true, members: [{ id: 'U1', handle: null, displayName: 'Tom', role: 'crew', confirmed: null }] }) });
+    button(el, /Deine Rolle ändern/)!.click(); // eigene Rolle kompakt, Auswahl erst nach Klick (F-511)
+    await el.updateComplete;
     pick(select(el, /Deine Rolle/), 'skipper');
     await el.updateComplete;
     expect(own).toEqual([]); // Skipper erst nach Rückfrage – Bestätigungen fallen weg
     button(el, /Ja, eintragen/)!.click();
     pick(select(el, /Rolle von Tom/), 'co');
+    el.editing = false; // „Einladen“ steht außerhalb des Bearbeiten-Modus (F-513)
+    await el.updateComplete;
+    button(el, /Einladen/)!.click();
+    await el.updateComplete;
     const forInvites = select(el, /Rolle für Einladungen/);
     expect([...forInvites.options].map((o) => o.value)).toEqual(['co', 'crew', 'guest']); // nie Skipper
     pick(forInvites, 'guest');
@@ -264,6 +263,7 @@ describe('sx-crew: Rollen und Bestätigung (Konzept 15)', () => {
     const confirms = listen('sx-crew-confirm');
     const unconfirms = listen('sx-crew-unconfirm');
     const el = await mount('sx-crew', {
+      editing: true,
       crew: crew({ isCrew: true, isSkipper: true, ownerRole: 'co', me: { role: 'skipper', confirmed: null }, members: [
         { id: 'U1', handle: null, displayName: 'Tom', role: 'co', confirmed: { at: Date.now(), by: 'Lisa' } },
         { id: 'U2', handle: null, displayName: 'Mara', role: 'guest', confirmed: null },
@@ -282,6 +282,8 @@ describe('sx-crew: Rollen und Bestätigung (Konzept 15)', () => {
   it('[F-275] Crew-Mitglied wählt die eigene Rolle ohne Skipper; Besucher sehen Rollen nur als Text', async () => {
     const roles = listen('sx-crew-role');
     const el = await mount('sx-crew', { crew: crew({ isCrew: true, me: { role: 'crew', confirmed: null } }) });
+    button(el, /Deine Rolle ändern/)!.click();
+    await el.updateComplete;
     const mine = select(el, /Deine Rolle/);
     expect([...mine.options].map((o) => o.value)).toEqual(['co', 'crew', 'guest']);
     pick(mine, 'guest');

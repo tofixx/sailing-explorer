@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, type PropertyValues } from 'lit';
 import type { Confirmation, Crew, CrewMember, PendingInvite, Visibility } from '../services/api';
 import { SELF_ROLES, VOYAGE_ROLES, VOYAGE_ROLE_LABEL, VOYAGE_ROLE_SHORT, type VoyageRole } from '../domain/crew-roles';
 import { fmtDate } from '../util/html';
@@ -7,9 +7,10 @@ import { base, emit, inviteTarget, pendingLabel } from './shared';
 
 /**
  * Crew eines geteilten Törns (Konzept 10.6/10.7) – reine Darstellung, Aktionen gehen als Events raus.
- * Besucher: Namen mit Profil-Link und „+ n weitere“. Eigentümer: entfernen, Einladungslink, per E-Mail einladen,
- * offene Einladungen. Crew-Mitglieder: „Mich entfernen“. Rollen und Bestätigung durch den Skipper (Konzept 15):
- * Eigentümer setzt alle Rollen, Crew die eigene (nie Skipper), der Skipper bestätigt die anderen.
+ * Ruhig nach UX-NAVIGATION Abschnitt 8 („Törn-Seitenleiste“): sichtbar sind Namen, Rollen und „bestätigt“, die eigene
+ * Rolle als kompakte Zeile (Ändern per Klick, F-511) und für die Eigentümer:in „+ Einladen“ (klappt auf, F-513). Rollen
+ * anderer, Entfernen und Bestätigen (Skipper:in, Konzept 15) erscheinen erst im Bearbeiten-Modus (`editing`, F-512),
+ * den das Zahnrad-Menü des Törns öffnet; „Crew verlassen“ liegt ebenfalls dort (F-510).
  */
 export class SxCrew extends LitElement {
   static properties = {
@@ -19,8 +20,11 @@ export class SxCrew extends LitElement {
     busy: { type: Boolean },
     error: { type: String },
     newLink: { type: String },
+    editing: { type: Boolean },
     confirm: { state: true },
     info: { state: true },
+    inviting: { state: true },
+    roleOpen: { state: true },
   };
   declare crew: Crew | null;
   declare isOwner: boolean;
@@ -30,10 +34,16 @@ export class SxCrew extends LitElement {
   declare error: string;
   /** gerade erzeugter Einladungslink – das Token gibt es nur dieses eine Mal */
   declare newLink: string;
-  /** Bestätigung offen: Nutzer-ID (entfernen) oder "me" (selbst entfernen) */
+  /** Bearbeiten-Modus (Zahnrad „Crew bearbeiten“): Rollen anderer, Entfernen, Bestätigen */
+  declare editing: boolean;
+  /** Bestätigung offen: Nutzer-ID (entfernen) oder "skipper" (Skipper-Wahl) */
   declare confirm: string | null;
   /** Name, zu dem der Hinweis „Profil nicht öffentlich“ offen ist (F-134) */
   declare info: string | null;
+  /** „+ Einladen“ aufgeklappt */
+  declare inviting: boolean;
+  /** Auswahl der eigenen Rolle offen */
+  declare roleOpen: boolean;
 
   constructor() {
     super();
@@ -45,6 +55,9 @@ export class SxCrew extends LitElement {
     this.newLink = '';
     this.confirm = null;
     this.info = null;
+    this.editing = false;
+    this.inviting = false;
+    this.roleOpen = false;
   }
 
   static styles = [
@@ -175,14 +188,46 @@ export class SxCrew extends LitElement {
         align-items: center;
         flex-wrap: wrap;
       }
+      .own {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-1);
+        min-height: var(--control-h-s);
+      }
+      .own svg {
+        width: 13px;
+        height: 13px;
+      }
+      .tools {
+        display: grid;
+        gap: var(--s-3);
+        padding-top: var(--s-3);
+        border-top: 1px solid var(--border-soft);
+      }
+      /* Tippziele ≥ 44 px (UX N11) */
+      @media (pointer: coarse) {
+        .btn.small,
+        .own,
+        select {
+          min-height: 44px;
+        }
+        .btn.small.icon {
+          width: 44px;
+        }
+      }
     `,
   ];
 
   /** Skipper-Wahl, die auf „Ja“ wartet */
   private pendingSkipper: (() => void) | null = null;
 
-  /** Rolle, als die eingeladen wird (Auswahl neben „Einladen“; gilt auch für den Einladungslink) */
+  /** Rolle, als die eingeladen wird (Auswahl im aufgeklappten „Einladen“; gilt auch für den Einladungslink) */
   private inviteRole: VoyageRole = 'crew';
+
+  updated(changed: PropertyValues<this>) {
+    // Ändern der eigenen Rolle: die Auswahl bekommt gleich den Fokus
+    if (changed.has('roleOpen') && this.roleOpen) this.renderRoot.querySelector<HTMLSelectElement>('select.own-select')?.focus();
+  }
 
   private invite(e: Event) {
     e.preventDefault();
@@ -192,9 +237,9 @@ export class SxCrew extends LitElement {
   }
 
   /** Auswahl einer Rolle; `roles` begrenzt, was gewählt werden darf. */
-  private roleSelect(value: VoyageRole | null, roles: readonly VoyageRole[], label: string, onPick: (r: VoyageRole) => void, allowEmpty = false) {
+  private roleSelect(value: VoyageRole | null, roles: readonly VoyageRole[], label: string, onPick: (r: VoyageRole) => void, allowEmpty = false, cls = '') {
     // `.value` stellt nach einem Fehler (z. B. 409) den gespeicherten Wert wieder her.
-    return html`<select aria-label=${label} .value=${value ?? ''} ?disabled=${this.busy} @change=${(e: Event) => {
+    return html`<select class=${cls} aria-label=${label} .value=${value ?? ''} ?disabled=${this.busy} @change=${(e: Event) => {
       const v = (e.target as HTMLSelectElement).value as VoyageRole | '';
       if (!v) return;
       // Skipper wechseln hebt alle Bestätigungen auf – erst nach Rückfrage (auch gegen versehentliches Pfeiltasten-Blättern).
@@ -241,7 +286,7 @@ export class SxCrew extends LitElement {
 
   private members(c: Crew) {
     if (!c.members.length && !c.others) {
-      return html`<p class="sub">${this.isOwner ? 'Noch niemand in der Crew. Lade Mitsegler per Link oder E-Mail ein.' : 'Keine Crew eingetragen.'}</p>`;
+      return html`<p class="sub">${this.isOwner ? 'Noch niemand in der Crew.' : 'Keine Crew eingetragen.'}</p>`;
     }
     return html`<ul>
       ${c.members.map(
@@ -253,7 +298,7 @@ export class SxCrew extends LitElement {
               : html`<button class="linkish" type="button" title="Spaßname – das Profil ist nicht öffentlich" aria-expanded=${this.info === m.displayName} @click=${() => (this.info = this.info === m.displayName ? null : m.displayName)}>${m.displayName || 'Segler:in'}</button>`}</span>
           ${!m.handle && this.info === m.displayName ? html`<p class="sub info" role="status">${icon('lock')} Das Profil ist nicht öffentlich – mehr ist hier nicht zu sehen.</p>` : ''}
           ${this.memberRole(c, m)}
-          ${this.isOwner && m.id
+          ${this.editing && this.isOwner && m.id
             ? this.confirm === m.id
               ? this.confirmRow(`${m.displayName || 'Diese Person'} aus der Crew entfernen?`, () => emit(this, 'sx-crew-remove', { userId: m.id }))
               : html`<button class="btn ghost small icon danger" title="Entfernen" aria-label="Aus der Crew entfernen: ${m.displayName}" ?disabled=${this.busy} @click=${() => (this.confirm = m.id)}>${icon('x')}</button>`
@@ -264,47 +309,66 @@ export class SxCrew extends LitElement {
     </ul>`;
   }
 
-  /** Rolle eines Mitglieds: Auswahl für den Eigentümer, sonst Chip; Bestätigung für Eigentümer und Skipper. */
+  /** Rolle eines Mitglieds: als Chip mit „bestätigt“; im Bearbeiten-Modus Auswahl (Eigentümer) bzw. Bestätigen (Skipper). */
   private memberRole(c: Crew, m: CrewMember) {
-    return html`${this.isOwner && m.id
+    const edit = this.editing && !!m.id;
+    return html`${edit && this.isOwner
       ? this.roleSelect(m.role, VOYAGE_ROLES, `Rolle von ${m.displayName || 'Segler:in'}`, (role) => emit(this, 'sx-crew-role', { userId: m.id, role }))
       : m.role ? html`<span class="chip">${VOYAGE_ROLE_SHORT[m.role]}</span>` : ''}
       ${this.confirmed(m.confirmed)}
-      ${c.isSkipper && m.id && m.role !== 'skipper' ? this.confirmButton(m.id, m.confirmed, m.displayName) : ''}`;
+      ${edit && c.isSkipper && m.role !== 'skipper' ? this.confirmButton(m.id!, m.confirmed, m.displayName) : ''}`;
   }
 
-  /** Eigene Rolle (Eigentümer bzw. Crew-Mitglied) und Werkzeuge des Skippers. */
   /** Spaßname statt Name: kein öffentliches Profil und nicht der Eigentümer (der sieht die echten Namen, F-134). */
   private pseudonym(m: CrewMember): boolean {
     return !m.handle && !this.isOwner;
   }
 
-  private roles(c: Crew) {
-    const own = this.isOwner
-      ? html`<div class="row"><span class="label">Deine Rolle</span>
-          ${this.roleSelect(c.ownerRole, VOYAGE_ROLES, 'Deine Rolle an Bord', (role) => emit(this, 'sx-crew-own-role', { role }), true)}
-          ${this.confirmed(c.ownerConfirmed)}</div>`
-      : c.me
-        ? html`<div class="row"><span class="label">Deine Rolle</span>
-            ${c.me.role === 'skipper'
-              ? html`<span class="chip">${VOYAGE_ROLE_SHORT.skipper}</span>`
-              : this.roleSelect(c.me.role, SELF_ROLES, 'Deine Rolle an Bord', (role) => emit(this, 'sx-crew-role', { userId: 'me', role }))}
-            ${this.confirmed(c.me.confirmed)}</div>`
-        : '';
-    const skipperAsk =
-      this.confirm === 'skipper' && this.pendingSkipper
-        ? this.confirmRow('Als Skipper:in eintragen? Bestehende Bestätigungen fallen dann weg.', () => {
-            this.pendingSkipper?.();
-            this.pendingSkipper = null;
-          }, html`${icon('check')} Ja, eintragen`, false)
-        : '';
-    if (!c.isSkipper) return html`${own}${skipperAsk}`;
-    return html`${own}${skipperAsk}
-      ${!this.isOwner && c.ownerRole
+  /**
+   * Eigene Rolle als kompakte Zeile „Deine Rolle: Crew ✎“ (F-511) – erst ein Klick öffnet die Auswahl. Die Eigentümer:in
+   * wählt alle Rollen, ein Crew-Mitglied nie Skipper; eine eingetragene Skipper:in aus der Crew sieht nur den Chip.
+   */
+  private ownRole(c: Crew) {
+    if (!this.isOwner && !c.me) return '';
+    const role = this.isOwner ? c.ownerRole : c.me!.role;
+    const conf = this.isOwner ? c.ownerConfirmed : c.me!.confirmed;
+    const fixed = !this.isOwner && role === 'skipper';
+    const pick = (r: VoyageRole) => {
+      this.roleOpen = false;
+      if (this.isOwner) emit(this, 'sx-crew-own-role', { role: r });
+      else emit(this, 'sx-crew-role', { userId: 'me', role: r });
+    };
+    const value = fixed
+      ? html`<span class="chip">${VOYAGE_ROLE_SHORT.skipper}</span>`
+      : this.roleOpen
+        ? html`<span @keydown=${(e: KeyboardEvent) => e.key === 'Escape' && (this.roleOpen = false)}>${this.roleSelect(
+            role, this.isOwner ? VOYAGE_ROLES : SELF_ROLES, 'Deine Rolle an Bord', pick, this.isOwner, 'own-select')}</span>`
+        : html`<button class="linkish own" type="button" aria-label="Deine Rolle ändern: ${role ? VOYAGE_ROLE_LABEL[role] : 'keine'}" ?disabled=${this.busy}
+            @click=${() => (this.roleOpen = true)}>${role ? VOYAGE_ROLE_SHORT[role] : 'Rolle wählen'}${icon('pencil')}</button>`;
+    return html`<div class="row"><span class="label">Deine Rolle</span>${value}${this.confirmed(conf)}</div>`;
+  }
+
+  /** Rückfrage vor dem Wechsel auf Skipper:in (eigene Rolle oder Rolle eines Mitglieds). */
+  private skipperAsk() {
+    if (this.confirm !== 'skipper' || !this.pendingSkipper) return '';
+    return this.confirmRow('Als Skipper:in eintragen? Bestehende Bestätigungen fallen dann weg.', () => {
+      this.roleOpen = false;
+      this.pendingSkipper?.();
+      this.pendingSkipper = null;
+    }, html`${icon('check')} Ja, eintragen`, false);
+  }
+
+  /** Bearbeiten-Modus (F-512): Werkzeuge der Skipper:in und „Fertig“. */
+  private editTools(c: Crew) {
+    if (!this.editing) return '';
+    return html`<div class="tools">
+      ${c.isSkipper && !this.isOwner && c.ownerRole
         ? html`<div class="row"><span class="sub">Eigentümer:in · ${VOYAGE_ROLE_SHORT[c.ownerRole]}</span>${this.confirmed(c.ownerConfirmed)}${this.confirmButton('owner', c.ownerConfirmed, 'Eigentümer:in')}</div>`
         : ''}
-      ${c.members.length ? html`<div><button class="btn small" ?disabled=${this.busy} @click=${() => emit(this, 'sx-crew-confirm', { userIds: 'all', owner: true })}>${icon('check')} Alle bestätigen</button></div>` : ''}
-      <p class="note">${icon('info')}<span>Als Skipper:in bestätigst du Rolle und Meilen für den Meilennachweis. Das ersetzt keine Unterschrift; ändern sich Rolle oder Boot, fällt die Bestätigung weg.</span></p>`;
+      ${c.isSkipper && c.members.length ? html`<div><button class="btn small" ?disabled=${this.busy} @click=${() => emit(this, 'sx-crew-confirm', { userIds: 'all', owner: true })}>${icon('check')} Alle bestätigen</button></div>` : ''}
+      ${c.isSkipper ? html`<p class="note">${icon('info')}<span>Als Skipper:in bestätigst du Rolle und Meilen für den Meilennachweis. Das ersetzt keine Unterschrift; ändern sich Rolle oder Boot, fällt die Bestätigung weg.</span></p>` : ''}
+      <div><button class="btn small primary" type="button" @click=${() => (this.editing = false)}>${icon('check')} Fertig</button></div>
+    </div>`;
   }
 
   private pending(list: PendingInvite[]) {
@@ -321,9 +385,16 @@ export class SxCrew extends LitElement {
       </ul>`;
   }
 
-  private ownerTools(c: Crew) {
-    return html`
+  /** „+ Einladen“ (F-513): Rolle, Link, E-Mail/Profilname und offene Einladungen erst nach dem Aufklappen. */
+  private inviteBox(c: Crew) {
+    const open = this.inviting || !!this.newLink;
+    const count = c.invites.length;
+    const toggle = html`<div><button class="btn small" type="button" aria-expanded=${open} aria-controls="invite-box" @click=${() => (this.inviting = !open)}>
+      ${icon(open ? 'x' : 'plus')} ${open ? 'Einladen schließen' : 'Einladen'}${!open && count ? ` · ${count} offen` : ''}</button></div>`;
+    if (!open) return toggle;
+    return html`${toggle}<div class="tools" id="invite-box">
       ${this.visibility !== 'public' ? html`<p class="note">${icon('lock')}<span>Die Crew sehen andere erst, wenn der Törn öffentlich ist.</span></p>` : ''}
+      <div class="row"><span class="label">Einladen als</span>${this.roleSelect(this.inviteRole, SELF_ROLES, 'Rolle für Einladungen', (r) => (this.inviteRole = r))}</div>
       ${this.newLink
         ? html`<div class="label">Einladungslink (14 Tage gültig, wird nur jetzt angezeigt)</div>
             <div class="linkrow">
@@ -331,29 +402,25 @@ export class SxCrew extends LitElement {
               <button class="btn small" type="button" @click=${() => emit(this, 'sx-invite-copy', this.newLink)}>${icon('copy')} Kopieren</button>
             </div>`
         : html`<div><button class="btn small" type="button" ?disabled=${this.busy} @click=${() => emit(this, 'sx-crew-invite', { to: null, role: this.inviteRole })}>${icon('link')} Einladungslink erzeugen</button></div>`}
-      <div class="row"><span class="label">Einladen als</span>${this.roleSelect(this.inviteRole, SELF_ROLES, 'Rolle für Einladungen', (r) => (this.inviteRole = r))}</div>
       <form @submit=${this.invite}>
         <input type="text" required maxlength="254" placeholder="E-Mail oder Profilname" aria-label="E-Mail-Adresse oder Profilname" autocomplete="off" />
         <button class="btn small primary" type="submit" ?disabled=${this.busy}>${icon('mail')} Einladen</button>
       </form>
       <p class="sub">Per E-Mail erreichst du neue und bestehende Konten; wer schon dabei ist, findet die Einladung auch im Konto. Bestehende Segler:innen kannst du auch über ihren Profilnamen einladen.</p>
       ${this.pending(c.invites)}
-    `;
+    </div>`;
   }
 
   render() {
     const c = this.crew;
     if (!c) return html`<p class="sub">Lade …</p>`;
     return html`
-      ${this.roles(c)}
+      ${this.ownRole(c)}
+      ${this.skipperAsk()}
       ${this.members(c)}
       ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
-      ${this.isOwner ? this.ownerTools(c) : ''}
-      ${!this.isOwner && c.isCrew
-        ? this.confirm === 'me'
-          ? this.confirmRow('Dich aus der Crew dieses Törns entfernen?', () => emit(this, 'sx-crew-leave'))
-          : html`<div><button class="btn small ghost danger" type="button" ?disabled=${this.busy} @click=${() => (this.confirm = 'me')}>${icon('logout')} Mich aus der Crew entfernen</button></div>`
-        : ''}
+      ${this.editTools(c)}
+      ${this.isOwner && !this.editing ? this.inviteBox(c) : ''}
     `;
   }
 }

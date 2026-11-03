@@ -289,3 +289,33 @@ Icons schrumpfen, Knöpfe dürfen nicht je Seite verschwinden oder woanders auft
 
 **N12 – Prüfung im Review.** Der Review-Agent prüft neue UI zusätzlich auf: neuer Einstieg für eine vorhandene Aufgabe
 (N1), Nennung ohne `sx-entity-link` (N3), Kopfaktion außerhalb von `sx-page-header`/Zahnrad (N5/N6).
+
+---
+
+## 8. Törn-Seitenleiste: was sofort sichtbar ist (F-510 … F-514)
+
+Wunsch des Betreibers: Die Törn-Seite zeigt zuerst nur Wichtiges; Verwaltung liegt im Zahnrad (N6) oder klappt auf
+Klick auf. Was ins Zahnrad wandert, verschwindet aus dem Panel (N1). G = Gast/Besucher, C = Crew-Mitglied,
+S = Skipper:in, E = Eigentümer:in. Gilt mobil (Bottom-Sheet, Zahnrad öffnet als Sheet) und am Desktop gleich.
+
+| Element | Wer | Vorher | Jetzt |
+|---|---|---|---|
+| Titel, „von … · in …“ | alle | sichtbar | sichtbar; Umbenennen (Stift) für E bleibt am Titel (F-424) |
+| Zahnrad im Törn-Kopf | alle mit Einträgen | – | **neu** (F-510): Crew bearbeiten · Crew verlassen · Kommentare an/keine neuen/ausblenden · Törn melden |
+| Fahrtenbuch „Bearbeiten“ | E | sichtbar | unverändert (parallel `feature/fahrtenbuch-jahre`; später ins Zahnrad, offen) |
+| Bedingungen, Einfärben, Reise, Verlauf | alle | sichtbar | unverändert (Kerninhalt) |
+| Fotos „Fotos hinzufügen“ | E, C | sichtbar | unverändert (parallel `feature/galerie`) |
+| Crew: Namen, Rolle, „bestätigt“ | alle | sichtbar | sichtbar |
+| „Deine Rolle“ als Auswahlfeld | E, C | Auswahl immer offen | kompakte Zeile „Deine Rolle Crew ✎“, Auswahl nach Klick (F-511) |
+| Rollenauswahl und × je Mitglied | E | immer | Bearbeiten-Modus über Zahnrad „Crew bearbeiten“ (F-512) |
+| Bestätigen/Zurückziehen, „Alle bestätigen“, Hinweis Meilennachweis | S | immer | Bearbeiten-Modus (F-512) |
+| „Einladungslink erzeugen“, „Einladen als“, E-Mail-Feld, Hinweistext, offene Einladungen | E | immer (5 Elemente) | ein Knopf „+ Einladen · n offen“, klappt auf (F-513) |
+| „Mich aus der Crew entfernen“ | C | Panel | Zahnrad „Crew verlassen“ mit Rückfrage (`sx-confirm`) |
+| Reaktionen | alle | sichtbar | unverändert |
+| Kommentare: Liste | alle | sichtbar | sichtbar |
+| Kommentar-Formular mit Zähler und Regeln | angemeldet | immer offen | Knopf „Kommentieren“, Feld nach Klick (F-514) |
+| „Zum Kommentieren meldest du dich an“ + „Anmelden“ | G | Text + Knopf | derselbe Knopf „Kommentieren“ öffnet die Anmeldung |
+| „Für diesen Törn: [Kommentare an]“ | E | Auswahl im Panel | Zahnrad (F-510) |
+| Melden/Löschen je Kommentar | alle bzw. Autor:in, E | immer | mit Maus bei Hover/Fokus, Touch immer (F-514) |
+| „Törn melden“ | G, C | unter den Kommentaren | Zahnrad (F-510) |
+| Tracks: Ein-/Ausblenden, GPX laden | alle | sichtbar | unverändert |
