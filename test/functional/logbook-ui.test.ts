@@ -41,13 +41,17 @@ describe('Fahrtenbuch-Panel', () => {
     expect(el.shadowRoot.querySelector('button')).toBeNull();
   });
 
-  it('[F-301] GPX-Törn: nur befüllte Angaben, kein Abzeichen; ohne Angaben und Häfen leer', async () => {
-    const el = await mount('sx-logbook-panel', { share: share({ source: 'gpx', distSource: 'track', from: null, to: null, log: { engineH: 2 } }) });
+  it('[F-301] [F-461] GPX-Törn: nur befüllte Angaben, kein Abzeichen; ohne Angaben und Häfen für andere leer, für die Eigentümer:in „Bearbeiten“', async () => {
+    const el = await mount('sx-logbook-panel', { share: share({ source: 'gpx', distSource: 'track', from: null, to: null, log: { engineH: 2 }, isOwner: false }) });
     expect(el.shadowRoot.querySelector('.logtag')).toBeNull();
     expect(el.shadowRoot.textContent).toContain('2,0 h');
-    el.share = share({ source: 'gpx', from: null, to: null, log: {} });
+    el.share = share({ source: 'gpx', from: null, to: null, log: {}, isOwner: false });
     await el.updateComplete;
     expect(el.shadowRoot.querySelector('dl')).toBeNull();
+    el.share = share({ source: 'gpx', from: null, to: null, log: {} });
+    await el.updateComplete;
+    expect(el.shadowRoot.textContent).toContain('Noch keine Fahrtenbuch-Angaben');
+    expect(el.shadowRoot.querySelector('button')!.textContent).toContain('Bearbeiten');
   });
 });
 

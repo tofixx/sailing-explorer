@@ -1,5 +1,5 @@
-// Beiträge als Grundtyp (Konzept 21): „Mein Verlauf“ auf der eigenen Seite laden und blättern (F-401) – auch direkt
-// im Reiter „Fahrtenbuch“ (`?bereich=fahrtenbuch`, F-428) –, Sichtbarkeit und „Sichtbar bis“ ändern (F-409), eigene Beiträge und Törns löschen (F-404), „Ins Fahrtenbuch“
+// Beiträge als Grundtyp (Konzept 21): „Mein Verlauf“ auf der eigenen Seite laden und blättern (F-401) – die alte Adresse
+// des Fahrtenbuch-Reiters (`?bereich=fahrtenbuch`) führt auf `/konto/fahrtenbuch` (F-459) –, Sichtbarkeit und „Sichtbar bis“ ändern (F-409), eigene Beiträge und Törns löschen (F-404), „Ins Fahrtenbuch“
 // schalten (F-422) und „Ansehen als …“ (F-423). Die Komponenten melden nur Absichten.
 import { api, postApi } from '../services/api';
 import type { SxProfilePage } from '../components/sx-profile-page';
@@ -22,14 +22,13 @@ export class PostsController {
 
   /**
    * Eigene Seite geöffnet: Unterstützer-Status (für „Nur ich“), Verläufe mit Stufen und eigene Törns (Schreiben,
-   * „Sichtbar bis“ ändern) und die erste Seite „Mein Verlauf“ – mit `?bereich=fahrtenbuch` gleich das Fahrtenbuch.
+   * „Sichtbar bis“ ändern) und die erste Seite „Mein Verlauf“.
    */
   async openOwn(): Promise<void> {
-    this.page.myArea = new URLSearchParams(location.search).get('bereich') === 'fahrtenbuch' ? 'logbook' : 'all';
+    this.page.myArea = 'all';
     const [support, compose] = await Promise.all([api.support().catch(() => null), postApi.compose().catch(() => null), this.load()]);
     this.page.supporter = !!support?.supporter;
     this.page.myTargets = compose?.targets ?? [];
-    if (this.page.myArea === 'logbook') this.page.renderRoot.querySelector('sx-my-posts')?.scrollIntoView({ block: 'start' });
   }
 
   /** Erste Seite des gewählten Bereichs (bzw. weitere mit `more`). */
@@ -48,14 +47,10 @@ export class PostsController {
     }
   }
 
-  /** Reiter wechseln – die Adresse merkt sich „Fahrtenbuch“, damit Neuladen und Teilen dort bleiben (F-428). */
+  /** Reiter wechseln („Alles“ bzw. „Nur ich“). */
   setArea(area: MyPostArea): Promise<void> {
     this.page.myArea = area;
     this.page.myPosts = null;
-    const url = new URL(location.href);
-    if (area === 'logbook') url.searchParams.set('bereich', 'fahrtenbuch');
-    else url.searchParams.delete('bereich');
-    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
     return this.load();
   }
 

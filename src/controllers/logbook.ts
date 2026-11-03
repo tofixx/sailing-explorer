@@ -3,7 +3,15 @@
 import { ApiError, api, type ShareMeta } from '../services/api';
 import type { SxLogbookForm, LogbookSave } from '../components/sx-logbook-form';
 import { SxLogbookPanel } from '../components/sx-logbook-panel';
+import type { LogSuggestion } from '../domain/logbook-suggest';
 import { errorText } from './session';
+
+/** Wie das Formular aufgeht: mit Vorschlägen aus dem Track (GPX-Törn) und was nach dem Speichern passiert. */
+export interface LogbookStart {
+  suggestion?: LogSuggestion | null;
+  /** statt der Törn-Ansicht (z. B. Fahrtenbuch-Seite neu laden) */
+  after?: (id: string) => void;
+}
 
 interface LogbookUi {
   form: SxLogbookForm;
@@ -18,14 +26,17 @@ interface LogbookUi {
 export class LogbookController {
   constructor(private ui: LogbookUi) {}
 
-  /** „Ohne GPX eintragen“ bzw. „Bearbeiten“ (F-300, F-312). */
-  start(share: ShareMeta | null = null): void {
-    this.ui.requireLogin('Melde dich an, um ins Fahrtenbuch einzutragen. Danach geht es direkt weiter.', () => void this.openForm(share));
+  private after: LogbookStart['after'] = undefined;
+
+  /** „Ohne GPX eintragen“ bzw. „Bearbeiten“ (F-300, F-312, F-461). */
+  start(share: ShareMeta | null = null, o: LogbookStart = {}): void {
+    this.after = o.after;
+    this.ui.requireLogin('Melde dich an, um ins Fahrtenbuch einzutragen. Danach geht es direkt weiter.', () => void this.openForm(share, o.suggestion ?? null));
   }
 
-  private async openForm(share: ShareMeta | null) {
+  private async openForm(share: ShareMeta | null, suggestion: LogSuggestion | null) {
     const f = this.ui.form;
-    Object.assign(f, { share, error: '', busy: false, used: -1 });
+    Object.assign(f, { share, suggestion, error: '', busy: false, used: -1 });
     // Boote und Kontingent nebenbei – das Formular geht sofort auf
     f.open = true;
     const [boats, support] = await Promise.all([api.myBoats().catch(() => ({ boats: [] })), api.support().catch(() => null)]);
@@ -48,11 +59,12 @@ export class LogbookController {
     try {
       const { share } = 'input' in d ? await api.createManualShare(d.input) : await api.updateShare(d.id, d.patch);
       f.open = false;
-      this.ui.open(`/s/${share.id}`);
+      if (this.after) this.after(share.id);
+      else this.ui.open(`/s/${share.id}`);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         f.open = false;
-        return this.start(f.share);
+        return this.start(f.share, { suggestion: f.suggestion, after: this.after });
       }
       f.error = errorText(e);
     } finally {

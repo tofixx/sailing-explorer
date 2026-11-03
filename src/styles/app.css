@@ -337,6 +337,7 @@ body {
 .app[data-page] sx-legal-page,
 .app[data-page] sx-guide-page,
 .app[data-page] sx-admin-page,
+.app[data-page] sx-logbook-page,
 .app[data-page] #discover-page {
   min-height: 0;
 }
@@ -371,5 +372,21 @@ sx-map-style {
   }
   .app:not([data-empty]):not([data-page]) .leaflet-bottom {
     bottom: var(--s-4);
+  }
+}
+
+/* Meilennachweis drucken (Konzept 27.5, F-458): nur die Fahrtenbuch-Seite, über mehrere Blätter */
+@media print {
+  html:has(sx-logbook-page:not([hidden])),
+  html:has(sx-logbook-page:not([hidden])) body,
+  .app:has(> sx-logbook-page:not([hidden])) {
+    height: auto;
+    overflow: visible;
+    display: block;
+    background: none;
+  }
+  .app:has(> sx-logbook-page:not([hidden])) > :not(sx-logbook-page),
+  body:has(sx-logbook-page:not([hidden])) > :not(.app) {
+    display: none !important;
   }
 }

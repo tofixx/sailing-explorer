@@ -323,8 +323,8 @@ export function whereLabel(channel: ChannelRef, groups: ReadonlyArray<{ name: st
   return `${home} und in ${groups.map((g) => g.name).join(', ')}`;
 }
 
-/** Bereiche von „Mein Verlauf“: alles, nur was nur ich sehe (B12), oder was im Fahrtenbuch steht (F-428). */
-export const MY_POST_AREAS = ['all', 'logbook', 'private'] as const;
+/** Bereiche von „Mein Verlauf“: alles oder nur, was nur ich sehe (B12). Das Fahrtenbuch hat eine eigene Seite (F-459). */
+export const MY_POST_AREAS = ['all', 'private'] as const;
 export type MyPostArea = (typeof MY_POST_AREAS)[number];
 export const isMyPostArea = oneOf(MY_POST_AREAS);
 

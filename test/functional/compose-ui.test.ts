@@ -194,23 +194,23 @@ describe('sx-stream: Pins (F-403)', () => {
 });
 
 describe('sx-account-menu', () => {
-  it('[F-428] Meine Seite, Mein Fahrtenbuch (Adresse mit Reiter), Konto & Einstellungen; Avatar mit dem Profilnamen', async () => {
+  it('[F-428] [F-459] Meine Seite, Mein Fahrtenbuch (Verwaltungsbereich), Konto & Einstellungen; Avatar mit dem Profilnamen', async () => {
     const accounts = listen('sx-account');
     const el = await mount('sx-account-menu', { user: { id: 'U1', email: 'x@example.org', handle: 'anna', displayName: 'Anna' } });
     expect(el.shadowRoot.querySelector('.avatar')!.textContent).toBe('A');
     button(el.shadowRoot, /Mein Bereich/)!.click();
     await el.updateComplete;
     const links = [...el.shadowRoot.querySelectorAll('a.item')].map((a) => [a.textContent!.trim(), a.getAttribute('href')]);
-    expect(links).toEqual([['Meine Seite', '/u/anna'], ['Mein Fahrtenbuch', '/u/anna?bereich=fahrtenbuch']]);
+    expect(links).toEqual([['Meine Seite', '/u/anna'], ['Mein Fahrtenbuch', '/konto/fahrtenbuch']]);
     button(el.shadowRoot, /Konto & Einstellungen/)!.click();
     expect(accounts).toEqual([null]);
   });
 
-  it('[F-428] ohne Profil führen „Meine Seite“ und „Mein Fahrtenbuch“ zum Anlegen des Profils', async () => {
+  it('[F-428] ohne Profil führt „Meine Seite“ zum Anlegen des Profils; das Fahrtenbuch braucht keins (F-459)', async () => {
     const accounts = listen('sx-account');
     const el = await mount('sx-account-menu', { user: { id: 'U1', email: 'bo@example.org', handle: null, displayName: null }, open: true });
     expect(el.shadowRoot.querySelector('.avatar')!.textContent).toBe('b');
-    expect(el.shadowRoot.querySelectorAll('a.item')).toHaveLength(0);
+    expect([...el.shadowRoot.querySelectorAll('a.item')].map((a) => a.getAttribute('href'))).toEqual(['/konto/fahrtenbuch']);
     button(el.shadowRoot, /Meine Seite/)!.click();
     expect(accounts).toEqual(['profile']);
   });

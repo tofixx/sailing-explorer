@@ -211,7 +211,7 @@ Mobil zusätzlich: Reiterzeile kostet eine zweite Kopfzeile; „Track anlegen“
    Fahrtenbuch-Textlink, Composer oben in „Mein Verlauf“ **streichen**; „Eintrag hinzufügen“ nur im Leerzustand.
    Gruppen-Composer bleibt (Kontext-Schreiben), wird aber direkt unter den Kopf gezogen.
 8. Konto-Menü (Avatar): **Meine Seite · Mein Fahrtenbuch · Konto & Einstellungen · Abmelden**. „Mein Fahrtenbuch“ mit
-   Adresse `/u/<handle>?bereich=fahrtenbuch`. Damit „Dein Bereich“-Karte und Reiter „Freigaben“ **streichen**.
+   Adresse `/u/<handle>?bereich=fahrtenbuch` (seit Konzept 27 `/konto/fahrtenbuch`). Damit „Dein Bereich“-Karte und Reiter „Freigaben“ **streichen**.
 9. Beitragskarten: Zeitangabe = Permalink `/p/<id>`; Teilen über diesen Link. Dasselbe für Törnkarten.
 
 **Danach (Bausteine)**

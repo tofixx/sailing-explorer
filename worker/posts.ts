@@ -416,7 +416,7 @@ interface MyRow {
 
 /**
  * Alle eigenen Beiträge und Törns, neueste zuerst – direkt aus `posts(author_id, created_at)`, nicht über das
- * Aktivitäts-Log. `?1` Konto, `?2` Bereich (alles, „Fahrtenbuch“ = Törns, die zählen, F-428, „Privat“), `?3`/`?4`
+ * Aktivitäts-Log. `?1` Konto, `?2` Bereich (alles bzw. „Privat“; das Fahrtenbuch hat `/api/me/logbook`, F-459), `?3`/`?4`
  * Cursor, `?5` Seitengröße + 1. Gesperrte Törns sieht nur die Moderation (wie Konto → Freigaben).
  */
 const MY_POSTS_SQL = `SELECT p.id, p.kind, p.visibility, p.body, p.link, p.hidden_at, p.created_at, p.share_id, p.channel_kind, p.reach, p.link_key,
@@ -436,8 +436,7 @@ const MY_POSTS_SQL = `SELECT p.id, p.kind, p.visibility, p.body, p.link, p.hidde
   WHERE p.author_id = ?1
     AND (p.share_id IS NULL OR (s.id IS NOT NULL AND s.locked_at IS NULL))
     AND (?2 = 'all'
-      OR (?2 = 'private' AND (CASE WHEN p.share_id IS NOT NULL THEN s.visibility ELSE p.visibility END) = 'private')
-      OR (?2 = 'logbook' AND p.share_id IS NOT NULL AND s.log_state <> 'excluded'))
+      OR (?2 = 'private' AND (CASE WHEN p.share_id IS NOT NULL THEN s.visibility ELSE p.visibility END) = 'private'))
     AND (p.created_at < ?3 OR (p.created_at = ?3 AND p.id < ?4))
   ORDER BY p.created_at DESC, p.id DESC
   LIMIT ?5`;

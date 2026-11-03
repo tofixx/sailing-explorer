@@ -10,7 +10,7 @@ import { ApiError, api, coverApi, type CoverKind, type PageMedia, type ShareMeta
 import { PhotoError, processCover } from './services/photo-process';
 import type { SxCover } from './components/sx-page-media';
 import { Store, initialState, visibleTracks, type HoverSource, type Layers, type State } from './services/store';
-import { parseRoute, routePath, serializeView } from './services/url-state';
+import { LOGBOOK_PATH, parseRoute, routePath, serializeView } from './services/url-state';
 import { SessionController, errorText } from './controllers/session';
 import { WorkspaceController, resumableDraft, toernLabel } from './controllers/workspace';
 import type { SxConfirm } from './components/sx-confirm';
@@ -65,6 +65,8 @@ import type { MapStyleScope, SxMapStyle } from './components/sx-map-style';
 import type { SxLegalPage } from './components/sx-legal-page';
 import { RECORDING_GUIDE } from './content/recording-guide';
 import type { SxAdminPage } from './components/sx-admin-page';
+import type { SxLogbookPage } from './components/sx-logbook-page';
+import { suggestFromTracks } from './domain/logbook-suggest';
 import type { ReactDetail, SxReactions } from './components/sx-reactions';
 import type { HarborChoice, SxHarborPicker } from './components/sx-harbor-picker';
 import type { HarborPatch, StreamFilter } from './services/api';
@@ -350,6 +352,8 @@ export class App {
           return await this.postLink.revealAnchor();
         case 'admin':
           return await this.openAdmin();
+        case 'logbook':
+          return await this.openLogbookPage(!!route.legacy);
         case 'login':
           history.replaceState(null, '', '/');
           await this.ws.restore();
@@ -781,7 +785,10 @@ export class App {
     on<{ email: string | null }>('sx-friend-invite', (d) => this.social.inviteFriend(d.email));
     // Fahrtenbuch (Konzept 19)
     on('sx-logbook-start', () => this.logbook.start());
-    on<ShareMeta>('sx-logbook-edit', (share) => this.logbook.start(share));
+    // GPX-Törn: Vorschläge aus dem geladenen Track (F-460)
+    on<ShareMeta>('sx-logbook-edit', (share) =>
+      this.logbook.start(share, { suggestion: share.source === 'manual' ? null : suggestFromTracks(this.store.get().tracks) }),
+    );
     on<LogbookSave>('sx-logbook-save', (d) => void this.logbook.save(d));
     on('sx-logbook-close', () => this.logbook.close());
     on<{ harbor: HarborChoice }>('sx-home-harbor', async (d) => {
@@ -1093,6 +1100,29 @@ export class App {
   }
 
   /**
+   * Verwaltungsbereich „Mein Fahrtenbuch“ (Konzept 27): Seite und Controller erst hier nachgeladen. Die alte Adresse
+   * `/u/<handle>?bereich=fahrtenbuch` wird ersetzt (F-459). Bearbeiten nutzt das eine Fahrtenbuch-Formular und lädt danach
+   * die Liste neu, statt zur Törn-Ansicht zu wechseln.
+   */
+  private async openLogbookPage(legacy: boolean) {
+    if (legacy) history.replaceState(null, '', LOGBOOK_PATH);
+    this.ui.app.setAttribute('data-page', '');
+    const { LogbookPageController } = await import('./controllers/logbook-page');
+    const page = document.querySelector<SxLogbookPage>('sx-logbook-page');
+    if (!page) return;
+    document.title = 'Mein Fahrtenbuch · Sail Explorer';
+    const c: InstanceType<typeof LogbookPageController> = new LogbookPageController({
+      page,
+      toast: (msg, ms) => this.toast(msg, ms),
+      ready: () => this.session.backendReady,
+      signedIn: () => !!this.store.get().user,
+      requireLogin: (reason, then) => this.session.requireLogin(reason, then),
+      edit: (share) => this.logbook.start(share, { after: () => void c.reload() }),
+    });
+    await c.open();
+  }
+
+  /**
    * Hafen- und Vereinsseite mit Ort (F-351): Karte als Hintergrund, auf den Ort gezoomt; ohne Ort wie bisher die
    * Seite allein.
    */
@@ -1136,8 +1166,7 @@ export class App {
     this.ui.groupPage.hidden = true;
     this.ui.legalPage.hidden = true;
     this.ui.guidePage.hidden = true;
-    const admin = document.querySelector<HTMLElement>('sx-admin-page');
-    if (admin) admin.hidden = true;
+    for (const el of document.querySelectorAll<HTMLElement>('sx-admin-page, sx-logbook-page')) el.hidden = true;
     document.title = 'Sail Explorer';
   }
 

@@ -16,11 +16,11 @@ const KIND_ICON: Partial<Record<MyPost['kind'], IconName>> = { voyage: 'map', lo
  * „Mein Verlauf“ auf der eigenen Seite (Konzept 21.2, B12, F-401): alle eigenen Törns, Fahrtenbuch-Einträge und
  * Beiträge – jede Sichtbarkeit, jeder Verlauf. Jede Karte trennt „Wer sieht es“ (Sichtbarkeit) und „Wo steht es“
  * (Verlauf); „Nur ich“ steht zusätzlich im Bereich „Privat“. Dazu ein Text-Beitrag im eigenen Profil (F-420) und am
- * Törn der Schalter „Ins Fahrtenbuch“ (F-422). Reiter „Alles · Fahrtenbuch · Nur ich“ (F-428; leeres Fahrtenbuch mit
- * „Eintrag hinzufügen“). Neues entsteht nur über „+ Neu“. Text-Beiträge tragen „Sichtbar bis“, Teilen (mit Schlüssel
+ * Törn der Schalter „Ins Fahrtenbuch“ (F-422). Reiter „Alles · Nur ich“; das Fahrtenbuch hat eine eigene Seite
+ * (`/konto/fahrtenbuch`, F-459). Neues entsteht nur über „+ Neu“. Text-Beiträge tragen „Sichtbar bis“, Teilen (mit Schlüssel
  * bei „Nur mit Link“) und „Sichtbarkeit“ ändern (F-409). Rein präsentational – Events: `sx-my-posts-area` { area },
  * `sx-my-posts-more`, `sx-my-post-delete` { id, kind }, `sx-my-post-update` { id, visibility, reach }, `sx-log-state`
- * { id, logState }, `sx-logbook-start`, `sx-page-share` { path, title }.
+ * { id, logState }, `sx-page-share` { path, title }.
  */
 export class SxMyPosts extends LitElement {
   static properties = {
@@ -257,17 +257,15 @@ export class SxMyPosts extends LitElement {
     const more = this.cursor
       ? html`<div class="more"><button class="btn" ?disabled=${this.loading} @click=${() => emit(this, 'sx-my-posts-more')}>${this.loading ? 'Lade …' : 'Mehr laden'}</button></div>`
       : '';
-    // Neues entsteht über „+ Neu“ (ein Einstieg, F-405); im leeren Fahrtenbuch der direkte Weg zum ersten Eintrag
+    // Neues entsteht über „+ Neu“ (ein Einstieg, F-405)
     const empty = this.loading
       ? 'Lade …'
       : this.area === 'private'
         ? 'Nichts, was nur du siehst – „Nur ich“ wählst du beim Schreiben bzw. Teilen.'
-        : this.area === 'logbook'
-          ? html`Noch nichts im Fahrtenbuch.<br /><button class="btn" @click=${() => emit(this, 'sx-logbook-start')}>${icon('plus')} Eintrag hinzufügen</button>`
-          : 'Noch nichts. Über „+ Neu“ legst du Törns, Fahrtenbuch-Einträge und Beiträge an.';
+        : 'Noch nichts. Über „+ Neu“ legst du Törns, Fahrtenbuch-Einträge und Beiträge an.';
     return html`
       <div class="tabs" role="tablist" aria-label="Bereich" @keydown=${(e: KeyboardEvent) => this.onTabKey(e)}>
-        ${this.tab('all', 'Alles', 'globe')} ${this.tab('logbook', 'Fahrtenbuch', 'book')} ${this.tab('private', 'Nur ich', 'lock')}
+        ${this.tab('all', 'Alles', 'globe')} ${this.tab('private', 'Nur ich', 'lock')}
       </div>
       <div id="my-list" role="tabpanel" aria-labelledby="tab-${this.area}">
         ${this.items.length ? html`<ol class="posts">${this.items.map((p) => this.card(p))}</ol>` : html`<div class="empty">${empty}</div>`}

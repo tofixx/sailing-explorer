@@ -4,6 +4,7 @@ import { deleteAccount, logout, me, peekLink, requestLink, verifyCode, verifyLin
 import { HttpError, errorResponse, json } from './http';
 import { listShareGroupChoices } from './share-groups';
 import { createManualShare } from './logbook';
+import { getMyLogbook, getMyLogbookCsv } from './logbook-list';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
@@ -76,6 +77,9 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/me\/profile$/, (r, env) => getMyProfile(r, env)],
   ['PUT', /^\/api\/me\/profile$/, (r, env) => putMyProfile(r, env)],
   ['GET', /^\/api\/me\/support$/, (r, env) => getSupport(r, env)],
+  // Fahrtenbuch nach Jahren und Meilennachweis (Konzept 27)
+  ['GET', /^\/api\/me\/logbook$/, (r, env) => getMyLogbook(r, env)],
+  ['GET', /^\/api\/me\/logbook\.csv$/, (r, env) => getMyLogbookCsv(r, env)],
   ['GET', /^\/api\/me\/invites$/, (r, env) => listMyInvites(r, env)],
   ['POST', /^\/api\/me\/invites\/([A-Za-z0-9]+)\/accept$/, (r, env, [id]) => acceptMyInvite(r, env, id)],
   ['DELETE', /^\/api\/me\/invites\/([A-Za-z0-9]+)$/, (r, env, [id]) => declineMyInvite(r, env, id)],

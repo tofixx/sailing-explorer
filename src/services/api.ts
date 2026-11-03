@@ -1,3 +1,4 @@
+import type { LogbookEntry } from '../domain/logbook-year';
 import type { SupportTier } from '../domain/support';
 import type { SeasonStats } from '../domain/season-stats';
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
@@ -479,6 +480,8 @@ export const api = {
 
   /** Fahrtenbuch-Eintrag ohne GPX (F-300) */
   createManualShare: (input: ManualShareInput) => call<{ share: ShareMeta }>('/api/shares/manual', jsonInit('POST', input)),
+  /** Fahrtenbuch nach Jahren (F-411): eigene Törns und Crew-Törns (M1); CSV unter /api/me/logbook.csv */
+  myLogbook: () => call<{ entries: LogbookEntry[] }>('/api/me/logbook'),
 
   myProfile: () => call<{ profile: Profile; exists: boolean }>('/api/me/profile'),
   saveProfile: (p: ProfileInput) => call<{ profile: Profile }>('/api/me/profile', jsonInit('PUT', p)),

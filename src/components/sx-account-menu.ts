@@ -3,14 +3,13 @@ import type { User } from '../services/api';
 import { icon } from './icons';
 import { base, emit, menuStyles } from './shared';
 import { MenuController } from './menu-controller';
+import { LOGBOOK_PATH } from '../services/url-state';
 
-/** Adresse des Fahrtenbuchs auf der eigenen Seite (Reiter in „Mein Verlauf“, F-428). */
-export const logbookPath = (handle: string) => `/u/${handle}?bereich=fahrtenbuch`;
 
 /**
- * Konto-Menü am Avatar oben rechts (F-428): der eine Weg zu „Meine Seite“, „Mein Fahrtenbuch“ und „Konto &
- * Einstellungen“ (Menü-Muster wie sx-page-menu, mobil als Sheet). Ohne Profil führen „Meine Seite“ und „Mein
- * Fahrtenbuch“ zum Anlegen des Profils im Konto. Meldet `sx-account` { tab? }.
+ * Konto-Menü am Avatar oben rechts (F-428): der eine Weg zu „Meine Seite“, „Mein Fahrtenbuch“ (Verwaltungsbereich
+ * `/konto/fahrtenbuch`, F-459) und „Konto & Einstellungen“ (Menü-Muster wie sx-page-menu, mobil als Sheet). Ohne Profil
+ * führt „Meine Seite“ zum Anlegen des Profils im Konto; das Fahrtenbuch braucht kein Profil. Meldet `sx-account` { tab? }.
  */
 export class SxAccountMenu extends LitElement {
   static properties = {
@@ -79,7 +78,7 @@ export class SxAccountMenu extends LitElement {
       <div class="menu" id="am" role="group" aria-labelledby="am-h" ?hidden=${!this.open}>
         <p class="title" id="am-h">${u.displayName || u.email}</p>
         ${this.item('Meine Seite', 'user', handle ? `/u/${handle}` : null)}
-        ${this.item('Mein Fahrtenbuch', 'book', handle ? logbookPath(handle) : null)}
+        ${this.item('Mein Fahrtenbuch', 'book', LOGBOOK_PATH)}
         <hr />
         <button class="item" type="button" @click=${() => this.account()}><span class="mark">${icon('gear')}</span><span>Konto &amp; Einstellungen</span></button>
       </div>

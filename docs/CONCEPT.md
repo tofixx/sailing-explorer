@@ -2040,7 +2040,7 @@ Umsetzung: `migrations/0022_crew_roles.sql`, `src/domain/crew-roles.ts`, `worker
 
 Noch offen (eigene Schritte): Stammcrew-Schalter, Titel, Boot-Beiträge und „Törns zuordnen“ (F-270 … F-274, brauchen
 `boat_admins.role` aus ROLLEN.md Schritt 1); Meilennachweis-Export und „In mein Fahrtenbuch übernehmen“ (F-277, F-278,
-mit dem Fahrtenbuch); Ausnahme M1 (Eckdaten nicht öffentlicher Törns im eigenen Nachweis) kommt mit dem Export.
+mit dem Fahrtenbuch); Ausnahme M1 (Eckdaten nicht öffentlicher Törns im eigenen Nachweis) ist mit dem Fahrtenbuch nach Jahren umgesetzt (Konzept 27.3, F-456).
 
 ## 19. Fahrtenbuch – Törns ohne GPX-Datei
 
@@ -2296,7 +2296,7 @@ Alle Mutationen same-origin, fremde/unsichtbare Törns 404 – wie bisher.
 | GET | `/api/shares/:id`, `/data` | wie heute | `shareShape` zusätzlich `source`, `distSource`, `endedAt`, `from`/`to` (`{ slug, name, lat, lon }`, ausgeblendete Häfen null), `log` |
 | GET | `/api/me/support` | selbst | zusätzlich `logEntriesUsed` (laufende Saison), `logEntriesMax` (100) |
 | POST/PATCH | `/api/harbors`, `/api/harbors/:id` | angemeldet | `POST` nimmt `lat`/`lon` mit (Anleger:in setzt die Position beim Anlegen); `PATCH` Position wie F-171, zusätzlich: Hafen ohne Position und ohne Anleger:in → wer sie setzt, wird Anleger:in (L3) |
-| GET | `/api/me/logbook.csv` | selbst | Meilennachweis: Datum, Von, Nach, sm, Quelle, Rolle, Boot, Dauer – Phase 3 |
+| GET | `/api/me/logbook.csv` | selbst | Meilennachweis: Datum, Von, Nach, sm, Quelle, Rolle, Boot, Dauer – umgesetzt in Konzept 27 (F-457) |
 | GET | `/api/harbors/:id/voyages` | alle | öffentliche Törns ab/nach dem Hafen – Phase 3 |
 
 ### 19.7 Oberfläche (Skizze)
@@ -2903,14 +2903,14 @@ lesbaren `body` als Rückfall mitbringt.
 - **F-408** Veranstaltungen mit Zusage (teil/vielleicht/nicht) und Kapazität, ohne Check-in.
 - **F-409** Ausbreitung Team → Verein → Hafen → Community für öffentliche Beiträge, begrenzt durch „Sichtbar bis“.
 - **F-410** Erinnerungen und Änderungsmeldungen zu Veranstaltungen.
-- **F-411** Fahrtenbuch nach Jahren, bearbeitbar, mit Jahressummen.
-- **F-412** Zusatzangaben mit Binnen/Küste, Vorschläge aus GPX änderbar, frei definierbare Posten.
+- **F-411** Fahrtenbuch nach Jahren, bearbeitbar, mit Jahressummen. *Umgesetzt in Konzept 27.*
+- **F-412** Zusatzangaben mit Binnen/Küste, Vorschläge aus GPX änderbar, frei definierbare Posten. *Umgesetzt in Konzept 27 (Posten frei, Vorlagen mit Phase 9).*
 - **F-413** Wertungsvorlagen als geprüfter Baukasten: global (Admin), Verein (übernehmen/erweitern/eigene), Pflicht je Eintrag.
 - **F-414** Vereinsliste der Punktesummen nur mit Opt-in, nur dort gezeigte Einträge, Gewichtung einstellbar.
 - **F-415** `members`-Beiträge nie aus öffentlichen Caches, nie für Nicht-Mitglieder, nie weiter ausgebreitet.
 - **F-416** Benachrichtigungen für Beiträge, Zusagen, Erinnerungen, Umfrage-Ende; Ausbreitung benachrichtigt nicht.
 - **F-417** Publikums-Hinweis ab 100 Personen und Tageszusammenfassung großer Verläufe.
-- **F-418** Verwaltungsbereich im Konto mit Jahresbericht (CSV/Excel, druckbar).
+- **F-418** Verwaltungsbereich im Konto mit Jahresbericht (CSV/Excel, druckbar). *Verwaltungsbereich und Meilennachweis (CSV, Druck) in Konzept 27; Jahresbericht für Vereine mit Phase 9.*
 - **F-419** Galerie-Kontingent: kostenlos 10 Fotos je Monat, Unterstützer mehr, Speicher gemeinsam mit Törn-Fotos.
 
 ### 21.11 Umsetzung Phase 1 (02.11.2026)
@@ -2971,7 +2971,7 @@ Migration `0030_post_reach.sql`, Regeln `src/domain/posts.ts` (Kette, Stufen, Sc
 | F-425 | Hafen- und Boots-Verlauf: Schreibrechte (B6), Streams, Löschkonzept |
 | F-426 | Text-Beitrag mit eigenem Törn als Anhang |
 | F-427 | „Sichtbar bis“ für Törns, Ziele aus einer Funktion für Anlegen und Ändern |
-| F-428 | Konto-Menü (Meine Seite, Mein Fahrtenbuch, Konto & Einstellungen), Reiter „Fahrtenbuch“ in „Mein Verlauf“ – Wunsch des Betreibers |
+| F-428 | Konto-Menü (Meine Seite, Mein Fahrtenbuch, Konto & Einstellungen), Reiter „Fahrtenbuch“ in „Mein Verlauf“ – Wunsch des Betreibers; der Reiter ist seit Konzept 27 die Seite `/konto/fahrtenbuch` (F-459) |
 
 Abweichungen bzw. Festlegungen gegenüber 21.2–21.7:
 

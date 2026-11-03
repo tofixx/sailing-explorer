@@ -91,6 +91,8 @@ const paths = {
   'bell-dot': svg`<path d="M6 16.5V11a6 6 0 0 1 8.5-5.5M18 12v4.5l1.5 2h-15M10 21h4"/><circle class="f" cx="18.5" cy="6" r="2.5"/><circle cx="18.5" cy="6" r="2.5"/>`,
   'bell-small': svg`<path d="M8.5 16V12.5a3.5 3.5 0 0 1 7 0V16l1 1.5h-9zM11 20h2"/>`,
   scale: svg`<path d="M12 4v16M7 20h10M5 7h14M5 7l-2.5 6a2.5 2.5 0 0 0 5 0zM19 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/>`,
+  // Meilennachweis drucken (Konzept 27.5)
+  print: svg`<rect class="f" x="4" y="9" width="16" height="7.5" rx="2"/><path d="M7 9V3.5h10V9M7 14h10v6.5H7zM4 16.5h3M17 16.5h3M4 16.5V11a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5.5"/>`,
 };
 
 export type IconName = keyof typeof paths;

@@ -11,11 +11,11 @@ Leitlinie des Betreibers: „weniger ist mehr, ein Weg nach Rom“. Deshalb **er
 
 | Punkt | Entscheidung |
 | --- | --- |
-| Datenmodell | **Keine neue Tabelle, keine Migration.** Zusatzangaben (F-412) sind weitere Felder in `shares.log` (JSON, ≤ 4 KB, Schema und Prüfung `parseLog` in `src/domain/logbook.ts`), für GPX- und Fahrtenbuch-Törns gleich. Stand im Fahrtenbuch bleibt `shares.log_state` (F-422), Rolle `shares.owner_role` bzw. `share_crew.role` mit Bestätigung (Konzept 15). Die reservierte Migration 0034 wird nicht gebraucht und bleibt frei. |
+| Datenmodell | **Keine neue Tabelle, keine Migration.** Zusatzangaben (F-412) sind weitere Felder in `shares.log` (JSON höchstens 8.000 Zeichen, Schema und Prüfung `parseLog` in `src/domain/logbook.ts`), für GPX- und Fahrtenbuch-Törns gleich. Stand im Fahrtenbuch bleibt `shares.log_state` (F-422), Rolle `shares.owner_role` bzw. `share_crew.role` mit Bestätigung (Konzept 15). Die reservierte Migration 0034 wird nicht gebraucht und bleibt frei. |
 | Querschnitte | Sichtbarkeit: eigene Törns alle außer gesperrten (`locked_at`, wie „Mein Verlauf“); Crew-Törns anderer nach M1 (27.3) mit `IN_LOGBOOK_SQL`. Caches: nur `private, no-store`, nie öffentlich gecacht. Stream, Ziele, Benachrichtigungen, Zähler, Kontingente: unberührt (keine neuen Schreibwege außer `log` im bestehenden `PATCH /api/shares/:id`). Admin/Moderation: ausgeblendete bzw. gesperrte Törns fallen wie bisher heraus. Zusammenführen von Konten: `share_crew` und `shares` wandern schon (Konzept 18.8). |
 | Lösch- und Sichtbarkeitspfade | Nichts Neues gespeichert außer Feldern in `shares.log` – sie gehen mit dem Törn (`removeShare`: einzeln, Ablauf, Konto, inaktiv, Moderation). CSV und Druckansicht entstehen beim Abruf, nichts wird abgelegt. Crew-Einträge verschwinden mit dem Crew-Eintrag (Austritt, Konto, Törn gelöscht) bzw. werden zum Vorschlag oder fallen weg, wenn die Bestätigung fällt (Boot gewechselt, Skipper-Wechsel). Wer sieht es: nur die Person selbst (`/api/me/…`, angemeldet). |
 | Komponentenschnitt | Seite `/konto/fahrtenbuch` = `sx-logbook-page` (präsentational: Saison-Reiter, Filter, Summen, Liste), Ablauf `controllers/logbook-page.ts` (Laden, Stand ändern, Bearbeiten über das vorhandene `sx-logbook-form`), reine Regeln `src/domain/logbook-year.ts` (Saison, Filter, Summen, CSV, Dauer) und `src/domain/logbook-suggest.ts` (Vorschläge aus dem Track). Worker `worker/logbook-list.ts` (`GET /api/me/logbook`, `GET /api/me/logbook.csv`). Das Formular `sx-logbook-form` bekommt die Zusatzangaben und einen GPX-Modus (nur Häfen und Angaben). Mobil: Liste als Karten statt Tabelle, Saison-Reiter mit `data-scroll-x`, Tippziele ≥ 44 px. |
-| Parallele Arbeit | `feature/loesch-register` (SQL-Bausteine für Sichtbarkeit/Löschen) – hier keine neuen Literale außer der Crew-Bedingung in `worker/logbook-sql.ts`; nach dessen Merge auf die Bausteine umstellen. `feature/grosse-gruppen` (Streams) – keine Überschneidung. |
+| Parallele Arbeit | `feature/loesch-register` (gemergt): Crew-Bedingung in `worker/logbook-sql.ts` aus den Bausteinen von `worker/visible-sql.ts`; keine neue Tabelle für `worker/cleanup-registry.ts`. `feature/grosse-gruppen` (Streams) – keine Überschneidung. |
 
 ## 27.2 Verwaltungsbereich und Einstieg (F-418, F-459)
 
@@ -42,7 +42,7 @@ gewählte Saison steht in der Adresse (`?saison=2026`).
 | Summen der Saison | über die **gefilterten** Einträge ohne ausgeschlossene: Törns, sm (davon aufgezeichnet), Stunden unter Segel / Motor, sm als Skipper:in, Nachtstunden, Tage an Bord, verschiedene Häfen, sm an der Küste, Tidengewässer, Posten mit Summe. „Nur bestätigte“ = Filter nur „Bestätigt“ |
 
 **Crew-Törns anderer (Ausnahme M1):** Zeilen, in denen ich in `share_crew` stehe – nicht ausgeblendet, nicht gesperrt,
-von der Eigentümer:in nicht ausgeschlossen. Mit **bestätigter Rolle** erscheinen sie in jeder Sichtbarkeit als
+Konto der Eigentümer:in nicht gesperrt (`liveSql`, `notSuspendedSql` aus `worker/visible-sql.ts`), von ihr nicht ausgeschlossen. Mit **bestätigter Rolle** erscheinen sie in jeder Sichtbarkeit als
 „Bestätigt“, aber nur mit Eckdaten (Datum, Von, Nach, sm, Quelle, Rolle, Boot, Dauer – kein Titel, keine Angaben,
 kein Link, wenn ich den Törn nicht sehen dürfte). Ohne Bestätigung nur öffentliche Törns, als „Vorschlag“ mit Link.
 Den Stand ändern kann ich an fremden Törns nicht (Austreten geht über das Crew-Panel des Törns).
@@ -65,7 +65,7 @@ Neue Felder in `shares.log` (alle optional, alles Selbstangaben, alles änderbar
 | `items` Posten [{ name ≤ 40, n 0–999, note ≤ 200 }] | höchstens 10 | alle |
 
 Felder, die zum gewählten Revier nicht passen, verwirft `parseLog` (eine Regel für Formular und Worker). Ganze Angaben
-höchstens 4 KB.
+höchstens 8.000 Zeichen (Notizen und zehn volle Posten passen hinein).
 
 **Vorschläge aus dem GPX** (rein, `src/domain/logbook-suggest.ts`, im Browser): Stunden unter Motor bzw. Segel aus dem
 Speed-Profil (Abschnitte ≥ 10 min mit gleichmäßiger Fahrt ≥ 3 kn und fast geradem Kurs gelten als Motor), Nachtstunden
@@ -95,4 +95,4 @@ Angaben); das Formular ändert dann nur Häfen und Angaben (Datum und Strecke ko
 | Hafentage | entfällt (nur „Tage an Bord“) – weniger Felder |
 | Punkte je Vorlage, Jahresbericht für einen Verein | Phase 9 (F-413/F-414) |
 | Konto-Dialog | nicht verkleinert; „Meine Törns“ (Freigaben) bleibt dort, bis der Verwaltungsbereich weitere Reiter bekommt |
-| Lösch-Register | nach dessen Merge die Crew-Bedingung (`hidden_at`, `locked_at`) auf die Bausteine umstellen |
+| Lösch-Register | gemergt vor diesem Branch: Crew-Bedingung nutzt `liveSql`/`notSuspendedSql`; keine neue Tabelle, daher kein neuer Eintrag in `worker/cleanup-registry.ts` |

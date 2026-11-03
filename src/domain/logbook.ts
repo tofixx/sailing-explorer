@@ -40,6 +40,19 @@ export const LOG_LIMITS = {
   sailsMax: 120,
   berthMax: 120,
   notesMax: 2000,
+  // Zusatzangaben (Konzept 27.4, F-412)
+  hoursMax: 500,
+  daysMax: 60,
+  countMax: 200,
+  mastMax: 50,
+  regattaNameMax: 80,
+  regattaMax: 999,
+  itemsMax: 10,
+  itemNameMax: 40,
+  itemNoteMax: 200,
+  itemCountMax: 999,
+  /** ganze Angaben als JSON (Spalte `shares.log`, Zeichen) – Notizen und zehn volle Posten passen hinein */
+  logChars: 8000,
 } as const;
 
 /** GPX-Plausibilität (L8, Konzept 19.5.1): großzügig, auch für Motor und schnelle Boote. */
@@ -51,8 +64,27 @@ export const SEA_STATES = ['calm', 'slight', 'moderate', 'rough'] as const;
 export type SeaState = (typeof SEA_STATES)[number];
 export const SEA_LABEL: Record<SeaState, string> = { calm: 'glatt', slight: 'leicht', moderate: 'mäßig', rough: 'grob' };
 
+/** Revier (B10, Konzept 27.4): schaltet die passenden Zusatzangaben um. */
+export const LOG_AREAS = ['inland', 'coastal', 'offshore'] as const;
+export type LogArea = (typeof LOG_AREAS)[number];
+export const LOG_AREA_LABEL: Record<LogArea, string> = { inland: 'Binnen', coastal: 'Küste', offshore: 'Offshore' };
+/** Felder nur für Binnenreviere bzw. nur für Küste/offshore – ohne Revier gibt es nur die gemeinsamen. */
+export const INLAND_FIELDS = ['locks', 'bridges', 'mast'] as const;
+export const COASTAL_FIELDS = ['nightH', 'tidal'] as const;
+export type AreaField = (typeof INLAND_FIELDS)[number] | (typeof COASTAL_FIELDS)[number];
+/** Gibt es das Feld im Revier? */
+export const fieldInArea = (field: AreaField, area: LogArea | undefined): boolean =>
+  (INLAND_FIELDS as readonly string[]).includes(field) ? area === 'inland' : area === 'coastal' || area === 'offshore';
+
+/** Posten (B10): frei wählbarer Zusatz mit Anzahl und Begründung, z. B. Training, Arbeitsdienst, Überführung. */
+export interface LogItem {
+  name: string;
+  n: number;
+  note?: string;
+}
+
 /**
- * Fahrtenbuch-Angaben eines Törns (Spalte `shares.log`, ≤ 4 KB JSON). Die eigene Rolle steht nicht hier, sondern in
+ * Fahrtenbuch-Angaben eines Törns (Spalte `shares.log`, JSON höchstens 8.000 Zeichen). Die eigene Rolle steht nicht hier, sondern in
  * `shares.owner_role` (Crew-Rollen, Konzept 15).
  */
 export interface Logbook {
@@ -65,6 +97,21 @@ export interface Logbook {
   notes?: string;
   /** nur Fahrtenbuch-Einträge: Abfahrt/Ankunft mit Uhrzeit angegeben (sonst zählt nur das Datum) */
   timed?: boolean;
+  // ---- Zusatzangaben (Konzept 27.4, F-412) – alles Selbstangaben
+  area?: LogArea;
+  /** Tidengewässer (nur Küste/offshore) */
+  tidal?: boolean;
+  /** Stunden unter Segel, 0,1 h */
+  sailH?: number;
+  /** Nachtfahrt in Stunden (nur Küste/offshore) */
+  nightH?: number;
+  daysAboard?: number;
+  /** Schleusen, Brücken, Mast legen/stellen (nur binnen) */
+  locks?: number;
+  bridges?: number;
+  mast?: number;
+  regatta?: { name: string; place?: number; starters?: number };
+  items?: LogItem[];
 }
 
 const line = (v: unknown): string => cleanComment(v).replace(/\s*\n\s*/g, ' ');
@@ -110,7 +157,73 @@ export function parseLog(input: unknown): { log: Logbook } | { error: string } {
     if (v) log.notes = v;
   }
   if (o.timed === true) log.timed = true;
+  const extra = parseExtra(o, log);
+  if (extra) return { error: extra };
+  if (JSON.stringify(log).length > LOG_LIMITS.logChars) return { error: 'Fahrtenbuch-Angaben zu lang – bitte Notizen oder Posten kürzen.' };
   return { log };
+}
+
+/** Zahl in [min, max] (mit `step` 0,1 bzw. ganzzahlig) – null = Fehler. */
+function num(v: unknown, min: number, max: number, int: boolean): number | null {
+  const n = Number(typeof v === 'string' ? v.replace(',', '.') : v);
+  if (!Number.isFinite(n) || n < min || n > max || (int && !Number.isInteger(n))) return null;
+  return int ? n : Math.round(n * 10) / 10;
+}
+
+/** Zusatzangaben (F-412) prüfen und in `log` übernehmen; Felder, die zum Revier nicht passen, fallen weg. */
+function parseExtra(o: Record<string, unknown>, log: Logbook): string | null {
+  const empty = (v: unknown) => v === undefined || v === null || v === '';
+  if (!empty(o.area)) {
+    if (!(LOG_AREAS as readonly unknown[]).includes(o.area)) return 'Unbekanntes Revier.';
+    log.area = o.area as LogArea;
+  }
+  const L = LOG_LIMITS;
+  const numbers: Array<[keyof Logbook, number, number, boolean, string]> = [
+    ['sailH', 0, L.hoursMax, false, `Stunden unter Segel: 0 bis ${L.hoursMax}.`],
+    ['nightH', 0, L.hoursMax, false, `Nachtfahrt: 0 bis ${L.hoursMax} Stunden.`],
+    ['daysAboard', 1, L.daysMax, true, `Tage an Bord: 1 bis ${L.daysMax}.`],
+    ['locks', 0, L.countMax, true, `Schleusen: 0 bis ${L.countMax}.`],
+    ['bridges', 0, L.countMax, true, `Brücken: 0 bis ${L.countMax}.`],
+    ['mast', 0, L.mastMax, true, `Mast legen/stellen: 0 bis ${L.mastMax}.`],
+  ];
+  for (const [key, min, max, int, msg] of numbers) {
+    if (empty(o[key])) continue;
+    const n = num(o[key], min, max, int);
+    if (n === null) return msg;
+    if ((key === 'nightH' || key === 'locks' || key === 'bridges' || key === 'mast') && !fieldInArea(key, log.area)) continue;
+    (log as Record<string, unknown>)[key] = n;
+  }
+  if (o.tidal === true && fieldInArea('tidal', log.area)) log.tidal = true;
+  if (!empty(o.regatta)) {
+    const r = o.regatta as Record<string, unknown>;
+    if (typeof r !== 'object' || Array.isArray(r) || typeof r.name !== 'string') return 'Regatta: bitte den Namen angeben.';
+    const name = line(r.name);
+    if (!name || commentLength(name) > L.regattaNameMax) return `Regatta: Name mit 1 bis ${L.regattaNameMax} Zeichen.`;
+    const place = empty(r.place) ? undefined : num(r.place, 1, L.regattaMax, true);
+    const starters = empty(r.starters) ? undefined : num(r.starters, 1, L.regattaMax, true);
+    if (place === null || starters === null) return `Regatta: Platz und Starter 1 bis ${L.regattaMax}.`;
+    if (place !== undefined && starters !== undefined && place > starters) return 'Regatta: Der Platz liegt über der Zahl der Starter.';
+    log.regatta = { name, ...(place !== undefined ? { place } : {}), ...(starters !== undefined ? { starters } : {}) };
+  }
+  if (!empty(o.items)) {
+    if (!Array.isArray(o.items)) return 'Posten: ungültige Angabe.';
+    if (o.items.length > L.itemsMax) return `Höchstens ${L.itemsMax} Posten je Eintrag.`;
+    const items: LogItem[] = [];
+    for (const raw of o.items as unknown[]) {
+      const it = raw as Record<string, unknown>;
+      if (!it || typeof it !== 'object' || typeof it.name !== 'string') return 'Posten: bitte einen Namen angeben.';
+      const name = line(it.name);
+      if (!name) continue;
+      if (commentLength(name) > L.itemNameMax) return `Posten: Name höchstens ${L.itemNameMax} Zeichen.`;
+      const n = empty(it.n) ? 1 : num(it.n, 0, L.itemCountMax, false);
+      if (n === null) return `Posten „${name}“: Anzahl 0 bis ${L.itemCountMax}.`;
+      const note = typeof it.note === 'string' ? line(it.note) : '';
+      if (commentLength(note) > L.itemNoteMax) return `Posten „${name}“: Begründung höchstens ${L.itemNoteMax} Zeichen.`;
+      items.push({ name, n, ...(note ? { note } : {}) });
+    }
+    if (items.length) log.items = items;
+  }
+  return null;
 }
 
 /** Gespeicherte Angaben lesen (Spalte `log`): kaputtes JSON oder Unbekanntes ergibt leere Angaben, nie einen Fehler. */

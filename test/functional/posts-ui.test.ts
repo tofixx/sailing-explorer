@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // Oberfläche der Beiträge (Konzept 21, Phase 1): „Mein Verlauf“ mit „Wer sieht es“/„Wo steht es“ und Bereich „Privat“
-// (F-401, Reiter „Fahrtenbuch“ F-428), Schalter „Ins Fahrtenbuch“ (F-422), „Sichtbar bis“ ändern (F-409), Schreibrecht in der
+// (F-401; der frühere Reiter „Fahrtenbuch“ ist seit F-459 eine eigene Seite), Schalter „Ins Fahrtenbuch“ (F-422), „Sichtbar bis“ ändern (F-409), Schreibrecht in der
 // Gruppe (F-421), Beiträge für Besucher und „Ansehen als …“ (F-423). Komponenten zeigen nur an und melden Absichten.
 import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-my-posts';
@@ -74,17 +74,17 @@ describe('sx-my-posts', () => {
     expect(el.shadowRoot.querySelector('li.post.private')).not.toBeNull();
     expect(el.shadowRoot.querySelector('a[href="/s/S1/key"]')).not.toBeNull();
     const tabs = [...el.shadowRoot.querySelectorAll('[role="tab"]')] as HTMLButtonElement[];
-    // Reiter „Alles · Fahrtenbuch · Nur ich“ (F-428) – „Nur ich“ wie im Sichtbarkeits-Picker
-    expect(tabs.map((b) => b.textContent!.trim())).toEqual(['Alles', 'Fahrtenbuch', 'Nur ich']);
-    expect(tabs.map((b) => b.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false']);
-    expect(tabs.map((b) => b.tabIndex)).toEqual([0, -1, -1]);
-    tabs[2].click();
+    // Reiter „Alles · Nur ich“ – das Fahrtenbuch hat eine eigene Seite (F-459); „Nur ich“ wie im Sichtbarkeits-Picker
+    expect(tabs.map((b) => b.textContent!.trim())).toEqual(['Alles', 'Nur ich']);
+    expect(tabs.map((b) => b.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+    expect(tabs.map((b) => b.tabIndex)).toEqual([0, -1]);
+    tabs[1].click();
     expect(areas).toEqual([{ area: 'private' }]);
     // Tabs-Muster: Pfeiltasten und Pos1/Ende
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-    expect(areas).toEqual([{ area: 'private' }, { area: 'logbook' }, { area: 'private' }]);
+    expect(areas).toEqual([{ area: 'private' }, { area: 'private' }, { area: 'private' }]);
     expect(el.shadowRoot.querySelector('[role="tabpanel"]')!.getAttribute('aria-labelledby')).toBe('tab-all');
     expect(button(el.shadowRoot, /Mehr laden/)).toBeTruthy();
   });
@@ -104,14 +104,11 @@ describe('sx-my-posts', () => {
     expect(deletes).toEqual([{ id: 'S1', kind: 'voyage' }]);
   });
 
-  it('[F-428] Reiter „Fahrtenbuch“: leer mit „Eintrag hinzufügen“; kein eigenes Schreibfeld – Neues entsteht über „+ Neu“', async () => {
-    const starts = listen('sx-logbook-start');
-    const el = await mount('sx-my-posts', { items: [], cursor: null, area: 'logbook' });
-    await settle(el);
-    expect(el.shadowRoot.querySelector('sx-post-composer')).toBeNull();
-    button(el.shadowRoot, /Eintrag hinzufügen/)!.click();
-    expect(starts).toHaveLength(1);
+  it('[F-459] kein Reiter „Fahrtenbuch“ und kein eigenes Schreibfeld – Neues entsteht über „+ Neu“', async () => {
     const all = await mount('sx-my-posts', { items: [], cursor: null, area: 'all' });
+    await settle(all);
+    expect(all.shadowRoot.querySelector('sx-post-composer')).toBeNull();
+    expect(all.shadowRoot.querySelector('#tab-logbook')).toBeNull();
     expect(button(all.shadowRoot, /Eintrag hinzufügen/)).toBeUndefined();
     expect(text(all.shadowRoot)).toContain('+ Neu');
   });

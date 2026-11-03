@@ -1,9 +1,10 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
 import type { Boat, HarborInput, ManualShareInput, ShareMeta, SharePatch } from '../services/api';
 import {
-  DIST_SOURCE_LABEL, LOG_LIMITS, SEA_LABEL, SEA_STATES, WIND_DIRS, departureError, logTitle, parseLog, plausibleDistance, routeNm,
-  type LatLon, type Logbook,
+  DIST_SOURCE_LABEL, LOG_AREAS, LOG_AREA_LABEL, LOG_LIMITS, SEA_LABEL, SEA_STATES, WIND_DIRS, departureError, fieldInArea, logTitle, parseLog,
+  plausibleDistance, routeNm, type LatLon, type LogArea, type LogItem, type Logbook,
 } from '../domain/logbook';
+import type { LogSuggestion } from '../domain/logbook-suggest';
 import { VOYAGE_ROLES, VOYAGE_ROLE_SHORT, isVoyageRole, type VoyageRole } from '../domain/crew-roles';
 import { fmtNum } from '../domain/format';
 import type { Visibility } from '../domain/visibility';
@@ -32,11 +33,17 @@ const timeOf = (t: number) => {
 /** Ortszeit → ms; ohne Uhrzeit 12 Uhr, damit das Datum in jeder Zeitzone stimmt */
 const toMs = (date: string, time: string): number => (date ? new Date(`${date}T${time || '12:00'}`).getTime() : NaN);
 
+/** Zahl für ein Eingabefeld (Komma), leer ohne Wert. */
+const numValue = (v: number | undefined | null) => (v == null ? '' : String(v).replace('.', ','));
+
 /**
  * Fahrtenbuch-Eintrag ohne GPX anlegen oder bearbeiten (Konzept 19, F-300/F-301): Datum, Start- und Zielhafen, Strecke,
- * Boot; aufklappbar Ankunft, Rolle, Wind, Seegang, Motor, Segelführung, Liegeplatz, Notizen; Titel und Sichtbarkeit.
- * Fehlt einem Hafen die Position, fragt eine kleine Karte danach (L3). Prüft wie der Server vorab (F-304) und meldet
- * `sx-logbook-save` (LogbookSave) bzw. `sx-logbook-close`. Fetcht nicht selbst – Häfen sucht die Verdrahtung.
+ * Boot; aufklappbar Ankunft, Rolle, Wind, Seegang, Segelführung, Liegeplatz, Notizen; Zusatzangaben mit Revier,
+ * Stunden, Regatta und Posten (Konzept 27.4, F-412); Titel und Sichtbarkeit. Für GPX-Törns (F-461) nur Häfen und Angaben
+ * – Datum und Strecke kommen aus dem Track, Titel und Sichtbarkeit ändert der Teilen-Dialog; Vorschläge aus dem Track
+ * (`suggestion`, F-460) übernimmt erst ein Klick. Fehlt einem Hafen die Position, fragt eine kleine Karte danach (L3).
+ * Prüft wie der Server vorab (F-304) und meldet `sx-logbook-save` (LogbookSave) bzw. `sx-logbook-close`. Fetcht nicht
+ * selbst – Häfen sucht die Verdrahtung.
  */
 export class SxLogbookForm extends LitElement {
   static properties = {
@@ -53,6 +60,10 @@ export class SxLogbookForm extends LitElement {
     roundTrip: { state: true },
     visibility: { state: true },
     local: { state: true },
+    suggestion: { attribute: false },
+    area: { state: true },
+    items: { state: true },
+    filled: { state: true },
   };
   declare open: boolean;
   /** vorhandener Eintrag (Bearbeiten) oder null (neu) */
@@ -71,6 +82,14 @@ export class SxLogbookForm extends LitElement {
   declare visibility: Visibility;
   /** Fehler aus der Prüfung im Browser */
   declare local: string;
+  /** Vorschlag aus dem Track (nur GPX-Törns) */
+  declare suggestion: LogSuggestion | null;
+  /** gewähltes Revier (schaltet Felder um, B10) – '' = keine Angabe */
+  declare area: LogArea | '';
+  /** Posten (B10), bearbeitbar als Liste */
+  declare items: LogItem[];
+  /** per „Übernehmen“ gesetzte Vorschläge */
+  declare filled: Partial<Logbook>;
 
   constructor() {
     super();
@@ -87,6 +106,15 @@ export class SxLogbookForm extends LitElement {
     this.roundTrip = false;
     this.visibility = 'public';
     this.local = '';
+    this.suggestion = null;
+    this.area = '';
+    this.items = [];
+    this.filled = {};
+  }
+
+  /** GPX-Törn: nur Häfen und Angaben (F-461). */
+  private get gpx(): boolean {
+    return !!this.share && this.share.source !== 'manual';
   }
 
   static styles = [
@@ -157,9 +185,52 @@ export class SxLogbookForm extends LitElement {
         justify-content: space-between;
         flex-wrap: wrap;
       }
+      .areas {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--s-1) var(--s-3);
+        border: 0;
+        margin: 0;
+        padding: 0;
+      }
+      .areas label {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-1);
+        min-height: 44px;
+        font-size: var(--fs-s);
+      }
+      .areas input {
+        width: auto;
+      }
+      .item {
+        display: grid;
+        grid-template-columns: 2fr 1fr auto;
+        gap: var(--s-2);
+        align-items: end;
+      }
+      .item .note {
+        grid-column: 1 / -1;
+      }
+      .suggest {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--s-2);
+        padding: var(--s-2) var(--s-3);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        font-size: var(--fs-s);
+      }
       @media (max-width: 480px) {
         .row {
           grid-template-columns: 1fr;
+        }
+        .item {
+          grid-template-columns: 1fr auto;
+        }
+        .item .name {
+          grid-column: 1 / -1;
         }
       }
     `,
@@ -182,6 +253,9 @@ export class SxLogbookForm extends LitElement {
     this.local = '';
     this.roundTrip = !!s && !!s.from && s.from.slug === s.to?.slug;
     this.visibility = s?.visibility ?? 'public';
+    this.area = s?.log?.area ?? '';
+    this.items = (s?.log?.items ?? []).map((it) => ({ ...it }));
+    this.filled = {};
   }
 
   private picker = (id: string) => this.renderRoot.querySelector<SxHarborPicker>(`#${id}`);
@@ -223,6 +297,7 @@ export class SxLogbookForm extends LitElement {
 
   private log(): Logbook | string {
     const bft = this.field('bft');
+    const regatta = this.field('regattaName');
     const r = parseLog({
       engineH: this.field('engineH').replace(',', '.'),
       wind: bft === '' ? undefined : { bft: Number(bft), dir: this.field('dir') || null },
@@ -230,13 +305,39 @@ export class SxLogbookForm extends LitElement {
       sails: this.field('sails'),
       berth: this.field('berth'),
       notes: this.renderRoot.querySelector<HTMLTextAreaElement>('[name="notes"]')?.value ?? '',
+      // Zusatzangaben (F-412); Felder anderer Reviere stehen nicht im Formular und verwirft parseLog ohnehin
+      area: this.area,
+      tidal: this.renderRoot.querySelector<HTMLInputElement>('[name="tidal"]')?.checked === true,
+      sailH: this.field('sailH'),
+      nightH: this.field('nightH'),
+      daysAboard: this.field('daysAboard'),
+      locks: this.field('locks'),
+      bridges: this.field('bridges'),
+      mast: this.field('mast'),
+      regatta: regatta ? { name: regatta, place: this.field('regattaPlace'), starters: this.field('regattaStarters') } : undefined,
+      items: this.items,
     });
     return 'error' in r ? r.error : r.log;
+  }
+
+  /** GPX-Törn: nur Häfen und Angaben (Datum und Strecke aus dem Track, 409 `not_manual`). */
+  private submitGpx() {
+    const log = this.log();
+    if (typeof log === 'string') {
+      this.local = log;
+      return;
+    }
+    const from = this.harbor('from');
+    emit<LogbookSave>(this, 'sx-logbook-save', {
+      id: this.share!.id,
+      patch: { log, fromHarbor: from, toHarbor: this.roundTrip ? from : this.harbor('to') },
+    });
   }
 
   private submit(e: Event) {
     e.preventDefault();
     this.local = '';
+    if (this.gpx) return this.submitGpx();
     const startedAt = toMs(this.field('date'), this.field('time'));
     const endDate = this.field('endDate');
     const endedAt = endDate || this.field('endTime') ? toMs(endDate || this.field('date'), this.field('endTime')) : null;
@@ -301,23 +402,129 @@ export class SxLogbookForm extends LitElement {
     return html`<p class="hint">Direkte Linie: ${fmtNum(routeNm(route), 1)} sm – leer lassen, um sie zu übernehmen.</p>`;
   }
 
+  /** Vorschlag aus dem Track (F-460): Werte nennen, „Übernehmen“ füllt die Felder – gespeichert wird erst mit „Speichern“. */
+  private suggestBox() {
+    const g = this.suggestion;
+    if (!g || g.sailH === null) return '';
+    const parts = [
+      `${fmtNum(g.sailH, 1)} h unter Segel`,
+      `${fmtNum(g.engineH ?? 0, 1)} h Motor`,
+      g.nightH ? `${fmtNum(g.nightH, 1)} h Nacht` : '',
+      g.daysAboard ? `${g.daysAboard} ${g.daysAboard === 1 ? 'Tag' : 'Tage'} an Bord` : '',
+    ].filter(Boolean);
+    const apply = () => {
+      // Nullwerte (kein Motor, keine Nacht) bleiben leer statt „0 h“
+      this.filled = { sailH: g.sailH ?? undefined, engineH: g.engineH || undefined, daysAboard: g.daysAboard ?? undefined, nightH: g.nightH || undefined };
+      // Nachtfahrt gibt es nur an der Küste – ohne Revier ist sie dort am wahrscheinlichsten
+      if (g.nightH && !this.area) this.area = 'coastal';
+    };
+    return html`<div class="suggest" role="note">
+      <span>${icon('info')} Vorschlag aus dem Track: ${parts.join(' · ')}</span>
+      <button class="btn small" type="button" @click=${apply}>${icon('check')} Übernehmen</button>
+    </div>`;
+  }
+
+  /** Zahlfeld der Zusatzangaben – Wert aus „Übernehmen“ geht dem gespeicherten vor. */
+  private numField(name: 'sailH' | 'engineH' | 'nightH' | 'daysAboard' | 'locks' | 'bridges' | 'mast', label: string, log: Logbook, placeholder = '') {
+    const v = (this.filled[name] ?? log[name]) as number | undefined;
+    return html`<div>
+      <label class="label" for="lf-${name}">${label}</label>
+      <input id="lf-${name}" name=${name} inputmode="decimal" placeholder=${placeholder} .value=${numValue(v)} />
+    </div>`;
+  }
+
+  private setItem(i: number, patch: Partial<LogItem>) {
+    this.items = this.items.map((it, k) => (k === i ? { ...it, ...patch } : it));
+  }
+
+  /** Posten (B10): Name, Anzahl, Begründung – höchstens zehn. */
+  private itemsBlock() {
+    return html`<div>
+      <span class="label">Posten <span class="faint">(z. B. Training, Arbeitsdienst, Überführung)</span></span>
+      ${this.items.map(
+        (it, i) => html`<div class="item">
+          <div class="name">
+            <label class="label" for="lf-in-${i}">Posten ${i + 1}</label>
+            <input id="lf-in-${i}" maxlength=${LOG_LIMITS.itemNameMax} .value=${it.name} @input=${(e: Event) => this.setItem(i, { name: (e.target as HTMLInputElement).value })} />
+          </div>
+          <div>
+            <label class="label" for="lf-ic-${i}">Anzahl</label>
+            <input id="lf-ic-${i}" inputmode="decimal" .value=${numValue(it.n)}
+              @input=${(e: Event) => this.setItem(i, { n: (e.target as HTMLInputElement).value.replace(',', '.') as unknown as number })} />
+          </div>
+          <button class="btn ghost icon" type="button" aria-label="Posten ${i + 1} entfernen" @click=${() => (this.items = this.items.filter((_, k) => k !== i))}>${icon('trash')}</button>
+          <div class="note">
+            <label class="label" for="lf-ib-${i}">Begründung <span class="faint">(optional)</span></label>
+            <input id="lf-ib-${i}" maxlength=${LOG_LIMITS.itemNoteMax} .value=${it.note ?? ''} @input=${(e: Event) => this.setItem(i, { note: (e.target as HTMLInputElement).value })} />
+          </div>
+        </div>`,
+      )}
+      ${this.items.length < LOG_LIMITS.itemsMax
+        ? html`<button class="btn small" type="button" @click=${() => (this.items = [...this.items, { name: '', n: 1 }])}>${icon('plus')} Posten</button>`
+        : ''}
+    </div>`;
+  }
+
+  /** Zusatzangaben (Konzept 27.4, F-412): Revier schaltet die Felder um (B10). */
+  private extras(log: Logbook) {
+    const area = this.area || undefined;
+    const r = log.regatta;
+    return html`<details ?open=${!!this.suggestion || !!(log.area || log.sailH != null || log.items?.length || log.regatta || log.daysAboard)}>
+      <summary>Zusatzangaben (Revier, Stunden, Posten)</summary>
+      ${this.suggestBox()}
+      <fieldset class="areas">
+        <legend class="label">Revier</legend>
+        ${(['', ...LOG_AREAS] as const).map(
+          (a) => html`<label><input type="radio" name="area" .checked=${this.area === a} @change=${() => (this.area = a)} /> ${a ? LOG_AREA_LABEL[a] : 'keine Angabe'}</label>`,
+        )}
+      </fieldset>
+      <div class="row">${this.numField('sailH', 'Unter Segel (h)', log, '3,5')} ${this.numField('engineH', 'Unter Motor (h)', log, '0,5')}</div>
+      ${this.numField('daysAboard', 'Tage an Bord', log, '1')}
+      ${fieldInArea('nightH', area)
+        ? html`<div class="row">
+            ${this.numField('nightH', 'Nachtfahrt (h)', log)}
+            <label class="check"><input type="checkbox" name="tidal" .checked=${!!log.tidal} /> Tidengewässer</label>
+          </div>`
+        : ''}
+      ${fieldInArea('locks', area)
+        ? html`<div class="row">${this.numField('locks', 'Schleusen', log)} ${this.numField('bridges', 'Brücken', log)}</div>
+            ${this.numField('mast', 'Mast gelegt/gestellt', log)}`
+        : ''}
+      <div>
+        <label class="label" for="lf-regattaName">Regatta <span class="faint">(optional)</span></label>
+        <input id="lf-regattaName" name="regattaName" maxlength=${LOG_LIMITS.regattaNameMax} placeholder="Name der Regatta" .value=${r?.name ?? ''} />
+      </div>
+      ${this.field('regattaName') || r
+        ? html`<div class="row">
+            <div><label class="label" for="lf-rp">Platz</label><input id="lf-rp" name="regattaPlace" inputmode="numeric" .value=${numValue(r?.place)} /></div>
+            <div><label class="label" for="lf-rs">Starter</label><input id="lf-rs" name="regattaStarters" inputmode="numeric" .value=${numValue(r?.starters)} /></div>
+          </div>`
+        : ''}
+      ${this.itemsBlock()}
+      <p class="hint">Alles sind deine Angaben – sie stehen im Fahrtenbuch und im Meilennachweis.</p>
+    </details>`;
+  }
+
   private form() {
     const s = this.share;
     const log = s?.log ?? {};
     const timed = !!log.timed;
+    const gpx = this.gpx;
 
     const rerender = () => this.requestUpdate();
     return html`<form @submit=${this.submit} @sx-harbor-change=${rerender} @input=${rerender}>
-      <div class="row">
-        <div>
-          <label class="label" for="lf-date">Datum</label>
-          <input id="lf-date" name="date" type="date" required .value=${s?.startedAt ? dateOf(s.startedAt) : dateOf(Date.now())} />
-        </div>
-        <div>
-          <label class="label" for="lf-time">Abfahrt <span class="faint">(optional)</span></label>
-          <input id="lf-time" name="time" type="time" .value=${s?.startedAt && timed ? timeOf(s.startedAt) : ''} />
-        </div>
-      </div>
+      ${gpx
+        ? html`<p class="muted">Datum, Uhrzeit und Strecke kommen aus dem Track. Titel und Sichtbarkeit änderst du über „Teilen“.</p>`
+        : html`<div class="row">
+            <div>
+              <label class="label" for="lf-date">Datum</label>
+              <input id="lf-date" name="date" type="date" required .value=${s?.startedAt ? dateOf(s.startedAt) : dateOf(Date.now())} />
+            </div>
+            <div>
+              <label class="label" for="lf-time">Abfahrt <span class="faint">(optional)</span></label>
+              <input id="lf-time" name="time" type="time" .value=${s?.startedAt && timed ? timeOf(s.startedAt) : ''} />
+            </div>
+          </div>`}
       <div>
         <label class="label" for="from-input">Von</label>
         <sx-harbor-picker id="from" input-id="from-input" label="Von (Starthafen)" .value=${s?.from ?? null}></sx-harbor-picker>
@@ -331,12 +538,14 @@ export class SxLogbookForm extends LitElement {
             <sx-harbor-picker id="to" input-id="to-input" label="Nach (Zielhafen)" .value=${s?.to ?? null}></sx-harbor-picker>
             ${this.positionFor('to', 'der Zielhafen')}
           </div>`}
-      <div>
-        <label class="label" for="lf-dist">Strecke (sm)${s?.distSource && s.distSource !== 'track' ? html` <span class="faint">· bisher ${DIST_SOURCE_LABEL[s.distSource]}</span>` : ''}</label>
-        <input id="lf-dist" name="dist" inputmode="decimal" placeholder="z. B. 14,2" .value=${s && s.distSource === 'stated' ? String(s.distNm).replace('.', ',') : ''} />
-        ${this.distHint()}
-      </div>
-      ${this.boats.length
+      ${gpx
+        ? ''
+        : html`<div>
+            <label class="label" for="lf-dist">Strecke (sm)${s?.distSource && s.distSource !== 'track' ? html` <span class="faint">· bisher ${DIST_SOURCE_LABEL[s.distSource]}</span>` : ''}</label>
+            <input id="lf-dist" name="dist" inputmode="decimal" placeholder="z. B. 14,2" .value=${s && s.distSource === 'stated' ? String(s.distNm).replace('.', ',') : ''} />
+            ${this.distHint()}
+          </div>`}
+      ${this.boats.length && !gpx
         ? html`<div>
             <label class="label" for="lf-boat">Boot</label>
             <select id="lf-boat" name="boat">
@@ -345,18 +554,20 @@ export class SxLogbookForm extends LitElement {
             </select>
           </div>`
         : ''}
-      <details ?open=${!!s && Object.keys(log).some((k) => k !== 'timed')}>
+      <details ?open=${!!s && !!(log.wind || log.sea || log.sails || log.berth || log.notes || (!gpx && s.endedAt))}>
         <summary>Mehr Angaben</summary>
-        <div class="row">
-          <div>
-            <label class="label" for="lf-end">Ankunft (Datum)</label>
-            <input id="lf-end" name="endDate" type="date" .value=${s?.endedAt ? dateOf(s.endedAt) : ''} />
-          </div>
-          <div>
-            <label class="label" for="lf-endt">Ankunft (Uhrzeit)</label>
-            <input id="lf-endt" name="endTime" type="time" .value=${s?.endedAt && timed ? timeOf(s.endedAt) : ''} />
-          </div>
-        </div>
+        ${gpx
+          ? ''
+          : html`<div class="row">
+              <div>
+                <label class="label" for="lf-end">Ankunft (Datum)</label>
+                <input id="lf-end" name="endDate" type="date" .value=${s?.endedAt ? dateOf(s.endedAt) : ''} />
+              </div>
+              <div>
+                <label class="label" for="lf-endt">Ankunft (Uhrzeit)</label>
+                <input id="lf-endt" name="endTime" type="time" .value=${s?.endedAt && timed ? timeOf(s.endedAt) : ''} />
+              </div>
+            </div>`}
         ${s
           ? ''
           : html`<div>
@@ -368,7 +579,7 @@ export class SxLogbookForm extends LitElement {
             </div>`}
         <div class="row">
           <div>
-            <label class="label" for="lf-bft">Wind (Bft)</label>
+            <label class="label" for="lf-bft">Wind (max. Bft)</label>
             <select id="lf-bft" name="bft">
               <option value="">–</option>
               ${Array.from({ length: LOG_LIMITS.bftMax + 1 }, (_, b) => html`<option value=${b} ?selected=${log.wind?.bft === b}>${b}</option>`)}
@@ -382,18 +593,12 @@ export class SxLogbookForm extends LitElement {
             </select>
           </div>
         </div>
-        <div class="row">
-          <div>
-            <label class="label" for="lf-sea">Seegang</label>
-            <select id="lf-sea" name="sea">
-              <option value="">–</option>
-              ${SEA_STATES.map((x) => html`<option value=${x} ?selected=${log.sea === x}>${SEA_LABEL[x]}</option>`)}
-            </select>
-          </div>
-          <div>
-            <label class="label" for="lf-eng">Motor (h)</label>
-            <input id="lf-eng" name="engineH" inputmode="decimal" placeholder="0,5" .value=${log.engineH != null ? String(log.engineH).replace('.', ',') : ''} />
-          </div>
+        <div>
+          <label class="label" for="lf-sea">Seegang</label>
+          <select id="lf-sea" name="sea">
+            <option value="">–</option>
+            ${SEA_STATES.map((x) => html`<option value=${x} ?selected=${log.sea === x}>${SEA_LABEL[x]}</option>`)}
+          </select>
         </div>
         <div>
           <label class="label" for="lf-sails">Segelführung</label>
@@ -409,16 +614,19 @@ export class SxLogbookForm extends LitElement {
           <textarea id="lf-notes" name="notes" maxlength=${LOG_LIMITS.notesMax} .value=${log.notes ?? ''}></textarea>
         </div>
       </details>
-      <div>
-        <label class="label" for="lf-title">Titel</label>
-        <input id="lf-title" name="title" maxlength="120" placeholder=${this.titleSuggestion()} .value=${s?.title ?? ''} />
-      </div>
-      <sx-visibility-picker
-        .value=${this.visibility}
-        .supporter=${this.supporter}
-        .current=${s?.visibility ?? null}
-        @sx-visibility-change=${(e: CustomEvent<{ value: Visibility }>) => (this.visibility = e.detail.value)}
-      ></sx-visibility-picker>
+      ${this.extras(log)}
+      ${gpx
+        ? ''
+        : html`<div>
+              <label class="label" for="lf-title">Titel</label>
+              <input id="lf-title" name="title" maxlength="120" placeholder=${this.titleSuggestion()} .value=${s?.title ?? ''} />
+            </div>
+            <sx-visibility-picker
+              .value=${this.visibility}
+              .supporter=${this.supporter}
+              .current=${s?.visibility ?? null}
+              @sx-visibility-change=${(e: CustomEvent<{ value: Visibility }>) => (this.visibility = e.detail.value)}
+            ></sx-visibility-picker>`}
       ${this.local || this.error ? html`<p class="error" role="alert">${this.local || this.error}</p>` : ''}
       <div class="foot">
         <span class="hint">${!s && this.used >= 0 ? `${this.used} von ${this.max} Fahrtenbuch-Einträgen in dieser Saison` : ''}</span>
@@ -433,7 +641,7 @@ export class SxLogbookForm extends LitElement {
   render() {
     return html`<dialog aria-labelledby="lf-h" @close=${this.close}>
       <header>
-        <h2 id="lf-h">${this.share ? 'Fahrtenbuch-Eintrag bearbeiten' : 'Törn ins Fahrtenbuch eintragen'}</h2>
+        <h2 id="lf-h">${this.gpx ? 'Fahrtenbuch-Angaben' : this.share ? 'Fahrtenbuch-Eintrag bearbeiten' : 'Törn ins Fahrtenbuch eintragen'}</h2>
         <button class="btn ghost icon" aria-label="Schließen" @click=${this.close}>${icon('x')}</button>
       </header>
       <div class="body">

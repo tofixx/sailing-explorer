@@ -1,6 +1,6 @@
 // Funktionale Tests: Beiträge als Grundtyp, Phase 2 (Konzept 21.12) – Plus-Knopf und „Wo steht es?“ (F-405), `/p/<id>`
 // (F-406), Ausbreitung nach oben mit „Sichtbar bis“ (F-409), Schreiben im Hafen und am Boot (F-425), Törn als Anhang
-// (F-426), „Sichtbar bis“ für Törns (F-427), Konto-Menü und Reiter „Fahrtenbuch“ (F-428), Löschkonzept (F-404).
+// (F-426), „Sichtbar bis“ für Törns (F-427), Konto-Menü (F-428; das Fahrtenbuch ist seit F-459 eine eigene Seite), Löschkonzept (F-404).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createShare, login, startWorker, type Harness } from './worker-harness';
 import { social, type Person, type StreamOut } from './social-helpers';
@@ -327,8 +327,8 @@ describe('F-427 Fahrtenbuch-Bündel und Austritt nutzen dieselbe Ziel-Funktion',
   });
 });
 
-describe('F-428 Konto-Menü und Reiter „Fahrtenbuch“', () => {
-  it('[F-428] /api/auth/me nennt Profilname und Anzeigename (ohne Profil null); „Fahrtenbuch“ = Törns im Fahrtenbuch', async () => {
+describe('F-428 Konto-Menü', () => {
+  it('[F-428] /api/auth/me nennt Profilname und Anzeigename (ohne Profil null); „Fahrtenbuch“ = Törns im Fahrtenbuch (F-459)', async () => {
     const p = await s.person({ profile: 'private', supporter: true });
     const me = await ok<{ user: { handle: string | null; displayName: string | null } }>(await s.send('GET', '/api/auth/me', p.cookie));
     expect(me.user).toMatchObject({ handle: p.handle, displayName: `Name ${p.handle}` });
@@ -340,11 +340,11 @@ describe('F-428 Konto-Menü und Reiter „Fahrtenbuch“', () => {
     const out = await s.share(p, { title: 'zählt nicht' });
     await ok(await s.send('PATCH', `/api/shares/${out.id}`, p.cookie, { logState: 'excluded' }));
     const text = await write(p, { kind: 'user' }, { body: 'Text' });
-    const list = await ok<{ items: Array<{ id: string }> }>(await s.send('GET', '/api/me/posts?area=logbook', p.cookie));
-    const ids = list.items.map((i) => i.id);
-    expect(ids).toContain(inLog.id);
-    expect(ids).not.toContain(out.id);
-    expect(ids).not.toContain(text!.id);
+    const list = await ok<{ entries: Array<{ id: string; logState: string }> }>(await s.send('GET', '/api/me/logbook', p.cookie));
+    const counted = list.entries.filter((e) => e.logState !== 'excluded').map((e) => e.id);
+    expect(counted).toContain(inLog.id);
+    expect(counted).not.toContain(out.id);
+    expect(list.entries.map((e) => e.id)).not.toContain(text!.id);
   });
 });
 
