@@ -1,5 +1,5 @@
-import { css, html } from 'lit';
-import { ENTITY_ICON, icon, type IconName } from './icons';
+import { css, html, unsafeCSS } from 'lit';
+import { ENTITY_ICON, LOGO_TILE, icon, type IconName } from './icons';
 import type { CoverRef } from '../domain/cover';
 import { linkify } from '../domain/comment-text';
 import { parseWebUrl, webUrlLabel } from '../domain/groups';
@@ -210,10 +210,6 @@ export const logbookTag = () =>
   html`<span class="logtag" title="Ohne GPS-Aufzeichnung – Strecke vom Segler angegeben">${icon('book')} Fahrtenbuch</span>`;
 
 /**
- * Seite über der Karte (F-351, Hafen- und Vereinsseite mit Ort): Hintergrund durchsichtig, der Inhalt als Tafel mit
- * Abstand oben, damit der Ort auf der Karte darüber sichtbar bleibt. Gesetzt über das Attribut `on-map`.
- */
-/**
  * Große Objekt-Kachel im Seitenkopf (F-620, F-624): `entityTile()` aus icons.ts zeichnet Verlauf und Zeichen, hier
  * Platz, Schatten und die Farben der Flächenklassen. Ecken wie die Logo-Kachel (8/32 = 25 %), damit der Schatten der
  * Form folgt. Die Kachel ist ihr eigener Hintergrund (hell wie dunkel gleich); bei erzwungenen Farben Systemfarben.
@@ -231,10 +227,10 @@ export const tileStyles = css`
     fill: none;
   }
   .tile .ink {
-    stroke: #fff;
+    stroke: ${unsafeCSS(LOGO_TILE.ink)};
   }
   .tile .dk {
-    stroke: #0b72c6;
+    stroke: ${unsafeCSS(LOGO_TILE.from)};
   }
   .tile .ink .f {
     fill: #fff;
@@ -282,6 +278,10 @@ export const tileStyles = css`
   }
 `;
 
+/**
+ * Seite über der Karte (F-351, Hafen- und Vereinsseite mit Ort): Hintergrund durchsichtig, der Inhalt als Tafel mit
+ * Abstand oben, damit der Ort auf der Karte darüber sichtbar bleibt. Gesetzt über das Attribut `on-map`.
+ */
 export const onMapStyles = css`
   :host([on-map]) {
     background: transparent;

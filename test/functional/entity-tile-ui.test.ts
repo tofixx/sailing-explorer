@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-group-page';
 import '../../src/components/sx-profile-page';
 import '../../src/components/sx-discover';
-import { ENTITY_ICON, entityTile, icon, logo } from '../../src/components/icons';
+import { ENTITY_ICON, LOGO_TILE, entityTile, icon, initial, logo } from '../../src/components/icons';
 import { tileStyles } from '../../src/components/shared';
 import type { GroupPageData } from '../../src/services/api';
 
@@ -59,7 +59,7 @@ function tileGradient(tile: SVGSVGElement) {
 }
 
 describe('Logo-Kachel für große Objekt-Icons (F-620)', () => {
-  it('[F-620] Kachel: Verlauf Havelblau → Türkis wie das Logo, Ecken 8/32, aria-hidden, eindeutige Verlauf-IDs', () => {
+  it('[F-620] Kachel: Verlauf Havelblau → Türkis wie das Logo, Ecken 8/32, aria-hidden, feste Verlauf-IDs', () => {
     const host = document.createElement('div');
     render(svg`${entityTile('pennant')}${entityTile('pennant')}`, host);
     const [a, b] = [...host.querySelectorAll('svg.sx-tile')] as SVGSVGElement[];
@@ -69,7 +69,9 @@ describe('Logo-Kachel für große Objekt-Icons (F-620)', () => {
     expect(a.getAttribute('aria-hidden')).toBe('true');
     expect(a.getAttribute('width')).toBe('72');
     const ids = (t: Element) => [...t.querySelectorAll('linearGradient')].map((g) => g.id);
-    expect(ids(a).some((id) => ids(b).includes(id))).toBe(false);
+    // alle Kacheln: dieselben Verläufe unter festen IDs (je Shadow Root gültig)
+    expect(ids(a)).toEqual(['sx-tile-bg', 'sx-tile-lt']);
+    expect(ids(b)).toEqual(ids(a));
     // gleiche Verlaufsfarben wie die Logo-Kachel
     const logoHost = document.createElement('div');
     render(logo(32, true), logoHost);
@@ -78,7 +80,7 @@ describe('Logo-Kachel für große Objekt-Icons (F-620)', () => {
 
   it('[F-620] zweifarbiges Zeichen: heller Verlauf (weiß → Mint) und weiße Flächen/Linien; Buchstabe statt Zeichen möglich', () => {
     const host = document.createElement('div');
-    render(svg`${entityTile(ENTITY_ICON.club)}${entityTile(ENTITY_ICON.team)}${entityTile('map')}${entityTile(ENTITY_ICON.user, 72, 'm')}`, host);
+    render(svg`${entityTile(ENTITY_ICON.club)}${entityTile(ENTITY_ICON.team)}${entityTile('map')}${entityTile(ENTITY_ICON.user, 72, initial('m'))}`, host);
     const [club, team, generic, letter] = [...host.querySelectorAll('svg.sx-tile')];
     for (const t of [club, team]) {
       const light = t.querySelectorAll('linearGradient')[1];
@@ -90,6 +92,27 @@ describe('Logo-Kachel für große Objekt-Icons (F-620)', () => {
     // ohne eigene Großfassung: das Linien-Icon in Weiß
     expect(generic.querySelector('g.ink path')).not.toBeNull();
     expect(letter.querySelector('text')?.textContent).toBe('M');
+  });
+  it('[F-620] Verlauf-IDs bleiben über Neu-Renders gleich; Logo-Kachel und Kachel teilen LOGO_TILE', async () => {
+    const el = await mount('sx-group-page', { data: group('club'), signedIn: true });
+    const before = [...heroTile(el)!.querySelectorAll('linearGradient')].map((g) => g.id);
+    el.data = group('team');
+    await el.updateComplete;
+    el.data = group('club');
+    await el.updateComplete;
+    const tile = heroTile(el)!;
+    expect([...tile.querySelectorAll('linearGradient')].map((g) => g.id)).toEqual(before);
+    expect(tile.querySelector('rect.bg')?.getAttribute('fill')).toBe('url(#sx-tile-bg)');
+    expect(tileGradient(tile)).toEqual([LOGO_TILE.from, LOGO_TILE.to]);
+    expect(tile.querySelector('rect.bg')?.getAttribute('rx')).toBe(String(LOGO_TILE.radius));
+  });
+
+  it('[F-620] Anfangsbuchstabe: erstes Schriftzeichen, Emoji ganz, leer → kein Buchstabe', () => {
+    expect(initial('mats')).toBe('M');
+    expect(initial('  ärmel')).toBe('Ä');
+    expect(initial('🙂 Anna')).toBe('🙂');
+    expect(initial('⛵Kiel')).toBe('⛵');
+    expect(initial('')).toBe('');
   });
 });
 
@@ -106,7 +129,7 @@ describe('Seitenköpfe zeigen die Kachel (F-621, F-622)', () => {
     expect(club.shadowRoot.querySelector('.mark')).toBeNull();
   });
 
-  it('[F-622] Boot, Hafen, Profil (Anfangsbuchstabe) und Entdecken nutzen dieselbe Kachel', async () => {
+  it('[F-622] Boot, Hafen, Beitrag, Profil (Anfangsbuchstabe, Emoji, leer) und Entdecken nutzen dieselbe Kachel', async () => {
     const b = await mount('sx-profile-page', { data: { kind: 'boat', boat, stats: { voyages: 0, distNm: 0 }, voyages: [] } });
     expect(heroTile(b)?.getAttribute('data-icon')).toBe('sail');
     const h = await mount('sx-profile-page', { data: harbor });
@@ -114,6 +137,15 @@ describe('Seitenköpfe zeigen die Kachel (F-621, F-622)', () => {
     const p = await mount('sx-profile-page', { data: { kind: 'profile', profile, boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [] } });
     expect(heroTile(p)?.getAttribute('data-icon')).toBe('letter');
     expect(heroTile(p)?.querySelector('text')?.textContent).toBe('M');
+    const post = await mount('sx-profile-page', {
+      data: { kind: 'post', item: { id: 'A1', kind: 'post', createdAt: T, actor: null, group: null, post: { id: 'P1', body: 'Hallo', link: null, canDelete: false, visibility: 'public' } }, link: { home: null, where: 'Nur mit Link' } },
+    });
+    expect(heroTile(post)?.getAttribute('data-icon')).toBe('comment');
+    const emoji = await mount('sx-profile-page', { data: { kind: 'profile', profile: { ...profile, displayName: '🙂 Anna' }, boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [] } });
+    expect(heroTile(emoji)?.querySelector('text')?.textContent).toBe('🙂');
+    const empty = await mount('sx-profile-page', { data: { kind: 'profile', profile: { ...profile, displayName: '' }, boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [] } });
+    expect(heroTile(empty)?.getAttribute('data-icon')).toBe('user');
+    expect(heroTile(empty)?.querySelector('text')).toBeNull();
     const d = await mount('sx-discover', { data: null });
     expect(heroTile(d)?.getAttribute('data-icon')).toBe('globe');
     expect(heroTile(d)?.getAttribute('width')).toBe('64');

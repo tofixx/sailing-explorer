@@ -128,6 +128,19 @@ export const ENTITY_ICON = {
 export const groupIcon = (kind: string): IconName => (kind === 'team' ? ENTITY_ICON.team : ENTITY_ICON.club);
 
 /**
+ * Farben und Form der Logo-Kachel (eine Quelle für `logo(size, true)`, `entityTile()` und `tileStyles`; das Favicon
+ * `public/favicon.svg` bleibt eine eigene Datei mit denselben Werten): Verlauf Havelblau → Türkis, heller Verlauf der
+ * Segel weiß → Mint, Kielspur, Eckenradius im 32er-Raster.
+ */
+export const LOGO_TILE = { from: '#0e6bd8', to: '#0b8fa6', light: '#b9f2ea', ink: '#fff', wake: '#9ff0e6', radius: 8 } as const;
+
+/** Verläufe der Logo-Kachel: `bg` Hintergrund, `lt` helle Segelfläche – je Shadow Root dieselben IDs, Inhalt gleich. */
+const tileGradients = (bg: string, lt: string) => svg`<defs>
+    <linearGradient id=${bg} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color=${LOGO_TILE.from}/><stop offset="1" stop-color=${LOGO_TILE.to}/></linearGradient>
+    <linearGradient id=${lt} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color=${LOGO_TILE.ink}/><stop offset="1" stop-color=${LOGO_TILE.light}/></linearGradient>
+  </defs>`;
+
+/**
  * Logo „Kielspur“ (32er-Raster): Groß- und Vorsegel mit Verlauf Havelblau → Türkis, schlichter Jollenrumpf, darunter
  * die gepunktete Spur des Törns. `tile` = Kachel wie Favicon und App-Icon (public/favicon.svg, public/icons/icon.svg),
  * sonst freies Zeichen; der Rumpf nimmt --text, damit er hell wie dunkel steht. services/share-image.ts zeichnet
@@ -137,21 +150,18 @@ export function logo(size = 32, tile = false): SVGTemplateResult {
   const wake = svg`<path d="M7 30C12 31.6 18 28.8 27 30.4" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="0.1 2.6"/>`;
   return tile
     ? svg`<svg width=${size} height=${size} viewBox="0 0 32 32" aria-hidden="true">
-        <defs>
-          <linearGradient id="sx-logo-t0" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e6bd8"/><stop offset="1" stop-color="#0b8fa6"/></linearGradient>
-          <linearGradient id="sx-logo-t1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#b9f2ea"/></linearGradient>
-        </defs>
-        <rect width="32" height="32" rx="8" fill="url(#sx-logo-t0)"/>
+        ${tileGradients('sx-logo-t0', 'sx-logo-t1')}
+        <rect width="32" height="32" rx=${LOGO_TILE.radius} fill="url(#sx-logo-t0)"/>
         <g transform="translate(2.88 2.88) scale(.82)">
           <path d="M17 3Q23.5 11 26.5 21H17z" fill="url(#sx-logo-t1)"/>
-          <path d="M15.4 6V21H6.5Q9.6 12.6 15.4 6z" fill="#fff" opacity=".8"/>
-          <path d="M4.5 23H28Q26 27.6 21.8 27.6H9.6Q5.8 27.2 4.5 23z" fill="#fff"/>
-          <g stroke="#9ff0e6">${wake}</g>
+          <path d="M15.4 6V21H6.5Q9.6 12.6 15.4 6z" fill=${LOGO_TILE.ink} opacity=".8"/>
+          <path d="M4.5 23H28Q26 27.6 21.8 27.6H9.6Q5.8 27.2 4.5 23z" fill=${LOGO_TILE.ink}/>
+          <g stroke=${LOGO_TILE.wake}>${wake}</g>
         </g>
       </svg>`
     : svg`<svg width=${size} height=${size} viewBox="0 0 32 32" aria-hidden="true">
         <defs>
-          <linearGradient id="sx-logo-m1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e6bd8"/><stop offset="1" stop-color="#22b8b0"/></linearGradient>
+          <linearGradient id="sx-logo-m1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color=${LOGO_TILE.from}/><stop offset="1" stop-color="#22b8b0"/></linearGradient>
           <linearGradient id="sx-logo-m2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5ba8f2"/><stop offset="1" stop-color="#8fe3d6"/></linearGradient>
         </defs>
         <path d="M17 3Q23.5 11 26.5 21H17z" fill="url(#sx-logo-m1)"/>
@@ -188,25 +198,27 @@ const tileGlyphs: Partial<Record<IconName, SVGTemplateResult>> = {
   comment: svg`<path class="lt" d="M4 5h16a1.8 1.8 0 0 1 1.8 1.8v9.4A1.8 1.8 0 0 1 20 18h-8.8l-4.7 3.6V18H4a1.8 1.8 0 0 1-1.8-1.8V6.8A1.8 1.8 0 0 1 4 5z"/><path class="dk" d="M7 10h10M7 13.5h6"/>`,
 };
 
-let tileSeq = 0;
+/**
+ * Anfangsbuchstabe eines Namens für die Kachel: erstes Schriftzeichen (Emoji bleibt ganz), groß nur, wenn es ein
+ * einzelnes Zeichen ist; leerer Name → '' (dann zeigt die Kachel das Personen-Icon).
+ */
+export function initial(name: string): string {
+  const first = Array.from(name.trim())[0] ?? '';
+  return first.length === 1 ? first.toUpperCase() : first;
+}
 
 /**
  * Objekt-Icon als Logo-Kachel für Seitenköpfe (F-620): `name` aus dem Icon-Set; eigene Großfassung, wo es eine gibt,
- * sonst das Linien-Icon in Weiß. `letter` zeigt statt des Zeichens einen Anfangsbuchstaben (Profil ohne Bild).
- * Verlauf-IDs je Aufruf eindeutig – funktioniert in jedem Shadow Root und auch, wenn eine andere Kachel verborgen ist.
+ * sonst das Linien-Icon in Weiß. `letter` (siehe `initial`) zeigt statt des Zeichens einen Anfangsbuchstaben.
+ * Feste Verlauf-IDs: alle Kacheln nutzen dieselben Verläufe, IDs gelten je Shadow Root – stabil über Neu-Renders.
  */
 export function entityTile(name: IconName, size = 72, letter = ''): SVGTemplateResult {
-  const n = ++tileSeq;
-  const [a, b] = [`sx-tile-a${n}`, `sx-tile-b${n}`];
   const glyph = letter
-    ? svg`<text class="sd" x="16" y="16" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="750" font-family="inherit">${letter.toUpperCase()}</text>`
+    ? svg`<text class="sd" x="16" y="16" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="750" font-family="inherit">${letter}</text>`
     : svg`<g transform="translate(3.6 3.6) scale(1.033)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${tileGlyphs[name] ?? svg`<g class="ink">${paths[name]}</g>`}</g>`;
   return svg`<svg class="sx-tile tile" data-icon=${letter ? 'letter' : name} width=${size} height=${size} viewBox="0 0 32 32" aria-hidden="true">
-    <defs>
-      <linearGradient id=${a} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e6bd8"/><stop offset="1" stop-color="#0b8fa6"/></linearGradient>
-      <linearGradient id=${b} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#b9f2ea"/></linearGradient>
-    </defs>
-    <rect class="bg" width="32" height="32" rx="8" fill="url(#${a})" stroke-width="1"/>
-    <g fill="url(#${b})">${glyph}</g>
+    ${tileGradients('sx-tile-bg', 'sx-tile-lt')}
+    <rect class="bg" width="32" height="32" rx=${LOGO_TILE.radius} fill="url(#sx-tile-bg)" stroke-width="1"/>
+    <g fill="url(#sx-tile-lt)">${glyph}</g>
   </svg>`;
 }

@@ -6,7 +6,7 @@ import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
-import { ENTITY_ICON, entityTile, groupIcon, icon } from './icons';
+import { ENTITY_ICON, entityTile, groupIcon, icon, initial } from './icons';
 import { base, emit, logbookTag, onMapStyles, pageMenuReveal, webLink, webLinkStyles, tileStyles, writePostButton } from './shared';
 import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
@@ -521,7 +521,7 @@ export class SxProfilePage extends LitElement {
       ${this.previewBanner(d)}
       <sx-cover kind="u" target-id=${p.handle} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} .heldUntil=${d.coverHeldUntil ?? null} ?can-edit=${p.isSelf} label="Titelbild von ${p.displayName}"></sx-cover>
       <header class="hero">
-        ${entityTile(ENTITY_ICON.user, 72, p.displayName.slice(0, 1))}
+        ${entityTile(ENTITY_ICON.user, 72, initial(p.displayName))}
         <div>
           <h1>${p.displayName}</h1>
           ${p.bio ? html`<div class="lead">${p.bio}</div>` : ''}
