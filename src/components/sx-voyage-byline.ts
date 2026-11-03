@@ -22,9 +22,11 @@ export class SxVoyageByline extends LitElement {
   static styles = [
     base,
     css`
+      /* Steht frei in der Seitenleiste über den Panels – gleicher Seitenabstand wie deren Inhalt (sx-panel) */
       :host {
         display: grid;
         gap: var(--s-1);
+        padding: var(--s-4) var(--s-4) 0;
       }
       p {
         margin: 0;
