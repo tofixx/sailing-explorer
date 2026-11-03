@@ -60,6 +60,14 @@ ein.
 
 | Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
 |---|---|---|---|---|
+| **Moderation 1: Titelbilder absichern** (Tageslimit, Titelbild neuer Konten bis zur Freigabe zurückhalten, Entfernen nur des Bildes) | Größte Moderationslücke: Jedes Wegwerfkonto setzt sofort ein öffentliches Banner. Erster Punkt der Gruppe, sobald Moderation drankommt | S–M | [K 35](concept/35-moderation.md) 35.1/35.3 | `worker/covers.ts`, Admin-Liste |
+| **Moderation 2: CSAM-Scanning-Tool einschalten** (Cloudflare-Dashboard, Cache-Weg prüfen) | Schutz vor dem schwersten Fall, kostenlos, ohne Code | S (Betreiber) | K 35 | Mailadresse, Ablauf bei Treffer festlegen |
+| **Moderation 3: Admin-Hinweis auf offene Meldungen** (Sammelmail im Nachtlauf, Zähler am Konto-Knopf) | Meldungen liegen heute, bis jemand nachsieht | S | K 35, F-294 | Mechanismus der Sperr-Erinnerung |
+| **Moderation 4: Melde-Gewicht und Gründe** (neue Konten zählen 0, „abgebildet“ nur bei Bildern, Grund „Kinder abgebildet“) | Drei frische Konten blenden heute alles aus | S–M | K 35, F-114 | `isNewAccount` (Konto < 7 Tage, kein Unterstützer) |
+| **Moderation 5: Textfilter** (Wortliste in D1, Normalisierung, Stufe A blocken, Stufe B zurückhalten) | Hass und Beleidigungen kommen gar nicht erst öffentlich an | M | K 35 | Wortliste vom Betreiber; ein Aufruf je Schreibweg |
+| **Moderation 6: Begründungsmail bei Meldungs-Entscheidungen** (DSA Art. 17) | Bisher nur beim Sperren (F-296) | S–M | K 35, F-296 | `lockNoticeMail` |
+| **Moderation 7: Seite „Regeln“** (Nutzungsregeln, Fristzusage, Einspruch per Mail) | Art. 14 DSA, Grundlage der Begründungen | S + Text | K 35 | Text vom Betreiber |
+| **Moderation 8: Admin-Hinweise beim Löschen** (Strafbares sperren statt löschen, Missbrauchsdarstellung nicht kopieren) | „Löschen“ in der Meldungs-Ansicht hebt den Beleg sofort auf | S | K 35, K 18.3 | – |
 | **Wertung und Jahresbericht** (Phase 9) – gebaut auf `feature/wertung` (Konzept 32), wartet auf Review | Vereins-Fahrtenpreise ohne Excel | L | [K 32](concept/32-wertung.md), K 21.6, K 21.8 | Gewichtung entschieden: Faktor je Vorlage, keine Normierung nach Mitgliederzahl (K 32.7) |
 | **Vereins- und Hafen-Challenges mit Opt-in-Rangliste** | Bindung über Wettbewerb zwischen Vereinen | M | N (Quick Wins) | Phase 9 (Opt-in-Muster). Widerspricht K6 („keine Ranglisten“), daher Entscheidung nötig |
 | **Segelschulen und Vereinsjugend mit Trainer-Rolle** | Eine neue Zielgruppe mit vielen Seglerinnen und Seglern | M–L | N (Quick Wins) | Rollenmodell (K 15, 12.12). Datenschutz Minderjährige |
@@ -83,7 +91,7 @@ ein.
 |---|---|
 | **Neuer Name** | **Entschieden 03.11.: „Luv & Leute“** (Betreiber). Umstellung in der App: `feature/name-luv-leute`. Marke (DPMA/EUIPO) und Domain prüft der Betreiber; `segeln-potsdam.de` bleibt bis dahin |
 | **`feature/supporter-badges`** (7 Commits, Stand 27.10.) | **Entschieden 03.11.: verworfen** (Stand gesichert als Tag `archiv/supporter-badges`). Begründung: und brauchbare Ideen neu aufsetzen. Die Migration `0015_paid_support.sql` kollidiert mit `0015_approvers.sql`. Gutschein (K 18.9a) und freie Eigner (K 13.5) sind inzwischen anders gelöst |
-| **`feature/moderation-konzept`** (nur `docs/MODERATION.md`) | **Entschieden 03.11.: abgleichen** auf `docs/moderation-abgleich` (Konzept 35). Vorgehen: Offene Teile (Textfilter, Vertrauensstufen, Bildprüfung) mit dem Admin-Bereich (K 18) abgleichen. Was noch fehlt, wird ein Konzept-Abschnitt mit Reservierung, der Branch wird danach gelöscht |
+| **`feature/moderation-konzept`** (nur `docs/MODERATION.md`) | **Erledigt 03.11.: abgeglichen in K 35** ([`concept/35-moderation.md`](concept/35-moderation.md)); der Rest steht unter „Später“ (Moderation 1–8), der Branch kann gelöscht werden. Ursprünglicher Auftrag: Offene Teile (Textfilter, Vertrauensstufen, Bildprüfung) mit dem Admin-Bereich (K 18) abgleichen. Was noch fehlt, wird ein Konzept-Abschnitt mit Reservierung, der Branch wird danach gelöscht |
 | **Testkonto für Abläufe mit Anmeldung in der Vorschau** | **Entschieden 03.11.: nein**, siehe Abwägung unten |
 | **Challenges vs. K6** | **Entschieden 03.11.: bei K6 bleiben** (keine Ranglisten zwischen Personen). Vereinswertung (Phase 9) zeigt die Liste nur Eignern/Admins; Challenges höchstens als persönliche Ziele bzw. Vereinssummen ohne Personen-Rangfolge. Der Eintrag unter „Später“ bleibt zurückgestellt |
 | Schwellen und Kontingente | Galerie umgesetzt mit 10/200 Fotos je Monat, 30 je Beitrag, kostenlos 25 MB (K 31). Tageszusammenfassung 150/15 und Hinweis 100 umgesetzt in `GROUP_LIMITS` (K 28) – nach dem Pilot mit echten Vereinen prüfen |

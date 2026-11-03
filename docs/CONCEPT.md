@@ -3376,3 +3376,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 31. Galerie-Beiträge: Fotos ohne Törn (Phase 7, F-490 … F-499) → [`docs/concept/31-galerie.md`](concept/31-galerie.md)
 
 ## 32. Wertung und Jahresbericht (Phase 9, F-413, F-414, F-418, F-500 … F-507) → [`docs/concept/32-wertung.md`](concept/32-wertung.md)
+
+## 35. Moderation: Abgleich des Entwurfs mit dem Gebauten (Textfilter, Vertrauensstufen, Bildprüfung, Melden, Sperren) → [`docs/concept/35-moderation.md`](concept/35-moderation.md)
