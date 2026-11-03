@@ -15,7 +15,8 @@ const PLACEMENT_TEXT = { gps: 'Ort aus dem GPS des Fotos', time: 'Ort aus der Au
  * Seite inert), ←/→ blättern, Esc schließt, danach geht der Fokus zurück. Vollbild lädt erst hier.
  * Events: `sx-photo-close`, `sx-photo-nav` { index }, `sx-photo-show` { id }, `sx-photo-hover` { id },
  * Eigentümer: `sx-photo-save` { id, caption, visibility }, `sx-photo-place` { id }, `sx-photo-delete` { id };
- * andere: `sx-report` { kind: 'photo', id, label }.
+ * andere: `sx-report` { kind: 'photo', id, label }. Modus `post` (Galerie-Beitrag, Konzept 31): ohne Ort und ohne
+ * Bearbeiten – Fotos folgen ihrem Beitrag; `isOwner` (Autor:in) zeigt dort statt „Melden“ nur „Foto löschen“.
  */
 export class SxPhotoLightbox extends LitElement {
   static properties = {
@@ -28,7 +29,10 @@ export class SxPhotoLightbox extends LitElement {
     confirm: { state: true },
     reactions: { attribute: false },
     shareKey: { attribute: false },
+    mode: { type: String },
   };
+  /** `share` (Törn-Fotos, Standard) oder `post` (Galerie-Beitrag) */
+  declare mode: 'share' | 'post';
   /** Reaktionen des angezeigten Fotos (Konzept 12.5); nur gezeigt, wenn sie zum Foto passen */
   declare reactions: ReactionValue | null;
   /** Schlüssel des Törns („Nur mit Link“) für Reaktionen */
@@ -55,6 +59,7 @@ export class SxPhotoLightbox extends LitElement {
     this.confirm = false;
     this.reactions = null;
     this.shareKey = null;
+    this.mode = 'share';
   }
 
   static styles = [
@@ -212,6 +217,20 @@ export class SxPhotoLightbox extends LitElement {
     `;
   }
 
+  /**
+   * Galerie-Beitrag (Konzept 31): die Autor:in löscht einzelne Fotos; das letzte geht nur mit dem Beitrag (sonst bliebe
+   * eine leere Karte).
+   */
+  private postOwnerTools(p: PhotoView) {
+    if (this.photos.length < 2) return html`<p class="hint">Das letzte Foto löschst du zusammen mit dem Beitrag.</p>`;
+    return html`<div class="row"><span class="spacer"></span>
+      ${this.confirm
+        ? html`<button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => emit(this, 'sx-photo-delete', { id: p.id })}>${icon('trash')} Endgültig löschen</button>
+            <button class="btn small" type="button" @click=${() => (this.confirm = false)}>Abbrechen</button>`
+        : html`<button class="btn small ghost danger" type="button" ?disabled=${this.busy} @click=${() => (this.confirm = true)}>${icon('trash')} Foto löschen</button>`}
+    </div>`;
+  }
+
   render() {
     // Vollbild erst laden, wenn die Lightbox offen ist (Konzept 3.3).
     const p = this.open ? this.photo : null;
@@ -233,9 +252,11 @@ export class SxPhotoLightbox extends LitElement {
                 </div>
                 <figcaption>
                   ${p.caption ? html`<span>${p.caption}</span>` : ''}
-                  <span class="meta num">
-                    ${p.takenAt !== null ? fmtDateTime(p.takenAt) : 'Aufnahmezeit unbekannt'} · ${PLACEMENT_TEXT[p.placement]}
-                  </span>
+                  ${this.mode === 'post'
+                    ? p.takenAt !== null ? html`<span class="meta num">${fmtDateTime(p.takenAt)}</span>` : ''
+                    : html`<span class="meta num">
+                        ${p.takenAt !== null ? fmtDateTime(p.takenAt) : 'Aufnahmezeit unbekannt'} · ${PLACEMENT_TEXT[p.placement]}
+                      </span>`}
                 </figcaption>
               </figure>
               <div class="row">
@@ -250,7 +271,7 @@ export class SxPhotoLightbox extends LitElement {
                     </button>`
                   : ''}
               </div>
-              ${this.isOwner ? this.ownerTools(p) : ''}
+              ${this.isOwner ? (this.mode === 'share' ? this.ownerTools(p) : this.postOwnerTools(p)) : ''}
               ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}`
           : html`<p class="muted">Dieses Foto gibt es nicht mehr.</p>`}
       </div>

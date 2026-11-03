@@ -1,7 +1,7 @@
 // Beiträge als Grundtyp (Konzept 21): „Mein Verlauf“ auf der eigenen Seite laden und blättern (F-401) – die alte Adresse
 // des Fahrtenbuch-Reiters (`?bereich=fahrtenbuch`) führt auf `/konto/fahrtenbuch` (F-459) –, Sichtbarkeit und „Sichtbar bis“ ändern (F-409), eigene Beiträge und Törns löschen (F-404), „Ins Fahrtenbuch“
 // schalten (F-422) und „Ansehen als …“ (F-423). Die Komponenten melden nur Absichten.
-import { api, postApi } from '../services/api';
+import { api, photoApi, postApi } from '../services/api';
 import type { SxProfilePage } from '../components/sx-profile-page';
 import type { MyPostArea, PostKind, PostVisibility, ProfilePreview, Reach } from '../domain/posts';
 import type { LogState } from '../domain/logbook';
@@ -63,6 +63,14 @@ export class PostsController {
     const voyage = kind === 'voyage' || kind === 'logbook';
     if (!confirm(voyage ? 'Diesen Törn samt Fotos und Kommentaren löschen?' : 'Diesen Beitrag löschen?')) return;
     if (await this.run(() => postApi.remove(id), voyage ? 'Törn gelöscht' : 'Beitrag gelöscht')) await this.refresh();
+  }
+
+  /**
+   * Einzelnes Foto eines eigenen Galerie-Beitrags löschen (Konzept 31, F-494) – aus der Großansicht der Karte (Stream,
+   * „Mein Verlauf“); die Karte nimmt das Foto danach selbst heraus.
+   */
+  async removeGalleryPhoto(id: string, card: { removePhoto(id: string): void }): Promise<void> {
+    if (await this.run(() => photoApi.remove(id), 'Foto gelöscht')) card.removePhoto(id);
   }
 
   /** „Ins Fahrtenbuch“ an/aus bzw. bestätigen – danach Liste und Kennzahlen neu. */

@@ -12,6 +12,7 @@ import { boatCleanup, recordHarborBoat } from './activity';
 import { harborFromBoatInput, type HarborRow } from './harbors';
 import { followStats } from './follows';
 import { loadCover, pageCover, removeCoverOf } from './covers';
+import { channelGalleryCleanup } from './photo-keys';
 import { galleryPhotos } from './gallery';
 import { checkBoatQuota, checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
@@ -284,6 +285,8 @@ export async function deleteBoat(request: Request, env: Env, id: string): Promis
 export async function removeBoat(env: Env, id: string): Promise<void> {
   await removeCoverOf(env, 'b', id);
   await env.DB.batch([
+    // Galerie-Fotos der Beiträge im Boots-Verlauf (Konzept 31, F-494) vor boatCleanup
+    ...(await channelGalleryCleanup(env, 'boat', id)),
     ...boatCleanup(env, id),
     // Ohne Boot gilt keine Bestätigung des Skippers mehr (Konzept 15) – vor dem Lösen der Zuordnung.
     ...clearBoatConfirmations(env, '= ?', id),

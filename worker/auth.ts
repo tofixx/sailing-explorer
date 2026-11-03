@@ -5,7 +5,7 @@ import { HttpError, clientIp, json, rateLimit, readJson } from './http';
 import { magicLinkMail, sendMail } from './mail';
 import { subtractUserStmt } from './storage';
 import { isAdmin, ownsLockedSql, purgeUserReports } from './moderation';
-import { deleteKeys, photoKeysForUser, shareFileKeys } from './photo-keys';
+import { deleteKeys, galleryPhotoCleanup, photoKeysForUser, shareFileKeys } from './photo-keys';
 import { boatCleanup, userActivityCleanup } from './activity';
 import { purgeUserGroups } from './groups';
 import { clearBoatConfirmations } from './crew-cleanup';
@@ -268,6 +268,13 @@ export async function deleteAccount(request: Request, env: Env): Promise<Respons
 export async function purgeUser(env: Env, user: User): Promise<void> {
   const { results } = await env.DB.prepare('SELECT id FROM shares WHERE user_id = ?').bind(user.id).all<{ id: string }>();
   await deleteKeys(env, [...results.flatMap((r) => shareFileKeys(r.id)), ...(await photoKeysForUser(env, user.id))]);
+  // Galerie-Fotos eigener Beiträge und fremder Beiträge an eigenen Booten (Konzept 31, F-494): Zähler und Zeilen,
+  // bevor die Beiträge fallen (subtractUserStmt sähe Fotos, die schon per Kaskade weg sind, nicht mehr)
+  const galleryStmts = await galleryPhotoCleanup(
+    env,
+    `SELECT id FROM posts WHERE author_id = ?1 OR (channel_kind = 'boat' AND channel_id IN (SELECT id FROM boats WHERE owner_id = ?1))`,
+    user.id,
+  );
   // Vereine und Teams (Konzept 11.9): eigene Gruppen an den dienstältesten Admin übergeben bzw. löschen.
   const groupStmts = await purgeUserGroups(env, user.id);
   const { results: boats } = await env.DB.prepare('SELECT id FROM boats WHERE owner_id = ?').bind(user.id).all<{ id: string }>();
@@ -275,6 +282,7 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
   await removeCoverOf(env, 'u', user.id);
   for (const b of boats) await removeCoverOf(env, 'b', b.id);
   await env.DB.batch([
+    ...galleryStmts,
     // Neuigkeiten: Aktivitäten des Kontos und seiner Törns, Folgen in beide Richtungen, Beiträge, Mitgliedschaften,
     // Anfragen, Boote in Gruppen – vor dem Löschen der Törns, Boote und des Kontos.
     ...userActivityCleanup(env, user.id),
@@ -291,6 +299,8 @@ export async function purgeUser(env: Env, user: User): Promise<void> {
     env.DB.prepare('DELETE FROM comment_log WHERE user_id = ?').bind(user.id),
     // Fotos (Phase C): Dateien sind oben schon weg, Bytes zieht subtractUserStmt ab.
     env.DB.prepare('DELETE FROM photos WHERE user_id = ?').bind(user.id),
+    // Monatszähler der Galerie (fiele auch per ON DELETE CASCADE)
+    env.DB.prepare('DELETE FROM photo_log WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM shares WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM login_tokens WHERE email = ?').bind(user.email),

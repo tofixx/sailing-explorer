@@ -13,6 +13,7 @@ const KINDS: Array<{ kind: ComposeKind; icon: IconName; label: string; hint: str
   { kind: 'logbook', icon: 'book', label: 'Fahrtenbuch-Eintrag', hint: 'Törn ohne Track eintragen' },
   { kind: 'text', icon: 'comment', label: 'Text', hint: 'Beitrag in Profil, Gruppe, Hafen oder Boot' },
   { kind: 'poll', icon: 'poll', label: 'Umfrage', hint: 'Frage mit Antworten zum Abstimmen' },
+  { kind: 'gallery', icon: 'camera', label: 'Fotos', hint: 'Fotos ohne Törn, z. B. vom Vereinsfest' },
 ];
 
 /**

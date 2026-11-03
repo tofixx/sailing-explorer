@@ -87,8 +87,10 @@ export const notifyComment = (env: Env, shareId: string, actorId: string) =>
 export async function notifyReaction(env: Env, subject: 'share' | 'photo' | 'post' | 'activity', id: string, actorId: string): Promise<void> {
   await safely('reaction', async () => {
     if (subject === 'photo') {
-      const p = await env.DB.prepare('SELECT share_id FROM photos WHERE id = ?').bind(id).first<{ share_id: string }>();
-      if (p) await deliver(env, 'reaction', 'share', p.share_id, actorId, 'SELECT user_id AS uid FROM shares WHERE id = ?3');
+      const p = await env.DB.prepare('SELECT share_id, post_id FROM photos WHERE id = ?').bind(id).first<{ share_id: string | null; post_id: string | null }>();
+      if (p?.share_id) await deliver(env, 'reaction', 'share', p.share_id, actorId, 'SELECT user_id AS uid FROM shares WHERE id = ?3');
+      // Galerie-Foto (Konzept 31): Gegenstand ist der Beitrag, Empfänger:in seine Autor:in
+      else if (p?.post_id) await deliver(env, 'reaction', 'post', p.post_id, actorId, 'SELECT author_id AS uid FROM posts WHERE id = ?3');
       return;
     }
     const owner =

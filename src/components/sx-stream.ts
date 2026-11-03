@@ -8,6 +8,7 @@ import { icon, type IconName } from './icons';
 import { POST_KIND_ICON, base, coverBanner, coverBannerStyles, emit, highlightStyles, linkedText, logbookTag, revealCard } from './shared';
 import './sx-reactions';
 import './sx-poll';
+import './sx-gallery-post';
 import { postKeyOf } from '../domain/posts';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
@@ -415,6 +416,7 @@ export class SxStream extends LitElement {
   private kindPayload(p: NonNullable<StreamItem['post']>) {
     const key = postKeyOf(p.path);
     if (p.poll) return html`<sx-poll .poll=${p.poll} post-id=${p.id} .shareKey=${key}></sx-poll>`;
+    if (p.gallery) return html`<sx-gallery-post .photos=${p.gallery.photos} .postKey=${key} ?own=${!!p.gallery.own}></sx-gallery-post>`;
     return nothing;
   }
 

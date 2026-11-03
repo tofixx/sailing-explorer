@@ -72,6 +72,38 @@ export function photoLimitMessage(v: Exclude<QuotaVerdict, 'ok'>, supportOffered
   return 'Fotos gibt es nur für Unterstützer.' + (supportOffered ? ' Unterstütze Sail Explorer mit einem Kaffee oder Bier, um Fotos zu deinen Törns hochzuladen.' : '');
 }
 
+// ---------------------------------------------------------------- Galerie-Beiträge (Konzept 31, B5)
+
+/**
+ * Fotos ohne Törn (`posts.kind = 'gallery'`) für alle: je Kalendermonat (UTC, wie die Saison) kostenlos 10,
+ * Unterstützer 200 – gezählt in `photo_log`, gelöschte geben nicht frei; je Beitrag höchstens 30; kostenlos höchstens
+ * 25 MB Galerie-Fotos. Speicher gemeinsam mit Törns und Törn-Fotos, Notbremse gilt.
+ */
+export const GALLERY_LIMITS = {
+  perMonth: { free: 10, supporter: 200 },
+  perPost: 30,
+  freeBytes: 25 * MB,
+} as const;
+
+/** Beginn des Kalendermonats (UTC) eines Zeitpunkts in ms. */
+export function monthStart(t: number): number {
+  const d = new Date(t);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+}
+
+/** Darf zu `usedThisMonth` Galerie-Fotos ein weiteres dazukommen? 402, wenn Unterstützen hilft, sonst 409. */
+export const galleryVerdict = (supporter: boolean, usedThisMonth: number): QuotaVerdict => {
+  if (usedThisMonth + 1 <= GALLERY_LIMITS.perMonth[supporter ? 'supporter' : 'free']) return 'ok';
+  return !supporter ? 'supporter_required' : 'quota';
+};
+
+/** Meldung, wenn diesen Monat kein Galerie-Foto mehr geht – gleicher Wortlaut wie der Server. */
+export function galleryLimitMessage(v: Exclude<QuotaVerdict, 'ok'>, supportOffered: boolean): string {
+  const { free, supporter } = GALLERY_LIMITS.perMonth;
+  if (v === 'quota') return `Höchstens ${supporter} Fotos je Monat – im nächsten Monat geht es weiter.`;
+  return `Kostenlos kannst du ${free} Fotos je Monat zeigen – im nächsten Monat geht es weiter.` + (supportOffered ? ` Als Unterstützer sind es bis zu ${supporter}.` : '');
+}
+
 // ---------------------------------------------------------------- Titelbilder (Konzept 13.2)
 
 /**

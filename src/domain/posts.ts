@@ -21,16 +21,19 @@ export const isPostKind = oneOf(POST_KINDS);
 
 /**
  * Arten, die man im Beitragsdialog anlegt (Konzept 21.4, 29), mit ihren Grenzen – genutzt vom Formular (`KIND_FORMS`)
- * und vom Worker (`COMPOSE_KINDS`). `plain`: nur Text, kein Link und kein angehängter Törn. Neue Arten: eine Zeile.
+ * und vom Worker (`COMPOSE_KINDS`). `plain`: nur Text, kein Link und kein angehängter Törn; `bodyOptional`: Text darf
+ * leer bleiben (Galerie). Neue Arten: eine Zeile.
  */
 export const COMPOSE_LIMITS = {
   text: { bodyMax: POST_MAX, plain: false },
   poll: { bodyMax: POLL_LIMITS.question, plain: true },
+  // Galerie (Konzept 31): Text optional, Fotos folgen über POST /api/posts/:id/photos
+  gallery: { bodyMax: POST_MAX, plain: false, bodyOptional: true },
 } as const;
 export type ComposePostKind = keyof typeof COMPOSE_LIMITS;
 
 /** Name der Art in Links und Überschriften („Umfrage öffnen“). */
-export const POST_KIND_LABEL: Partial<Record<PostKind, string>> = { poll: 'Umfrage' };
+export const POST_KIND_LABEL: Partial<Record<PostKind, string>> = { poll: 'Umfrage', gallery: 'Fotos' };
 
 /**
  * Bringt die Art eine eigene Nutzlast mit, die nur die Stream-Karte zeigt (Umfrage …)? Dann verlinken Profil und „Mein
@@ -374,6 +377,22 @@ export interface MyPost {
   attached?: { id: string; title: string } | null;
   /** im eigenen Profil angepinnt (F-403) */
   pinned?: boolean;
+}
+
+/** Foto eines Galerie-Beitrags (Konzept 31, F-492) – ohne Ort, Sichtbarkeit wie der Beitrag. */
+export interface PostPhoto {
+  id: string;
+  width: number;
+  height: number;
+  caption: string;
+  takenAt: number | null;
+}
+
+/** Galerie-Kontingent für das Formular (F-493): diesen Monat genutzt, Grenze, Fotos je Beitrag. */
+export interface GalleryQuota {
+  used: number;
+  max: number;
+  perPost: number;
 }
 
 /** Ein Verlauf, in den das Konto schreiben darf (F-405): „Wo steht es?“ mit Stufen und Kette. */

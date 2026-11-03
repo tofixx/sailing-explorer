@@ -52,12 +52,14 @@ export const TABLES: Record<string, Loeschweg> = {
   comments: { cascade: ['shares', 'users'], durch: ['removeComment', 'purgeUser'] },
   comment_log: { cascade: ['users'], durch: ['purgeUser'], nachts: 'nach 24 h' },
   reports: { durch: ['deleteShareReports', 'purgeUserReports', 'removePost', 'removeBoat', 'removeGroup', 'removeHarbor'], nachts: 'Waisen, entschiedene nach 180 Tagen (offene anonymisiert)' },
-  photos: { cascade: ['shares', 'users'], durch: ['removePhoto', 'removeShare', 'purgeUser'] },
+  // Törn-Fotos mit dem Törn, Galerie-Fotos (Konzept 31) mit dem Beitrag – Dateien und Zähler vorher galleryPhotoCleanup
+  photos: { cascade: ['shares', 'users', 'posts'], durch: ['removePhoto', 'removeShare', 'purgeUser', 'removePost', 'galleryPhotoCleanup', 'channelGalleryCleanup'] },
+  photo_log: { cascade: ['users'], durch: ['purgeUser', 'mergeUsers'], nachts: 'nach 32 Tagen (photoLogCleanup)' },
   groups: { cascade: ['users'], durch: ['removeGroup', 'purgeUserGroups'] },
   group_members: { cascade: ['groups', 'users'], durch: ['leaveGroupStmts', 'removeGroup', 'purgeUserGroups', 'mergeUsers'] },
   group_requests: { cascade: ['groups', 'users'], durch: ['withdrawRequest', 'removeGroup', 'purgeUserGroups'], nachts: 'nach 90 Tagen' },
   group_boats: { cascade: ['groups', 'boats'], durch: ['removeGroupBoat', 'boatCleanup', 'removeGroup', 'purgeUserGroups'] },
-  posts: { cascade: ['shares', 'groups', 'users'], durch: ['removePost', 'removeGroup', 'channelPostsCleanup', 'purgeUserGroups'] },
+  posts: { cascade: ['shares', 'groups', 'users'], durch: ['removePost', 'removeGroup', 'channelPostsCleanup', 'purgeUserGroups'], nachts: 'Galerie ohne Foto nach 24 h (emptyGalleries → removePost)' },
   post_log: { durch: ['groupActivityCleanup', 'channelPostsCleanup', 'purgeUserGroups'], nachts: 'nach 24 h' },
   follows: { cascade: ['users'], durch: ['boatCleanup', 'groupActivityCleanup', 'harborActivityCleanup', 'userActivityCleanup'], nachts: 'Waisen' },
   activity: {
@@ -112,7 +114,7 @@ export const KIND_COLUMNS: Record<string, Partial<Record<string, ArtWeg>> | { bl
   'reactions.subject_kind': {
     share: all(['deleteShareReactions', 'userReactionCleanup']),
     post: all(['deletePostReactions', 'deleteGroupReactions', 'channelPostsCleanup', 'userReactionCleanup']),
-    photo: all(['deletePhotoReactions', 'deleteShareReactions', 'userReactionCleanup']),
+    photo: all(['deletePhotoReactions', 'deleteShareReactions', 'galleryPhotoCleanup', 'userReactionCleanup']),
     activity: all(['deleteShareReactions', 'deleteGroupReactions', 'deleteBoatReactions', 'harborActivityCleanup', 'removePost', 'userReactionCleanup']),
   } satisfies Arten<ReactionSubject>,
   'notifications.subject_kind': {
@@ -165,7 +167,7 @@ export const KIND_COLUMNS: Record<string, Partial<Record<string, ArtWeg>> | { bl
   'reports.target_kind': {
     share: all(['deleteShareReports', 'purgeUserReports']),
     comment: all(['removeComment', 'deleteShareReports', 'purgeUserReports']),
-    photo: all(['removePhoto', 'deleteShareReports', 'purgeUserReports']),
+    photo: all(['removePhoto', 'deleteShareReports', 'galleryPhotoCleanup', 'purgeUserReports']),
     profile: all(['purgeUserReports', 'mergeUsers']),
     boat: all(['removeBoat', 'purgeUserReports']),
     group: all(['removeGroup']),
@@ -191,7 +193,11 @@ export const KIND_COLUMNS: Record<string, Partial<Record<string, ArtWeg>> | { bl
 export const R2_PREFIXES: Record<string, { key: Fn; weg: Loeschweg }> = {
   'shares/': { key: 'shareKey', weg: { durch: ['removeShare', 'purgeUser'], nachts: 'mit dem Törn (Aufbewahrung)' } },
   'previews/': { key: 'previewKey', weg: { durch: ['removeShare', 'purgeUser'], nachts: 'mit dem Törn (Aufbewahrung)' } },
-  'photos/': { key: 'photoKey', weg: { durch: ['removePhoto', 'removeShare', 'purgeUser'], nachts: 'mit dem Törn (Aufbewahrung)' } },
+  // photos/<shareId>/… bzw. photos/<postId>/… (Galerie, Konzept 31)
+  'photos/': {
+    key: 'photoKey',
+    weg: { durch: ['removePhoto', 'removeShare', 'purgeUser', 'removePost', 'galleryPhotoCleanup', 'channelGalleryCleanup', 'removeGroup'], nachts: 'mit dem Törn (Aufbewahrung) bzw. dem leeren Galerie-Beitrag' },
+  },
   'covers/': { key: 'coverKey', weg: { durch: ['removeCoverOf'], nachts: 'Waisen (sweepOrphanCovers)' } },
 };
 

@@ -5,6 +5,7 @@ import {
   setMemberRole, transferGroup, muteGroup, updateGroup, withdrawRequest,
 } from './groups';
 import { inviteGroup } from './invites';
+import { uploadPostPhoto } from './post-photos';
 import { createChannelPost, createPost, createProfilePost, deletePost, getCompose, getPost, listMyPosts, updatePost } from './posts';
 import { listPins, setPin } from './pins';
 import { getComposeAudience } from './compose-audience';
@@ -54,6 +55,8 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   ['POST', new RegExp(`^/api/posts/${ID}/close$`), (r, env, [id]) => closePoll(r, env, id)],
   ['GET', new RegExp(`^/api/posts/${ID}/poll$`), (r, env, [id]) => getPoll(r, env, id)],
   ['POST', /^\/api\/posts$/, (r, env) => createChannelPost(r, env)],
+  // Phase 7 (Konzept 31): Fotos eines Galerie-Beitrags
+  ['POST', new RegExp(`^/api/posts/${ID}/photos$`), (r, env, [id]) => uploadPostPhoto(r, env, id)],
   ['GET', /^\/api\/me\/compose$/, (r, env) => getCompose(r, env)],
   ['GET', /^\/api\/me\/compose\/audience$/, (r, env) => getComposeAudience(r, env)],
   ['GET', new RegExp(`^/api/boats/${ID}/stream$`), (r, env, [id]) => boatStream(r, env, id)],

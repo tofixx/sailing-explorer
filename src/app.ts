@@ -9,6 +9,7 @@ import { MAP_STYLES, type MapStyleId } from './domain/map-style';
 import { ApiError, api, coverApi, type CoverKind, type PageMedia, type ShareMeta } from './services/api';
 import { PhotoError, processCover } from './services/photo-process';
 import type { SxCover } from './components/sx-page-media';
+import type { SxGalleryPost } from './components/sx-gallery-post';
 import { Store, initialState, visibleTracks, type HoverSource, type Layers, type State } from './services/store';
 import { LOGBOOK_PATH, parseRoute, routePath, serializeView } from './services/url-state';
 import { SessionController, errorText } from './controllers/session';
@@ -830,6 +831,8 @@ export class App {
     on('sx-my-posts-more', () => po.load(true));
     on<{ id: string; visibility: PostVisibility; reach: Reach }>('sx-my-post-update', (d) => po.update(d.id, { visibility: d.visibility, reach: d.reach }));
     on<{ id: string; kind: PostKind }>('sx-my-post-delete', (d) => po.remove(d.id, d.kind));
+    // Galerie (Konzept 31): einzelnes Foto aus der Großansicht der Karte
+    on<{ id: string }>('sx-gallery-photo-delete', (d, e) => po.removeGalleryPhoto(d.id, e.composedPath()[0] as SxGalleryPost));
     on<{ id: string; logState: LogState }>('sx-log-state', (d) => po.setLogState(d.id, d.logState));
     on<{ preview: ProfilePreview | null }>('sx-profile-preview', (d) => po.preview(d.preview));
     // Törn umbenennen (F-424): aus „Mein Verlauf“ über den PostsController, sonst wie Konto → Freigaben

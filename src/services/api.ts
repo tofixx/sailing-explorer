@@ -21,7 +21,7 @@ import type { VoyageRole } from '../domain/crew-roles';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 import type { NotificationItem, NotificationKind, NotifyLevel, NotifyPrefs } from '../domain/notifications';
 import type { DistSource, LatLon, LogState, Logbook, ShareSource } from '../domain/logbook';
-import { previewParam, type AttachableShare, type ChannelKind, type ComposeTarget, type MyPost, type MyPostArea, type PostBy, type PostLink, type PostVisibility, type PreviewOptions, type ProfilePost, type ProfilePreview, type Reach } from '../domain/posts';
+import { previewParam, type AttachableShare, type ChannelKind, type ComposeTarget, type GalleryQuota, type MyPost, type MyPostArea, type PostBy, type PostLink, type PostPhoto, type PostVisibility, type PreviewOptions, type ProfilePost, type ProfilePreview, type Reach } from '../domain/posts';
 
 export type { Visibility };
 
@@ -744,9 +744,14 @@ export const photoImageUrl = (id: string, size: 't' | 'f', key?: string | null):
  * Upload-Fortschritt messbar ist (fetch kennt keinen Upload-Fortschritt).
  */
 function uploadPhotoXhr(shareId: string, thumb: Blob, full: Blob, meta: PhotoMeta, onProgress?: (fraction: number) => void): Promise<{ photo: Photo }> {
+  return sendPhotoXhr(`/api/shares/${encodeURIComponent(shareId)}/photos`, thumb, full, meta, onProgress);
+}
+
+/** Gemeinsamer Upload für Törn- und Galerie-Fotos (Konzept 31): gleiche Header, gleiche Fehler. */
+function sendPhotoXhr<T>(url: string, thumb: Blob, full: Blob, meta: object, onProgress?: (fraction: number) => void): Promise<{ photo: T }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `/api/shares/${encodeURIComponent(shareId)}/photos`);
+    xhr.open('POST', url);
     xhr.withCredentials = true;
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.setRequestHeader('X-Photo-Thumb-Length', String(thumb.size));
@@ -754,7 +759,7 @@ function uploadPhotoXhr(shareId: string, thumb: Blob, full: Blob, meta: PhotoMet
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     xhr.onerror = () => reject(new ApiError(0, 'offline', 'Server nicht erreichbar.'));
     xhr.onload = () => {
-      let body: { photo?: Photo; error?: string; message?: string } = {};
+      let body: { photo?: T; error?: string; message?: string } = {};
       try {
         body = JSON.parse(xhr.responseText) as typeof body;
       } catch {
@@ -1229,6 +1234,8 @@ export interface PostInput {
   kind?: ComposePostKind;
   /** Nutzlast einer Umfrage (`kind: 'poll'`) */
   poll?: PollConfig;
+  /** Galerie (`kind: 'gallery'`, Konzept 31): gewählte Fotos – lädt der ComposeController nach dem Anlegen hoch, nie im JSON */
+  gallery?: File[];
   body: string;
   link: string;
   visibility: PostVisibility;
@@ -1247,6 +1254,8 @@ export interface ComposeData {
   preselect: string | null;
   shares: AttachableShare[];
   supporter: boolean;
+  /** Galerie-Kontingent (Konzept 31) – fehlt bei älteren Servern */
+  gallery?: GalleryQuota;
 }
 
 /** Neu angelegter Beitrag – mit Link zur Karte und Seite des Heimatverlaufs */
@@ -1303,4 +1312,7 @@ export const postApi = {
   closePoll: (id: string) => call<{ poll: PollView }>(`/api/posts/${encodeURIComponent(id)}/close`, { method: 'POST' }),
   /** Stand einer Umfrage mit Namen je Antwort (nur namentlich und mit sichtbarem Ergebnis) */
   poll: (id: string, key?: string | null) => call<{ poll: PollView; people: PollPeople[] | null }>(`/api/posts/${encodeURIComponent(id)}/poll`, keyInit(key)),
+  /** ein Foto zum eigenen Galerie-Beitrag (Konzept 31) – Fortschritt wie bei Törn-Fotos */
+  uploadPhoto: (id: string, thumb: Blob, full: Blob, onProgress?: (fraction: number) => void) =>
+    sendPhotoXhr<PostPhoto>(`/api/posts/${encodeURIComponent(id)}/photos`, thumb, full, { caption: '' }, onProgress),
 };

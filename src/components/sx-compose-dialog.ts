@@ -1,10 +1,11 @@
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from 'lit';
-import { COMPOSE_LIMITS, POST_VISIBILITY_CHOICE, type ComposePostKind, channelKey, channelName, type AttachableShare, type ComposeTarget, type PostVisibility, defaultPostVisibility } from '../domain/posts';
+import { COMPOSE_LIMITS, POST_VISIBILITY_CHOICE, type ComposePostKind, channelKey, channelName, type AttachableShare, type ComposeTarget, type GalleryQuota, type PostVisibility, defaultPostVisibility } from '../domain/posts';
 import type { Audience } from '../domain/large-groups';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import './sx-post-composer';
 import './sx-poll-form';
+import './sx-gallery-picker';
 import type { SxPostComposer } from './sx-post-composer';
 
 /**
@@ -17,11 +18,16 @@ interface KindForm {
   label: string;
   placeholder: string;
   hint: string;
-  part?: () => TemplateResult;
+  /** Formularteil; bekommt den Dialog (z. B. das Galerie-Kontingent) */
+  part?: (d: SxComposeDialog) => TemplateResult;
 }
 const KIND_FORMS: Record<ComposePostKind, KindForm> = {
   text: { title: 'Neuer Beitrag', label: 'Text', placeholder: 'Was gibt es Neues?', hint: 'Höchstens 5 Beiträge pro Tag und Verlauf. Reiner Text, Links werden klickbar.' },
   poll: { title: 'Neue Umfrage', label: 'Frage', placeholder: 'Wer segelt am Mittwoch?', hint: 'Zählt als Beitrag: höchstens 5 pro Tag und Verlauf.', part: () => html`<sx-poll-form></sx-poll-form>` },
+  gallery: {
+    title: 'Neue Fotos', label: 'Text (optional)', placeholder: 'Worum geht es?', hint: 'Zählt als Beitrag: höchstens 5 pro Tag und Verlauf.',
+    part: (d) => html`<sx-gallery-picker .quota=${d.gallery} ?busy=${d.busy}></sx-gallery-picker>`,
+  },
 };
 
 /** Erklärung je Stufe „Wer sieht es“ – unabhängig vom Verlauf formuliert. */
@@ -55,7 +61,12 @@ export class SxComposeDialog extends LitElement {
     /** Art des Beitrags (Text, Umfrage) */
     kind: { type: String },
     payload: { state: true },
+    /** Galerie (Konzept 31): Kontingent dieses Monats und Fortschritt beim Hochladen („Foto 2 von 5 …“) */
+    gallery: { attribute: false },
+    progress: { type: String },
   };
+  declare gallery: GalleryQuota | null;
+  declare progress: string;
   declare kind: ComposePostKind;
   /** Nutzlast des Formularteils (`sx-payload`); null = unvollständig */
   declare payload: unknown;
@@ -80,6 +91,8 @@ export class SxComposeDialog extends LitElement {
     this.audience = null;
     this.kind = 'text';
     this.payload = null;
+    this.gallery = null;
+    this.progress = '';
   }
 
   static styles = [
@@ -150,7 +163,7 @@ export class SxComposeDialog extends LitElement {
                 </select></label>
               ${t
                 ? html`<sx-post-composer label=${f.label} placeholder=${f.placeholder} max=${COMPOSE_LIMITS[this.kind].bodyMax} ?plain=${COMPOSE_LIMITS[this.kind].plain} .ready=${!f.part || !!this.payload}
-                    ?busy=${this.busy} .choices=${t.choices} preset=${defaultPostVisibility(t.ref.kind)} .reaches=${t.reaches} .shares=${this.shares}
+                    ?busy=${this.busy} ?optional=${'bodyOptional' in COMPOSE_LIMITS[this.kind]} .choices=${t.choices} preset=${defaultPostVisibility(t.ref.kind)} .reaches=${t.reaches} .shares=${this.shares}
                     .audience=${this.audience} .smaller=${this.smaller(t)} @sx-compose-pick=${(e: CustomEvent<{ key: string }>) => this.pick(e.detail.key)}
                     hint=${f.hint}
                     .choiceHints=${Object.fromEntries(t.choices.map((v) => [v, `${POST_VISIBILITY_CHOICE[v]}: ${HINT[v]}`]))}
@@ -158,8 +171,9 @@ export class SxComposeDialog extends LitElement {
                     @sx-payload=${(e: CustomEvent<{ value: unknown }>) => {
                       e.stopPropagation();
                       this.payload = e.detail.value;
-                    }}>${f.part?.() ?? ''}</sx-post-composer>`
+                    }}>${f.part?.(this) ?? ''}</sx-post-composer>`
                 : ''}`}
+        ${this.progress ? html`<p class="hint" role="status">${this.progress}</p>` : ''}
         ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
       </div>
     </dialog>`;

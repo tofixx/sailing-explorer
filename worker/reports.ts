@@ -209,16 +209,17 @@ async function preview(env: Env, kind: ReportKind, id: string) {
   }
   if (kind === 'photo') {
     const f = await env.DB.prepare(
-      'SELECT p.id, p.user_id, p.caption, p.hidden_at, s.id AS share_id, s.title, s.visibility, s.share_key FROM photos p JOIN shares s ON s.id = p.share_id WHERE p.id = ?',
+      `SELECT p.id, p.user_id, p.caption, p.hidden_at, p.post_id, s.id AS share_id, s.title, COALESCE(s.visibility, po.visibility) AS visibility, s.share_key
+       FROM photos p LEFT JOIN shares s ON s.id = p.share_id LEFT JOIN posts po ON po.id = p.post_id WHERE p.id = ?`,
     )
       .bind(id)
-      .first<{ id: string; user_id: string; caption: string; hidden_at: number | null; share_id: string; title: string; visibility: Visibility; share_key: string | null }>();
-    // imagePath: Vorschaubild für Admins (sie sehen auch ausgeblendete Fotos)
+      .first<{ id: string; user_id: string; caption: string; hidden_at: number | null; post_id: string | null; share_id: string | null; title: string | null; visibility: Visibility; share_key: string | null }>();
+    // imagePath: Vorschaubild für Admins (sie sehen auch ausgeblendete Fotos); Galerie-Fotos führen zur Karte (Konzept 31)
     return (
       f && {
-        title: `Foto zu „${f.title}“`,
+        title: f.share_id ? `Foto zu „${f.title}“` : 'Foto in einem Beitrag',
         text: f.caption,
-        path: sharePath('s', f.share_id, f.visibility, f.share_key),
+        path: f.share_id ? sharePath('s', f.share_id, f.visibility, f.share_key) : `/p/${f.post_id}`,
         imagePath: `/api/photos/${f.id}?s=t`,
         visibility: f.visibility,
         hiddenAt: f.hidden_at,

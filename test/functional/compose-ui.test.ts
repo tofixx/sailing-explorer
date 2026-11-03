@@ -59,7 +59,7 @@ describe('sx-compose', () => {
     expect(t).toContain('Fahrtenbuch-Eintrag');
     expect(t).toContain('Text');
     // Umfrage seit Phase 4 (Konzept 29, polls-ui.test.ts); Veranstaltung und Fotos folgen
-    expect(t).not.toMatch(/Veranstaltung|Fotos/);
+    expect(t).not.toMatch(/Veranstaltung/);
     for (const label of [/Törn \(GPX\)/, /Fahrtenbuch-Eintrag/, /^\s*Text/]) {
       el.open = true;
       await el.updateComplete;

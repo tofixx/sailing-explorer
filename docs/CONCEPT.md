@@ -2914,7 +2914,7 @@ lesbaren `body` als Rückfall mitbringt.
 - **F-416** Benachrichtigungen für Beiträge, Zusagen, Erinnerungen, Umfrage-Ende; Ausbreitung benachrichtigt nicht.
 - **F-417** Publikums-Hinweis ab 100 Personen und Tageszusammenfassung großer Verläufe – ausformuliert als F-465 … F-469 (Konzept 28).
 - **F-418** Verwaltungsbereich im Konto mit Jahresbericht (CSV/Excel, druckbar). *Verwaltungsbereich und Meilennachweis (CSV, Druck) in Konzept 27; Jahresbericht für Vereine mit Phase 9.*
-- **F-419** Galerie-Kontingent: kostenlos 10 Fotos je Monat, Unterstützer mehr, Speicher gemeinsam mit Törn-Fotos.
+- **F-419** Galerie-Kontingent: kostenlos 10 Fotos je Monat, Unterstützer mehr, Speicher gemeinsam mit Törn-Fotos. → umgesetzt als F-490 … F-495 (Konzept 31).
 
 ### 21.11 Umsetzung Phase 1 (02.11.2026)
 
@@ -3370,3 +3370,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 28. Große Gruppen: Publikums-Hinweis und Tageszusammenfassung (F-465 … F-469) → [`docs/concept/28-grosse-gruppen.md`](concept/28-grosse-gruppen.md)
 
 ## 29. Umfragen (F-407, F-470 … F-478) → [`docs/concept/29-umfragen.md`](concept/29-umfragen.md)
+
+## 31. Galerie-Beiträge: Fotos ohne Törn (Phase 7, F-490 … F-499) → [`docs/concept/31-galerie.md`](concept/31-galerie.md)

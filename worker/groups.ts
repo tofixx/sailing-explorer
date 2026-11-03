@@ -14,6 +14,7 @@ import { groupActivityCleanup, memberShareTargetsCleanup, recordBoat, recordMemb
 import { addFollow, followStats } from './follows';
 import { clearHomeClub } from './home';
 import { loadCover, pageCover, removeCoverOf } from './covers';
+import { galleryPhotoCleanup } from './photo-keys';
 import { galleryPhotos } from './gallery';
 import { harborFromBoatInput, harborRef } from './harbors';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, parseVisibility } from './validate';
@@ -337,6 +338,8 @@ async function applyHarbor(env: Env, user: Pick<User, 'id'>, g: GroupRow, input:
 export async function removeGroup(env: Env, id: string): Promise<void> {
   await removeCoverOf(env, 'g', id);
   await env.DB.batch([
+    // Galerie-Fotos der Beiträge (Konzept 31, F-494): Dateien und Speicher, bevor die Beiträge fallen
+    ...(await galleryPhotoCleanup(env, 'SELECT id FROM posts WHERE group_id = ?1', id)),
     env.DB.prepare(
       `DELETE FROM reports WHERE (target_kind = 'group' AND target_id = ?1)
          OR (target_kind = 'post' AND target_id IN (SELECT id FROM posts WHERE group_id = ?1))`,

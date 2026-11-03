@@ -36,6 +36,8 @@ export class SxPostComposer extends LitElement {
     max: { type: Number },
     /** Formularteil im Slot vollständig (Umfrage: Antworten gültig) */
     ready: { type: Boolean },
+    /** Text darf leer bleiben (Galerie, `COMPOSE_LIMITS.bodyOptional`) */
+    optional: { type: Boolean },
     /** Beschriftung des Knopfs */
     action: { type: String },
     /** Stufen „Sichtbar bis“ des Verlaufs (leer: keine Auswahl, der Server nimmt den Standard) */
@@ -62,6 +64,7 @@ export class SxPostComposer extends LitElement {
   declare plain: boolean;
   declare max: number;
   declare ready: boolean;
+  declare optional: boolean;
   declare action: string;
   declare reaches: ReachOption[];
   declare shares: AttachableShare[];
@@ -86,6 +89,7 @@ export class SxPostComposer extends LitElement {
     this.plain = false;
     this.max = POST_MAX;
     this.ready = true;
+    this.optional = false;
     this.action = 'Veröffentlichen';
     this.body = '';
     this.link = '';
@@ -284,7 +288,7 @@ export class SxPostComposer extends LitElement {
           ${this.choiceHints[current] ? html`<p class="hint">${this.choiceHints[current]}</p>` : ''}`
         : ''}
       ${this.reachPicker(current)} ${this.audienceHint(current)} ${this.sharePicker()}
-      <div class="row"><button class="btn primary" type="submit" ?disabled=${this.busy || !len || len > this.max || !this.ready}>${icon('comment')} ${this.action}</button>
+      <div class="row"><button class="btn primary" type="submit" ?disabled=${this.busy || (!len && !this.optional) || len > this.max || !this.ready}>${icon('comment')} ${this.action}</button>
         ${this.hint ? html`<span class="hint">${this.hint}</span>` : ''}</div>
     </form>`;
   }

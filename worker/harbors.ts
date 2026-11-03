@@ -9,6 +9,7 @@ import { LOCKED, adminLogStmt, assertActive, isAdmin, isLockedTarget } from './m
 import { SHARE_SELECT, shareShape, type ShareRow } from './shares';
 import { followStats } from './follows';
 import { harborActivityCleanup } from './activity';
+import { channelGalleryCleanup } from './photo-keys';
 import { reachAtLeastSql } from './reach-sql';
 import { writableChannel } from './post-chain';
 import { LIMITS, SHARE_ID_RE, cleanText } from './validate';
@@ -325,6 +326,8 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
 /** Löscht einen Hafen (Moderation): Boote verlieren die Zuordnung, Heimatwahl, Folgen, Aktivitäten und Meldungen fallen. */
 export async function removeHarbor(env: Env, id: string): Promise<void> {
   await env.DB.batch([
+    // Galerie-Fotos der Beiträge im Hafen-Verlauf (Konzept 31, F-494) vor harborActivityCleanup
+    ...(await channelGalleryCleanup(env, 'harbor', id)),
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'harbor' AND target_id = ?`).bind(id),
     ...harborActivityCleanup(env, id),
     ...claimTargetCleanup(env, 'harbor', id),

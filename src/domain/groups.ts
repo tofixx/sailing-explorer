@@ -2,6 +2,7 @@
 // genutzt von Worker (Prüfen, Schreiben, Lesen) und Oberfläche (Texte, Formulare).
 import type { CoverRef } from './cover';
 import type { PollView } from './polls';
+import type { PostPhoto } from './posts';
 import type { PostKind } from './posts';
 import { fmtNum } from './format';
 import type { ReactionSubject, ReactionSummary } from './reactions';
@@ -277,6 +278,11 @@ export interface StreamItem {
     kind?: PostKind;
     /** Umfrage (Konzept 29): Einstellungen für alle gleich, Stimmen je Betrachter nach dem Cache (`attachKindData`) */
     poll?: PollView;
+    /**
+     * Galerie-Beitrag (Konzept 31): sichtbare Fotos (für alle gleich, vor dem Formen gelesen); `own` für die Autor:in
+     * (einzelne Fotos löschen statt melden) – in ohne Betrachter gecachten Seiten nie gesetzt
+     */
+    gallery?: { photos: PostPhoto[]; own?: boolean };
   };
   boat?: { id: string; name: string };
   milestone?: { nm: number; year: number; subject: 'user' | 'boat' | 'group'; name: string; path: string };

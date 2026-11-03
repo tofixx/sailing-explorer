@@ -1,5 +1,6 @@
 // Beiträge (Konzept 11.4, 21): Text-Beiträge in Gruppen (F-161, Schreibrecht je Gruppe F-421) und im eigenen Profil
-// (F-420), „Mein Verlauf“ mit allen eigenen Beiträgen und Törns (F-401) und der eine Löschpfad `removePost` (F-404).
+// (F-420), „Mein Verlauf“ mit allen eigenen Beiträgen und Törns (F-401) und der eine Löschpfad `removePost` (F-404,
+// Galerie-Fotos F-494).
 // Reiner Text wie Kommentare, kein HTML. Sichtbarkeit wird beim Lesen geprüft (src/domain/posts.ts, fail closed).
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
@@ -21,6 +22,8 @@ import { postLogKey } from './post-sql';
 import { COMPOSE_KINDS, isComposeKind } from './post-kinds';
 import { notifyPost } from './notifications';
 import { GROUP_LIMITS } from '../src/domain/limits';
+import { galleryPhotoCleanup } from './photo-keys';
+import { assertGalleryQuota, galleryQuota } from './post-photos';
 import { cleanComment, commentLength, countLinks } from '../src/domain/comment-text';
 import { POST_MAX_LINKS, STREAM_PAGE, canManageGroup, decodeCursor, encodeCursor, parsePostLink, type GroupKind, type GroupRole } from '../src/domain/groups';
 import {
@@ -80,8 +83,8 @@ async function readPostInput(env: Env, userId: string, input: RawPostInput, c: W
   const kind = input.kind === undefined ? 'text' : input.kind;
   if (!isComposeKind(kind)) throw new HttpError(400, 'invalid_kind', 'Diese Art von Beitrag gibt es nicht.');
   const def = { ...COMPOSE_LIMITS[kind], ...COMPOSE_KINDS[kind] };
-  const body = cleanComment(input.body);
-  if (!body) throw new HttpError(400, 'empty', 'Bitte einen Text schreiben.');
+  const body = cleanComment(input.body ?? '');
+  if (!body && !('bodyOptional' in def)) throw new HttpError(400, 'empty', 'Bitte einen Text schreiben.');
   if (commentLength(body) > def.bodyMax) throw new HttpError(400, 'too_long', `Höchstens ${def.bodyMax} Zeichen.`);
   if (countLinks(body) > POST_MAX_LINKS) throw new HttpError(400, 'too_many_links', `Höchstens ${POST_MAX_LINKS} Links pro Beitrag.`);
   const link = def.plain ? '' : parsePostLink(input.link);
@@ -127,7 +130,8 @@ async function insertPost(env: Env, authorId: string, c: WritableChannel, p: Pos
   const act = forActivity(id, authorId, c, c.chain, p.visibility, p.reach);
   if (act) await recordPost(env, act, now);
   // nur der Heimatverlauf benachrichtigt (F-416)
-  await notifyPost(env, { id, authorId, kind: p.kind, channel: { kind: c.kind, id: c.kind === 'user' ? authorId : c.id }, visibility: p.visibility });
+  // Galerie erst mit dem ersten Foto (post-photos.ts) – vorher ist die Karte leer (Konzept 31)
+  if (p.kind !== 'gallery') await notifyPost(env, { id, authorId, kind: p.kind, channel: { kind: c.kind, id: c.kind === 'user' ? authorId : c.id }, visibility: p.visibility });
   return { id, createdAt: now, path: postPath(id, p.visibility, linkKey) };
 }
 
@@ -139,7 +143,10 @@ async function writePost(request: Request, env: Env, kind: ChannelKind, channelI
   const c = await writableChannel(env, user.id, kind, channelId ?? user.id);
   if (!c) throw new HttpError(403, 'forbidden', 'Hier darfst du keine Beiträge schreiben.');
   const p = await readPostInput(env, user.id, input, c);
-  if (!canChoosePostVisibility(p.visibility, await isSupporter(env, user.id))) throw visibilityRequiresSupport(env);
+  const supporter = await isSupporter(env, user.id);
+  if (!canChoosePostVisibility(p.visibility, supporter)) throw visibilityRequiresSupport(env);
+  // Galerie nur, wenn diesen Monat noch ein Foto geht – sonst entstünde ein leerer Beitrag (F-493)
+  if (p.kind === 'gallery') await assertGalleryQuota(env, user.id, supporter);
   const { id, createdAt, path } = await insertPost(env, user.id, c, p);
   return json({ post: { id, kind: p.kind, body: p.body, link: p.link, visibility: p.visibility, reach: p.reach, createdAt, path, home: channelPath(c.ref, null) } }, { status: 201 });
 }
@@ -265,7 +272,10 @@ export async function getCompose(request: Request, env: Env): Promise<Response> 
     .bind(user.id)
     .all<{ id: string; title: string; started_at: number | null }>();
   const attachable: AttachableShare[] = shares.map((s) => ({ id: s.id, title: s.title, startedAt: s.started_at }));
-  return json({ targets: channels.map((c) => composeTarget(c, supporter)), preselect, shares: attachable, supporter }, { headers: { 'Cache-Control': 'private, no-store' } });
+  return json(
+    { targets: channels.map((c) => composeTarget(c, supporter)), preselect, shares: attachable, supporter, gallery: await galleryQuota(env, user.id, supporter) },
+    { headers: { 'Cache-Control': 'private, no-store' } },
+  );
 }
 
 // ---------------------------------------------------------------- Lesen: ein Beitrag (Reaktionen, Melden)
@@ -294,8 +304,8 @@ interface PostRow {
  * Schlüssel zählt). Effektiv min(Beitrag, Verlauf): Gruppe, Hafen bzw. Boot müssen sichtbar sein; „Nur mit Link“ braucht
  * den Schlüssel des Beitrags (`X-Share-Key`). Törn-Zeilen sind hier keine Beiträge: Törns haben ihre eigenen Wege.
  */
-export async function visiblePost(request: Request, env: Env, id: string): Promise<{ id: string; authorId: string; groupId: string | null }> {
-  const key = requestKey(request);
+export async function visiblePost(request: Request, env: Env, id: string, allowQueryKey = false): Promise<{ id: string; authorId: string; groupId: string | null; guestVisible: boolean }> {
+  const key = requestKey(request, allowQueryKey);
   const user = await currentUser(request, env);
   const admin = isAdmin(env, user?.id);
   const p = SHARE_ID_RE.test(id)
@@ -312,6 +322,8 @@ export async function visiblePost(request: Request, env: Env, id: string): Promi
         .first<PostRow>()
     : null;
   let ok = false;
+  // dürfte ein Gast ohne Schlüssel ihn sehen? – entscheidet über den öffentlichen Cache der Galerie-Bilder (F-492)
+  let guestVisible = false;
   if (p && !p.share_id && isPostVisibility(p.visibility)) {
     const kind: ChannelKind = isChannelKind(p.channel_kind) ? p.channel_kind : p.group_id ? 'group' : 'user';
     const g = kind === 'group' && p.group_id ? await loadGroup(env, p.group_id) : null;
@@ -326,12 +338,21 @@ export async function visiblePost(request: Request, env: Env, id: string): Promi
       { visibility: p.visibility, channel: kind, hidden: !!p.hidden_at, authorSuspended: !!p.suspended, authorPublic: !!p.author_public },
       { isAuthor: p.author_id === user?.id, channelVisible, isMember: role !== null, canModerate: admin || canManageGroup(role), keyOk: !!key && !!p.link_key && timingSafeEqual(key, p.link_key) },
     );
+    const guestChannel =
+      kind === 'group' ? !!g && canViewGroup(g, null, null)
+      : kind === 'harbor' ? !!p.harbor_ok
+      : kind === 'boat' ? !!p.b_vis && canView({ visibility: p.b_vis, shareKey: p.b_key, hiddenAt: p.b_hidden, lockedAt: p.b_locked }, { manager: false, key: null })
+      : true;
+    guestVisible = canSeePost(
+      { visibility: p.visibility, channel: kind, hidden: !!p.hidden_at, authorSuspended: !!p.suspended, authorPublic: !!p.author_public },
+      { isAuthor: false, channelVisible: guestChannel, isMember: false },
+    );
   }
   if (!p || !ok) {
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }
-  return { id: p.id, authorId: p.author_id, groupId: p.group_id };
+  return { id: p.id, authorId: p.author_id, groupId: p.group_id, guestVisible };
 }
 
 // ---------------------------------------------------------------- Löschen (F-404)
@@ -345,6 +366,8 @@ export async function removePost(env: Env, id: string): Promise<void> {
   const row = await env.DB.prepare('SELECT share_id FROM posts WHERE id = ?').bind(id).first<{ share_id: string | null }>();
   if (row?.share_id) return removeShare(env, row.share_id);
   await env.DB.batch([
+    // Galerie (F-494): Dateien, Speicher, Reaktionen und Meldungen der Fotos vor der Zeile
+    ...(await galleryPhotoCleanup(env, 'SELECT ?1', id)),
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'post' AND target_id = ?`).bind(id),
     deletePostReactions(env, id),
     deletePostNotifications(env, id),
@@ -553,6 +576,8 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
        COALESCE((SELECT m.role FROM group_members m WHERE m.group_id = g.id AND m.user_id = ?2), CASE WHEN g.id = ?3 THEN 'member' END) AS role
      FROM posts p LEFT JOIN groups g ON g.id = p.group_id
      WHERE p.author_id = ?1 AND p.share_id IS NULL AND p.hidden_at IS NULL
+       -- Galerie ohne sichtbares Foto erscheint nirgends (Konzept 31)
+       AND (p.kind <> 'gallery' OR EXISTS (SELECT 1 FROM photos f WHERE f.post_id = p.id AND ${publicSql('f')}))
        AND ${notSuspendedSql('?1')}
        AND (
          (p.channel_kind = 'user' AND p.visibility = 'public')

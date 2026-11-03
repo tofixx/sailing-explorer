@@ -12,7 +12,7 @@ import { roleFor } from './boats';
 import { canView, requestKey } from './access';
 import { BOAT_ID_RE } from './validate';
 import { reachAtLeastSql } from './reach-sql';
-import { liveSql, notSuspendedSql } from './visible-sql';
+import { liveSql, notSuspendedSql, publicSql } from './visible-sql';
 import type { Visibility } from '../src/domain/visibility';
 import type { Reach } from '../src/domain/posts';
 import { attachPolls } from './polls';
@@ -28,6 +28,13 @@ import { emptyReactions, summarizeReactions, type ReactionKind } from '../src/do
 import { UNREAD_MAX, UNREAD_SCAN, seenUntil } from '../src/domain/unread';
 import { DEFAULT_RADIUS, NEAR_MAX_PLACES, boundingBox, isNearRadius, parseCenter, withinRadius, type LatLon } from '../src/domain/near';
 
+/**
+ * Galerie (Konzept 31): die sichtbaren Fotos des Beitrags `p` als JSON-Liste in Upload-Reihenfolge – schon vor dem Formen
+ * gelesen (nicht in attachKindData), weil eine Galerie ohne Foto keine Karte ist; für alle Lesenden gleich.
+ */
+const GALLERY_PHOTOS_SQL = `CASE WHEN p.kind = 'gallery' THEN (SELECT json_group_array(json_object('id', f.id, 'width', f.width, 'height', f.height,
+      'caption', f.caption, 'takenAt', f.taken_at)) FROM (SELECT * FROM photos x WHERE x.post_id = p.id AND ${publicSql('x')} ORDER BY x.created_at, x.id) f) END`;
+
 /** Spalten und Verknüpfungen je Aktivität `a` (`?1` = Betrachter) – gleich für Streams und die Einzelkarte `/p/<id>`. */
 const ROW_COLS_JOINS = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subject_id, a.group_id, a.data, a.created_at,
     ap.handle AS actor_handle, ap.display_name AS actor_name, (ap.visibility = 'public' AND ap.hidden_at IS NULL) AS actor_public,
@@ -39,7 +46,7 @@ const ROW_COLS_JOINS = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subje
     g.id AS g_id, g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.hidden_at AS g_hidden, gm.role AS g_role, g.members_visible AS g_members,
     EXISTS (SELECT 1 FROM users gu WHERE gu.id = g.owner_id AND gu.suspended_at IS NOT NULL) AS g_owner_suspended,
     p.id AS p_id, p.body AS p_body, p.link AS p_link, p.hidden_at AS p_hidden, p.author_id AS p_author, p.visibility AS p_vis, p.reach AS p_reach,
-    p.channel_kind AS p_ck, p.channel_id AS p_cid, p.link_key AS p_key, p.kind AS p_kind, p.data AS p_data,
+    p.channel_kind AS p_ck, p.channel_id AS p_cid, p.link_key AS p_key, p.kind AS p_kind, p.data AS p_data, ${GALLERY_PHOTOS_SQL} AS p_photos,
     ph.slug AS ph_slug, ph.name AS ph_name, ph.hidden_at AS ph_hidden,
     pb.name AS pb_name, pb.visibility AS pb_vis, pb.hidden_at AS pb_hidden,
     EXISTS (SELECT 1 FROM users pbu WHERE pbu.id = pb.owner_id AND pbu.suspended_at IS NOT NULL) AS pb_owner_suspended,
@@ -126,6 +133,7 @@ async function attachReactions(env: Env, items: StreamItem[], viewerId: string |
 /**
  * Angaben je Art und Betrachter (Konzept 29): Umfragen bekommen Stimmen, eigene Wahl und – wenn sichtbar – das Ergebnis.
  * Ein Batch je Art und Seite, immer nach dem öffentlichen Cache. Neue Arten (Veranstaltung …) ergänzen eine Zeile.
+ * Galerie-Fotos kommen nicht hierher: sie stehen schon in der Zeile (`GALLERY_PHOTOS_SQL`, vor dem Formen).
  */
 async function attachKindData(env: Env, items: StreamItem[], viewerId: string | null): Promise<void> {
   await attachPolls(env, items, viewerId);

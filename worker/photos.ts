@@ -1,6 +1,7 @@
 // Fotos (Konzept 3, 6.3, Phase C): Liste, Hochladen, Ändern, Löschen, Ausliefern.
 // Nur Eigentümer mit laufendem Unterstützer-Status laden hoch (E3); vorhandene Fotos bleiben nach dem Ende der
-// Unterstützung, bis der Törn abläuft (E4). Ein Foto ist nie sichtbarer als sein Törn (F-81).
+// Unterstützung, bis der Törn abläuft (E4). Ein Foto ist nie sichtbarer als sein Törn (F-81) bzw. – Galerie-Fotos
+// (Konzept 31, `post_id`, Hochladen in post-photos.ts) – als sein Beitrag (F-492).
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
@@ -11,7 +12,8 @@ import { assertMediaAllowed, ownedShare, visibleShare } from './shares';
 import { storageQuotaError, supportConfigured, supportStatus } from './supporter';
 import { addPhotoStmt, checkBrake, currentBrake, subtractPhotoStmt } from './storage';
 import { inspectImage, type PhotoFormat } from './image';
-import { deleteKeys, photoKey, photoKeys } from './photo-keys';
+import { deleteKeys, photoKey, photoKeys, photoParent, type PhotoKeyRow } from './photo-keys';
+import { visiblePost } from './posts';
 import { recordPhotos } from './activity';
 import { deletePhotoReactions } from './reaction-cleanup';
 import { SHARE_ID_RE, cleanText, parsePhotoMeta, parsePosition, parseTakenAt } from './validate';
@@ -31,7 +33,9 @@ import type { Placement } from '../src/domain/photo-place';
 
 export interface PhotoRow {
   id: string;
-  share_id: string;
+  /** Törn – bei Galerie-Fotos null (dann `post_id`, Konzept 31) */
+  share_id: string | null;
+  post_id: string | null;
   user_id: string;
   visibility: PhotoVisibility;
   caption: string;
@@ -47,10 +51,12 @@ export interface PhotoRow {
   created_at: number;
 }
 
-/** Foto samt den Feldern seines Törns, die über die Sichtbarkeit entscheiden. */
+/** Foto samt den Feldern seines Törns, die über die Sichtbarkeit entscheiden (Galerie-Fotos: Törn-Felder null). */
 interface PhotoWithShare extends PhotoRow {
   owner_id: string;
   share_visibility: Visibility;
+  /** Gruppe des Galerie-Beitrags gesperrt – Foto bleibt als Beleg (Konzept 18.2) */
+  post_locked: number | null;
   share_key: string | null;
   share_hidden_at: number | null;
   /** Törn gesperrt (Konzept 18.2): Fotos nur noch für Admins, auch nicht für den Eigentümer */
@@ -94,8 +100,10 @@ function canViewPhoto(p: PhotoWithShare, viewer: { userId: string | null; key: s
 async function loadPhoto(env: Env, id: string): Promise<PhotoWithShare | null> {
   if (!SHARE_ID_RE.test(id)) return null;
   return env.DB.prepare(
-    `SELECT p.*, s.user_id AS owner_id, s.visibility AS share_visibility, s.share_key, s.hidden_at AS share_hidden_at, s.locked_at AS share_locked_at
-     FROM photos p JOIN shares s ON s.id = p.share_id WHERE p.id = ?`,
+    `SELECT p.*, COALESCE(s.user_id, p.user_id) AS owner_id, COALESCE(s.visibility, 'public') AS share_visibility, s.share_key, s.hidden_at AS share_hidden_at,
+       s.locked_at AS share_locked_at, pg.locked_at AS post_locked
+     FROM photos p LEFT JOIN shares s ON s.id = p.share_id LEFT JOIN posts po ON po.id = p.post_id LEFT JOIN groups pg ON pg.id = po.group_id
+     WHERE p.id = ? AND (s.id IS NOT NULL OR po.id IS NOT NULL)`,
   )
     .bind(id)
     .first<PhotoWithShare>();
@@ -108,21 +116,30 @@ async function loadPhoto(env: Env, id: string): Promise<PhotoWithShare | null> {
 export async function visiblePhoto(request: Request, env: Env, id: string, allowQueryKey = false) {
   const row = await loadPhoto(env, id);
   const user = await currentUser(request, env);
+  if (row?.post_id) {
+    // Galerie-Foto (F-492): so sichtbar wie sein Beitrag (dieselbe Prüfung, Fehlversuch mit Schlüssel zählt dort);
+    // ausgeblendete nur für Autor:in und Admins
+    const isOwner = !!user && user.id === row.user_id;
+    const post = await visiblePost(request, env, row.post_id, allowQueryKey);
+    if (row.hidden_at && !isOwner && !isAdmin(env, user?.id)) throw NOT_FOUND();
+    return { row, isOwner, user, guestVisible: post.guestVisible && !row.hidden_at };
+  }
   const key = requestKey(request, allowQueryKey);
   if (!row || !canViewPhoto(row, { userId: user?.id ?? null, key, admin: isAdmin(env, user?.id) })) {
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }
   // Fotos gesperrter Törns sehen nur Admins (auch private) – jeder Einblick ins Protokoll
-  if (row.share_locked_at && user) await logLockedView(env, request, user.id, 'share', row.share_id);
-  return { row, isOwner: !!user && user.id === row.owner_id, user };
+  if (row.share_locked_at && user) await logLockedView(env, request, user.id, 'share', row.share_id!);
+  const guestVisible = !row.share_locked_at && effectivePhotoVisibility(row.visibility, row.share_visibility) === 'public' && !row.hidden_at && !row.share_hidden_at;
+  return { row, isOwner: !!user && user.id === row.owner_id, user, guestVisible };
 }
 
 /** Eigenes Foto (Eigentümer des Törns) – fremde verhalten sich wie nicht existent. */
 async function ownedPhoto(request: Request, env: Env, id: string) {
   const user = await requireUser(request, env);
   const row = await loadPhoto(env, id);
-  if (!row || row.owner_id !== user.id || row.share_locked_at) throw NOT_FOUND();
+  if (!row || row.owner_id !== user.id || row.share_locked_at || row.post_locked) throw NOT_FOUND();
   return { row, user };
 }
 
@@ -166,27 +183,21 @@ export async function listPhotos(request: Request, env: Env, shareId: string): P
   return json({ photos, upload: isOwner && user ? (await uploadState(env, user.id, results.length)).upload : null });
 }
 
+/** Eingelesenes Foto: Bildangaben aus dem Header, Vorschaubild und Vollbild (geprüft), Größe in Bytes. */
+export interface PhotoBody {
+  meta: NonNullable<ReturnType<typeof parsePhotoMeta>>;
+  thumb: Uint8Array;
+  full: Uint8Array;
+  info: { format: PhotoFormat; width: number; height: number };
+  size: number;
+}
+
 /**
- * POST /api/shares/:id/photos – Body = Vorschaubild ‖ Vollbild (WebP oder JPEG, im Browser neu kodiert),
- * Header X-Photo-Thumb-Length (Bytes des Vorschaubilds) und X-Photo-Meta (URI-kodiertes JSON: caption, takenAt,
- * lat, lon, placement, visibility). Reihenfolge wie bei Törns: Unterstützer-Status und Anzahl, Speicher, Notbremse –
- * alles vor dem Einlesen. Der Server lehnt Bilder mit Metadaten, falschem Format oder Übergröße ab.
+ * Body = Vorschaubild ‖ Vollbild (WebP oder JPEG, im Browser neu kodiert), Header X-Photo-Thumb-Length und X-Photo-Meta
+ * – eingelesen höchstens bis `remaining` Bytes; Metadaten, falsches Format und Übergröße → 4xx. Für Törn- und
+ * Galerie-Fotos (post-photos.ts) derselbe Weg.
  */
-export async function uploadPhoto(request: Request, env: Env, shareId: string): Promise<Response> {
-  const { row: share, user } = await ownedShare(request, env, shareId);
-  assertMediaAllowed(share);
-  await assertActive(env, user);
-
-  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM photos WHERE share_id = ?').bind(share.id).first<{ n: number }>();
-  const inShare = count?.n ?? 0;
-  const usage = await supportStatus(env, user.id);
-  const v = photoVerdict(usage.supporter, inShare);
-  if (v !== 'ok') throw new HttpError(v === 'quota' ? 409 : 402, v, photoLimitMessage(v, supportConfigured(env)));
-  const remaining = usage.bytesMax - usage.bytesUsed;
-  const sv = quotaVerdict(usage.supporter, usage.bytesUsed, 1, (l) => l.bytes, usage.sharesFree);
-  if (sv !== 'ok') throw storageQuotaError(env, usage, sv);
-  checkBrake(await currentBrake(env), usage.supporter, 'Fotos');
-
+export async function readPhotoBody(request: Request, remaining: number): Promise<PhotoBody> {
   if ((request.headers.get('Content-Type') || '') !== 'application/octet-stream') throw new HttpError(415, 'unsupported_media_type', 'Fotos als application/octet-stream senden.');
   const meta = parsePhotoMeta(request.headers.get('X-Photo-Meta'));
   if (!meta) throw new HttpError(400, 'invalid_meta', 'Ungültige Angaben zum Foto.');
@@ -219,6 +230,32 @@ export async function uploadPhoto(request: Request, env: Env, shareId: string): 
     throw new HttpError(400, 'too_large', `Bild zu groß: höchstens ${PHOTO_FULL_PX} px (Vorschau ${PHOTO_THUMB_PX} px) an der langen Kante.`);
   }
 
+  return { meta, thumb, full, info: fi, size: bytes.length };
+}
+
+/**
+ * POST /api/shares/:id/photos – Body = Vorschaubild ‖ Vollbild (WebP oder JPEG, im Browser neu kodiert),
+ * Header X-Photo-Thumb-Length (Bytes des Vorschaubilds) und X-Photo-Meta (URI-kodiertes JSON: caption, takenAt,
+ * lat, lon, placement, visibility). Reihenfolge wie bei Törns: Unterstützer-Status und Anzahl, Speicher, Notbremse –
+ * alles vor dem Einlesen. Der Server lehnt Bilder mit Metadaten, falschem Format oder Übergröße ab.
+ */
+export async function uploadPhoto(request: Request, env: Env, shareId: string): Promise<Response> {
+  const { row: share, user } = await ownedShare(request, env, shareId);
+  assertMediaAllowed(share);
+  await assertActive(env, user);
+
+  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM photos WHERE share_id = ?').bind(share.id).first<{ n: number }>();
+  const inShare = count?.n ?? 0;
+  const usage = await supportStatus(env, user.id);
+  const v = photoVerdict(usage.supporter, inShare);
+  if (v !== 'ok') throw new HttpError(v === 'quota' ? 409 : 402, v, photoLimitMessage(v, supportConfigured(env)));
+  const remaining = usage.bytesMax - usage.bytesUsed;
+  const sv = quotaVerdict(usage.supporter, usage.bytesUsed, 1, (l) => l.bytes, usage.sharesFree);
+  if (sv !== 'ok') throw storageQuotaError(env, usage, sv);
+  checkBrake(await currentBrake(env), usage.supporter, 'Fotos');
+
+  const { meta, thumb, full, info: fi, size } = await readPhotoBody(request, remaining);
+
   const id = randomId();
   const now = Date.now();
   const contentType = fi.format === 'jpeg' ? 'image/jpeg' : 'image/webp';
@@ -231,7 +268,7 @@ export async function uploadPhoto(request: Request, env: Env, shareId: string): 
     env.DB.prepare(
       `INSERT INTO photos (id, share_id, user_id, visibility, caption, taken_at, lat, lon, placement, width, height, format, bytes, created_at)
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM photos WHERE share_id = ?) < ?`,
-    ).bind(id, share.id, user.id, meta.visibility, meta.caption, meta.takenAt, meta.lat, meta.lon, meta.placement, fi.width, fi.height, fi.format, bytes.length, now, share.id, max),
+    ).bind(id, share.id, user.id, meta.visibility, meta.caption, meta.takenAt, meta.lat, meta.lon, meta.placement, fi.width, fi.height, fi.format, size, now, share.id, max),
     addPhotoStmt(env, id),
   ]).catch(async (err: unknown) => {
     // z. B. Törn parallel gelöscht (Fremdschlüssel): keine Zeile – also auch keine Dateien (nur wenn sie wirklich fehlt)
@@ -255,6 +292,10 @@ export async function uploadPhoto(request: Request, env: Env, shareId: string): 
 export async function updatePhoto(request: Request, env: Env, id: string): Promise<Response> {
   const { row } = await ownedPhoto(request, env, id);
   const body = await readJson<{ caption?: unknown; visibility?: unknown; lat?: unknown; lon?: unknown; placement?: unknown; takenAt?: unknown }>(request);
+  // Galerie-Fotos folgen ihrem Beitrag und haben keinen Ort (Konzept 31): nur die Bildunterschrift
+  if (row.post_id && (body.visibility !== undefined || body.lat !== undefined || body.lon !== undefined || body.placement !== undefined || body.takenAt !== undefined)) {
+    throw new HttpError(400, 'caption_only', 'An Fotos eines Beitrags lässt sich nur die Bildunterschrift ändern.');
+  }
   if (body.caption !== undefined) row.caption = cleanText(body.caption, PHOTO_CAPTION_LENGTH);
   if (body.visibility !== undefined) {
     if (!isPhotoVisibility(body.visibility)) throw new HttpError(400, 'invalid_visibility', 'Fotos sind „Wie der Törn“ oder „Nur ich“.');
@@ -272,8 +313,8 @@ export async function updatePhoto(request: Request, env: Env, id: string): Promi
   return json({ photo: photoShape(row, row.share_visibility, true) });
 }
 
-/** Löscht Dateien, Meldungen und Datensatz eines Fotos; der Speicher wird im selben Batch abgezogen. */
-export async function removePhoto(env: Env, row: Pick<PhotoRow, 'id' | 'share_id' | 'format'>): Promise<void> {
+/** Löscht Dateien, Meldungen und Datensatz eines Fotos (Törn oder Beitrag); der Speicher wird im selben Batch abgezogen. */
+export async function removePhoto(env: Env, row: PhotoKeyRow): Promise<void> {
   await deleteKeys(env, photoKeys(row));
   await env.DB.batch([
     subtractPhotoStmt(env, row.id),
@@ -286,7 +327,7 @@ export async function removePhoto(env: Env, row: Pick<PhotoRow, 'id' | 'share_id
 
 /** Löschen über die ID (Admin-Entscheidung zu einer Meldung). */
 export async function removePhotoById(env: Env, id: string): Promise<void> {
-  const row = await env.DB.prepare('SELECT id, share_id, format FROM photos WHERE id = ?').bind(id).first<Pick<PhotoRow, 'id' | 'share_id' | 'format'>>();
+  const row = await env.DB.prepare('SELECT id, share_id, post_id, format FROM photos WHERE id = ?').bind(id).first<PhotoKeyRow>();
   if (row) await removePhoto(env, row);
 }
 
@@ -304,14 +345,14 @@ export async function deletePhoto(request: Request, env: Env, id: string): Promi
 export async function getPhotoImage(request: Request, env: Env, id: string): Promise<Response> {
   const size = new URL(request.url).searchParams.get('s') ?? 't';
   if (size !== 't' && size !== 'f') throw NOT_FOUND();
-  const { row } = await visiblePhoto(request, env, id, true);
-  const obj = await env.TRACKS.get(photoKey(row.share_id, row.id, row.format, size === 't'), { onlyIf: request.headers });
+  const { row, guestVisible } = await visiblePhoto(request, env, id, true);
+  const obj = await env.TRACKS.get(photoKey(photoParent(row), row.id, row.format, size === 't'), { onlyIf: request.headers });
   if (!obj) throw NOT_FOUND();
-  const effective = effectivePhotoVisibility(row.visibility, row.share_visibility);
+  // öffentlich cachebar nur, was ein Gast ohne Schlüssel sehen dürfte (Cache-Regel, F-492)
   const headers = new Headers({
     'Content-Type': row.format === 'jpeg' ? 'image/jpeg' : 'image/webp',
     ETag: obj.httpEtag,
-    'Cache-Control': effective === 'public' && !row.hidden_at && !row.share_hidden_at ? 'public, max-age=300' : 'private, no-cache',
+    'Cache-Control': guestVisible ? 'public, max-age=300' : 'private, no-cache',
     Vary: 'Cookie',
   });
   return withApiHeaders(new Response('body' in obj ? obj.body : null, { status: 'body' in obj ? 200 : 304, headers }));

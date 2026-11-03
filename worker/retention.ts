@@ -15,6 +15,8 @@ import { nightlyNotificationCleanup } from './notification-cleanup';
 import { nightlyActivityCleanup } from './activity';
 import { sendGroupDigests } from './group-digest';
 import { sweepOrphanCovers } from './covers';
+import { emptyGalleries, photoLogCleanup } from './post-photos';
+import { removePost } from './posts';
 import { expireClaims } from './claims';
 import { nightlyClaimCleanup } from './claim-cleanup';
 import { GRACE_MS, INACTIVE_ACCOUNT_MS, SEASON_MAIL_MONTH, WARN_MS, seasonEnd } from '../src/domain/support';
@@ -179,6 +181,12 @@ async function purgeInactive(env: Env, now: number): Promise<number> {
   return purged;
 }
 
+async function sweepEmptyGalleries(env: Env, now: number): Promise<number> {
+  const ids = await emptyGalleries(env, now);
+  for (const id of ids) await removePost(env, id);
+  return ids.length;
+}
+
 export async function runRetention(env: Env, origin: string, now = Date.now()): Promise<RetentionResult> {
   // Jeder Schritt einzeln: ein Fehler hält die übrigen nicht auf, steht aber im Ergebnis (failed) und im Log.
   const failed: string[] = [];
@@ -223,7 +231,11 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     ).bind(now - LOG_VIEW_MS, now - LOG_ACTION_MS),
     // Neuigkeiten (Konzept 11.9): alte Aktivitäten, verwaiste Ziele und Folgen, alte Anfragen
     ...nightlyActivityCleanup(env, now),
+    // Monatszähler der Galerie (Konzept 31) nach 32 Tagen
+    photoLogCleanup(env, now),
   ]), []);
+  // Galerie-Beiträge ohne Foto (Hochladen abgebrochen) nach 24 h über den einen Löschpfad (Konzept 31, F-494)
+  await step('galleries', sweepEmptyGalleries(env, now), 0);
   // Benachrichtigungen (Konzept 17.5) als eigener Schritt – nach dem Aufräumen oben, damit verwaiste gleich mitgehen
   // Verifizierung (Konzept 20.8): offene Anträge ablaufen lassen (mit Hinweis), Angaben und alte Anträge löschen –
   // vor dem Aufräumen der Benachrichtigungen, damit Hinweise zu gelöschten Anträgen gleich mitgehen

@@ -429,7 +429,7 @@ export const highlightStyles = css`
 
 /** Symbol je Beitrags-Sichtbarkeit („Wer sieht es“, Konzept 21). */
 /** Symbol je Beitragsart (Stream-Karte, „Mein Verlauf“) – neue Arten: eine Zeile. */
-export const POST_KIND_ICON: Partial<Record<PostKind, IconName>> = { voyage: 'map', logbook: 'book', text: 'comment', poll: 'poll' };
+export const POST_KIND_ICON: Partial<Record<PostKind, IconName>> = { voyage: 'map', logbook: 'book', text: 'comment', poll: 'poll', gallery: 'camera' };
 
 /**
  * Link „Umfrage öffnen“ (bzw. zur Karte einer anderen Art mit eigener Nutzlast) aus Profil und „Mein Verlauf“, die

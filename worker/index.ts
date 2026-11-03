@@ -171,6 +171,8 @@ interface PageMeta {
   index: boolean;
   /** absolute URL des Vorschaubilds */
   image?: string;
+  /** Größe des Vorschaubilds (Standard: Übersichtsbild 1200 × 630) */
+  imageSize?: { width: number; height: number };
 }
 
 const DEFAULT_DESCRIPTION = 'Segel-Community: Törns auf der Seekarte mit Wind und Wellen, Neuigkeiten aus Verein, Hafen und Team';
@@ -205,7 +207,15 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
     const item = await postCard(env, null, id, null);
     if (!item?.post || item.post.visibility !== 'public') return fallback;
     const where = item.group?.name ?? item.post.where?.name ?? item.actor?.displayName ?? '';
-    return { title: `${where ? `Beitrag · ${where}` : 'Beitrag'} · ${env.APP_NAME}`, description: firstLine(item.post.body) || DEFAULT_DESCRIPTION, index: false };
+    // Galerie (Konzept 31, F-495): erstes Foto als Vorschaubild – nur hier, also nur bei effektiv öffentlich
+    const first = item.post.gallery?.photos[0];
+    const n = item.post.gallery?.photos.length ?? 0;
+    return {
+      title: `${where ? `Beitrag · ${where}` : 'Beitrag'} · ${env.APP_NAME}`,
+      description: firstLine(item.post.body) || (n ? `${n} ${n === 1 ? 'Foto' : 'Fotos'}` : DEFAULT_DESCRIPTION),
+      index: false,
+      ...(first ? { image: `${origin}/api/photos/${first.id}?s=f`, imageSize: { width: first.width, height: first.height } } : {}),
+    };
   }
   if (kind === 'g') {
     // Gruppen: Vorschau wie Profile und Boote; geschlossene Gruppen sieht ohne Anmeldung niemand (neutral).
@@ -249,7 +259,7 @@ async function metaPage(request: Request, env: Env, kind: string, id: string, ke
         if (meta.image) {
           // URL aus eigener Origin, validierter ID und validiertem Schlüssel gebaut – kein Fremdtext im HTML.
           el.append(
-            `<meta property="og:image" content="${meta.image}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image">`,
+            `<meta property="og:image" content="${meta.image}"><meta property="og:image:width" content="${meta.imageSize?.width ?? 1200}"><meta property="og:image:height" content="${meta.imageSize?.height ?? 630}"><meta name="twitter:card" content="summary_large_image">`,
             { html: true },
           );
         }

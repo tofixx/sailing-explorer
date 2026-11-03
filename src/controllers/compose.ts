@@ -2,6 +2,7 @@
 // es weiter, wie F-312), die offene Gruppen-, Hafen- bzw. Bootsseite ist vorausgewählt. Nach dem Veröffentlichen geht
 // es in den Heimatverlauf, die neue Karte wird hervorgehoben (F-406). Die Komponenten melden nur Absichten.
 import { postApi, type ChannelPostInput, type CreatedPost } from '../services/api';
+import { PhotoError, processPhoto } from '../services/photo-process';
 import { composeCtx, type SxComposeDialog } from '../components/sx-compose-dialog';
 import { channelKey } from '../domain/posts';
 import type { ComposeKind } from '../components/sx-compose';
@@ -47,7 +48,7 @@ export class ComposeController {
     else this.openPost(kind);
   }
 
-  /** Text bzw. Umfrage: ein Dialog, das Formular je Art (`KIND_FORMS` in sx-compose-dialog). */
+  /** Text, Umfrage bzw. Fotos (Galerie): ein Dialog, das Formular je Art (`KIND_FORMS` in sx-compose-dialog). */
   private openPost(kind: ComposePostKind): void {
     this.ui.requireLogin('Melde dich an, um einen Beitrag zu schreiben. Danach geht es direkt weiter.', () => void this.show(kind));
   }
@@ -58,7 +59,7 @@ export class ComposeController {
     try {
       const data = await postApi.compose(this.ctx ? `${this.ctx.kind}:${this.ctx.id}` : null);
       const selected = data.preselect ?? 'user';
-      Object.assign(d, { targets: data.targets, shares: data.shares, selected, audience: null });
+      Object.assign(d, { targets: data.targets, shares: data.shares, selected, audience: null, gallery: data.gallery ?? null });
       const t = data.targets.find((x) => channelKey(x.ref) === selected) ?? data.targets[0];
       if (t) void this.loadAudience(composeCtx(t));
     } catch (e) {
@@ -91,16 +92,52 @@ export class ComposeController {
     const d = this.ui.dialog;
     d.busy = true;
     d.error = '';
+    const { gallery: files, ...post } = input;
     try {
-      const { post } = await postApi.createIn(input);
+      const created = (await postApi.createIn(post)).post;
+      let note = 'Veröffentlicht';
+      if (post.kind === 'gallery') {
+        const up = await this.uploadAll(created.id, files ?? []);
+        if (up.done === 0) {
+          // ohne ein einziges Foto bliebe eine leere Karte – wieder löschen (die Nacht täte es sonst nach 24 h)
+          await postApi.remove(created.id).catch(() => undefined);
+          throw new Error(up.first || 'Kein Foto konnte hochgeladen werden.');
+        }
+        if (up.count) note = `Veröffentlicht – ${up.count === 1 ? '1 Foto' : `${up.count} Fotos`} nicht hochgeladen: ${up.first}`;
+      }
       d.clear();
       d.open = false;
-      this.ui.toast('Veröffentlicht');
-      this.ui.posted(post);
+      this.ui.toast(note, note === 'Veröffentlicht' ? undefined : 6000);
+      this.ui.posted(created);
     } catch (e) {
       d.error = errorText(e);
     } finally {
       d.busy = false;
+      d.progress = '';
     }
+  }
+
+  /**
+   * Galerie (Konzept 31, F-491): Fotos nacheinander verarbeiten (EXIF weg, verkleinert, Speicher mobiler Browser) und
+   * hochladen; eine Grenze (Kontingent, Speicher, Notbremse) beendet den Rest. Liefert, wie viele gingen, und den ersten
+   * Fehler.
+   */
+  private async uploadAll(postId: string, files: File[]): Promise<{ done: number; count: number; first: string }> {
+    const d = this.ui.dialog;
+    let done = 0;
+    let first = '';
+    for (const [i, file] of files.entries()) {
+      d.progress = `Foto ${i + 1} von ${files.length} …`;
+      try {
+        const p = await processPhoto(file);
+        await postApi.uploadPhoto(postId, p.thumb, p.full);
+        done++;
+      } catch (e) {
+        first ||= e instanceof PhotoError ? e.message : errorText(e);
+        const status = (e as { status?: number }).status;
+        if (status === 402 || status === 409 || status === 503) break;
+      }
+    }
+    return { done, count: files.length - done, first };
   }
 }

@@ -63,6 +63,8 @@ export interface ActivityRow {
   p_key?: string | null;
   /** Nutzlast des Beitrags (Umfrage `data.poll`, Konzept 29) */
   p_data?: string | null;
+  /** Galerie (Konzept 31): sichtbare Fotos als JSON-Liste, nur bei `p_kind = 'gallery'` */
+  p_photos?: string | null;
   /** Hafen- bzw. Boots-Verlauf des Beitrags */
   ph_slug?: string | null;
   ph_name?: string | null;
@@ -168,7 +170,7 @@ function shapePost(r: ActivityRow, viewer: Viewer, base: StreamItem, group: Stre
   if (!r.p_id || r.p_hidden || !isPostVisibility(r.p_vis ?? 'public')) return null;
   // Nutzlast der Art (Umfrage …, Konzept 29): für alle gleich; Stimmen u. Ä. hängt attachKindData je Betrachter an.
   // Kaputte Nutzlast → keine Karte (fail closed)
-  const payload = kindView(r.p_kind, r.p_data, Date.now());
+  const payload = kindView(r.p_kind, r.p_data, Date.now(), r.p_photos);
   if (!payload) return null;
   const visibility = (r.p_vis ?? 'public') as PostVisibility;
   const channel: ChannelKind = isChannelKind(r.p_ck) ? r.p_ck : r.group_id ? 'group' : 'user';
@@ -212,6 +214,8 @@ function shapePost(r: ActivityRow, viewer: Viewer, base: StreamItem, group: Stre
     post: {
       id: r.p_id, body: r.p_body ?? '', link: r.p_link, canDelete, visibility, reach, path, ...(where ? { where } : {}), voyage: attached,
       ...(isPostKind(r.p_kind) && r.p_kind !== 'text' ? { kind: r.p_kind } : {}), ...payload,
+      // Galerie: die Autor:in löscht einzelne Fotos, alle anderen melden sie (nicht nach Löschrecht, Konzept 31.4)
+      ...(payload.gallery && isAuthor ? { gallery: { ...payload.gallery, own: true } } : {}),
     },
   };
 }
