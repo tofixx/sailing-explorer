@@ -5,7 +5,7 @@ import { MenuController } from './menu-controller';
 import { RECORDING_GUIDE_PATH } from '../content/recording-guide';
 import type { ComposePostKind } from '../domain/posts';
 
-/** Arten (Konzept 21.4): Törn, Fahrtenbuch, Text, Umfrage (29) – Veranstaltung und Fotos folgen; je Art eine Zeile in KINDS. */
+/** Arten (Konzept 21.4): Törn, Fahrtenbuch, Text, Umfrage (29), Veranstaltung (30) – Fotos folgen; je Art eine Zeile in KINDS. */
 export type ComposeKind = 'gpx' | 'logbook' | ComposePostKind | 'draft';
 
 const KINDS: Array<{ kind: ComposeKind; icon: IconName; label: string; hint: string }> = [
@@ -14,6 +14,7 @@ const KINDS: Array<{ kind: ComposeKind; icon: IconName; label: string; hint: str
   { kind: 'text', icon: 'comment', label: 'Text', hint: 'Beitrag in Profil, Gruppe, Hafen oder Boot' },
   { kind: 'poll', icon: 'poll', label: 'Umfrage', hint: 'Frage mit Antworten zum Abstimmen' },
   { kind: 'gallery', icon: 'camera', label: 'Fotos', hint: 'Fotos ohne Törn, z. B. vom Vereinsfest' },
+  { kind: 'event', icon: 'calendar', label: 'Veranstaltung', hint: 'Termin mit Zusagen – Treffen, Ausfahrt, Regatta …' },
 ];
 
 /**

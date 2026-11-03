@@ -6,6 +6,7 @@ import type { PostPhoto } from './posts';
 import type { PostKind } from './posts';
 import { fmtNum } from './format';
 import type { ReactionSubject, ReactionSummary } from './reactions';
+import type { EventView } from './events';
 
 // ---------------------------------------------------------------- Gruppen
 
@@ -283,6 +284,8 @@ export interface StreamItem {
      * (einzelne Fotos löschen statt melden) – in ohne Betrachter gecachten Seiten nie gesetzt
      */
     gallery?: { photos: PostPhoto[]; own?: boolean };
+    /** Veranstaltung (Konzept 30): Termin, Ort, Zähler, eigene Zusage – je Betrachter angehängt (`attachKindData`) */
+    event?: EventView;
   };
   boat?: { id: string; name: string };
   milestone?: { nm: number; year: number; subject: 'user' | 'boat' | 'group'; name: string; path: string };

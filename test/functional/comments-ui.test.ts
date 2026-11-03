@@ -190,7 +190,7 @@ describe('sx-account-dialog – Einstellungen und Meldungen', () => {
     const notify = { comment: 'none', reaction: 'none', follow: 'push', invite: 'mail', request: 'none' };
     const el = await mount('sx-account-dialog', { open: true, user, tab: 'settings', settings: settings({ notify }), pushAvailable: false });
     const selects = [...el.shadowRoot.querySelectorAll<HTMLSelectElement>('.channels select')];
-    expect(selects).toHaveLength(6);
+    expect(selects).toHaveLength(7); // mit „Veranstaltungen“ (F-485)
     expect(text(el)).toContain('Kommentare auf deinen Törns');
     // „Aus“ gibt es nicht mehr – ob ein Beitrag benachrichtigt, entscheidet die Stufe je Verlauf (F-449)
     expect([...selects[0].options].map((o) => o.value)).toEqual(['none', 'mail', 'push']);

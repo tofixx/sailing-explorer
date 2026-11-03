@@ -5,6 +5,7 @@
 // reinen Stream-Prüfung worker/stream-shape.ts).
 import { isPollOpen, parsePollData, readPollConfig } from '../src/domain/polls';
 import { COMPOSE_LIMITS, type ComposePostKind, type PostPhoto } from '../src/domain/posts';
+import { eventBody, parseEventInput, type EventInput } from '../src/domain/events';
 import type { StreamItem } from '../src/domain/groups';
 
 /** Nutzlast einer Art an der Stream-Karte (Teil von `StreamItem.post`), für alle Lesenden gleich. */
@@ -18,6 +19,13 @@ export interface ComposeKindDef {
    * sichtbare Galerie-Fotos als JSON aus derselben Abfrage (`p_photos` in worker/stream.ts, Konzept 31)
    */
   view?: (data: string | null | undefined, now: number, photos?: string | null) => KindPayload | null;
+  /** `body` aus dem eingegebenen Text und der Nutzlast (Veranstaltung: Titel + Beschreibung, Konzept 30.3) */
+  body?: (text: string, payload: Record<string, unknown>) => string;
+  /**
+   * Nutzlast in eigener Tabelle statt `posts.data` (Veranstaltung): Anweisungen für denselben Batch wie der Beitrag –
+   * SQL mit `?1` = Beitrag, danach die Parameter.
+   */
+  rows?: (payload: Record<string, unknown>) => Array<{ sql: string; args: unknown[] }>;
 }
 
 /** Grenzen (`bodyMax`, `plain`) stehen einmal in `COMPOSE_LIMITS` (src/domain/posts.ts). */
@@ -37,6 +45,18 @@ export const COMPOSE_KINDS: Record<ComposePostKind, ComposeKindDef> = {
   // Galerie (Konzept 31): Fotos aus `photos.post_id`, schon vor dem Formen gelesen (für alle gleich); ohne sichtbares
   // Foto keine Karte. Hochladen, Kontingent und Löschen: worker/post-photos.ts
   gallery: { view: (_data, _now, photos) => galleryView(photos) },
+  // Termin, Ort, Kapazität in `post_events`; Zähler und eigene Zusage hängt attachKindData an (worker/events.ts)
+  event: {
+    data: (raw, now) => {
+      const r = parseEventInput(raw, now);
+      return 'error' in r ? { error: 'invalid_event', message: r.error } : { event: r.event, description: r.description };
+    },
+    body: (text, p) => eventBody(text, String(p.description ?? '')),
+    rows: (p) => {
+      const e = p.event as EventInput;
+      return [{ sql: 'INSERT INTO post_events (post_id, type, starts_at, ends_at, place, capacity) VALUES (?1, ?2, ?3, ?4, ?5, ?6)', args: [e.type, e.startsAt, e.endsAt, e.place, e.capacity] }];
+    },
+  },
 };
 
 /** Sichtbare Fotos eines Galerie-Beitrags aus dem JSON der Abfrage – leer oder kaputt → null (keine Karte). */

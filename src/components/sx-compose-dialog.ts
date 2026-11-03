@@ -6,6 +6,7 @@ import { base, dialogStyles, emit } from './shared';
 import './sx-post-composer';
 import './sx-poll-form';
 import './sx-gallery-picker';
+import './sx-event-form';
 import type { SxPostComposer } from './sx-post-composer';
 
 /**
@@ -28,6 +29,7 @@ const KIND_FORMS: Record<ComposePostKind, KindForm> = {
     title: 'Neue Fotos', label: 'Text (optional)', placeholder: 'Worum geht es?', hint: 'Zählt als Beitrag: höchstens 5 pro Tag und Verlauf.',
     part: (d) => html`<sx-gallery-picker .quota=${d.gallery} ?busy=${d.busy}></sx-gallery-picker>`,
   },
+  event: { title: 'Neue Veranstaltung', label: 'Titel', placeholder: 'z. B. Ansegeln, Arbeitsdienst am Steg', hint: 'Zählt als Beitrag: höchstens 5 pro Tag und Verlauf.', part: () => html`<sx-event-form with-description></sx-event-form>` },
 };
 
 /** Erklärung je Stufe „Wer sieht es“ – unabhängig vom Verlauf formuliert. */

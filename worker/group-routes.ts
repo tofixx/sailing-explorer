@@ -10,6 +10,7 @@ import { createChannelPost, createPost, createProfilePost, deletePost, getCompos
 import { listPins, setPin } from './pins';
 import { getComposeAudience } from './compose-audience';
 import { closePoll, getPoll, putVote } from './polls';
+import { listRsvps, setRsvp, updateEvent } from './events';
 import { boatStream, groupStream, markStreamSeen, personalStream, streamUnread } from './stream';
 import { follow, getSuggestions, unfollow } from './follows';
 import { listChannels, putDefaultLevel, putLevel } from './notify-levels';
@@ -49,6 +50,10 @@ export const groupRoutes: Array<[method: string, pattern: RegExp, handler: Handl
   // Phase 3 (Konzept 21.13): Pins
   ['PUT', new RegExp(`^/api/posts/${ID}/pin$`), (r, env, [id]) => setPin(r, env, id)],
   ['GET', /^\/api\/pins$/, (r, env) => listPins(r, env)],
+  // Phase 5 (Konzept 30): Veranstaltungen – Zusage, „Wer kommt?“, Ändern und Absagen
+  ['PUT', new RegExp(`^/api/posts/${ID}/rsvp$`), (r, env, [id]) => setRsvp(r, env, id)],
+  ['GET', new RegExp(`^/api/posts/${ID}/rsvps$`), (r, env, [id]) => listRsvps(r, env, id)],
+  ['PATCH', new RegExp(`^/api/posts/${ID}/event$`), (r, env, [id]) => updateEvent(r, env, id)],
   ['PATCH', new RegExp(`^/api/posts/${ID}$`), (r, env, [id]) => updatePost(r, env, id)],
   // Phase 4 (Konzept 29): Umfragen
   ['PUT', new RegExp(`^/api/posts/${ID}/vote$`), (r, env, [id]) => putVote(r, env, id)],

@@ -98,6 +98,8 @@ export class SxCover extends LitElement {
         background: transparent;
         aspect-ratio: 6 / 1;
         min-height: 72px;
+        /* feste Breite: sonst überträgt aspect-ratio die Mindesthöhe auf die Breite (72 × 6 = 432 px > 375 px) */
+        width: 100%;
       }
       .tools {
         position: absolute;

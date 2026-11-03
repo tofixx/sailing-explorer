@@ -9,6 +9,7 @@ import { POST_KIND_ICON, base, coverBanner, coverBannerStyles, emit, highlightSt
 import './sx-reactions';
 import './sx-poll';
 import './sx-gallery-post';
+import './sx-event';
 import { postKeyOf } from '../domain/posts';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
@@ -410,13 +411,14 @@ export class SxStream extends LitElement {
   }
 
   /**
-   * Nutzlast je Art unter dem Text (Konzept 21.4, 29): Umfrage → `sx-poll`. Neue Arten (Veranstaltung …) eine Zeile.
+   * Nutzlast je Art unter dem Text (Konzept 21.4, 29, 30): Umfrage → `sx-poll`, Veranstaltung → `sx-event`. Eine Zeile je Art.
    * Der Schlüssel „Nur mit Link“ steckt in der Einzelkarte im Pfad `/p/<id>/<schlüssel>`.
    */
   private kindPayload(p: NonNullable<StreamItem['post']>) {
     const key = postKeyOf(p.path);
     if (p.poll) return html`<sx-poll .poll=${p.poll} post-id=${p.id} .shareKey=${key}></sx-poll>`;
     if (p.gallery) return html`<sx-gallery-post .photos=${p.gallery.photos} .postKey=${key} ?own=${!!p.gallery.own}></sx-gallery-post>`;
+    if (p.event) return html`<sx-event .event=${p.event} post-id=${p.id} .body=${p.body} .shareKey=${key}></sx-event>`;
     return nothing;
   }
 

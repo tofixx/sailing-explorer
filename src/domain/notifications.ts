@@ -9,8 +9,10 @@ import { claimResultText, isClaimStatus } from './claims';
  * activity; follow, passkey → user (ich selbst); invite → invite; request → group. Verifizierung (Konzept 20.8): neuer
  * Antrag an die Admins (`claim`), Entscheidung an die Antragsteller:in (`claim_result`), Übertragung an die verdrängte
  * Person (`claim_transfer`) – alle → claim. Umfrage beendet (`poll_closed`, Konzept 29) an die Autor:in → post.
+ * Veranstaltungen (Konzept 30): `rsvp` (Zusage an die Autor:in) und `event` (Erinnerung, Änderung oder Absage an alle
+ * mit Zusage) – beide → post.
  */
-export const NOTIFICATION_KINDS = ['comment', 'reaction', 'follow', 'invite', 'request', 'expiry', 'passkey', 'claim', 'claim_result', 'claim_transfer', 'post', 'poll_closed'] as const;
+export const NOTIFICATION_KINDS = ['comment', 'reaction', 'follow', 'invite', 'request', 'expiry', 'passkey', 'claim', 'claim_result', 'claim_transfer', 'post', 'poll_closed', 'event', 'rsvp'] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 export const NOTIFICATION_SUBJECTS = ['share', 'post', 'activity', 'user', 'invite', 'group', 'claim'] as const;
@@ -28,7 +30,7 @@ export const isNotificationSubject = oneOf(NOTIFICATION_SUBJECTS);
  * Nur zur Kenntnis: gelesen, sobald die Liste sie gezeigt hat. Alles andere (Kommentare lesen, Einladung oder Anfrage
  * entscheiden) gilt erst als gelesen, wenn man den Gegenstand öffnet – aus der Glocke, per Mail-Link oder direkt.
  */
-export const INFORMATIONAL: ReadonlySet<NotificationKind> = new Set(['reaction', 'follow', 'passkey', 'claim_result', 'claim_transfer', 'poll_closed']);
+export const INFORMATIONAL: ReadonlySet<NotificationKind> = new Set(['reaction', 'follow', 'passkey', 'claim_result', 'claim_transfer', 'poll_closed', 'event', 'rsvp']);
 
 // ---------------------------------------------------------------- Kanäle (Konzept 17.6)
 
@@ -40,7 +42,7 @@ export const isChannel = oneOf(CHANNELS);
 export const CHANNEL_LABEL: Record<Channel, string> = { off: 'Aus', none: 'Nur Glocke', mail: 'Mail', push: 'Push' };
 
 /** Wählbare Arten mit Standard. Mail heißt: tägliche Sammelmail – außer Einladungen, die kommen sofort. */
-export const CHOOSABLE = ['comment', 'reaction', 'follow', 'invite', 'request', 'post'] as const;
+export const CHOOSABLE = ['comment', 'reaction', 'follow', 'invite', 'request', 'post', 'event'] as const;
 export type ChoosableKind = (typeof CHOOSABLE)[number];
 export const isChoosable = oneOf(CHOOSABLE);
 export const CHOOSABLE_LABEL: Record<ChoosableKind, string> = {
@@ -50,6 +52,7 @@ export const CHOOSABLE_LABEL: Record<ChoosableKind, string> = {
   invite: 'Einladungen an dich',
   request: 'Beitrittsanfragen in deinen Gruppen',
   post: 'Neue Beiträge in deinen Gruppen, deinem Hafen und an deinen Booten',
+  event: 'Veranstaltungen, denen du zugesagt hast: Erinnerung (im Nachtlauf, ohne Push) und Änderungen',
 };
 
 /**
@@ -57,7 +60,7 @@ export const CHOOSABLE_LABEL: Record<ChoosableKind, string> = {
  * F-449 die Stufe je Verlauf (`shouldNotify`), nicht mehr ein globales „Aus“; gespeichertes `off` fällt auf den Standard.
  */
 export const channelsFor = (_kind: ChoosableKind): readonly Channel[] => CHANNELS.filter((c) => c !== 'off');
-export const DEFAULT_CHANNELS: Record<ChoosableKind, Channel> = { comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none', post: 'none' };
+export const DEFAULT_CHANNELS: Record<ChoosableKind, Channel> = { comment: 'none', reaction: 'none', follow: 'none', invite: 'mail', request: 'none', post: 'none', event: 'none' };
 
 // ---------------------------------------------------------------- Stufen je Verlauf (Konzept 24.6, F-449)
 
@@ -184,6 +187,8 @@ export interface NotificationItem {
   title: string;
   /** Bezug im Satz: bei Reaktionen „deinen Törn“, „deinen Beitrag in“, „deine Neuigkeit“; bei Einladungen die Einladungsart */
   what: string;
+  /** Veranstaltung (Konzept 30): Name des Verlaufs für die Sammelmail (ohne Titel); fehlt im Profil-Verlauf */
+  where?: string;
   /** Ziel beim Anklicken (Pfad der eigenen Origin) */
   href: string;
   at: number;
@@ -196,7 +201,7 @@ export interface NotificationItem {
  * Zeile für die tägliche Sammelmail – ohne Namen und ohne Texte anderer (Mails verlassen die Plattform), nur Anzahl
  * und eigener Gegenstand.
  */
-export function mailLine(n: Pick<NotificationItem, 'kind' | 'count' | 'title'>): string {
+export function mailLine(n: Pick<NotificationItem, 'kind' | 'count' | 'title'> & Partial<Pick<NotificationItem, 'what' | 'where'>>): string {
   const many = (one: string, more: string) => (n.count === 1 ? one : `${n.count} ${more}`);
   switch (n.kind) {
     case 'comment':
@@ -211,6 +216,9 @@ export function mailLine(n: Pick<NotificationItem, 'kind' | 'count' | 'title'>):
       return `${quoted(n.title)}: ${many('1 Beitrittsanfrage', 'Beitrittsanfragen')}`;
     case 'post':
       return `${quoted(n.title)}: neuer Beitrag`;
+    case 'event':
+      // Titel fremder Veranstaltungen verlassen die Plattform nicht – nur der Verlauf (Konzept 30.3)
+      return `${n.where ? `Veranstaltung in ${quoted(n.where)}` : 'Veranstaltung'}: ${EVENT_WHAT[n.what ?? ''] ?? 'Neuigkeit'}`;
     default:
       return '';
   }
@@ -221,6 +229,8 @@ const short = (s: string, n = 60) => {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
 const quoted = (s: string) => `„${short(s) || 'Ohne Titel'}“`;
+/** Anlass einer Benachrichtigung `event` (`what`, Konzept 30.3) */
+const EVENT_WHAT: Record<string, string> = { reminder: 'Erinnerung – die Veranstaltung beginnt bald', changed: 'Zeit oder Ort wurden geändert', cancelled: 'abgesagt' };
 /** „auf deinen Törn „X““ bzw. ohne Titel nur „auf deine Neuigkeit“ */
 const about = (what: string, title: string) => (title.trim() ? `${what} ${quoted(title)}` : what);
 
@@ -242,9 +252,14 @@ export function notificationText(n: Pick<NotificationItem, 'kind' | 'count' | 'a
     case 'post':
       if (n.what === 'voyage') return `${who} hat einen Törn geteilt: ${quoted(n.title)}`;
       if (n.what === 'poll') return n.title.trim() ? `${who} fragt in ${quoted(n.title)}: neue Umfrage` : `${who} hat eine Umfrage gestartet`;
+      if (n.what === 'event') return n.title.trim() ? `${who} lädt in ${quoted(n.title)} ein: neue Veranstaltung` : `${who} hat eine Veranstaltung angelegt`;
       return `${who} hat in ${quoted(n.title)} geschrieben`;
     case 'poll_closed':
       return `Deine Umfrage ${n.title.trim() ? `in ${quoted(n.title)} ` : ''}ist beendet – das Ergebnis steht fest`;
+    case 'event':
+      return `${quoted(n.title)}: ${EVENT_WHAT[n.what] ?? 'Veranstaltung'}`;
+    case 'rsvp':
+      return `${who}${more} ${n.count > 1 ? 'haben' : 'hat'} auf ${quoted(n.title)} geantwortet`;
     case 'expiry':
       return `${quoted(n.title)} wird ${n.what} gelöscht – unterstützen, um ihn zu behalten`;
     case 'passkey':

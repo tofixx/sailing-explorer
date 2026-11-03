@@ -21,6 +21,7 @@ import type { VoyageRole } from '../domain/crew-roles';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 import type { NotificationItem, NotificationKind, NotifyLevel, NotifyPrefs } from '../domain/notifications';
 import type { DistSource, LatLon, LogState, Logbook, ShareSource } from '../domain/logbook';
+import type { EventInput, EventView, RsvpStatus } from '../domain/events';
 import { previewParam, type AttachableShare, type ChannelKind, type ComposeTarget, type GalleryQuota, type MyPost, type MyPostArea, type PostBy, type PostLink, type PostPhoto, type PostVisibility, type PreviewOptions, type ProfilePost, type ProfilePreview, type Reach } from '../domain/posts';
 
 export type { Visibility };
@@ -1236,6 +1237,8 @@ export interface PostInput {
   poll?: PollConfig;
   /** Galerie (`kind: 'gallery'`, Konzept 31): gewählte Fotos – lädt der ComposeController nach dem Anlegen hoch, nie im JSON */
   gallery?: File[];
+  /** Termin einer Veranstaltung (`kind: 'event'`, Konzept 30) – der Text ist der Titel */
+  event?: EventFields;
   body: string;
   link: string;
   visibility: PostVisibility;
@@ -1315,4 +1318,27 @@ export const postApi = {
   /** ein Foto zum eigenen Galerie-Beitrag (Konzept 31) – Fortschritt wie bei Törn-Fotos */
   uploadPhoto: (id: string, thumb: Blob, full: Blob, onProgress?: (fraction: number) => void) =>
     sendPhotoXhr<PostPhoto>(`/api/posts/${encodeURIComponent(id)}/photos`, thumb, full, { caption: '' }, onProgress),
+};
+
+/** Termin, Ort und Kapazität einer Veranstaltung; beim Anlegen mit Beschreibung (Konzept 30) */
+export type EventFields = EventInput & { description?: string };
+
+/** „Wer kommt?“ (F-483): Namen je Status, der Rest als Anzahl; `all` = Autor:in bzw. Verwalter sehen alle Anzeigenamen */
+export interface RsvpList {
+  people: Record<RsvpStatus, Array<{ displayName: string; handle: string | null }>>;
+  others: Record<RsvpStatus, number>;
+  all: boolean;
+}
+
+export const eventApi = {
+  /** Zusage setzen bzw. ändern (F-481) – mit Schlüssel bei „Nur mit Link“ */
+  rsvp: (id: string, status: RsvpStatus, key?: string | null) =>
+    call<{ event: EventView }>(`/api/posts/${encodeURIComponent(id)}/rsvp`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(key ? { 'X-Share-Key': key } : {}) },
+      body: JSON.stringify({ status }),
+    }),
+  who: (id: string, key?: string | null) => call<RsvpList>(`/api/posts/${encodeURIComponent(id)}/rsvps`, keyInit(key)),
+  /** Termin, Ort, Kapazität ändern bzw. absagen (F-484) */
+  update: (id: string, patch: EventInput | { cancel: true }) => call<{ event: EventView }>(`/api/posts/${encodeURIComponent(id)}/event`, jsonInit('PATCH', patch)),
 };

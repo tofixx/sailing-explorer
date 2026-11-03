@@ -16,6 +16,7 @@ import { liveSql, notSuspendedSql, publicSql } from './visible-sql';
 import type { Visibility } from '../src/domain/visibility';
 import type { Reach } from '../src/domain/posts';
 import { attachPolls } from './polls';
+import { attachEvents } from './events';
 import { logbookIds, shapeItem, type ActivityRow, type LogShare, type ReadAt, type Viewer } from './stream-shape';
 import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
 import { pageByDays, type Candidate, type DayPageOut } from './stream-days';
@@ -132,11 +133,12 @@ async function attachReactions(env: Env, items: StreamItem[], viewerId: string |
 
 /**
  * Angaben je Art und Betrachter (Konzept 29): Umfragen bekommen Stimmen, eigene Wahl und – wenn sichtbar – das Ergebnis.
- * Ein Batch je Art und Seite, immer nach dem öffentlichen Cache. Neue Arten (Veranstaltung …) ergänzen eine Zeile.
+ * Ein Batch je Art und Seite, immer nach dem öffentlichen Cache. Veranstaltungen (Konzept 30): Zähler, eigene Zusage.
  * Galerie-Fotos kommen nicht hierher: sie stehen schon in der Zeile (`GALLERY_PHOTOS_SQL`, vor dem Formen).
  */
 async function attachKindData(env: Env, items: StreamItem[], viewerId: string | null): Promise<void> {
   await attachPolls(env, items, viewerId);
+  await attachEvents(env, items, viewerId);
 }
 
 /**

@@ -46,7 +46,7 @@ afterEach(() => {
 const T = Date.UTC(2026, 10, 2, 10);
 
 describe('sx-compose', () => {
-  it('[F-405] „+ Neu“: Menü mit Törn (GPX), Fahrtenbuch-Eintrag, Text – noch keine späteren Arten; ein Event je Wahl; Escape schließt', async () => {
+  it('[F-405] [F-480] „+ Neu“: Menü mit Törn (GPX), Fahrtenbuch-Eintrag, Text, Veranstaltung – noch keine Fotos; ein Event je Wahl; Escape schließt', async () => {
     const opens = listen('sx-compose-open');
     const el = await mount('sx-compose', {});
     const toggle = button(el.shadowRoot, /Neu anlegen/)!;
@@ -58,14 +58,14 @@ describe('sx-compose', () => {
     expect(t).toContain('Törn (GPX)');
     expect(t).toContain('Fahrtenbuch-Eintrag');
     expect(t).toContain('Text');
-    // Umfrage seit Phase 4 (Konzept 29, polls-ui.test.ts); Veranstaltung und Fotos folgen
-    expect(t).not.toMatch(/Veranstaltung/);
-    for (const label of [/Törn \(GPX\)/, /Fahrtenbuch-Eintrag/, /^\s*Text/]) {
+    // Umfrage seit Phase 4 (Konzept 29, polls-ui.test.ts), Veranstaltung seit Phase 5 (Konzept 30), Fotos seit Phase 7
+    expect(t).toContain('Veranstaltung');
+    for (const label of [/Törn \(GPX\)/, /Fahrtenbuch-Eintrag/, /^\s*Text/, /^\s*Veranstaltung/]) {
       el.open = true;
       await el.updateComplete;
       [...el.shadowRoot.querySelectorAll('.item')].find((b) => label.test(b.textContent ?? ''))!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     }
-    expect(opens).toEqual([{ kind: 'gpx' }, { kind: 'logbook' }, { kind: 'text' }]);
+    expect(opens).toEqual([{ kind: 'gpx' }, { kind: 'logbook' }, { kind: 'text' }, { kind: 'event' }]);
     el.open = true;
     await el.updateComplete;
     el.shadowRoot.querySelector('div')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

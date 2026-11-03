@@ -89,6 +89,11 @@ import { GuestSliderController } from './controllers/guest-slider';
 import { PostLinkController } from './controllers/post-link';
 import { PinsController } from './controllers/pins';
 import type { SxComposeDialog } from './components/sx-compose-dialog';
+import type { SxEventDialog } from './components/sx-event-dialog';
+import type { SxEvent } from './components/sx-event';
+import { EventsController } from './controllers/events';
+import type { EventView, LogbookPreset, RsvpStatus } from './domain/events';
+import type { EventFields } from './services/api';
 import type { ComposeKind } from './components/sx-compose';
 import type { ChannelPostInput, CreatedPost } from './services/api';
 import type { MyPostArea, PostKind, PostVisibility, ProfilePreview, Reach } from './domain/posts';
@@ -162,6 +167,7 @@ export class App {
     reactionsPanel: $<HTMLElement>('#reactions-panel'),
     notifications: $<SxNotifications>('sx-notifications'),
     compose: $<SxComposeDialog>('sx-compose-dialog'),
+    eventDialog: $<SxEventDialog>('sx-event-dialog'),
   };
   private session: SessionController;
   private ws: WorkspaceController;
@@ -176,6 +182,7 @@ export class App {
   private unread: UnreadController;
   private compose: ComposeController;
   private polls: PollController;
+  private events: EventsController;
   private postLink: PostLinkController;
   private pins: PinsController;
   /** Listen der offenen Seite fertig geladen – Bootsstream bzw. „Mein Verlauf“ (für den Anker `#p-<id>`) */
@@ -304,6 +311,15 @@ export class App {
     });
     // ---- Umfragen (Konzept 29) ----
     this.polls = new PollController({ toast: (msg, ms) => this.toast(msg, ms), requireLogin: (reason, then) => this.session.requireLogin(reason, then) });
+    // ---- Veranstaltungen (Konzept 30) ----
+    this.events = new EventsController({
+      dialog: this.ui.eventDialog,
+      toast: (msg, ms) => this.toast(msg, ms),
+      requireLogin: (reason, then) => this.session.requireLogin(reason, then),
+      signedIn: () => !!this.store.get().user,
+      ask: (req) => this.ui.confirm.ask(req),
+      startLogbook: (preset) => this.logbook.start(null, { preset }),
+    });
     this.postLink = new PostLinkController({
       page: this.ui.page,
       groupPage: this.ui.groupPage,
@@ -852,6 +868,16 @@ export class App {
     on<PollEventDetail>('sx-poll-vote', (d) => this.polls.vote(d));
     on<PollEventDetail>('sx-poll-close', (d) => this.polls.close(d));
     on<PollEventDetail>('sx-poll-who', (d) => this.polls.who(d));
+    // Veranstaltungen (Konzept 30): Zusage, „Wer kommt?“, Kalender, Fahrtenbuch, Ändern und Absagen
+    const ev = this.events;
+    on<{ id: string; status: RsvpStatus; key: string | null; el: SxEvent }>('sx-rsvp', (d) => ev.rsvp(d));
+    on<{ id: string; key: string | null; el: SxEvent }>('sx-rsvp-who', (d) => void ev.who(d));
+    on<{ id: string; title: string; description: string; event: EventView; path: string }>('sx-event-ics', (d) => ev.ics(d));
+    on<{ preset: LogbookPreset }>('sx-event-logbook', (d) => ev.logbook(d));
+    on<{ id: string; event: EventView; el: SxEvent }>('sx-event-edit', (d) => ev.edit(d));
+    on<{ id: string; patch: EventFields }>('sx-event-save', (d) => void ev.save(d));
+    on<{ id: string }>('sx-event-cancel', (d) => void ev.cancel(d));
+    on('sx-event-dialog-close', () => ev.close());
     on<{ kind: FollowKind; id: string; follow: boolean }>('sx-follow', (d) => g.follow(d));
 
     // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----

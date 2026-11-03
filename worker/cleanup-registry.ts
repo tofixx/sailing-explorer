@@ -92,6 +92,10 @@ export const TABLES: Record<string, Loeschweg> = {
   // Umfragen (Konzept 29): Stimmen fallen mit dem Beitrag (jeder Löschweg von posts) und mit dem Konto der Wählenden
   poll_votes: { cascade: ['posts', 'users'], durch: ['removePost', 'removeGroup', 'channelPostsCleanup', 'purgeUser', 'mergeUsers'] },
   channel_pins: { cascade: ['posts'], durch: ['setPin', 'channelPostsCleanup', 'groupActivityCleanup', 'userActivityCleanup'], nachts: 'Waisen' },
+  // Veranstaltungen (Konzept 30): Termin und Zusagen fallen mit dem Beitrag (jeder Löschweg von posts), Zusagen auch mit
+  // dem Konto; Frist 12 Monate nach Ende über removePost
+  post_events: { cascade: ['posts'], durch: ['removePost', 'removeGroup', 'channelPostsCleanup', 'purgeUserGroups'], nachts: '12 Monate nach Ende (expireEvents)' },
+  event_rsvps: { cascade: ['post_events', 'users'], durch: ['removePost', 'purgeUser', 'mergeUsers'] },
 };
 
 /** Je Art eines Bezugs ohne Fremdschlüssel: wer räumt beim Löschen des Gegenstands auf, gibt es ein nächtliches Netz? */
