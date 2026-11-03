@@ -424,7 +424,7 @@ export async function decideReport(request: Request, env: Env, reportId: string)
       log,
     ]);
   }
-  return json({ ok: true, notified: await sendDecisionNotice(env, admin.id, notice, action, now) });
+  return json({ ok: true, ...(await sendDecisionNotice(env, admin.id, notice, action, now)) });
 }
 
 /**

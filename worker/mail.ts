@@ -214,6 +214,8 @@ export interface ReportDecisionMailInput {
   ground: 'law' | 'rules';
   /** Eigentümer:in sieht Ausgeblendetes weiter (nicht bei Profil und Hafen) */
   ownerSees: boolean;
+  /** „Behalten“, als nur das Titelbild zurückgehalten war: Text und Betreff nennen das Bild */
+  coverOnly?: boolean;
   /** Gründe der Meldungen (feste Texte) */
   reasons: string[];
   contact?: string;
@@ -232,7 +234,9 @@ export function reportDecisionMail(env: Env, to: string, m: ReportDecisionMailIn
   const head = {
     hide: 'wurde gemeldet und von der Moderation ausgeblendet',
     delete: 'wurde gemeldet und von der Moderation gelöscht',
-    keep: 'wurde gemeldet und bis zur Prüfung ausgeblendet. Die Moderation hat nichts beanstandet – der Inhalt ist wieder sichtbar',
+    keep: m.coverOnly
+      ? 'wurde gemeldet; das Titelbild war bis zur Prüfung zurückgehalten. Die Moderation hat nichts beanstandet – das Titelbild ist wieder sichtbar'
+      : 'wurde gemeldet und bis zur Prüfung ausgeblendet. Die Moderation hat nichts beanstandet – der Inhalt ist wieder sichtbar',
     cover: 'wurde gemeldet. Die Moderation hat das Titelbild entfernt',
   }[m.decision];
   const after = {
@@ -264,7 +268,7 @@ ${after ? `<p>${after}</p>` : ''}
 <p style="color:#5b6b7b;font-size:13px">${how}</p>
 <p>${escapeHtml(object)}</p>
 </body></html>`;
-  const label = { hide: `${m.noun} ausgeblendet`, delete: `${m.noun} gelöscht`, keep: `${m.noun} wieder sichtbar`, cover: `Titelbild entfernt, ${m.noun} wieder sichtbar` }[m.decision];
+  const label = { hide: `${m.noun} ausgeblendet`, delete: `${m.noun} gelöscht`, keep: m.coverOnly ? 'Titelbild wieder sichtbar' : `${m.noun} wieder sichtbar`, cover: `Titelbild entfernt, ${m.noun} wieder sichtbar` }[m.decision];
   return { to, subject: `${app}: Moderation – ${label}`, text, html };
 }
 

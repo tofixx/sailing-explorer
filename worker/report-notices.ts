@@ -9,7 +9,7 @@ import { adminEmails, adminLogStmt, requireAdmin } from './moderation';
 import { reportDecisionMail, reportDigestMail, sendMail } from './mail';
 import { COVER_REPORT_KIND } from './covers';
 import type { ReportKind } from '../src/domain/comment-text';
-import { decisionGround, noticeReasons, shouldNotify, type ReportDecision } from '../src/domain/report-decisions';
+import { decisionGround, noticeReasons, noticeVerdict, type ReportDecision } from '../src/domain/report-decisions';
 
 const DAY = 86_400_000;
 /** Höchstens eine Sammelmail in diesem Abstand – auch wenn der Nachtlauf zweimal startet (F-570). */
@@ -115,6 +115,8 @@ export interface DecisionNotice {
   noun: string;
   name: string;
   wasHidden: boolean;
+  /** nur das Titelbild war zurückgehalten, das Objekt selbst nicht ausgeblendet („Behalten“ meldet dann das Bild) */
+  coverHeldOnly: boolean;
   /** Eigentümer:in sieht Ausgeblendetes (Verwalter-Sicht, Konzept 18.2) – nicht bei Profil und Hafen */
   ownerSees: boolean;
   reasons: Record<string, number>;
@@ -140,23 +142,32 @@ export async function prepareDecisionNotice(env: Env, kind: ReportKind, id: stri
   const held = cover
     ? !!(await env.DB.prepare('SELECT 1 AS x FROM covers WHERE kind = ? AND object_id = ? AND held_until > ?').bind(cover, id, Date.now()).first())
     : false;
-  return { kind, id, owner: row.owner, email: u.email, what: row.what, noun: row.noun, name: row.name ?? '', wasHidden: !!row.hidden_at || held, ownerSees: !!row.sees, reasons };
+  return { kind, id, owner: row.owner, email: u.email, what: row.what, noun: row.noun, name: row.name ?? '', wasHidden: !!row.hidden_at || held, coverHeldOnly: !row.hidden_at && held, ownerSees: !!row.sees, reasons };
 }
 
 /**
  * Begründung nach der Entscheidung (F-572, F-573): an die Eigentümer:in, mit Maßnahme, Grundlage (Recht oder Regeln),
  * Gründen, Widerspruch an `REPORT_CONTACT` und Rechtsweg. Ein gescheiterter Versand hält die Entscheidung nicht auf.
  * Der Versand steht im Protokoll (`report_notice` am Konto der Eigentümer:in, ohne Adresse) – daraus auch die Grenzen
- * je Konto (nur Spam) und insgesamt je Tag. Liefert, ob verschickt wurde.
+ * je Konto (nur Spam) und insgesamt je Tag. Liefert, ob verschickt wurde, und `withheld: 'limit'`, wenn eine fällige
+ * Begründung an einer Grenze scheiterte (die Oberfläche sagt es dem Admin).
  */
-export async function sendDecisionNotice(env: Env, adminId: string, n: DecisionNotice | null, decision: ReportDecision, now = Date.now()): Promise<boolean> {
-  if (!n) return false;
+export async function sendDecisionNotice(
+  env: Env,
+  adminId: string,
+  n: DecisionNotice | null,
+  decision: ReportDecision,
+  now = Date.now(),
+): Promise<{ notified: boolean; withheld?: 'limit' }> {
+  if (!n) return { notified: false };
   const counts = await env.DB.prepare(
     `SELECT COUNT(*) AS total, COALESCE(SUM(target_kind = 'user' AND target_id = ?), 0) AS owner FROM admin_log WHERE action = 'report_notice' AND created_at > ?`,
   )
     .bind(n.owner, now - DAY)
     .first<{ total: number; owner: number }>();
-  if (!shouldNotify({ decision, wasHidden: n.wasHidden, reasons: n.reasons, sentToday: counts?.owner ?? 0, sentTotal: counts?.total ?? 0, selfDecided: n.owner === adminId })) return false;
+  const verdict = noticeVerdict({ decision, wasHidden: n.wasHidden, reasons: n.reasons, sentToday: counts?.owner ?? 0, sentTotal: counts?.total ?? 0, selfDecided: n.owner === adminId });
+  if (verdict === 'limit') return { notified: false, withheld: 'limit' };
+  if (verdict === 'none') return { notified: false };
   try {
     await sendMail(
       env,
@@ -167,14 +178,15 @@ export async function sendDecisionNotice(env: Env, adminId: string, n: DecisionN
         name: n.name,
         ground: decisionGround(n.reasons),
         ownerSees: n.ownerSees,
+        coverOnly: n.coverHeldOnly,
         reasons: noticeReasons(n.reasons),
         contact: env.REPORT_CONTACT,
       }),
     );
   } catch (err) {
     console.error('report notice failed', n.kind, n.id, err);
-    return false;
+    return { notified: false };
   }
   await adminLogStmt(env, adminId, 'report_notice', 'user', n.owner, `Begründung per Mail: ${n.kind} ${n.id} – ${decision}`, now).run();
-  return true;
+  return { notified: true };
 }

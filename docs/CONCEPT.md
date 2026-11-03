@@ -1679,6 +1679,9 @@ Beitrag mit – ihr Recht auf Löschung wiegt hier schwerer; wer ihn als Beleg b
   der Frist endgültig gelöscht wird (Datum), wenn es nicht entsperrt wird, und dass man per Antwort (bzw. an
   `REPORT_CONTACT`) widersprechen kann. Ohne Konto oder Mail-Adresse keine Mail; ein gescheiterter Versand hält die
   Sperre nicht auf. Der Versand steht im Protokoll (`lock_notice`, ohne Adresse).
+- **Meldungen nach dem Ende der Sperre (F-575):** Wird entsperrt, sind die Meldungen zum Objekt (bei Kommentar, Foto,
+  Beitrag: zu Inhalten des Kontos) wieder offen und werden, wenn älter als 180 Tage, in der nächsten Nacht anonymisiert;
+  läuft die Sperre ab, gehen sie mit dem endgültig gelöschten Objekt bzw. Konto (`purgeUserReports`, `deleteOrphanReports`).
 - **Aufräumen:** `locks`-Zeilen, deren Ziel es nicht mehr gibt, löscht der nächtliche Lauf; jeder Admin-Löschweg
   entfernt die Zeile seines Objekts.
 

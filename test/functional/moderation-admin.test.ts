@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createShare, login, startWorker, type Harness } from './worker-harness';
 import { social, type Person } from './social-helpers';
-import { decisionGround, noticeReasons, reportBadge, reportLockTarget, shouldNotify, suggestLock } from '../../src/domain/report-decisions';
+import { decisionGround, noticeReasons, reportBadge, reportLockTarget, noticeVerdict, suggestLock } from '../../src/domain/report-decisions';
 
 const DAY = 86_400_000;
 const ADMIN_ID = 'AdminMelde0000001';
@@ -44,7 +44,7 @@ async function report(by: Person, kind: string, id: string, reason = 'spam', not
   // bei Profilen ist die Ziel-ID die Konto-ID, nicht der Profilname – daher die letzte Meldung der Person
   return (await one<{ id: string }>('SELECT id FROM reports WHERE reporter_id = ? AND target_kind = ? ORDER BY created_at DESC, rowid DESC', by.user.id, kind))!.id;
 }
-const decide = async (id: string, action: string) => json<{ ok: true; notified: boolean }>(await A('POST', `/api/admin/reports/${id}`, { action }));
+const decide = async (id: string, action: string) => json<{ ok: true; notified: boolean; withheld?: string }>(await A('POST', `/api/admin/reports/${id}`, { action }));
 /** Alle offenen Meldungen entscheiden (Ausgangslage je Test) */
 async function clearReports() {
   await (await s.db()).prepare(`UPDATE reports SET resolved_at = ?, resolution = 'kept' WHERE resolved_at IS NULL`).bind(Date.now()).run();
@@ -63,18 +63,18 @@ describe('Moderation: reine Regeln', () => {
     expect([decisionGround({ illegal: 1, spam: 2 }), decisionGround({ depicted: 1 }), decisionGround({ spam: 3, abuse: 1 })]).toEqual(['law', 'law', 'rules']);
     expect(noticeReasons({ neu: 1 })).toEqual(['sonstiger Grund']);
     const base = { wasHidden: false, reasons: { abuse: 1 }, sentToday: 0, sentTotal: 0, selfDecided: false };
-    expect(shouldNotify({ ...base, decision: 'hide' })).toBe(true);
-    expect(shouldNotify({ ...base, decision: 'delete' })).toBe(true);
-    expect(shouldNotify({ ...base, decision: 'keep' })).toBe(false);
-    expect(shouldNotify({ ...base, decision: 'keep', wasHidden: true })).toBe(true);
-    expect(shouldNotify({ ...base, decision: 'hide', selfDecided: true })).toBe(false);
+    expect(noticeVerdict({ ...base, decision: 'hide' })).toBe('send');
+    expect(noticeVerdict({ ...base, decision: 'delete' })).toBe('send');
+    expect(noticeVerdict({ ...base, decision: 'keep' })).toBe('none');
+    expect(noticeVerdict({ ...base, decision: 'keep', wasHidden: true })).toBe('send');
+    expect(noticeVerdict({ ...base, decision: 'hide', selfDecided: true })).toBe('none');
     // nur Spam: höchstens drei am Tag; sonst immer
-    expect(shouldNotify({ ...base, decision: 'delete', reasons: { spam: 4 }, sentToday: 3 })).toBe(false);
-    expect(shouldNotify({ ...base, decision: 'delete', reasons: { spam: 4 }, sentToday: 2 })).toBe(true);
-    expect(shouldNotify({ ...base, decision: 'delete', reasons: { spam: 4, illegal: 1 }, sentToday: 9 })).toBe(true);
+    expect(noticeVerdict({ ...base, decision: 'delete', reasons: { spam: 4 }, sentToday: 3 })).toBe('limit');
+    expect(noticeVerdict({ ...base, decision: 'delete', reasons: { spam: 4 }, sentToday: 2 })).toBe('send');
+    expect(noticeVerdict({ ...base, decision: 'delete', reasons: { spam: 4, illegal: 1 }, sentToday: 9 })).toBe('send');
     // Tagesgrenze insgesamt (Mail-Budget)
-    expect(shouldNotify({ ...base, decision: 'delete', sentTotal: 29 })).toBe(true);
-    expect(shouldNotify({ ...base, decision: 'delete', sentTotal: 30 })).toBe(false);
+    expect(noticeVerdict({ ...base, decision: 'delete', sentTotal: 29 })).toBe('send');
+    expect(noticeVerdict({ ...base, decision: 'delete', sentTotal: 30 })).toBe('limit');
     expect(reportLockTarget('share', 'S1', 'U1')).toEqual({ kind: 'shares', id: 'S1', account: false });
     expect(reportLockTarget('harbor', 'H1', null)).toEqual({ kind: 'harbors', id: 'H1', account: false });
     expect(reportLockTarget('profile', 'U1', 'U1')).toEqual({ kind: 'users', id: 'U1', account: true });
@@ -141,6 +141,36 @@ describe('Moderation 3: Hinweis an die Admins', () => {
     expect(digests(before)[0]).toContain('3 offene Meldungen (davon 1 neu seit der letzten Mail)');
     await clearReports();
   });
+
+  it('[F-570] doppelt gleichzeitig gestarteter Nachtlauf schickt eine Mail; ohne APP_ORIGIN kein Link', async () => {
+    await clearReports();
+    await nextNight();
+    const owner = await s.person({ profile: 'public' });
+    const reporter = await s.person({ profile: 'public' });
+    await report(reporter, 'share', (await share(owner, 'Gleichzeitig')).id);
+    const before = mails(ADMIN_MAIL).length;
+    await Promise.all([h.scheduled(), h.scheduled()]);
+    expect(digests(before)).toHaveLength(1);
+    expect((await one<{ n: number }>(`SELECT COUNT(*) AS n FROM admin_log WHERE action = 'report_digest' AND created_at > ?`, Date.now() - 3_600_000))!.n).toBe(1);
+    await clearReports();
+  });
+
+  it('[F-570] ohne APP_ORIGIN: Sammelmail ohne Link und ohne fest eingebaute Domain', async () => {
+    const h2 = await startWorker({ ADMIN_USER_IDS: ADMIN_ID });
+    try {
+      const db = await h2.db();
+      await db.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)').bind(ADMIN_ID, ADMIN_MAIL, Date.now() - 10 * DAY).run();
+      await db.prepare(`INSERT INTO reports (id, target_kind, target_id, reporter_id, reason, note, created_at) VALUES ('RepOhneOrigin0001', 'harbor', 'HafenOhneOrigin01', NULL, 'spam', '', ?)`).bind(Date.now()).run();
+      await db.prepare(`INSERT INTO harbors (id, slug, name, name_key, lat, lon, created_at, updated_at) VALUES ('HafenOhneOrigin01', 'ohne-origin', 'Ohne Origin', 'ohne origin', -45, -170, ?1, ?1)`).bind(Date.now()).run();
+      await h2.scheduled();
+      const sent = h2.logs.filter((l) => l.includes(`[mail:log] an ${ADMIN_MAIL}:`) && l.includes('offene Meldung'));
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).not.toContain('konto=meldungen');
+      expect(sent[0]).not.toContain('segeln-potsdam');
+    } finally {
+      await h2.dispose();
+    }
+  }, 120_000);
 
   it('[F-571] Zähler offener Meldungen (je Ziel) nur für Admins; Meldungen zu Gesperrtem zählen nicht und fehlen in der Liste', async () => {
     await clearReports();
@@ -255,12 +285,13 @@ describe('Moderation 6: Begründung an Betroffene', () => {
 
     // nur Spam: höchstens drei Begründungen je Konto und Tag
     const spammer = await s.person({ profile: 'public' });
-    const flags: boolean[] = [];
+    const flags: Array<boolean | string> = [];
     for (let i = 0; i < 4; i++) {
       const sh = await share(spammer, `Werbung ${i}`);
-      flags.push((await decide(await report(reporter, 'share', sh.id, 'spam'), 'delete')).notified);
+      const r = await decide(await report(reporter, 'share', sh.id, 'spam'), 'delete');
+      flags.push(r.withheld ?? r.notified);
     }
-    expect(flags).toEqual([true, true, true, false]);
+    expect(flags).toEqual([true, true, true, 'limit']);
     // … anderer Grund geht trotzdem raus
     const sh = await share(spammer, 'Beleidigung');
     expect((await decide(await report(reporter, 'share', sh.id, 'abuse'), 'hide')).notified).toBe(true);
@@ -278,7 +309,7 @@ describe('Moderation 6: Begründung an Betroffene', () => {
       await db2.prepare(`INSERT INTO admin_log (id, admin_id, action, target_kind, target_id, detail, created_at) VALUES (?, ?, 'report_notice', 'user', 'Fuellkonto', '', ?)`).bind(`fuell-${i}`, ADMIN_ID, Date.now()).run();
     }
     const capped = await share(owner, 'Über der Grenze');
-    expect(await decide(await report(reporter, 'share', capped.id, 'abuse'), 'hide')).toEqual({ ok: true, notified: false });
+    expect(await decide(await report(reporter, 'share', capped.id, 'abuse'), 'hide')).toEqual({ ok: true, notified: false, withheld: 'limit' });
     await db2.prepare(`DELETE FROM admin_log WHERE id LIKE ?`).bind('fuell-%').run();
   });
 
@@ -338,6 +369,31 @@ describe('Moderation 6: Begründung an Betroffene', () => {
     expect((await one<{ held_until: number | null }>(`SELECT held_until FROM covers WHERE kind = 'b' AND object_id = ?`, b.id))!.held_until).toBeGreaterThan(Date.now());
     before = mails(owner.email).length;
     expect((await decide(rb, 'keep')).notified).toBe(true);
-    expect(mails(owner.email).slice(before)[0]).toContain('Boot wieder sichtbar');
+    const kept = mails(owner.email).slice(before)[0];
+    expect(kept).toContain('Moderation – Titelbild wieder sichtbar');
+    expect(kept).toContain('das Titelbild war bis zur Prüfung zurückgehalten');
+  });
+
+  it('[F-575] auch Foto und Beitrag: Konto der Autor:in gesperrt → zählt nicht, Entscheidung 409', async () => {
+    await clearReports();
+    const owner = await s.person({ profile: 'public' });
+    const author = await s.person({ profile: 'public' });
+    const reporter = await s.person({ profile: 'public' });
+    const db = await s.db();
+    const now = Date.now();
+    const sh = await share(owner, 'Törn mit Fremdfoto');
+    const g = await s.group(owner);
+    await db.prepare('INSERT INTO photos (id, share_id, user_id, width, height, bytes, created_at) VALUES (?, ?, ?, 10, 10, 100, ?)').bind('FotoAutorSperre01', sh.id, author.user.id, now).run();
+    await db.prepare(`INSERT INTO posts (id, author_id, group_id, body, created_at) VALUES ('BeitragSperre0001', ?, ?, 'Strafbar', ?)`).bind(author.user.id, g.id, now).run();
+    for (const [kind, id, rid] of [['photo', 'FotoAutorSperre01', 'RepFotoSperre0001'], ['post', 'BeitragSperre0001', 'RepPostSperre0001']]) {
+      await db.prepare(`INSERT INTO reports (id, target_kind, target_id, reporter_id, reason, note, created_at) VALUES (?, ?, ?, ?, 'illegal', '', ?)`).bind(rid, kind, id, reporter.user.id, now).run();
+    }
+    expect(await count()).toBe(2);
+    expect((await A('PUT', `/api/admin/users/${author.user.id}/lock`, { reason: 'Beleg' })).status).toBe(200);
+    expect(await count()).toBe(0);
+    for (const rid of ['RepFotoSperre0001', 'RepPostSperre0001']) expect((await A('POST', `/api/admin/reports/${rid}`, { action: 'delete' })).status).toBe(409);
+    expect(await one('SELECT 1 AS x FROM photos WHERE id = ?', 'FotoAutorSperre01')).not.toBeNull();
+    expect(await one('SELECT 1 AS x FROM posts WHERE id = ?', 'BeitragSperre0001')).not.toBeNull();
+    await clearReports();
   });
 });

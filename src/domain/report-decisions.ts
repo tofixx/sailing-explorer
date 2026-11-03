@@ -80,12 +80,13 @@ export const decisionGround = (reasons: Partial<Record<string, number>>): 'law' 
  * Inhalt bis dahin ausgeblendet oder sein Titelbild zurückgehalten war (er ist dann wieder sichtbar); nicht an die entscheidende Person selbst. Nur
  * Spam-Meldungen: höchstens `spamPerOwnerPerDay` Mails je Konto und Tag; insgesamt höchstens `perDay` in 24 h.
  */
-export function shouldNotify(m: { decision: ReportDecision; wasHidden: boolean; reasons: Partial<Record<string, number>>; sentToday: number; sentTotal: number; selfDecided: boolean }): boolean {
-  if (m.selfDecided) return false;
-  if (m.decision === 'keep' && !m.wasHidden) return false;
-  if (m.sentTotal >= REPORT_NOTICE_LIMITS.perDay) return false;
+export function noticeVerdict(m: { decision: ReportDecision; wasHidden: boolean; reasons: Partial<Record<string, number>>; sentToday: number; sentTotal: number; selfDecided: boolean }): 'send' | 'none' | 'limit' {
+  if (m.selfDecided) return 'none';
+  if (m.decision === 'keep' && !m.wasHidden) return 'none';
+  // Grenzen: die Begründung wäre fällig, wird aber zurückgehalten – das sagt die Antwort (`withheld: 'limit'`)
+  if (m.sentTotal >= REPORT_NOTICE_LIMITS.perDay) return 'limit';
   const onlySpam = Object.entries(m.reasons).every(([r, n]) => r === 'spam' || !n);
-  return !(onlySpam && m.sentToday >= REPORT_NOTICE_LIMITS.spamPerOwnerPerDay);
+  return onlySpam && m.sentToday >= REPORT_NOTICE_LIMITS.spamPerOwnerPerDay ? 'limit' : 'send';
 }
 
 /** Zähler am Konto-Knopf: ab 100 „99+“, 0 → leer. */

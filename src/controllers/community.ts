@@ -239,10 +239,10 @@ export class CommunityController {
   decide(id: string, action: AdminAction) {
     const done = action === 'keep' ? 'Behalten – wieder sichtbar' : action === 'hide' ? 'Ausgeblendet' : action === 'cover' ? 'Titelbild entfernt' : 'Gelöscht';
     return this.accountAct(async () => {
-      const { notified } = await communityApi.decideReport(id, action);
+      const { notified, withheld } = await communityApi.decideReport(id, action);
       await this.loadReports();
-      // Begründung an Betroffene (F-572) – sagen, ob sie rausging
-      this.ui.toast(`${done}${notified ? ' – Begründung per Mail an Betroffene' : ''}`);
+      // Begründung an Betroffene (F-572) – sagen, ob sie rausging oder an einer Grenze hängen blieb (F-573)
+      this.ui.toast(`${done}${notified ? ' – Begründung per Mail an Betroffene' : withheld === 'limit' ? ' – Begründung nicht gesendet (Tageslimit)' : ''}`);
     });
   }
 
