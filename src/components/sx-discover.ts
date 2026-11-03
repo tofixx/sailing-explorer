@@ -19,6 +19,8 @@ import { icon } from './icons';
 import './sx-verified-badge';
 import { base, coverBanner, coverBannerStyles, emit, logbookTag } from './shared';
 import { recordedNote } from '../domain/logbook';
+import { boatClassLabel } from '../domain/boat-class';
+import { boatClassOptions } from './boat-class-options';
 
 /** Abschnitte der Seite /entdecken – „Alle“ oder einer allein (F-332). */
 export const DISCOVER_SECTIONS = [
@@ -36,7 +38,8 @@ export type DiscoverSection = (typeof DISCOVER_SECTIONS)[number][0];
  * variant="strip" – Entdecken-Vorschau auf der Startseite (F-260); variant="page" – Seite /entdecken (alles).
  * Rein präsentational: Daten kommen vom Controller, Links sind normale Seitenwechsel.
  * Seite: Suchfeld meldet `sx-discover-search` { query } (der Controller sucht verzögert, F-331); Beitreten-Knöpfe auf
- * Vereinskarten melden `sx-group-join` { id } wie die Gruppenseite (F-333).
+ * Vereinskarten melden `sx-group-join` { id } wie die Gruppenseite (F-333); die Bootsklassen-Auswahl meldet
+ * `sx-discover-class` { boatClass } (F-537, '' = alle).
  */
 export class SxDiscover extends LitElement {
   static properties = {
@@ -49,6 +52,7 @@ export class SxDiscover extends LitElement {
     joining: { type: String },
     show: { type: String },
     near: { attribute: false },
+    boatClass: { type: String },
   };
   declare data: DiscoverData | null;
   declare variant: 'strip' | 'page';
@@ -64,6 +68,8 @@ export class SxDiscover extends LitElement {
   declare show: DiscoverSection;
   /** Umgebung (F-344): an/aus, Umkreis, Mittelpunkt („deinen Standort“ bzw. Hafenname; null = keiner bekannt) */
   declare near: { on: boolean; radius: NearRadius; center: string | null } | null;
+  /** Filter nach Bootsklasse (F-537): Klasse oder Gruppe, '' = alle */
+  declare boatClass: string;
 
   constructor() {
     super();
@@ -76,6 +82,7 @@ export class SxDiscover extends LitElement {
     this.joining = '';
     this.show = 'all';
     this.near = null;
+    this.boatClass = '';
   }
 
   static styles = [
@@ -426,7 +433,18 @@ export class SxDiscover extends LitElement {
         flex: none;
         font-size: var(--fs-s);
       }
-      .tools input[type='search'] {
+      .find {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 15rem);
+        gap: var(--s-2);
+      }
+      @media (max-width: 560px) {
+        .find {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .tools input[type='search'],
+      .tools select {
         width: 100%;
         min-height: 44px;
         font-size: 16px; /* kein Zoom auf iOS */
@@ -498,7 +516,8 @@ export class SxDiscover extends LitElement {
   }
 
   private boat(b: DiscoverBoat) {
-    const facts = [b.boatType, b.lengthM != null ? `${fmtNum(b.lengthM, 1)} m` : '', b.homePort].filter(Boolean).join(' · ');
+    // freier Typ, ohne ihn die Klasse (Konzept 34)
+    const facts = [b.boatType || boatClassLabel(b.boatClass), b.lengthM != null ? `${fmtNum(b.lengthM, 1)} m` : '', b.homePort].filter(Boolean).join(' · ');
     return html`<a class="card ${b.cover ? 'has-cover' : ''}" href="/b/${b.id}">
       ${this.cardStart(b.cover)}
       <span class="ic" aria-hidden="true">${icon('sail')}</span>
@@ -591,7 +610,7 @@ export class SxDiscover extends LitElement {
   private section<T>(key: DiscoverSection, title: string, items: T[], render: (item: T) => unknown, empty: string, cls: string, id = '') {
     // Abschnitts-Filter (F-332); bei einer Suche bleiben unter „Alle“ nur Abschnitte mit Treffern (F-331)
     if (this.show !== 'all' && this.show !== key) return '';
-    if (this.show === 'all' && this.data?.query && !items.length) return '';
+    if (this.show === 'all' && (this.data?.query || this.data?.boatClass) && !items.length) return '';
     return html`<section id=${ifDefined(id || undefined)}>
       <h2 class="eyebrow">${title}</h2>
       ${items.length ? html`<div class=${cls}>${items.map(render)}</div>` : html`<div class="empty">${empty}</div>`}
@@ -600,6 +619,10 @@ export class SxDiscover extends LitElement {
 
   private onSearch(e: Event) {
     emit(this, 'sx-discover-search', { query: (e.target as HTMLInputElement).value });
+  }
+
+  private onClass(e: Event) {
+    emit(this, 'sx-discover-class', { boatClass: (e.target as HTMLSelectElement).value });
   }
 
   /** „In der Nähe | Überall“ mit Umkreis (F-344) – ohne bekannten Mittelpunkt der Knopf „meinen Standort verwenden“. */
@@ -623,15 +646,21 @@ export class SxDiscover extends LitElement {
   private tools() {
     return html`<div class="tools">
       ${this.nearTools()}
-      <input
-        type="search"
-        .value=${this.query}
-        maxlength=${SEARCH_LIMITS.max}
-        placeholder="Häfen, Vereine, Boote, Segler, Törns suchen …"
-        aria-label="Entdecken durchsuchen"
-        enterkeyhint="search"
-        @input=${this.onSearch}
-      />
+      <div class="find">
+        <input
+          type="search"
+          .value=${this.query}
+          maxlength=${SEARCH_LIMITS.max}
+          placeholder="Häfen, Vereine, Boote, Segler, Törns suchen …"
+          aria-label="Entdecken durchsuchen"
+          enterkeyhint="search"
+          @input=${this.onSearch}
+        />
+        <select aria-label="Bootsklasse" @change=${this.onClass}>
+          <option value="" ?selected=${!this.boatClass}>Alle Bootsklassen</option>
+          ${boatClassOptions(this.boatClass, true)}
+        </select>
+      </div>
       <div class="tabs" data-scroll-x role="group" aria-label="Abschnitt">
         ${DISCOVER_SECTIONS.map(
           ([key, label]) => html`<button class="chip" aria-pressed=${this.show === key ? 'true' : 'false'} @click=${() => (this.show = key)}>${label}</button>`,
@@ -642,7 +671,7 @@ export class SxDiscover extends LitElement {
 
   /** Suche ohne einen einzigen Treffer (unter „Alle“). */
   private noHits(d: DiscoverData): boolean {
-    return !!d.query && this.show === 'all' && ![d.voyages, d.boats, d.people, d.harbors ?? [], d.groups ?? []].some((l) => l.length);
+    return !!(d.query || d.boatClass) && this.show === 'all' && ![d.voyages, d.boats, d.people, d.harbors ?? [], d.groups ?? []].some((l) => l.length);
   }
 
   private page() {
@@ -652,10 +681,10 @@ export class SxDiscover extends LitElement {
     else if (this.error || !this.data) body = html`<div class="state">${this.error || 'Entdecken ist gerade nicht verfügbar.'}<br /><br /><a class="btn" href="/">${icon('map')} Zur Karte</a></div>`;
     else {
       const d = this.data;
-      const none = d.query ? 'Keine Treffer.' : '';
+      const none = d.query || d.boatClass ? 'Keine Treffer.' : '';
       const groups = this.show === 'all' || this.show === 'groups';
       body = html`
-        ${this.noHits(d) ? html`<div class="state" role="status">Keine Treffer für „${this.query.trim()}“.</div>` : ''}
+        ${this.noHits(d) ? html`<div class="state" role="status">${d.query ? `Keine Treffer für „${this.query.trim()}“.` : 'Keine öffentlichen Boote dieser Klasse.'}</div>` : ''}
         ${this.section('voyages', 'Zuletzt gesegelt', d.voyages, (v) => this.voyage(v), none || 'Noch keine öffentlichen Törns.', 'grid')}
         ${this.section('boats', 'Boote', d.boats, (b) => this.boat(b), none || 'Noch keine öffentlichen Boote.', 'grid')}
         ${this.section('people', 'Segler', d.people, (p) => this.person(p), none || 'Noch keine öffentlichen Profile.', 'grid')}

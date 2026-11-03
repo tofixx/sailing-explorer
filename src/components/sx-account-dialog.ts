@@ -21,6 +21,8 @@ import './sx-support';
 import './sx-admin-reports';
 import './sx-filter-select';
 import { shownInText } from '../domain/groups';
+import { boatClassLabel, classifyBoatType } from '../domain/boat-class';
+import { boatClassOptions } from './boat-class-options';
 
 export type AccountTab = 'profile' | 'boats' | 'groups' | 'shares' | 'settings' | 'reports';
 
@@ -679,6 +681,8 @@ export class SxAccountDialog extends LitElement {
     const input: BoatInput = {
       name: String(d.get('name') || ''),
       boatType: String(d.get('boatType') || ''),
+      // '' = aus dem Typ ableiten (F-536)
+      boatClass: String(d.get('boatClass') || ''),
       lengthM: len ? Number(len) : null,
       sailNumber: String(d.get('sailNumber') || ''),
       ...('name' in harbor ? { homePort: harbor.name, homePortPos: harbor.pos } : { harborId: harbor.harborId }),
@@ -698,6 +702,9 @@ export class SxAccountDialog extends LitElement {
 
   private boatForm(b: Boat | null) {
     const id = b?.id ?? 'new';
+    // Klasse (F-536): eine aus dem Typ abgeleitete bleibt „automatisch“ (folgt dem Typ), nur eine abweichende gilt als gewählt
+    const auto = classifyBoatType(b?.boatType ?? '');
+    const chosen = b?.boatClass && b.boatClass !== auto ? b.boatClass : '';
     return html`<form class="grid" @submit=${(e: Event) => this.saveBoat(e, id)}>
       <div>
         <label class="label" for="bn">Name</label>
@@ -706,6 +713,13 @@ export class SxAccountDialog extends LitElement {
       <div>
         <label class="label" for="bt">Typ</label>
         <input id="bt" name="boatType" type="text" maxlength="80" .value=${b?.boatType ?? ''} placeholder="z. B. Bavaria 34" />
+      </div>
+      <div>
+        <label class="label" for="bk">Bootsklasse <span class="faint">(für den Filter in Entdecken)</span></label>
+        <select id="bk" name="boatClass">
+          <option value="" ?selected=${!chosen}>${auto ? `Automatisch: ${boatClassLabel(auto)}` : 'Automatisch aus dem Typ'}</option>
+          ${boatClassOptions(chosen)}
+        </select>
       </div>
       <div>
         <label class="label" for="bl">Länge (m)</label>
