@@ -208,11 +208,14 @@ describe('F-131 Prüfungen beim Einladen und Annehmen', () => {
   });
 
   it('[F-131] ungültige Adresse 400, eigene Adresse 409, doppelte Einladung 409; Adressen bestehender Admins lassen sich nicht abfragen', async () => {
+    // Die Rate-Grenze (5/min je Konto) zählt auch abgelehnte Versuche (F-593) – deshalb zwei Eigner.
+    const first = await person();
+    const firstBoat = await newBoat(first.cookie);
+    const bad = await send('POST', `/api/boats/${firstBoat.id}/invites`, first.cookie, { email: 'kein-mail' });
+    expect(bad.status).toBe(400);
+    expect((await send('POST', `/api/boats/${firstBoat.id}/invites`, first.cookie, { email: first.email })).status).toBe(409);
     const owner = await person();
     const boat = await newBoat(owner.cookie);
-    const bad = await send('POST', `/api/boats/${boat.id}/invites`, owner.cookie, { email: 'kein-mail' });
-    expect(bad.status).toBe(400);
-    expect((await send('POST', `/api/boats/${boat.id}/invites`, owner.cookie, { email: owner.email })).status).toBe(409);
     const admin = await person();
     await accept(admin, tokenOf((await inviteAdmin(owner, boat.id, admin.email)).devLink!));
     // Kein already_member beim Einladen (sonst ließe sich prüfen, welche Adresse zu einem Admin gehört) –
@@ -673,14 +676,17 @@ describe('F-141 Bestehende Konten einladen: per Profilname oder per E-Mail, Post
   });
 
   it('[F-141] Profilname: nur öffentliche Profile (privat und unbekannt gleich 404), nicht sich selbst, nicht doppelt, nicht wer schon dabei ist', async () => {
-    const owner = await person({ profile: 'public' });
-    const share = await newShare(owner.cookie);
+    // Die Rate-Grenze (5/min je Konto) zählt auch abgelehnte Versuche (F-593) – deshalb zwei Eigentümer:innen.
+    const first = await person({ profile: 'public' });
+    const firstShare = await newShare(first.cookie);
     const hidden = await person({ profile: 'private' });
-    const r1 = await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: hidden.handle });
-    const r2 = await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: 'gibt-es-nicht-xyz' });
+    const r1 = await send('POST', `/api/shares/${firstShare.id}/invites`, first.cookie, { handle: hidden.handle });
+    const r2 = await send('POST', `/api/shares/${firstShare.id}/invites`, first.cookie, { handle: 'gibt-es-nicht-xyz' });
     expect([r1.status, r2.status]).toEqual([404, 404]);
     expect(await r1.json()).toEqual(await r2.json());
-    expect(await getJson(await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: owner.handle }))).toMatchObject({ error: 'own_object' });
+    expect(await getJson(await send('POST', `/api/shares/${firstShare.id}/invites`, first.cookie, { handle: first.handle }))).toMatchObject({ error: 'own_object' });
+    const owner = await person({ profile: 'public' });
+    const share = await newShare(owner.cookie);
     const mate = await person({ profile: 'public' });
     await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: mate.handle });
     expect(await getJson(await send('POST', `/api/shares/${share.id}/invites`, owner.cookie, { handle: mate.handle }))).toMatchObject({ error: 'already_invited' });

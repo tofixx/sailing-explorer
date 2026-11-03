@@ -1,9 +1,10 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, type PropertyValues } from 'lit';
 import type { InviteTo, PendingInvite } from '../services/api';
 import { fmtDate } from '../util/html';
 import { icon } from './icons';
 import { base, emit, inviteTarget, pendingLabel } from './shared';
 import { inviteShareText, inviteShareTitle } from '../domain/invite-text';
+import { isInviteLink } from '../domain/invite-link';
 
 /** Auswahl „Einladen als …“ (z. B. Rolle in der Crew); die Werte versteht nur die einbettende Komponente. */
 export interface InviteRoleChoice {
@@ -11,10 +12,14 @@ export interface InviteRoleChoice {
   label: string;
 }
 
-/** Was „Einladen“ meldet: Ziel (null = Einladungslink) und, falls es eine Auswahl gibt, die Rolle. */
+/**
+ * Was „Einladen“ meldet: Ziel (null = Einladungslink) und, falls es eine Auswahl gibt, die Rolle. `done` ruft der
+ * Ablauf nach Erfolg auf – erst dann leert sich das Adressfeld (bei Fehlern bleibt die Eingabe zum Korrigieren).
+ */
 export interface InviteCreateDetail {
   to: InviteTo | null;
   role?: string;
+  done: () => void;
 }
 
 /** Hinweis unter dem Adressfeld, gleich für alle Einladungsarten mit Profilnamen. */
@@ -167,8 +172,17 @@ export class SxInviteBox extends LitElement {
     `,
   ];
 
-  private create(to: InviteTo | null) {
-    const detail: InviteCreateDetail = this.roles.length ? { to, role: this.role || this.roles[0].value } : { to };
+  /** Rolle, mit der der gezeigte Link erzeugt wurde (Hinweis, wenn danach eine andere gewählt wird) */
+  private linkRole = '';
+
+  private currentRole() {
+    return this.role || this.roles[0]?.value || '';
+  }
+
+  private create(to: InviteTo | null, done: () => void = () => {}) {
+    const role = this.currentRole();
+    if (!to) this.linkRole = role;
+    const detail: InviteCreateDetail = this.roles.length ? { to, role, done } : { to, done };
     this.dispatchEvent(new CustomEvent<InviteCreateDetail>('invite-create', { detail }));
   }
 
@@ -176,14 +190,32 @@ export class SxInviteBox extends LitElement {
     e.preventDefault();
     const input = (e.target as HTMLFormElement).querySelector('input') as HTMLInputElement;
     if (!input.value.trim()) return;
-    this.create(inviteTarget(input.value));
-    input.value = '';
+    const sent = input.value;
+    // erst nach Erfolg leeren (F-590) – und nur, wenn inzwischen nichts Neues eingetippt wurde
+    this.create(inviteTarget(input.value), () => {
+      if (input.value === sent) input.value = '';
+    });
   }
 
-  /** Mail-Programm mit Betreff und Text samt Link – ohne Server, ohne Zählung. */
-  private mailHref(): string {
+  /** Neuer Link: Fokus auf „Kopieren“, damit Tastatur und Screenreader beim Ergebnis landen. */
+  updated(changed: PropertyValues<this>) {
+    if (changed.has('link') && this.link && !changed.get('link')) this.renderRoot.querySelector<HTMLButtonElement>('button.copy')?.focus();
+  }
+
+  /** Mail-Programm mit Betreff und Text samt Link – ohne Server, ohne Zählung; nur für eigene Einladungslinks. */
+  private mailHref(): string | null {
+    if (!isInviteLink(this.link, location.origin)) return null;
     const body = `${this.shareText}\n\n${this.link}`.trim();
     return `mailto:?subject=${encodeURIComponent(this.shareTitle)}&body=${encodeURIComponent(body)}`;
+  }
+
+  /** Teilen-Menü des Geräts, sonst Mail-Programm (F-591). */
+  private sendButton() {
+    if (canShare()) {
+      return html`<button class="btn" type="button" @click=${() => emit(this, 'sx-invite-share', { url: this.link, title: this.shareTitle, text: this.shareText })}>${icon('share')} Teilen</button>`;
+    }
+    const href = this.mailHref();
+    return href ? html`<a class="btn" href=${href}>${icon('mail')} Per Mail senden</a>` : '';
   }
 
   private roleRow() {
@@ -205,12 +237,13 @@ export class SxInviteBox extends LitElement {
         <input class="link-in" type="text" readonly .value=${this.link} aria-label="Einladungslink" @focus=${(e: Event) => (e.target as HTMLInputElement).select()} />
       </div>
       <div class="row">
-        <button class="btn" type="button" @click=${() => emit(this, 'sx-invite-copy', this.link)}>${icon('copy')} Kopieren</button>
-        ${canShare()
-          ? html`<button class="btn" type="button" @click=${() => emit(this, 'sx-invite-share', { url: this.link, title: this.shareTitle, text: this.shareText })}>${icon('share')} Teilen</button>`
-          : html`<a class="btn" href=${this.mailHref()}>${icon('mail')} Per Mail senden</a>`}
+        <button class="btn copy" type="button" @click=${() => emit(this, 'sx-invite-copy', this.link)}>${icon('copy')} Kopieren</button>
+        ${this.sendButton()}
       </div>
-      ${this.linkNote ? html`<p class="sub">${this.linkNote}</p>` : ''}`;
+      ${this.linkNote ? html`<p class="sub">${this.linkNote}</p>` : ''}
+      ${this.roles.length && this.linkRole && this.linkRole !== this.currentRole()
+        ? html`<p class="sub" role="note">Der Link lädt als ${this.roles.find((r) => r.value === this.linkRole)?.label ?? this.linkRole} ein. „Einladen als“ gilt jetzt nur für E-Mail und Profilname.</p>`
+        : ''}`;
   }
 
   private pendingList() {
@@ -244,13 +277,14 @@ customElements.define('sx-invite-box', SxInviteBox);
 
 /**
  * „Freunde einladen“ (Konzept 14.2) – dieselbe Box in der Willkommens-Karte und auf der eigenen Seite (F-592):
- * ohne Rolle und ohne Liste offener Einladungen; meldet `sx-friend-invite` { to } am einbettenden Element.
+ * ohne Rolle und ohne Liste offener Einladungen; meldet `sx-friend-invite` { to, done } am einbettenden Element.
+ * `busy` sperrt „Einladungslink erzeugen“, solange ein Aufruf läuft (kein doppelter Link).
  */
-export function friendInviteBox(host: HTMLElement, link: string | null) {
-  return html`<sx-invite-box .link=${link ?? ''}
+export function friendInviteBox(host: HTMLElement, link: string | null, busy = false) {
+  return html`<sx-invite-box .link=${link ?? ''} ?busy=${busy}
     link-note="Nur jetzt sichtbar · 14 Tage gültig · bis zu 20 Personen. Wer annimmt, folgt dir – und du ihm."
     share-title=${inviteShareTitle()} share-text=${inviteShareText({ kind: 'friend', target: null })}
-    @invite-create=${(e: CustomEvent<InviteCreateDetail>) => emit(host, 'sx-friend-invite', { to: e.detail.to })}></sx-invite-box>`;
+    @invite-create=${(e: CustomEvent<InviteCreateDetail>) => emit(host, 'sx-friend-invite', { to: e.detail.to, done: e.detail.done })}></sx-invite-box>`;
 }
 
 declare global {

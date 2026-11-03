@@ -176,15 +176,20 @@ export class SocialController {
    * Freunde einladen (Konzept 14.2): per Adresse (Mail), Profilname oder als Link, der nur einmal angezeigt wird. Der
    * Link erscheint in der Willkommens-Karte und auf der eigenen Seite (F-592) – je nachdem, wo eingeladen wurde.
    */
-  async inviteFriend(to: InviteTo | null): Promise<void> {
+  async inviteFriend(to: InviteTo | null): Promise<boolean> {
+    this.ui.home.inviteBusy = this.ui.page.inviteBusy = true;
     try {
       const res = await friendApi.invite(to);
       // Ohne Adresse der Link; lokal im Log-Modus auch bei Adressen (devLink, wie bei Gruppen)
       const link = res.link ?? res.devLink ?? null;
       if (link) this.ui.home.inviteLink = this.ui.page.inviteLink = link;
       if (to) this.ui.toast('Einladung verschickt');
+      return true;
     } catch (e) {
       this.ui.toast(errorText(e), 6000);
+      return false;
+    } finally {
+      this.ui.home.inviteBusy = this.ui.page.inviteBusy = false;
     }
   }
 

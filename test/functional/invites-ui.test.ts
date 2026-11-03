@@ -30,10 +30,14 @@ const text = (el: LitEl) => roots(el).map((r) => r.textContent ?? '').join(' ').
 const button = (el: LitEl, label: RegExp) =>
   roots(el).flatMap((r) => [...r.querySelectorAll('button')]).find((b) => label.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`)) as HTMLButtonElement | undefined;
 
+/** Event-Detail ohne Funktionen (z. B. `done`), damit `toEqual` nur die Daten vergleicht. */
+const withoutFns = (d: unknown) =>
+  d && typeof d === 'object' && !Array.isArray(d) ? Object.fromEntries(Object.entries(d).filter(([, v]) => typeof v !== 'function')) : d;
 let cleanups: Array<() => void> = [];
 function listen(name: string) {
   const got: unknown[] = [];
-  const fn = (e: Event) => got.push((e as CustomEvent).detail);
+  // Rückrufe (`done` beim Einladen, F-590) gehören nicht zum Vergleich
+  const fn = (e: Event) => got.push(withoutFns((e as CustomEvent).detail));
   document.addEventListener(name, fn);
   cleanups.push(() => document.removeEventListener(name, fn));
   return got;

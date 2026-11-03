@@ -801,7 +801,7 @@ export class SxAccountDialog extends LitElement {
         : html`<p class="hint">Noch keine Admins.</p>`}
       ${owner
         ? html`<sx-invite-box no-link ?busy=${this.busy} .pending=${d.invites} recipient-label="E-Mail-Adresse oder Profilname des neuen Admins"
-            @invite-create=${(e: CustomEvent<InviteCreateDetail>) => e.detail.to && emit(this, 'sx-boat-admin-invite', { boatId: b.id, to: e.detail.to })}
+            @invite-create=${(e: CustomEvent<InviteCreateDetail>) => e.detail.to && emit(this, 'sx-boat-admin-invite', { boatId: b.id, to: e.detail.to, done: e.detail.done })}
             @invite-revoke=${(e: CustomEvent<{ id: string }>) => emit(this, 'sx-invite-revoke', { id: e.detail.id, scope: 'boat', boatId: b.id })}></sx-invite-box>`
         : this.confirm === `leave:${b.id}`
           ? html`<div class="confirm" role="alert">

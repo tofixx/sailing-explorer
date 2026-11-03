@@ -20,7 +20,7 @@ import './sx-filter-select';
 import './sx-my-posts';
 import './sx-profile-posts';
 import './sx-page-menu';
-import type { PageMenuItem } from './sx-page-menu';
+import type { PageMenuItem, SxPageMenu } from './sx-page-menu';
 import { friendInviteBox } from './sx-invite-box';
 import { APP_NAME } from '../domain/brand';
 
@@ -65,6 +65,7 @@ export class SxProfilePage extends LitElement {
     editing: { state: true },
     /** frisch erzeugter Link aus „Freunde einladen“ (F-592) – nur einmal sichtbar */
     inviteLink: { type: String },
+    inviteBusy: { type: Boolean },
     inviting: { state: true },
   };
   declare data: PageData | null;
@@ -89,6 +90,7 @@ export class SxProfilePage extends LitElement {
   declare manage: boolean;
   declare hideAuto: boolean;
   declare inviteLink: string | null;
+  declare inviteBusy: boolean;
   /** „Freunde einladen“ auf der eigenen Seite aufgeklappt (Zahnrad, F-592) */
   declare inviting: boolean;
 
@@ -111,6 +113,7 @@ export class SxProfilePage extends LitElement {
     this.hideAuto = false;
     this.supporter = false;
     this.inviteLink = null;
+    this.inviteBusy = false;
     this.inviting = false;
   }
 
@@ -124,8 +127,15 @@ export class SxProfilePage extends LitElement {
     }
   }
 
+  /** Aufklappen: Fokus auf die Überschrift (F-592); Schließen gibt ihn dem Zahnrad zurück. */
   updated(changed: PropertyValues<this>) {
-    if (changed.has('inviting') && this.inviting) this.renderRoot.querySelector('#invite')?.scrollIntoView?.({ block: 'nearest' });
+    if (changed.has('inviting') && this.inviting) this.renderRoot.querySelector<HTMLElement>('#invite-t')?.focus();
+  }
+
+  private closeInvite() {
+    this.inviting = false;
+    this.inviteLink = null;
+    void this.updateComplete.then(() => this.renderRoot.querySelector<SxPageMenu>('sx-page-menu')?.focusToggle());
   }
 
   static styles = [
@@ -486,11 +496,11 @@ export class SxProfilePage extends LitElement {
     if (!d.profile.isSelf || d.preview || !(this.inviting || this.inviteLink)) return '';
     return html`<section id="invite" class="invite" aria-labelledby="invite-t">
       <div class="invite-head">
-        <h2 class="eyebrow" id="invite-t">Freunde einladen</h2>
-        <button class="btn ghost" type="button" @click=${() => ((this.inviting = false), (this.inviteLink = null))}>${icon('x')} Schließen</button>
+        <h2 class="eyebrow" id="invite-t" tabindex="-1">Freunde einladen</h2>
+        <button class="btn ghost" type="button" @click=${() => this.closeInvite()}>${icon('x')} Schließen</button>
       </div>
       <p class="hint">Wer annimmt, kommt zu ${APP_NAME}, und ihr folgt einander.</p>
-      ${friendInviteBox(this, this.inviteLink)}
+      ${friendInviteBox(this, this.inviteLink, this.inviteBusy)}
     </section>`;
   }
 

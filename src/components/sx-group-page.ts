@@ -642,7 +642,7 @@ export class SxGroupPage extends LitElement {
       <sx-invite-box .link=${this.inviteLink ?? ''} ?busy=${this.busy} .pending=${list}
         link-note="Nur jetzt sichtbar · ${GROUP_LIMITS.inviteDays} Tage gültig · bis zu ${GROUP_LIMITS.linkUses} Personen."
         share-title=${inviteShareTitle()} share-text=${inviteShareText({ kind: 'group', groupKind: g.kind, target: g.name })}
-        @invite-create=${(e: CustomEvent<InviteCreateDetail>) => emit(this, 'sx-group-invite', { id: g.id, to: e.detail.to })}
+        @invite-create=${(e: CustomEvent<InviteCreateDetail>) => emit(this, 'sx-group-invite', { id: g.id, to: e.detail.to, done: e.detail.done })}
         @invite-revoke=${(e: CustomEvent<{ id: string }>) => emit(this, 'sx-group-invite-revoke', { id: e.detail.id })}>
         ${approval ? html`<p class="hint">Wer deine Einladung annimmt, stellt eine Beitrittsanfrage, die in dieser Gruppe andere bestätigen.</p>` : ''}
       </sx-invite-box>

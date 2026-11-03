@@ -63,6 +63,7 @@ export class SxHomeFeed extends LitElement {
     loading: { type: Boolean },
     followBusy: { attribute: false },
     inviteLink: { attribute: false },
+    inviteBusy: { type: Boolean },
     requested: { attribute: false },
     dismissed: { state: true },
   };
@@ -93,6 +94,8 @@ export class SxHomeFeed extends LitElement {
   declare followBusy: string[];
   /** frisch erzeugter Einladungslink (nur einmal sichtbar) */
   declare inviteLink: string | null;
+  /** „Freunde einladen“ läuft (kein doppelter Link) */
+  declare inviteBusy: boolean;
   /** Gruppen-IDs, an die aus der Karte eine Anfrage ging (Knopf „Angefragt“) */
   declare requested: string[];
   /** Willkommens-Karte ausgeblendet („Später“, pro Gerät) */
@@ -117,6 +120,7 @@ export class SxHomeFeed extends LitElement {
     this.loading = false;
     this.followBusy = [];
     this.inviteLink = null;
+    this.inviteBusy = false;
     this.requested = [];
     this.dismissed = readDismissed();
   }
@@ -419,7 +423,7 @@ export class SxHomeFeed extends LitElement {
           </div>`}
       <div class="step">
         <div class="label">${icon('mail')} Freunde einladen</div>
-        ${friendInviteBox(this, this.inviteLink)}
+        ${friendInviteBox(this, this.inviteLink, this.inviteBusy)}
         <span class="why">Später jederzeit auf deiner Seite: Zahnrad → Freunde einladen.</span>
       </div>
     </div>`;

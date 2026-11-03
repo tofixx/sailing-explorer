@@ -29,6 +29,7 @@ import { visibleTracks, type Store } from '../services/store';
 import { turnstileMount } from '../services/turnstile';
 import { absoluteLink, routePath, serializeView } from '../services/url-state';
 import { DEFAULT_VISIBILITY, isAppPath, type Visibility } from '../domain/visibility';
+import { isInviteLink } from '../domain/invite-link';
 import type { Reach } from '../domain/posts';
 import type { AccountTab, SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxCrew } from '../components/sx-crew';
@@ -493,16 +494,19 @@ export class SessionController {
     this.ui.crewChanged(null);
   }
 
-  private async crewAct(fn: (shareId: string) => Promise<void>, done?: string) {
+  /** true bei Erfolg – z. B. damit das Einladungsfeld erst dann geleert wird (F-590). */
+  private async crewAct(fn: (shareId: string) => Promise<void>, done?: string): Promise<boolean> {
     const cur = this.crewShare;
-    if (!cur) return;
+    if (!cur) return false;
     Object.assign(this.ui.crew, { busy: true, error: '' });
     try {
       await fn(cur.share.id);
       if (done) this.ui.toast(done);
       await this.loadCrew(cur.share, cur.key);
+      return true;
     } catch (e) {
       this.ui.crew.error = errorText(e);
+      return false;
     } finally {
       this.ui.crew.busy = false;
     }
@@ -555,7 +559,7 @@ export class SessionController {
 
   /** Einladungslink kopieren – nur eigene Links dieser Origin. */
   copyInvite(url: string): Promise<void> {
-    if (!isInviteLink(url)) return Promise.resolve();
+    if (!isInviteLink(url, location.origin)) return Promise.resolve();
     return this.copy(url);
   }
 
@@ -564,7 +568,7 @@ export class SessionController {
    * oder bei einem Fehler kopieren. Nur eigene Links dieser Origin.
    */
   async shareInvite(d: { url: string; title: string; text: string }): Promise<void> {
-    if (!isInviteLink(d.url)) return;
+    if (!isInviteLink(d.url, location.origin)) return;
     if (navigator.share) {
       try {
         await navigator.share({ title: d.title, text: d.text, url: d.url });
@@ -1007,13 +1011,16 @@ export class SessionController {
   }
 
   /** Führt eine Konto-Aktion aus und zeigt Fehler im Dialog. */
-  private async act(fn: () => Promise<void>, done?: string) {
+  /** true bei Erfolg (z. B. Einladungsfeld erst dann leeren, F-590). */
+  private async act(fn: () => Promise<void>, done?: string): Promise<boolean> {
     Object.assign(this.ui.account, { busy: true, error: '' });
     try {
       await fn();
       if (done) this.ui.toast(done);
+      return true;
     } catch (e) {
       this.ui.account.error = errorText(e);
+      return false;
     } finally {
       this.ui.account.busy = false;
     }
@@ -1118,9 +1125,6 @@ export class SessionController {
 }
 
 /** Bestätigung nach dem Einladen – mit Namen bzw. der selbst eingegebenen Adresse, nie mit einer fremden. */
-/** Einladungslink dieser Origin? (Kopieren und Teilen nehmen nichts anderes) */
-const isInviteLink = (url: string) => url.startsWith(`${location.origin}/einladung#token=`);
-
 function invitedText(invite: { email: string | null; invitee: { displayName: string } | null }): string {
   return `Einladung an ${invite.invitee?.displayName ?? invite.email ?? 'die Crew'} verschickt`;
 }

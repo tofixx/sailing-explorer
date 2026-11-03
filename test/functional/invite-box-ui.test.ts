@@ -17,7 +17,7 @@ HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
 };
 
 const DAY = 86_400_000;
-const LINK = 'http://localhost/einladung#token=' + 'c'.repeat(43);
+const LINK = `${location.origin}/einladung#token=` + 'c'.repeat(43);
 
 async function mount(tag: string, props: Record<string, unknown> = {}): Promise<LitEl> {
   const el = document.createElement(tag) as LitEl;
@@ -41,10 +41,14 @@ function submit(b: LitEl, value: string) {
   form.dispatchEvent(new Event('submit', { cancelable: true }));
 }
 
+/** Event-Detail ohne Funktionen (z. B. `done`), damit `toEqual` nur die Daten vergleicht. */
+const withoutFns = (d: unknown) =>
+  d && typeof d === 'object' && !Array.isArray(d) ? Object.fromEntries(Object.entries(d).filter(([, v]) => typeof v !== 'function')) : d;
 let cleanups: Array<() => void> = [];
 function listen(name: string, target: EventTarget = document) {
   const got: unknown[] = [];
-  const fn = (e: Event) => got.push((e as CustomEvent).detail);
+  // Rückrufe (`done` beim Einladen, F-590) gehören nicht zum Vergleich
+  const fn = (e: Event) => got.push(withoutFns((e as CustomEvent).detail));
   target.addEventListener(name, fn);
   cleanups.push(() => target.removeEventListener(name, fn));
   return got;
@@ -234,5 +238,70 @@ describe('F-592 Freunde einladen auf der eigenen Seite', () => {
     button(el.shadowRoot, /Später/)!.click();
     await el.updateComplete;
     expect(el.shadowRoot.querySelector('sx-invite-box')).toBeNull();
+  });
+});
+
+describe('F-590 … F-592 Bedienung: Fokus, Feld erst nach Erfolg leeren, kein doppelter Link', () => {
+  it('[F-590] das Adressfeld leert sich erst nach Erfolg (done), bei Fehler bleibt die Eingabe; neue Eingabe wird nicht überschrieben', async () => {
+    const el = await mount('sx-invite-box');
+    const got: Array<{ done: () => void }> = [];
+    el.addEventListener('invite-create', (e) => got.push((e as CustomEvent).detail));
+    const input = el.shadowRoot.querySelector('form input') as HTMLInputElement;
+    submit(el, 'neu@example.org');
+    expect(input.value).toBe('neu@example.org'); // noch unterwegs bzw. Fehler: Eingabe bleibt
+    got[0].done();
+    expect(input.value).toBe('');
+    submit(el, 'zwei@example.org');
+    input.value = 'drei@example.org'; // währenddessen weitergetippt
+    got[1].done();
+    expect(input.value).toBe('drei@example.org');
+  });
+
+  it('[F-590] neuer Link: Fokus auf „Kopieren“; Crew-Rolle danach geändert: Hinweis, für wen der Link gilt', async () => {
+    const el = await mount('sx-invite-box', { roles: [{ value: 'co', label: 'Co-Skipper:in' }, { value: 'crew', label: 'Crew' }], role: 'crew' });
+    button(el.shadowRoot, /Einladungslink erzeugen/)!.click();
+    el.link = LINK;
+    await el.updateComplete;
+    expect((el.shadowRoot.activeElement as HTMLElement | null)?.textContent).toContain('Kopieren');
+    expect(text(el.shadowRoot)).not.toContain('Der Link lädt als');
+    const sel = el.shadowRoot.querySelector('select') as HTMLSelectElement;
+    sel.value = 'co';
+    sel.dispatchEvent(new Event('change'));
+    await el.updateComplete;
+    expect(text(el.shadowRoot)).toContain('Der Link lädt als Crew ein. „Einladen als“ gilt jetzt nur für E-Mail und Profilname.');
+  });
+
+  it('[F-591] fremde Adresse als Link: kein Mail-Programm-Link (gleiche Prüfung isInviteLink wie Kopieren und Teilen)', async () => {
+    delete (navigator as { share?: unknown }).share;
+    const el = await mount('sx-invite-box', { link: 'https://evil.example/einladung#token=x' });
+    expect(el.shadowRoot.querySelector('a[href^="mailto:"]')).toBeNull();
+    const { isInviteLink } = await import('../../src/domain/invite-link');
+    expect(isInviteLink(LINK, location.origin)).toBe(true);
+    expect(isInviteLink('http://localhost/einladung#token=abc', 'http://localhost')).toBe(true);
+    expect(isInviteLink('http://localhost.evil/einladung#token=x', 'http://localhost')).toBe(false);
+    expect(isInviteLink('http://localhost/einladungen', 'http://localhost')).toBe(false);
+  });
+
+  it('[F-592] eigene Seite: Aufklappen fokussiert die Überschrift, „Schließen“ gibt den Fokus dem Zahnrad; solange erzeugt wird, ist „Einladungslink erzeugen“ gesperrt', async () => {
+    const data = {
+      kind: 'profile',
+      profile: { handle: 'anna', displayName: 'Anna', bio: '', visibility: 'public', shareKey: null, link: '/u/anna', isSelf: true },
+      boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [],
+    };
+    const el = await mount('sx-profile-page', { data, signedIn: true });
+    const menu = el.shadowRoot.querySelector('sx-page-menu') as unknown as LitEl;
+    menu.dispatchEvent(new CustomEvent('sx-page-menu-pick', { detail: { id: 'invite' } }));
+    await el.updateComplete;
+    const h = el.shadowRoot.querySelector('#invite-t') as HTMLElement;
+    expect(h.getAttribute('tabindex')).toBe('-1');
+    expect(el.shadowRoot.activeElement).toBe(h);
+    el.inviteBusy = true;
+    await el.updateComplete;
+    const b = await box(el);
+    expect(button(b.shadowRoot, /Einladungslink erzeugen/)!.disabled).toBe(true);
+    button(el.shadowRoot, /Schließen/)!.click();
+    await el.updateComplete;
+    await el.updateComplete;
+    expect(menu.shadowRoot.activeElement?.classList.contains('toggle')).toBe(true);
   });
 });

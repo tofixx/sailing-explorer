@@ -400,7 +400,7 @@ export class SxCrew extends LitElement {
       share-title=${inviteShareTitle()} share-text=${inviteShareText({ kind: 'crew', target: this.voyageTitle || null, role: this.inviteRole })}
       @invite-create=${(e: CustomEvent<InviteCreateDetail>) => {
         this.inviteRole = (e.detail.role as VoyageRole | undefined) ?? this.inviteRole;
-        emit(this, 'sx-crew-invite', { to: e.detail.to, role: this.inviteRole });
+        emit(this, 'sx-crew-invite', { to: e.detail.to, role: this.inviteRole, done: e.detail.done });
       }}
       @invite-revoke=${(e: CustomEvent<{ id: string }>) => emit(this, 'sx-invite-revoke', { id: e.detail.id, scope: 'crew' })}>
       ${this.visibility !== 'public' ? html`<p class="note">${icon('lock')}<span>Die Crew sehen andere erst, wenn der Törn öffentlich ist.</span></p>` : ''}

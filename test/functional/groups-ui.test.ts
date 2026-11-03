@@ -41,10 +41,14 @@ const menu = (el: LitEl, label: RegExp) => {
   return m ? button(m.shadowRoot, label) : undefined;
 };
 
+/** Event-Detail ohne Funktionen (z. B. `done`), damit `toEqual` nur die Daten vergleicht. */
+const withoutFns = (d: unknown) =>
+  d && typeof d === 'object' && !Array.isArray(d) ? Object.fromEntries(Object.entries(d).filter(([, v]) => typeof v !== 'function')) : d;
 let cleanups: Array<() => void> = [];
 function listen(name: string) {
   const got: unknown[] = [];
-  const fn = (e: Event) => got.push((e as CustomEvent).detail);
+  // Rückrufe (`done` beim Einladen, F-590) gehören nicht zum Vergleich
+  const fn = (e: Event) => got.push(withoutFns((e as CustomEvent).detail));
   document.addEventListener(name, fn);
   cleanups.push(() => document.removeEventListener(name, fn));
   return got;

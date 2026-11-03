@@ -1381,6 +1381,38 @@ describe('F-139 Crew in der Törn-Ansicht', () => {
     await vi.waitFor(() => expect(clipboard).toEqual([link]));
   });
 
+  it('[F-591] Teilen-Menü des Geräts: abgebrochen kopiert nichts, anderer Fehler kopiert, fremde Adressen erreichen navigator.share nie', async () => {
+    seed(false);
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    await startApp('/');
+    await settled();
+    const link = `${location.origin}/einladung#token=${'f'.repeat(43)}`;
+    const calls: Array<{ url?: string; text?: string }> = [];
+    let fail: Error | null = null;
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async (d: { url?: string; text?: string }) => {
+        calls.push(d);
+        if (fail) throw fail;
+      },
+    });
+    try {
+      emit('sx-invite-share', { url: 'https://evil.example/einladung#token=x', title: 't', text: 'x' });
+      fail = Object.assign(new Error('abgebrochen'), { name: 'AbortError' });
+      emit('sx-invite-share', { url: link, title: 'Einladung', text: 'Komm dazu' });
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0]).toMatchObject({ url: link, text: 'Komm dazu' });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(clipboard).toEqual([]);
+      fail = Object.assign(new Error('nicht erlaubt'), { name: 'NotAllowedError' });
+      emit('sx-invite-share', { url: link, title: 'Einladung', text: 'Komm dazu' });
+      await vi.waitFor(() => expect(clipboard).toEqual([link]));
+      expect(calls.every((c) => c.url === link)).toBe(true);
+    } finally {
+      delete (navigator as { share?: unknown }).share;
+    }
+  });
+
   it('[F-510] Zahnrad des Törns: das Menü bekommt die Crew; „Crew verlassen“ erst nach Rückfrage, „Crew bearbeiten“ schaltet den Bearbeiten-Modus', async () => {
     seed(false);
     server.user = { id: 'u2', email: 'mats@example.org' };
