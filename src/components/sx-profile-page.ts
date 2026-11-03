@@ -6,8 +6,8 @@ import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
-import { ENTITY_ICON, groupIcon, icon } from './icons';
-import { base, emit, logbookTag, onMapStyles, pageMenuReveal, webLink, webLinkStyles, writePostButton } from './shared';
+import { ENTITY_ICON, entityTile, groupIcon, icon, initial } from './icons';
+import { base, emit, logbookTag, onMapStyles, pageMenuReveal, webLink, webLinkStyles, tileStyles, writePostButton } from './shared';
 import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
@@ -143,6 +143,7 @@ export class SxProfilePage extends LitElement {
     base,
     pageMenuReveal,
     webLinkStyles,
+    tileStyles,
     css`
       /* Kopf „Neuigkeiten“ mit „Beitrag schreiben“ (F-405) */
       .news-head {
@@ -222,24 +223,6 @@ export class SxProfilePage extends LitElement {
         height: 28px;
         opacity: 0.35;
         background: radial-gradient(14px 8px at 14px 0, transparent 13px, var(--accent) 14px, transparent 15px) 0 6px / 28px 14px repeat-x;
-      }
-      .mark {
-        flex: none;
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        display: grid;
-        place-items: center;
-        background: var(--accent);
-        color: var(--on-accent);
-        font-size: 30px;
-        font-weight: 750;
-        text-transform: uppercase;
-        box-shadow: var(--shadow-1);
-      }
-      .mark svg {
-        width: 38px;
-        height: 38px;
       }
       h1 {
         margin: 0;
@@ -538,7 +521,7 @@ export class SxProfilePage extends LitElement {
       ${this.previewBanner(d)}
       <sx-cover kind="u" target-id=${p.handle} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} .heldUntil=${d.coverHeldUntil ?? null} ?can-edit=${p.isSelf} label="Titelbild von ${p.displayName}"></sx-cover>
       <header class="hero">
-        <div class="mark" aria-hidden="true">${p.displayName[0]}</div>
+        ${entityTile(ENTITY_ICON.user, 72, initial(p.displayName))}
         <div>
           <h1>${p.displayName}</h1>
           ${p.bio ? html`<div class="lead">${p.bio}</div>` : ''}
@@ -581,7 +564,7 @@ export class SxProfilePage extends LitElement {
     return html`
       <sx-cover kind="b" target-id=${b.id} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} .heldUntil=${d.coverHeldUntil ?? null} ?can-edit=${!!b.role} label="Titelbild von ${b.name}"></sx-cover>
       <header class="hero">
-        <div class="mark" aria-hidden="true">${icon(ENTITY_ICON.boat)}</div>
+        ${entityTile(ENTITY_ICON.boat)}
         <div>
           <h1>${b.name}</h1>
           ${b.description ? html`<div class="lead">${b.description}</div>` : ''}
@@ -616,7 +599,7 @@ export class SxProfilePage extends LitElement {
   /** Einzelne Karte `/p/<id>` (F-406) – mit Weg zum Heimatverlauf, soweit sichtbar. */
   private postView(d: Extract<PageData, { kind: 'post' }>) {
     return html`<header class="hero">
-        <div class="mark" aria-hidden="true">${icon('comment')}</div>
+        ${entityTile(ENTITY_ICON.post)}
         <div><h1>Beitrag</h1><div class="lead">${d.link.home ? html`in <a href=${d.link.home}>${d.link.where}</a>` : d.link.where}</div></div>
         <div class="actions">
           ${d.item.post && d.item.post.visibility !== 'private'
@@ -733,7 +716,7 @@ export class SxProfilePage extends LitElement {
     const pos = h.lat != null && h.lon != null ? `${fmtNum(Math.abs(h.lat), 4)}° ${h.lat >= 0 ? 'N' : 'S'}, ${fmtNum(Math.abs(h.lon), 4)}° ${h.lon >= 0 ? 'O' : 'W'}` : '';
     return html`
       <header class="hero">
-        <div class="mark" aria-hidden="true">${icon(ENTITY_ICON.harbor)}</div>
+        ${entityTile(ENTITY_ICON.harbor)}
         <div>
           <h1>${h.name}${h.verified ? html` <sx-verified-badge kind="harbor"></sx-verified-badge>` : ''}</h1>
           <div class="facts">

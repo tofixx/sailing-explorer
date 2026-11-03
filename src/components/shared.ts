@@ -1,5 +1,5 @@
-import { css, html } from 'lit';
-import { ENTITY_ICON, icon, type IconName } from './icons';
+import { css, html, unsafeCSS } from 'lit';
+import { ENTITY_ICON, LOGO_TILE, icon, type IconName } from './icons';
 import type { CoverRef } from '../domain/cover';
 import { linkify } from '../domain/comment-text';
 import { parseWebUrl, webUrlLabel } from '../domain/groups';
@@ -208,6 +208,75 @@ export const base = css`
 /** Abzeichen „Fahrtenbuch“: Törn ohne GPS-Aufzeichnung (F-302) – Stil `.logtag` aus `base`. */
 export const logbookTag = () =>
   html`<span class="logtag" title="Ohne GPS-Aufzeichnung – Strecke vom Segler angegeben">${icon('book')} Fahrtenbuch</span>`;
+
+/**
+ * Große Objekt-Kachel im Seitenkopf (F-620, F-624): `entityTile()` aus icons.ts zeichnet Verlauf und Zeichen, hier
+ * Platz, Schatten und die Farben der Flächenklassen. Ecken wie die Logo-Kachel (8/32 = 25 %), damit der Schatten der
+ * Form folgt. Die Kachel ist ihr eigener Hintergrund (hell wie dunkel gleich); bei erzwungenen Farben Systemfarben.
+ */
+export const tileStyles = css`
+  .tile {
+    flex: none;
+    display: block;
+    border-radius: 25%;
+    box-shadow: var(--shadow-1);
+    forced-color-adjust: none;
+  }
+  .tile .ink,
+  .tile .dk {
+    fill: none;
+  }
+  .tile .ink {
+    stroke: ${unsafeCSS(LOGO_TILE.ink)};
+  }
+  .tile .dk {
+    stroke: ${unsafeCSS(LOGO_TILE.from)};
+  }
+  .tile .ink .f {
+    fill: #fff;
+    fill-opacity: 0.25;
+    stroke: none;
+  }
+  .tile .wt {
+    fill: #fff;
+    fill-opacity: 0.8;
+  }
+  .tile .md {
+    fill: #fff;
+    fill-opacity: 0.5;
+  }
+  .tile .sf {
+    fill: #fff;
+    fill-opacity: 0.28;
+  }
+  .tile .sd {
+    fill: #fff;
+  }
+  @media (forced-colors: active) {
+    .tile .bg {
+      fill: Canvas;
+      stroke: CanvasText;
+    }
+    .tile .ink {
+      stroke: CanvasText;
+    }
+    .tile .dk {
+      stroke: Canvas;
+    }
+    .tile .lt,
+    .tile .wt,
+    .tile .sd {
+      fill: CanvasText;
+      fill-opacity: 1;
+    }
+    .tile .md,
+    .tile .sf,
+    .tile .ink .f {
+      fill: CanvasText;
+      fill-opacity: 0.35;
+    }
+  }
+`;
 
 /**
  * Seite über der Karte (F-351, Hafen- und Vereinsseite mit Ort): Hintergrund durchsichtig, der Inhalt als Tafel mit

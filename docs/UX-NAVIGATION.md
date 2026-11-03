@@ -249,7 +249,9 @@ Knopf – dann ist der Titel der Link, und die Karte zeigt das gleich.
 
 **N4 – Ein Icon je Objektart.** Person `user`, Boot `sail`, Verein `pennant`, Team `team` (eigenes Icon, nicht `sail`), Hafen
 `anchor`, Törn `map`, Fahrtenbuch `book`, Beitrag `comment`. Die Tabelle liegt an einer Stelle (`ENTITY_ICON`), Seitenkopf,
-Karten, Chips und Reiter nutzen sie.
+Karten, Chips und Reiter nutzen sie. Groß im Seitenkopf (Gruppe, Profil, Boot, Hafen, Beitrag, Entdecken) erscheint
+das Icon als Kachel im Stil des Logos (`entityTile`, Verlauf Havelblau → Türkis, Zeichen zweifarbig wie die Segel,
+F-620–F-624); auf Knöpfen, Chips und in Menüs bleibt das schlanke Linien-Icon.
 
 **N5 – Ein Seitenkopf für alle Objektseiten.** `sx-page-header` mit: Titelbild · Zeichen (Avatar/Icon) · Titel
 (+ Verifiziert) · eine Fakten-Zeile (Links nach N3) · Aktionen. **Höchstens zwei sichtbare Aktionen** in dieser

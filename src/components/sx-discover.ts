@@ -15,9 +15,9 @@ import {
 import { GROUP_KIND_LABEL, JOIN_ACTION_LABEL, joinAction } from '../domain/groups';
 import { SEARCH_LIMITS } from '../domain/search';
 import { fmtDate, fmtNum, plural } from '../util/html';
-import { ENTITY_ICON, groupIcon, icon } from './icons';
+import { ENTITY_ICON, entityTile, groupIcon, icon } from './icons';
 import './sx-verified-badge';
-import { base, coverBanner, coverBannerStyles, emit, logbookTag } from './shared';
+import { base, coverBanner, coverBannerStyles, emit, logbookTag, tileStyles } from './shared';
 import { recordedNote } from '../domain/logbook';
 import { boatClassLabel } from '../domain/boat-class';
 import { boatClassOptions } from './boat-class-options';
@@ -88,6 +88,7 @@ export class SxDiscover extends LitElement {
   static styles = [
     base,
     coverBannerStyles,
+    tileStyles,
     css`
       :host {
         display: block;
@@ -303,21 +304,6 @@ export class SxDiscover extends LitElement {
         background: linear-gradient(135deg, var(--accent-soft), var(--surface) 70%);
         border: 1px solid var(--border-soft);
         overflow: hidden;
-      }
-      .mark {
-        flex: none;
-        width: 64px;
-        height: 64px;
-        border-radius: 50%;
-        display: grid;
-        place-items: center;
-        background: var(--accent);
-        color: var(--on-accent);
-        box-shadow: var(--shadow-1);
-      }
-      .mark svg {
-        width: 34px;
-        height: 34px;
       }
       h1 {
         margin: 0;
@@ -705,7 +691,7 @@ export class SxDiscover extends LitElement {
     }
     return html`<div class="page">
       <header class="hero">
-        <div class="mark" aria-hidden="true">${icon('globe')}</div>
+        ${entityTile('globe', 64)}
         <div>
           <h1>Entdecken</h1>
           <div class="lead">Was die Crew zuletzt öffentlich geteilt hat – Törns, Boote, Segler, Häfen, Vereine und Teams.</div>
