@@ -188,7 +188,7 @@ export async function getProfile(request: Request, env: Env, rawHandle: string):
       // „Mein Verein“ und Heimathafen (Konzept 12.1/12.2) – nur, was öffentlich sein darf
       home: publicHome(home, clubVisible),
       // Titelbild und neueste öffentliche Fotos aus eigenen und mitgesegelten Törns (Konzept 13)
-      ...pageCover('u', p.handle, await loadCover(env, 'u', p.user_id), p.visibility === 'public' || preview ? null : key),
+      ...pageCover('u', p.handle, await loadCover(env, 'u', p.user_id), p.visibility === 'public' || preview ? null : key, { manager: isSelf, admin: !preview && isAdmin(env, user?.id) }),
       photos: await galleryPhotos(env, 'user', p.user_id),
       // Beiträge für Besucher (F-420) – nur bei öffentlichem Profil; sich selbst zeigt „Mein Verlauf“ alles (F-401)
       posts: p.visibility === 'public' && !p.hidden_at && !isSelf ? await visitorPosts(env, p.user_id, reader) : [],

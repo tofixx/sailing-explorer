@@ -173,8 +173,8 @@ Mobil zusätzlich: Reiterzeile kostet eine zweite Kopfzeile; „Track anlegen“
 | B11 | Glocke-Sackgassen: Reaktion auf Neuigkeit → `/`, Beitrag/Kommentar ohne Anker, Claim-Ergebnis nicht öffentlich → `/` | `worker/notifications.ts` 320, 325, 349, 352 | Ziel immer konkret (`/p/<id>`, `#kommentar-<id>`), sonst Eintrag nicht anzeigen |
 | B12 | ~~Byline des Törns ohne Boot; Gruppen-Icon immer `sail`~~ erledigt (F-533, F-532) | `sx-voyage-byline.ts` | Boot ergänzen, Icon aus zentraler Tabelle |
 | B13 | ~~Objekt-Icons uneinheitlich~~ erledigt mit `ENTITY_ICON` (F-532) – (Verein `anchor`/`pennant`, Team = Boot = `sail`, Hafen = Verein = `anchor`, Entdecken `compass`/`globe`) | mehrere | eine Tabelle `ENTITY_ICON` |
-| B14 | Freunde einladen nur in der Willkommens-Karte – nach „Später“ verschwunden | `sx-home-feed.ts` 364, 387 | Einladen zentral im Konto-Menü bzw. auf der eigenen Seite |
-| B15 | Vier Einladungs-UIs (Crew, Gruppe, Boots-Admin, Freund) mit unterschiedlichem Aufbau | `sx-crew.ts` 190/333, `sx-group-page.ts` 584, `sx-account-dialog.ts` 831, `sx-home-feed.ts` 431 | ein `sx-invite-box` (Link erzeugen · per E-Mail · offene Einladungen) |
+| B14 | ~~Freunde einladen nur in der Willkommens-Karte – nach „Später“ verschwunden~~ erledigt (F-592): Zahnrad der eigenen Seite → „Freunde einladen“; die Karte nennt diesen Ort | `sx-home-feed.ts` 364, 387 | Einladen zentral im Konto-Menü bzw. auf der eigenen Seite |
+| B15 | ~~Vier Einladungs-UIs (Crew, Gruppe, Boots-Admin, Freund) mit unterschiedlichem Aufbau~~ erledigt mit `sx-invite-box` (F-590, F-591) | `sx-crew.ts` 190/333, `sx-group-page.ts` 584, `sx-account-dialog.ts` 831, `sx-home-feed.ts` 431 | ein `sx-invite-box` (Link erzeugen · per E-Mail · offene Einladungen) |
 | B16 | „Gruppe gründen“ an drei Stellen (Startseiten-Kopf, Willkommen, Entdecken-Fuß) | `sx-home-feed.ts` 423/574; `sx-discover.ts` 664 | nur Entdecken → Vereine (bzw. „+ Neu“) **[streichen]** Startseiten-Kopf |
 | B17 | „Dein Bereich“-Karte dupliziert das Konto (3 Knöpfe in Dialog-Reiter) | `sx-join-card.ts` 141–150 | mit Konto-Menü **[streichen]** – erledigt: Komponente entfernt, für Gäste ersetzt durch den Slider (F-431) |
 | B18 | Drei Reiter-/Filtermuster (tab, Knopfleiste, Chips) | K5 | ein `sx-tabs` (Bereich) + Chips nur für Filter |
@@ -220,7 +220,8 @@ Mobil zusätzlich: Reiterzeile kostet eine zweite Kopfzeile; „Track anlegen“
     Hafen, Gruppe, Törn, `/p/`.
 11. `sx-entity-link` / `sx-avatar` + zentrale `ENTITY_ICON`-Tabelle, alle Nennungen umstellen (Matrix Abschnitt 2).
 12. `sx-tabs` für Bereiche unter dem Kopf; Chips nur für Filter.
-13. `sx-invite-box` für alle vier Einladungsarten; „Freunde einladen“ auf der eigenen Seite (Zahnrad oder Mitmachen-Leiste).
+13. ~~`sx-invite-box` für alle vier Einladungsarten; „Freunde einladen“ auf der eigenen Seite (Zahnrad oder Mitmachen-Leiste).~~
+    Erledigt (F-590 … F-592): ein Baustein, „Freunde einladen“ im Zahnrad der eigenen Seite (kein Eintrag im Konto-Menü, N1).
 14. Törn-Ansicht bekommt denselben Kopf (Titel, Byline, Aktionen Teilen · Zahnrad mit Stufe/Bearbeiten/Löschen/Melden).
 15. Hafen bekommt Titelbild (wie Boot/Gruppe), damit alle Objektseiten gleich aussehen.
 

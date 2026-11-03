@@ -245,7 +245,7 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
     voyages: await publicShares(env, 'boat', id),
     social: await followStats(env, 'boat', id, user?.id ?? null),
     // Titelbild und neueste öffentliche Fotos der Törns mit diesem Boot (Konzept 13)
-    ...pageCover('b', b.id, await loadCover(env, 'b', b.id), b.visibility === 'public' ? null : key),
+    ...pageCover('b', b.id, await loadCover(env, 'b', b.id), b.visibility === 'public' ? null : key, { manager: !!role, admin: isAdmin(env, user?.id) }),
     photos: await galleryPhotos(env, 'boat', b.id),
     // „Verein des Boots“ (Konzept 12.2): öffentliche, nicht ausgeblendete Vereine, denen das Boot zugeordnet ist – nur,
     // wenn der Betrachter die Boote des Vereins sehen darf (F-442: öffentliche Mitgliederliste oder Mitglied)

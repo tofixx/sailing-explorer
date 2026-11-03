@@ -671,6 +671,8 @@ export interface AdminReport {
   targetId: string;
   count: number;
   reporters: number;
+  /** davon Meldungen neuer Konten (Gewicht 0, F-565) – fehlt bei älteren Servern */
+  newReporters?: number;
   firstAt: number;
   lastAt: number;
   reasons: Partial<Record<ReportReason, number>>;
@@ -680,15 +682,18 @@ export interface AdminReport {
     title: string;
     text: string;
     path: string;
-    /** Vorschaubild (nur bei Fotos) */
+    /** Vorschaubild: Foto bzw. Titelbild von Profil, Boot, Gruppe (F-564) */
     imagePath?: string;
+    /** Titelbild ist gerade zurückgehalten (neues Konto oder Bild-Meldung) */
+    coverHeld?: boolean;
     visibility: Visibility;
     hiddenAt: number | null;
     owner: { id: string; displayName: string; suspended: boolean };
   } | null;
 }
 
-export type AdminAction = 'keep' | 'hide' | 'delete';
+/** cover: nur das Titelbild entfernen (Profil, Boot, Gruppe, F-564) */
+export type AdminAction = 'keep' | 'hide' | 'delete' | 'cover';
 
 export const communityApi = {
   comments: (shareId: string, key?: string | null) => call<CommentList>(`/api/shares/${encodeURIComponent(shareId)}/comments`, keyInit(key)),
@@ -903,6 +908,7 @@ export interface GroupPageData {
   /** Titelbild samt Ausschnitt und Galerie (Konzept 13) – fehlen bei älteren Servern */
   cover?: string | null;
   coverY?: number;
+  coverHeldUntil?: number | null;
   photos?: GalleryPhoto[];
   requests?: GroupRequest[];
   invites?: PendingInvite[];
@@ -1007,7 +1013,7 @@ export const groupApi = {
   setRole: (id: string, userId: string, role: 'admin' | 'member') => call<{ role: string }>(`/api/groups/${gid(id)}/members/${gid(userId)}`, jsonInit('PATCH', { role })),
   /** userId 'me' = austreten; `follow`: danach weiter folgen (F-446) */
   removeMember: (id: string, userId: string, follow = false) => call<{ followed?: boolean } | void>(`/api/groups/${gid(id)}/members/${gid(userId)}${follow ? '?follow=1' : ''}`, { method: 'DELETE' }),
-  invite: (id: string, email: string | null) => call<InviteCreated>(`/api/groups/${gid(id)}/invites`, jsonInit('POST', email ? { email } : {})),
+  invite: (id: string, to: InviteTo | null) => call<InviteCreated>(`/api/groups/${gid(id)}/invites`, jsonInit('POST', to ?? {})),
   request: (id: string, message: string, key?: string | null) =>
     call<{ requested: boolean; already?: boolean; joined?: boolean }>(`/api/groups/${gid(id)}/requests`, {
       ...jsonInit('POST', { message }),
@@ -1175,6 +1181,8 @@ export interface PageMedia {
   cover?: string | null;
   /** vertikale Fokus-Position in Prozent (src/domain/cover.ts) */
   coverY?: number;
+  /** zurückgehalten bis (ms) – nur für Verwalter und Admins (F-562, F-566); null = öffentlich */
+  coverHeldUntil?: number | null;
   photos?: GalleryPhoto[];
 }
 
@@ -1208,7 +1216,7 @@ export const claimApi = {
 
 export const coverApi = {
   put: (kind: CoverKind, id: string, image: Blob) =>
-    call<{ cover: string; coverY: number }>(`/api/covers/${kind}/${encodeURIComponent(id)}`, {
+    call<{ cover: string; coverY: number; coverHeldUntil: number | null }>(`/api/covers/${kind}/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: image,
@@ -1223,7 +1231,7 @@ export const coverApi = {
 
 export const friendApi = {
   /** ohne Adresse: Einladungslink (nur in dieser Antwort) */
-  invite: (to: { email?: string; handle?: string }) => call<InviteCreated>('/api/invites', jsonInit('POST', to)),
+  invite: (to: InviteTo | null) => call<InviteCreated>('/api/invites', jsonInit('POST', to ?? {})),
 };
 
 // ================================================================ Passkeys (Konzept 14.7)

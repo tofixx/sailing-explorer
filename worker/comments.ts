@@ -22,10 +22,10 @@ export const COMMENT_LIMITS = {
   perDay: 50,
   /** Mindestabstand zwischen zwei Kommentaren eines Kontos */
   minGapMs: 20_000,
-  /** Konten jünger als 24 h … */
-  newAccountMs: DAY,
+  /** Konten jünger als 24 h (erster Tag; nicht „neu“ im Sinne von isNewAccount, F-560) … */
+  firstDayMs: DAY,
   /** … dürfen insgesamt höchstens so viele Kommentare schreiben */
-  newAccountMax: 3,
+  firstDayMax: 3,
   /** Kommentare je Törn */
   perShare: 500,
 } as const;
@@ -146,8 +146,8 @@ export async function createComment(request: Request, env: Env, id: string): Pro
     const wait = Math.ceil((COMMENT_LIMITS.minGapMs - (now - c.last)) / 1000);
     throw new HttpError(429, 'comment_too_fast', `Bitte warte noch ${wait} s bis zum nächsten Kommentar.`);
   }
-  if (now - c.account_created < COMMENT_LIMITS.newAccountMs && c.day >= COMMENT_LIMITS.newAccountMax) {
-    throw new HttpError(429, 'comment_new_account', `Neue Konten schreiben am ersten Tag höchstens ${COMMENT_LIMITS.newAccountMax} Kommentare.`);
+  if (now - c.account_created < COMMENT_LIMITS.firstDayMs && c.day >= COMMENT_LIMITS.firstDayMax) {
+    throw new HttpError(429, 'comment_new_account', `Neue Konten schreiben am ersten Tag höchstens ${COMMENT_LIMITS.firstDayMax} Kommentare.`);
   }
   if (c.hour >= COMMENT_LIMITS.perHour) throw new HttpError(429, 'comment_quota', `Höchstens ${COMMENT_LIMITS.perHour} Kommentare pro Stunde – bitte später weiterschreiben.`);
   if (c.day >= COMMENT_LIMITS.perDay) throw new HttpError(429, 'comment_quota', `Höchstens ${COMMENT_LIMITS.perDay} Kommentare pro Tag – morgen geht es weiter.`);

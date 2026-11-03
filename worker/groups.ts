@@ -30,7 +30,7 @@ import { isNotifyLevel, parseDefaultLevel } from '../src/domain/notifications';
 import { coverRef } from '../src/domain/cover';
 import { notifyRequest } from './notifications';
 import { claimTargetCleanup, displacedSql } from './claim-cleanup';
-import { notSuspendedSql, publicSql } from './visible-sql';
+import { coverShownSql, notSuspendedSql, publicSql } from './visible-sql';
 import { membersVisibleSql } from './member-sql';
 
 const DAY = 86_400_000;
@@ -540,7 +540,7 @@ export async function getGroup(request: Request, env: Env, idOrSlug: string, byS
     boats: boatList,
     social,
     // Titelbild und neueste öffentliche Fotos aus den in der Gruppe gezeigten Törns (Konzept 13, 11.12)
-    ...pageCover('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request)),
+    ...pageCover('g', group.id, await loadCover(env, 'g', group.id), group.visibility === 'public' ? null : requestKey(request), { manager, admin: isAdmin(env, user?.id) }),
     // Fotos stammen aus Törns der Mitglieder: nur, wer die Mitglieder sehen darf (F-442, Konzept 24.7)
     photos: seeMembers ? await galleryPhotos(env, 'group', group.id) : [],
     // Ort für die Karte im Hintergrund (F-351): Position des Heimathafens, sonst null
@@ -815,7 +815,7 @@ export async function publicGroups(env: Env, limit: number, search?: { where: st
   const stmt = env.DB.prepare(
     `SELECT g.id, g.slug, g.name, g.kind, g.home_port, g.description, g.join_mode, g.created_at, g.verified_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members,
        c.ver AS cover_ver, c.focus_y AS cover_y
-     FROM groups g LEFT JOIN covers c ON c.kind = 'g' AND c.object_id = g.id
+     FROM groups g LEFT JOIN covers c ON c.kind = 'g' AND c.object_id = g.id AND ${coverShownSql('c')}
      WHERE ${publicSql('g')}
        AND ${notSuspendedSql('g.owner_id')} ${search?.where ?? ''}
        ${near ? `AND g.harbor_id IN (SELECT value FROM json_each(?3))` : ''}

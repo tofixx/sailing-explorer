@@ -57,7 +57,7 @@ import { DiscoverController } from './controllers/discover';
 import type { SxGroupPage } from './components/sx-group-page';
 import type { SxHomeFeed } from './components/sx-home-feed';
 import type { SxGuestSlider } from './components/sx-guest-slider';
-import type { FollowKind, GroupInput } from './services/api';
+import type { FollowKind, GroupInput, InviteTo } from './services/api';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
 import { UnreadController } from './controllers/unread';
@@ -746,7 +746,8 @@ export class App {
     on('sx-invite-accept', () => s.acceptInvite());
     on<{ id: string; scope: 'crew' | 'boat'; boatId?: string }>('sx-invite-revoke', (d) => s.revokeInvite(d));
     on<string>('sx-invite-copy', (url) => s.copyInvite(url));
-    on<{ to: { email: string } | { handle: string } | null; role?: VoyageRole }>('sx-crew-invite', (d) => s.inviteCrew(d.to, d.role));
+    on<{ url: string; title: string; text: string }>('sx-invite-share', (d) => s.shareInvite(d));
+    on<{ to: { email: string } | { handle: string } | null; role?: VoyageRole; done?: () => void }>('sx-crew-invite', (d) => s.inviteCrew(d.to, d.role).then((ok) => ok && d.done?.()));
     on<{ userId: string; role: VoyageRole }>('sx-crew-role', (d) => s.setCrewRole(d.userId, d.role));
     on<{ role: VoyageRole }>('sx-crew-own-role', (d) => s.setOwnerRole(d.role));
     on<{ userIds: string[] | 'all'; owner: boolean }>('sx-crew-confirm', (d) => s.confirmCrew(d.userIds, d.owner));
@@ -756,7 +757,7 @@ export class App {
     on('sx-crew-edit', () => this.editCrew());
     on<{ file: File }>('sx-track-attach', (d) => void this.ws.attach(d.file));
     on<string>('sx-boat-admins', (id) => s.loadAdmins(id));
-    on<{ boatId: string; to: { email: string } | { handle: string } }>('sx-boat-admin-invite', (d) => s.inviteAdmin(d.boatId, d.to));
+    on<{ boatId: string; to: { email: string } | { handle: string }; done?: () => void }>('sx-boat-admin-invite', (d) => s.inviteAdmin(d.boatId, d.to).then((ok) => ok && d.done?.()));
     on<string>('sx-my-invite-accept', (id) => s.acceptMyInvite(id));
     on<string>('sx-my-invite-decline', (id) => s.declineMyInvite(id));
     on<{ boatId: string; userId: string }>('sx-boat-admin-remove', (d) => s.removeAdmin(d.boatId, d.userId));
@@ -823,7 +824,7 @@ export class App {
     on('sx-discover-locate', () => this.discover.useLocation());
     // Willkommens-Karte der Startseite (Konzept 14.3)
     on<{ id: string; name: string }>('sx-home-join', (d) => g.join(d.id, { name: d.name }));
-    on<{ email: string | null }>('sx-friend-invite', (d) => this.social.inviteFriend(d.email));
+    on<{ to: InviteTo | null; done?: () => void }>('sx-friend-invite', (d) => this.social.inviteFriend(d.to).then((ok) => ok && d.done?.()));
     // Fahrtenbuch (Konzept 19)
     on('sx-logbook-start', () => this.logbook.start());
     // GPX-Törn: Vorschläge aus dem geladenen Track (F-460). Bearbeiten gibt es nur am offenen Törn, und der Arbeitsbereich
@@ -843,7 +844,7 @@ export class App {
     on<{ id: string; userId: string; approve: boolean }>('sx-group-request', (d) => g.decide(d));
     on<{ id: string; userId: string; role: 'admin' | 'member' }>('sx-group-role', (d) => g.setRole(d));
     on<{ id: string; userId: string }>('sx-group-remove', (d) => g.removeMember(d));
-    on<{ id: string; email: string | null }>('sx-group-invite', (d) => g.invite(d));
+    on<{ id: string; to: InviteTo | null; done?: () => void }>('sx-group-invite', (d) => g.invite(d).then((ok) => ok && d.done?.()));
     on<{ id: string }>('sx-group-invite-revoke', (d) => g.revokeInvite(d.id));
     on<{ id: string; boatId: string }>('sx-group-boat-add', (d) => g.addBoat(d));
     on<{ id: string; boatId: string }>('sx-group-boat-remove', (d) => g.removeBoat(d));
@@ -1115,7 +1116,7 @@ export class App {
         el.adjust();
       } else {
         await coverApi.remove(d.kind, d.id);
-        this.patchCover(d.kind, { cover: null });
+        this.patchCover(d.kind, { cover: null, coverHeldUntil: null });
       }
       this.toast(d.file ? 'Titelbild gespeichert' : 'Titelbild entfernt');
     } catch (err) {

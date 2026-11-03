@@ -1,17 +1,18 @@
 // Melden (DSA, Konzept 4.4, F-114) und Moderation durch Admins (ADMIN_USER_IDS).
-// Gemeldet wird nur, was der Meldende sehen darf (sonst 404); 3 Meldungen verschiedener Konten oder eine
-// „Ich bin abgebildet“-Meldung blenden das Ziel bis zur Prüfung aus (hidden_at).
+// Gemeldet wird nur, was der Meldende sehen darf (sonst 404); 3 Meldungen verschiedener, nicht neuer Konten blenden
+// das Ziel bis zur Prüfung aus (hidden_at, F-565). Bild-Gründe („Ich bin abgebildet“, „Kinder abgebildet“) gibt es nur
+// für Fotos und Titelbilder; sie blenden sofort nur das Bild aus (F-566, Konzept 36).
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { randomId } from './crypto';
-import { removeCoverOf } from './covers';
+import { COVER_REPORT_KIND, holdCoverStmt, keepCoverStmt, loadCover, releaseCoverStmt, removeCoverOf, type CoverKind } from './covers';
 import { removeBoat } from './boats';
 import { removeComment } from './comments';
 import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, requestKey } from './access';
 import { roleFor } from './boats';
 import { visibleComment } from './comments';
-import { LOCKED, adminLogStmt, assertActive, isAdmin, isLockedTarget, requireAdmin } from './moderation';
+import { LOCKED, adminLogStmt, assertActive, isAdmin, isLockedTarget, newAccountUntil, requireAdmin } from './moderation';
 import { removeShare, visibleShare } from './shares';
 import { removePhotoById, visiblePhoto } from './photos';
 import { canViewGroup, loadGroup, removeGroup, roleIn } from './groups';
@@ -19,7 +20,8 @@ import { removePost, visiblePost } from './posts';
 import { harborVisible, loadHarbor, removeHarbor } from './harbors';
 import { canManageGroup } from '../src/domain/groups';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, normalizeHandle, parseReportKind, parseReportReason } from './validate';
-import { REPORT_NOTE_MAX, REPORT_REASONS, type ReportKind } from '../src/domain/comment-text';
+import { IMAGE_REASONS, REPORT_NOTE_MAX, REPORT_REASONS, isImageReason, type ReportKind } from '../src/domain/comment-text';
+import { coverPath, coverShown, reportHoldUntil } from '../src/domain/cover';
 import { sharePath, type Visibility } from '../src/domain/visibility';
 import { funnyName } from '../src/domain/names';
 
@@ -30,6 +32,8 @@ export const REPORT_LIMITS = {
   autoHideReporters: 3,
   /** Meldungen pro Konto in 24 h */
   perUserPerDay: 20,
+  /** Meldungen mit Bild-Grund pro neuem Konto in 24 h (F-569) – sie blenden sofort aus */
+  imagePerNewUserPerDay: 3,
   /** Einträge in der Admin-Liste */
   adminList: 50,
 } as const;
@@ -55,6 +59,12 @@ interface Target {
   /** Konto, dem der Inhalt gehört */
   ownerId: string;
 }
+
+/** Art des Titelbilds zu einer Meldeart (Profil, Boot, Gruppe; Umkehrung von COVER_REPORT_KIND) – sonst null. */
+const coverKindOf = (kind: ReportKind): CoverKind | null =>
+  (Object.keys(COVER_REPORT_KIND) as CoverKind[]).find((c) => COVER_REPORT_KIND[c] === kind) ?? null;
+
+const INVALID_IMAGE_REASON = () => new HttpError(400, 'invalid_reason', 'Dieser Grund gilt nur für Fotos und Titelbilder.');
 
 /** Ziel, das der Anfragende sehen darf (gleiche Prüfungen wie beim Ansehen, inkl. Schlüssel) – sonst 404. */
 async function resolveTarget(request: Request, env: Env, kind: ReportKind, rawId: unknown): Promise<Target> {
@@ -144,24 +154,50 @@ export async function createReport(request: Request, env: Env): Promise<Response
   const target = await resolveTarget(request, env, kind, body.id);
   if (target.ownerId === user.id) throw new HttpError(400, 'own_object', 'Eigene Inhalte kannst du bearbeiten oder löschen statt sie zu melden.');
 
+  // Bild-Gründe (F-566): Foto oder ein für den Meldenden sichtbares Titelbild von Profil, Boot, Gruppe
+  const coverKind = coverKindOf(kind);
+  if (isImageReason(reason) && kind !== 'photo') {
+    const c = coverKind ? await loadCover(env, coverKind, target.id) : null;
+    if (!c || !coverShown(c.held_until)) throw INVALID_IMAGE_REASON();
+  }
+
   const now = Date.now();
   const recent = await env.DB.prepare('SELECT COUNT(*) AS n FROM reports WHERE reporter_id = ? AND created_at > ?').bind(user.id, now - DAY).first<{ n: number }>();
   if ((recent?.n ?? 0) >= REPORT_LIMITS.perUserPerDay) throw new HttpError(429, 'report_quota', 'Du hast heute schon sehr viele Meldungen geschickt – bitte morgen weiter.');
 
+  // Gewicht (F-565): Meldungen neuer Konten zählen nicht zur Schwelle
+  const weight = (await newAccountUntil(env, user.id, now)) === null ? 1 : 0;
+  if (weight === 0 && isImageReason(reason)) {
+    // neue Konten: höchstens 3 Bild-Meldungen am Tag (F-569) – jede blendet sofort aus
+    const images = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM reports WHERE reporter_id = ? AND created_at > ? AND reason IN (${IMAGE_REASONS.map(() => '?').join(', ')})`,
+    )
+      .bind(user.id, now - DAY, ...IMAGE_REASONS)
+      .first<{ n: number }>();
+    if ((images?.n ?? 0) >= REPORT_LIMITS.imagePerNewUserPerDay) throw new HttpError(429, 'report_quota', 'Du hast heute schon mehrere Bilder gemeldet – bitte morgen weiter.');
+  }
   const res = await env.DB.prepare(
-    `INSERT OR IGNORE INTO reports (id, target_kind, target_id, reporter_id, reason, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO reports (id, target_kind, target_id, reporter_id, reason, note, created_at, weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(randomId(), kind, target.id, user.id, reason, note, now)
+    .bind(randomId(), kind, target.id, user.id, reason, note, now, weight)
     .run();
   const already = !res.meta.changes;
   if (!already) {
-    // „Ich bin abgebildet“ sofort, sonst ab 3 verschiedenen Konten mit offener Meldung – bis zur Prüfung.
+    // Bild-Gründe blenden sofort nur das Bild aus (Meldungen neuer Konten beim Titelbild für 72 h, F-569) – nicht, wenn
+    // die Moderation genau dieses Bild schon behalten hat (F-568, dann nur in die Liste); das Objekt selbst erst ab 3
+    // verschiedenen nicht neuen Konten mit offener Meldung – jeweils bis zur Prüfung.
+    if (isImageReason(reason)) {
+      await (kind === 'photo'
+        ? env.DB.prepare('UPDATE photos SET hidden_at = COALESCE(hidden_at, ?) WHERE id = ? AND kept_at IS NULL').bind(now, target.id)
+        : holdCoverStmt(env, coverKind!, target.id, reportHoldUntil(weight, now))
+      ).run();
+    }
     const open = await env.DB.prepare(
-      'SELECT COUNT(DISTINCT reporter_id) AS n FROM reports WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL',
+      'SELECT COUNT(DISTINCT reporter_id) AS n FROM reports WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL AND weight > 0',
     )
       .bind(kind, target.id)
       .first<{ n: number }>();
-    if (reason === 'depicted' || (open?.n ?? 0) >= REPORT_LIMITS.autoHideReporters) await hideTarget(env, kind, target.id, now).run();
+    if ((open?.n ?? 0) >= REPORT_LIMITS.autoHideReporters) await hideTarget(env, kind, target.id, now).run();
   }
   return json({ ok: true, already }, { status: already ? 200 : 201 });
 }
@@ -183,6 +219,17 @@ interface Group {
   first_at: number;
   last_at: number;
   reasons: string;
+  /** Meldungen neuer Konten (Gewicht 0, F-565) */
+  fresh: number;
+}
+
+/**
+ * Titelbild eines gemeldeten Profils, Boots oder einer Gruppe für die Admin-Vorschau (Admins sehen auch
+ * zurückgehaltene, F-564): Adresse und ob es gerade zurückgehalten ist.
+ */
+async function coverPreview(env: Env, kind: CoverKind, publicId: string, objectId: string) {
+  const c = await loadCover(env, kind, objectId);
+  return c ? { imagePath: coverPath(kind, publicId, c.ver), coverHeld: !coverShown(c.held_until) } : {};
 }
 
 /** Vorschau eines gemeldeten Ziels für die Admin-Liste; null = gibt es nicht mehr. */
@@ -231,13 +278,13 @@ async function preview(env: Env, kind: ReportKind, id: string) {
     const p = await env.DB.prepare('SELECT user_id, handle, display_name, bio, visibility, share_key, hidden_at FROM profiles WHERE user_id = ?')
       .bind(id)
       .first<{ user_id: string; handle: string; display_name: string; bio: string; visibility: Visibility; share_key: string | null; hidden_at: number | null }>();
-    return p && { title: `Profil ${p.display_name} (/u/${p.handle})`, text: p.bio, path: sharePath('u', p.handle, p.visibility, p.share_key), visibility: p.visibility, hiddenAt: p.hidden_at, owner: await owner(p.user_id) };
+    return p && { title: `Profil ${p.display_name} (/u/${p.handle})`, text: p.bio, path: sharePath('u', p.handle, p.visibility, p.share_key), ...(await coverPreview(env, 'u', p.handle, p.user_id)), visibility: p.visibility, hiddenAt: p.hidden_at, owner: await owner(p.user_id) };
   }
   if (kind === 'group') {
     const g = await env.DB.prepare('SELECT id, owner_id, slug, name, description, visibility, share_key, hidden_at FROM groups WHERE id = ?')
       .bind(id)
       .first<{ id: string; owner_id: string; slug: string; name: string; description: string; visibility: Visibility; share_key: string | null; hidden_at: number | null }>();
-    return g && { title: `Gruppe ${g.name} (/g/${g.slug})`, text: g.description, path: sharePath('g', g.slug, g.visibility, g.share_key), visibility: g.visibility, hiddenAt: g.hidden_at, owner: await owner(g.owner_id) };
+    return g && { title: `Gruppe ${g.name} (/g/${g.slug})`, text: g.description, path: sharePath('g', g.slug, g.visibility, g.share_key), ...(await coverPreview(env, 'g', g.id, g.id)), visibility: g.visibility, hiddenAt: g.hidden_at, owner: await owner(g.owner_id) };
   }
   if (kind === 'post') {
     // Gruppen-Beitrag: Pfad der Gruppe; Profil-Beitrag (F-420): Pfad des Profils
@@ -262,7 +309,7 @@ async function preview(env: Env, kind: ReportKind, id: string) {
   const b = await env.DB.prepare('SELECT id, owner_id, name, description, visibility, share_key, hidden_at FROM boats WHERE id = ?')
     .bind(id)
     .first<{ id: string; owner_id: string; name: string; description: string; visibility: Visibility; share_key: string | null; hidden_at: number | null }>();
-  return b && { title: `Boot ${b.name}`, text: b.description, path: sharePath('b', b.id, b.visibility, b.share_key), visibility: b.visibility, hiddenAt: b.hidden_at, owner: await owner(b.owner_id) };
+  return b && { title: `Boot ${b.name}`, text: b.description, path: sharePath('b', b.id, b.visibility, b.share_key), ...(await coverPreview(env, 'b', b.id, b.id)), visibility: b.visibility, hiddenAt: b.hidden_at, owner: await owner(b.owner_id) };
 }
 
 /**
@@ -273,7 +320,7 @@ export async function listReports(request: Request, env: Env): Promise<Response>
   await requireAdmin(request, env);
   const { results: groups } = await env.DB.prepare(
     `SELECT target_kind, target_id, MIN(id) AS id, COUNT(*) AS n, COUNT(DISTINCT reporter_id) AS reporters,
-       MIN(created_at) AS first_at, MAX(created_at) AS last_at, GROUP_CONCAT(reason) AS reasons
+       MIN(created_at) AS first_at, MAX(created_at) AS last_at, GROUP_CONCAT(reason) AS reasons, SUM(weight = 0) AS fresh
      FROM reports WHERE resolved_at IS NULL GROUP BY target_kind, target_id ORDER BY first_at LIMIT ?`,
   )
     .bind(REPORT_LIMITS.adminList)
@@ -295,6 +342,7 @@ export async function listReports(request: Request, env: Env): Promise<Response>
       targetId: g.target_id,
       count: g.n,
       reporters: g.reporters,
+      newReporters: g.fresh ?? 0,
       firstAt: g.first_at,
       lastAt: g.last_at,
       reasons,
@@ -324,19 +372,23 @@ async function deleteTarget(env: Env, kind: ReportKind, id: string): Promise<voi
 }
 
 /**
- * POST /api/admin/reports/:id – `{ action: 'keep' | 'hide' | 'delete' }` entscheidet über alle offenen Meldungen
- * zum selben Ziel. keep: wieder einblenden; hide: ausgeblendet lassen; delete: Ziel löschen (die Meldungen fallen
- * mit). Entschiedene Meldungen behalten weder Meldende noch Anmerkung.
+ * POST /api/admin/reports/:id – `{ action: 'keep' | 'hide' | 'delete' | 'cover' }` entscheidet über alle offenen
+ * Meldungen zum selben Ziel. keep: wieder einblenden; hide: ausgeblendet lassen; delete: Ziel löschen (die Meldungen
+ * fallen mit); cover (nur Profil, Boot, Gruppe, F-564): nur das Titelbild löschen, das Objekt wieder einblenden.
+ * keep und hide heben die Melde-Sperre des Titelbilds auf (F-566). Entschiedene Meldungen behalten weder Meldende
+ * noch Anmerkung.
  */
 export async function decideReport(request: Request, env: Env, reportId: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
   const { action } = await readJson<{ action?: unknown }>(request);
-  if (action !== 'keep' && action !== 'hide' && action !== 'delete') throw new HttpError(400, 'invalid_action', 'Unbekannte Entscheidung.');
+  if (action !== 'keep' && action !== 'hide' && action !== 'delete' && action !== 'cover') throw new HttpError(400, 'invalid_action', 'Unbekannte Entscheidung.');
   const r = SHARE_ID_RE.test(reportId)
     ? await env.DB.prepare('SELECT target_kind, target_id FROM reports WHERE id = ?').bind(reportId).first<{ target_kind: string; target_id: string }>()
     : null;
   const kind = parseReportKind(r?.target_kind);
   if (!r || !kind) throw new HttpError(404, 'not_found', 'Diese Meldung gibt es nicht (mehr).');
+  const coverKind = coverKindOf(kind);
+  if (action === 'cover' && !coverKind) throw new HttpError(400, 'invalid_action', 'Nur Profile, Boote und Gruppen haben ein Titelbild.');
   // Gesperrtes (Konzept 18.2) entscheidet der Admin-Bereich – sonst höbe „wieder einblenden“ die Sperre unbemerkt auf.
   if (await isLockedTarget(env, kind, r.target_id)) throw LOCKED();
   const now = Date.now();
@@ -344,8 +396,13 @@ export async function decideReport(request: Request, env: Env, reportId: string)
   const { table, idCol } = TABLE[kind];
   const resolve = env.DB.prepare(
     `UPDATE reports SET resolved_at = ?, resolution = ?, reporter_id = NULL, note = '' WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL`,
-  ).bind(now, action === 'keep' ? 'kept' : action === 'hide' ? 'hidden' : 'deleted', kind, r.target_id);
-  if (action === 'delete') {
+  ).bind(now, action === 'keep' ? 'kept' : action === 'hide' ? 'hidden' : action === 'cover' ? 'cover_removed' : 'deleted', kind, r.target_id);
+  if (action === 'cover') {
+    // Das Bild war das Problem: erst das Bild löschen (scheitert das, bleiben die Meldungen offen), dann das Objekt
+    // wieder einblenden (wie „Behalten“) und die Meldungen schließen.
+    await removeCoverOf(env, coverKind!, r.target_id);
+    await env.DB.batch([env.DB.prepare(`UPDATE ${table} SET hidden_at = NULL WHERE ${idCol} = ?`).bind(r.target_id), resolve, log]);
+  } else if (action === 'delete') {
     await env.DB.batch([resolve, log]);
     await deleteTarget(env, kind, r.target_id);
     // Meldungen zu einem gelöschten Ziel braucht es nicht mehr.
@@ -355,6 +412,9 @@ export async function decideReport(request: Request, env: Env, reportId: string)
       action === 'keep'
         ? env.DB.prepare(`UPDATE ${table} SET hidden_at = NULL WHERE ${idCol} = ?`).bind(r.target_id)
         : hideTarget(env, kind, r.target_id, now),
+      // Behalten: Bild gilt als geprüft (F-568); Ausblenden: das Objekt ist ohnehin weg, die Melde-Sperre endet
+      ...(coverKind ? [action === 'keep' ? keepCoverStmt(env, coverKind, r.target_id) : releaseCoverStmt(env, coverKind, r.target_id)] : []),
+      ...(kind === 'photo' && action === 'keep' ? [env.DB.prepare('UPDATE photos SET kept_at = ? WHERE id = ?').bind(now, r.target_id)] : []),
       resolve,
       log,
     ]);

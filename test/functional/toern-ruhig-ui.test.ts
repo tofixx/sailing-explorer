@@ -144,16 +144,20 @@ describe('F-513 Einladen nach Klick', () => {
     const toggle = button(el, /Einladen/)!;
     expect(toggle.textContent).toContain('1 offen');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(el.shadowRoot.querySelector('form')).toBeNull();
+    expect(el.shadowRoot.querySelector('sx-invite-box')).toBeNull();
     expect(text(el)).not.toContain('mate@example.org');
     toggle.click();
     await el.updateComplete;
-    expect(el.shadowRoot.querySelector('form')).not.toBeNull();
-    expect(text(el)).toContain('mate@example.org');
-    expect(button(el, /Einladungslink erzeugen/)).toBeDefined();
+    // aufgeklappt: der gemeinsame Einladungs-Baustein (F-590) mit Rolle, Link, E-Mail und Liste
+    const box = el.shadowRoot.querySelector('sx-invite-box') as unknown as LitEl;
+    await box.updateComplete;
+    expect(box.shadowRoot.querySelector('form')).not.toBeNull();
+    expect(box.shadowRoot.querySelector('select[aria-label="Rolle für Einladungen"]')).not.toBeNull();
+    expect(text(box)).toContain('mate@example.org');
+    expect(button(box, /Einladungslink erzeugen/)).toBeDefined();
     button(el, /Einladen schließen/)!.click();
     await el.updateComplete;
-    expect(el.shadowRoot.querySelector('form')).toBeNull();
+    expect(el.shadowRoot.querySelector('sx-invite-box')).toBeNull();
     // Besucher und Crew sehen kein Einladen
     const visitor = await mount('sx-crew', { crew: crew({ members: [tom], isCrew: true, me: { role: 'crew', confirmed: null } }) });
     expect(button(visitor, /Einladen/)).toBeUndefined();

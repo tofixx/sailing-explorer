@@ -39,7 +39,8 @@ const errorOf = async (res: Response) => ((await res.json()) as { error: string 
 async function person(o: { profile?: 'public' | 'unlisted' | null; supporter?: boolean } = {}): Promise<Person> {
   const mail = email();
   const s = o.supporter || o.profile === 'unlisted' ? await loginSupporter(h, mail) : await login(h, mail);
-  await (await db()).prepare('UPDATE users SET created_at = created_at - ? WHERE id = ?').bind(2 * DAY, s.user.id).run();
+  // älter als 7 Tage: kein neues Konto (F-560) – Meldungen zählen zur Schwelle (F-565)
+  await (await db()).prepare('UPDATE users SET created_at = created_at - ? WHERE id = ?').bind(8 * DAY, s.user.id).run();
   if (o.profile === null) return { ...s, email: mail };
   const handle = uniq('mod');
   const res = await send('PUT', '/api/me/profile', s.cookie, { handle, displayName: `Name ${handle}`, bio: 'Bio', visibility: o.profile ?? 'public' });
@@ -131,7 +132,7 @@ describe('F-114 Melden', () => {
 
   it('[F-114] Kontaktadresse für Meldungen ohne Konto', async () => {
     const res = await h.fetch('/api/reports/info');
-    expect(await res.json()).toMatchObject({ contact: 'meldung@example.org', reasons: ['spam', 'abuse', 'illegal', 'depicted', 'other'] });
+    expect(await res.json()).toMatchObject({ contact: 'meldung@example.org', reasons: ['spam', 'abuse', 'illegal', 'depicted', 'minors', 'other'] });
   });
 });
 
@@ -164,12 +165,14 @@ describe('F-114 Automatisch ausblenden bis zur Prüfung', () => {
     expect((await send('GET', `/api/shares/${share.id}`, admin.cookie)).status).toBe(200);
   });
 
-  it('[F-114] „Ich bin abgebildet“ blendet sofort aus – Kommentar sehen dann nur Autor:in (markiert) und Admins', async () => {
+  it('[F-114][F-566] ausgeblendeter Kommentar: nur Autor:in (markiert) und Admins sehen ihn; „Ich bin abgebildet“ gibt es für Texte nicht', async () => {
     const owner = await person();
     const share = await newShare(owner);
     const author = await person();
     const c = await newComment(author, share.id, 'Hier ist Max Mustermann zu sehen');
-    expect((await report(await person(), 'comment', c.id, 'depicted', 'Das bin ich')).status).toBe(201);
+    expect(await errorOf(await report(await person(), 'comment', c.id, 'depicted', 'Das bin ich'))).toBe('invalid_reason');
+    expect(await errorOf(await report(await person(), 'comment', c.id, 'minors'))).toBe('invalid_reason');
+    for (let i = 0; i < 3; i++) expect((await report(await person(), 'comment', c.id, 'abuse', 'Das bin ich')).status).toBe(201);
     const list = async (p?: Person) =>
       ((await (await send('GET', `/api/shares/${share.id}/comments`, p?.cookie)).json()) as { comments: Array<{ id: string; hidden: boolean }> }).comments;
     expect(await list()).toHaveLength(0);
@@ -182,8 +185,10 @@ describe('F-114 Automatisch ausblenden bis zur Prüfung', () => {
     const owner = await person();
     const boat = await newBoat(owner, 'Gemeldetes Boot');
     const share = await newShare(owner, 'public', 'Normaler Törn');
-    expect((await report(await person(), 'boat', boat.id, 'depicted')).status).toBe(201);
-    expect((await report(await person(), 'profile', owner.handle!, 'depicted')).status).toBe(201);
+    for (let i = 0; i < 3; i++) {
+      expect((await report(await person(), 'boat', boat.id, 'abuse')).status).toBe(201);
+      expect((await report(await person(), 'profile', owner.handle!, 'abuse')).status).toBe(201);
+    }
     expect((await h.fetch(`/api/boats/${boat.id}`)).status).toBe(404);
     expect((await h.fetch(`/api/profiles/${owner.handle}`)).status).toBe(404);
     expect((await send('GET', `/api/boats/${boat.id}`, owner.cookie)).status).toBe(200);
@@ -228,7 +233,7 @@ describe('F-114 Admin: sichten und entscheiden', () => {
     const owner = await person();
     const kept = await newShare(owner, 'public', 'Zu Unrecht gemeldet');
     const hiddenShare = await newShare(owner, 'public', 'Zu Recht gemeldet');
-    for (const s of [kept, hiddenShare]) await report(await person(), 'share', s.id, 'depicted', 'bitte prüfen');
+    for (const s of [kept, hiddenShare]) for (let i = 0; i < 3; i++) await report(await person(), 'share', s.id, 'abuse', 'bitte prüfen');
     expect((await h.fetch(`/api/shares/${kept.id}`)).status).toBe(404);
 
     const gk = await groupFor(kept.id);

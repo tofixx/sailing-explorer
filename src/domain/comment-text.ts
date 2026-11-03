@@ -95,16 +95,33 @@ export function commentProblem(clean: string): CommentProblem | null {
 export const REPORT_KINDS = ['share', 'comment', 'photo', 'profile', 'boat', 'group', 'post', 'harbor'] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
-export const REPORT_REASONS = ['spam', 'abuse', 'illegal', 'depicted', 'other'] as const;
+export const REPORT_REASONS = ['spam', 'abuse', 'illegal', 'depicted', 'minors', 'other'] as const;
 export type ReportReason = (typeof REPORT_REASONS)[number];
 
 export const REPORT_REASON_LABEL: Record<ReportReason, string> = {
   spam: 'Spam oder Werbung',
   abuse: 'Beleidigend oder belästigend',
   illegal: 'Rechtswidriger Inhalt',
-  depicted: 'Ich bin abgebildet bzw. genannt und möchte das nicht',
+  depicted: 'Ich bin abgebildet und möchte das nicht',
+  minors: 'Kinder abgebildet',
   other: 'Sonstiges',
 };
+
+/** Gründe, die nur Bilder betreffen und das Bild sofort ausblenden (F-566). */
+export const IMAGE_REASONS: readonly ReportReason[] = ['depicted', 'minors'];
+export const isImageReason = (r: ReportReason): boolean => IMAGE_REASONS.includes(r);
+
+/** Arten, deren Titelbild sich mit einem Bild-Grund melden lässt (Konzept 36). */
+export const COVER_REPORT_KINDS: readonly ReportKind[] = ['profile', 'boat', 'group'];
+
+/**
+ * Wählbare Gründe für ein Ziel (F-566): Bild-Gründe nur bei Fotos und bei Profil, Boot oder Gruppe mit sichtbarem
+ * Titelbild (`image`).
+ */
+export function reportReasonsFor(kind: ReportKind, image = false): ReportReason[] {
+  const imageOk = kind === 'photo' || (image && COVER_REPORT_KINDS.includes(kind));
+  return REPORT_REASONS.filter((r) => imageOk || !isImageReason(r));
+}
 
 /** Höchstlänge der Anmerkung zu einer Meldung. */
 export const REPORT_NOTE_MAX = 500;

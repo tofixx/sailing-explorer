@@ -28,3 +28,10 @@ export const liveSql = (a: string): string => `(${a}.hidden_at IS NULL AND ${a}.
  * Zählungen. Ohne Konto-Zeile gilt es als nicht gesperrt.
  */
 export const notSuspendedSql = (id: string): string => `NOT EXISTS (SELECT 1 FROM users su WHERE su.id = ${id} AND su.suspended_at IS NOT NULL)`;
+
+/**
+ * Titelbild mit dem Alias `a` ist öffentlich, also nicht zurückgehalten (F-562, F-566): `held_until` leer oder vorbei.
+ * = `coverShown` (src/domain/cover.ts). Gehört in die `JOIN`-Bedingung jeder Liste mit Titelbildern – auch für
+ * Verwalter, damit öffentlich gecachte Listen nie ein zurückgehaltenes Bild enthalten.
+ */
+export const coverShownSql = (a: string): string => `(${a}.held_until IS NULL OR ${a}.held_until <= CAST(strftime('%s', 'now') AS INTEGER) * 1000)`;

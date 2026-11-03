@@ -23,14 +23,21 @@ async function mount(tag: string, props: Record<string, unknown>): Promise<LitEl
   return el;
 }
 
-const text = (el: LitEl) => (el.shadowRoot.textContent ?? '').replace(/\s+/g, ' ');
+/** Schatten-DOM der Komponente samt eingebetteter `sx-invite-box` (F-590) – Einladen steckt dort. */
+const roots = (el: LitEl): ShadowRoot[] => [el.shadowRoot, ...[...el.shadowRoot.querySelectorAll('sx-invite-box')].map((b) => b.shadowRoot!)];
+const deep = <T extends Element>(el: LitEl, sel: string): T | null => roots(el).map((r) => r.querySelector<T>(sel)).find(Boolean) ?? null;
+const text = (el: LitEl) => roots(el).map((r) => r.textContent ?? '').join(' ').replace(/\s+/g, ' ');
 const button = (el: LitEl, label: RegExp) =>
-  [...el.shadowRoot.querySelectorAll('button')].find((b) => label.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`)) as HTMLButtonElement | undefined;
+  roots(el).flatMap((r) => [...r.querySelectorAll('button')]).find((b) => label.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`)) as HTMLButtonElement | undefined;
 
+/** Event-Detail ohne Funktionen (z. B. `done`), damit `toEqual` nur die Daten vergleicht. */
+const withoutFns = (d: unknown) =>
+  d && typeof d === 'object' && !Array.isArray(d) ? Object.fromEntries(Object.entries(d).filter(([, v]) => typeof v !== 'function')) : d;
 let cleanups: Array<() => void> = [];
 function listen(name: string) {
   const got: unknown[] = [];
-  const fn = (e: Event) => got.push((e as CustomEvent).detail);
+  // Rückrufe (`done` beim Einladen, F-590) gehören nicht zum Vergleich
+  const fn = (e: Event) => got.push(withoutFns((e as CustomEvent).detail));
   document.addEventListener(name, fn);
   cleanups.push(() => document.removeEventListener(name, fn));
   return got;
@@ -183,17 +190,17 @@ describe('sx-crew', () => {
         { id: 'I3', email: null, invitee: { handle: 'mats', displayName: 'Mats' }, usesLeft: 1, createdAt: 0, expiresAt: Date.now() + DAY },
       ] }),
     });
-    expect(el.shadowRoot.querySelector('form')).toBeNull(); // erst nach „+ Einladen“ (F-513)
+    expect(deep(el, 'form')).toBeNull(); // erst nach „+ Einladen“ (F-513)
     button(el, /Einladen/)!.click();
     await el.updateComplete;
     expect(text(el)).toContain('Die Crew sehen andere erst, wenn der Törn öffentlich ist.');
     expect(text(el)).toContain('Einladungslink · noch 28×');
     expect(text(el)).toContain('Mats (@mats)'); // per Profilname eingeladen: Name statt Adresse
     button(el, /Einladungslink erzeugen/)!.click();
-    const input = el.shadowRoot.querySelector('form input') as HTMLInputElement;
+    const input = deep<HTMLInputElement>(el, 'form input')!;
     const submit = (v: string) => {
       input.value = v;
-      el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      deep(el, 'form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     };
     submit(' mate2@example.org ');
     submit('@mats');
@@ -208,8 +215,8 @@ describe('sx-crew', () => {
     const copies = listen('sx-invite-copy');
     const link = 'http://localhost/einladung#token=' + 'b'.repeat(43);
     const el = await mount('sx-crew', { isOwner: true, crew: crew({ isOwner: true }), newLink: link });
-    expect((el.shadowRoot.querySelector('input[readonly]') as HTMLInputElement).value).toBe(link);
-    expect(text(el)).toContain('wird nur jetzt angezeigt');
+    expect(deep<HTMLInputElement>(el, 'input[readonly]')!.value).toBe(link);
+    expect(text(el)).toContain('Nur jetzt sichtbar');
     expect(button(el, /Einladungslink erzeugen/)).toBeUndefined();
     button(el, /Kopieren/)!.click();
     expect(copies).toEqual([link]);
@@ -228,7 +235,7 @@ describe('sx-crew', () => {
 
 describe('sx-crew: Rollen und Bestätigung (Konzept 15)', () => {
   const crew = (over: Record<string, unknown> = {}) => ({ members: [], others: 0, isOwner: false, isCrew: false, isSkipper: false, ownerRole: null, ownerConfirmed: null, me: null, invites: [], ...over });
-  const select = (el: LitEl, label: RegExp) => [...el.shadowRoot.querySelectorAll('select')].find((s) => label.test(s.getAttribute('aria-label') ?? '')) as HTMLSelectElement;
+  const select = (el: LitEl, label: RegExp) => roots(el).flatMap((r) => [...r.querySelectorAll('select')]).find((s) => label.test(s.getAttribute('aria-label') ?? '')) as HTMLSelectElement;
   const pick = (s: HTMLSelectElement, v: string) => {
     s.value = v;
     s.dispatchEvent(new Event('change'));
@@ -331,7 +338,7 @@ describe('sx-account-dialog: Admins', () => {
     expect(t).toContain('Mats');
     expect(t).toContain('Munteres Seepferdchen');
     expect(t).toContain('neu@example.org');
-    const form = el.shadowRoot.querySelector(`#admins-B1234567890abcdefg form`) as HTMLFormElement;
+    const form = el.shadowRoot.querySelector('#admins-B1234567890abcdefg sx-invite-box')!.shadowRoot!.querySelector('form') as HTMLFormElement;
     (form.querySelector('input') as HTMLInputElement).value = 'crew@example.org';
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     expect(invites).toEqual([{ boatId: 'B1234567890abcdefg', to: { email: 'crew@example.org' } }]);

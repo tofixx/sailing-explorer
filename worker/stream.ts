@@ -12,7 +12,7 @@ import { roleFor } from './boats';
 import { canView, requestKey } from './access';
 import { BOAT_ID_RE } from './validate';
 import { reachAtLeastSql } from './reach-sql';
-import { liveSql, notSuspendedSql, publicSql } from './visible-sql';
+import { coverShownSql, liveSql, notSuspendedSql, publicSql } from './visible-sql';
 import type { Visibility } from '../src/domain/visibility';
 import type { Reach } from '../src/domain/posts';
 import { attachPolls } from './polls';
@@ -66,9 +66,9 @@ const ROW_COLS_JOINS = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subje
   LEFT JOIN boats pb ON p.channel_kind = 'boat' AND pb.id = p.channel_id
   LEFT JOIN shares ps ON ps.id = json_extract(p.data, '$.shareId')
   LEFT JOIN harbors h ON a.kind = 'harbor' AND h.id = json_extract(a.data, '$.harbor')
-  LEFT JOIN covers cb ON cb.kind = 'b' AND cb.object_id = b.id
-  LEFT JOIN covers cu ON cu.kind = 'u' AND cu.object_id = a.actor_id
-  LEFT JOIN covers cg ON cg.kind = 'g' AND cg.object_id = g.id`;
+  LEFT JOIN covers cb ON cb.kind = 'b' AND cb.object_id = b.id AND ${coverShownSql('cb')}
+  LEFT JOIN covers cu ON cu.kind = 'u' AND cu.object_id = a.actor_id AND ${coverShownSql('cu')}
+  LEFT JOIN covers cg ON cg.kind = 'g' AND cg.object_id = g.id AND ${coverShownSql('cg')}`;
 
 const ROWS_SQL = `WITH a AS (SELECT * FROM activity WHERE id IN (SELECT value FROM json_each(?2))) ${ROW_COLS_JOINS}`;
 

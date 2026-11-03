@@ -21,7 +21,7 @@ import { deleteInviteNotifications } from './notification-cleanup';
 import { prefsOf } from './notification-mail';
 import { isSelfRole, voyageRole, type VoyageRole } from '../src/domain/crew-roles';
 import { skipperOf } from './crew-roles';
-import { publicSql } from './visible-sql';
+import { notSuspendedSql, publicSql } from './visible-sql';
 
 const DAY = 86_400_000;
 
@@ -127,12 +127,21 @@ interface NewInvite {
  * Empfänger aus dem Body: `{ email }` oder `{ handle }` (Profilname, auch mit „@“). Über den Namen nur öffentliche
  * Profile – private, „Nur mit Link“ und ausgeblendete verhalten sich wie unbekannt. Ohne beides: Einladungslink, falls erlaubt.
  */
+/**
+ * Vor jedem Lesen des Ziels (F-593): gesperrte Konten laden nicht ein (Konzept 4.4), und die Rate-Grenze greift, bevor
+ * ein Profilname nachgeschlagen wird – sonst ließen sich Profilnamen ungebremst durchprobieren.
+ */
+async function inviteGuard(env: Env, user: User) {
+  await assertActive(env, user);
+  await rateLimit(env.AUTH_LIMITER, `invite:${user.id}`);
+}
+
 async function readRecipient(env: Env, body: { email?: unknown; handle?: unknown }, linkAllowed: boolean): Promise<Recipient> {
   const empty = (v: unknown) => v === undefined || v === null || v === '';
   if (!empty(body.handle)) {
     const handle = normalizeHandle(typeof body.handle === 'string' ? body.handle.replace(/^@/, '') : body.handle);
     const p = handle
-      ? await env.DB.prepare(`SELECT user_id, display_name, handle FROM profiles WHERE handle = ? AND ${publicSql()}`)
+      ? await env.DB.prepare(`SELECT user_id, display_name, handle FROM profiles WHERE handle = ? AND ${publicSql()} AND ${notSuspendedSql('profiles.user_id')}`)
           .bind(handle)
           .first<{ user_id: string; display_name: string; handle: string }>()
       : null;
@@ -165,8 +174,7 @@ async function checkNotMember(env: Env, to: Recipient, table: 'boat_admins' | 's
 
 /** Legt eine Einladung an (Grenzen pro Konto und Mail-Budget) und verschickt bei gebundenen Einladungen die Mail. */
 async function createInvite(request: Request, env: Env, user: User, o: NewInvite) {
-  await assertActive(env, user); // gesperrte Konten laden nicht ein (Konzept 4.4)
-  await rateLimit(env.AUTH_LIMITER, `invite:${user.id}`);
+  // Sperre und Rate-Grenze prüft `inviteGuard` schon vor `readRecipient` (F-593).
   const now = Date.now();
   if ((await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE inviter_id = ? AND created_at > ?', user.id, now - DAY)) >= INVITE_LIMITS.perUserPerDay) {
     throw new HttpError(429, 'invite_quota', `Du hast heute schon ${INVITE_LIMITS.perUserPerDay} Einladungen verschickt – morgen geht es weiter.`);
@@ -262,6 +270,7 @@ export async function inviteBoatAdmin(request: Request, env: Env, id: string): P
   const role = BOAT_ID_RE.test(id) ? await roleFor(env, user.id, id) : null;
   if (!role) throw BOAT_NOT_FOUND();
   if (role !== 'owner') throw NOT_OWNER();
+  await inviteGuard(env, user);
   const to = await readRecipient(env, await readJson<{ email?: unknown; handle?: unknown }>(request), false);
   if (isSelf(to, user)) throw new HttpError(409, 'own_object', 'Du bist schon Eigner dieses Boots.');
   await checkNotMember(env, to, 'boat_admins', id);
@@ -385,6 +394,7 @@ export async function inviteCrew(request: Request, env: Env, id: string): Promis
   // Einladungen geben Co-Skipper, Crew oder Gast vor – Skipper trägt der Eigentümer erst nach dem Annehmen ein.
   if (body.role !== undefined && body.role !== null && !isSelfRole(body.role)) throw new HttpError(400, 'invalid_role', 'Einladen geht als Co-Skipper:in, Crew oder Gast.');
   const role = isSelfRole(body.role) ? body.role : 'crew';
+  await inviteGuard(env, user);
   const to = await readRecipient(env, body, true);
   const now = Date.now();
   const crew = await count(env, 'SELECT COUNT(*) AS n FROM share_crew WHERE share_id = ?', row.id);
@@ -429,6 +439,7 @@ export async function inviteGroup(request: Request, env: Env, id: string): Promi
   const g = await loadGroup(env, id);
   const role = g ? await roleIn(env, user.id, g.id) : null;
   if (!g || !role || (g.hidden_at && !canManageGroup(role))) throw new HttpError(404, 'not_found', 'Diese Gruppe gibt es nicht oder sie ist geschlossen.');
+  await inviteGuard(env, user);
   const to = await readRecipient(env, await readJson<{ email?: unknown; handle?: unknown }>(request), true);
   if (isSelf(to, user)) throw new HttpError(409, 'own_object', 'Du bist schon Mitglied dieser Gruppe.');
   await checkNotMember(env, to, 'group_members', g.id);
@@ -450,6 +461,7 @@ export async function inviteGroup(request: Request, env: Env, id: string): Promi
  */
 export async function inviteFriend(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
+  await inviteGuard(env, user);
   const to = await readRecipient(env, await readJson<{ email?: unknown; handle?: unknown }>(request), true);
   if (isSelf(to, user)) throw new HttpError(409, 'own_object', 'Dich selbst musst du nicht einladen.');
   const { invite, link } = await createInvite(request, env, user, {
