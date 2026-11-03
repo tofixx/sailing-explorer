@@ -128,9 +128,9 @@ export class SxMapStyle extends LitElement {
 
   render() {
     return html`<div @keydown=${this.onKey} @focusout=${this.onFocusOut}>
-      <button class="btn icon toggle" type="button" aria-label="Ansicht konfigurieren" title="Ansicht konfigurieren"
+      <button class="btn icon toggle" type="button" aria-label="Kartenstil" title="Kartenstil"
         aria-expanded=${this.open} aria-controls="ms" @click=${() => (this.open ? this.close() : (this.open = true))}>
-        ${icon('gear')}
+        ${icon('layers')}
       </button>
       <div class="menu" id="ms" role="group" aria-labelledby="ms-h" ?hidden=${!this.open}>
         <p class="title" id="ms-h">Kartenstil</p>

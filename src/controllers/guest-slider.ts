@@ -1,8 +1,9 @@
 // Gäste-Slider der Startseite (F-431, Konzept 22): zeigt ihn nur Gästen mit Backend, lädt einmal die Saison-Zahlen und
 // öffentliche Vereine und Häfen (in der Nähe, falls ein Ort gemerkt ist), merkt „Ausblenden“ auf dem Gerät und
 // scrollt auf Wunsch zum Stream. „GPX ausprobieren“ und „Kostenlos anmelden“ laufen über die vorhandenen Events
-// `sx-compose-open` und `sx-login`. app.ts erzeugt den Controller nur.
-import { api } from '../services/api';
+// `sx-compose-open` und `sx-login`. app.ts erzeugt den Controller nur und reicht den mit der Community-Leiste geteilten
+// Entdecken-Abruf herein (F-530).
+import { api, type DiscoverData } from '../services/api';
 import type { Store } from '../services/store';
 import { nearCenter, readNearPrefs } from '../services/near-prefs';
 import type { SxGuestSlider } from '../components/sx-guest-slider';
@@ -32,10 +33,13 @@ export class GuestSliderController {
       samples: Sample[];
       /** Anmeldestatus bekannt – sonst blitzt der Slider bei Angemeldeten kurz auf */
       ready: () => Promise<void>;
+      /** Entdecken-Auszug ohne Ort – derselbe Abruf wie die Community-Leiste (F-530) */
+      discover: () => Promise<DiscoverData>;
     },
   ) {
     store.subscribe((s, prev) => {
-      if (s.user !== prev?.user || s.backend !== prev?.backend) void this.sync();
+      // `home`: Weg zurück zur Startseite – nach einem Fehler lädt der Slider dann neu (F-530)
+      if (s.user !== prev?.user || s.backend !== prev?.backend || s.home !== prev?.home) void this.sync();
     });
     // Daten erst, wenn der Stream der Startseite steht – auf anderen Seiten (z. B. /entdecken) nichts laden
     new MutationObserver(() => void this.sync()).observe(ui.feed, { attributes: true, attributeFilter: ['hidden'] });
@@ -59,9 +63,11 @@ export class GuestSliderController {
     const near = nearCenter(null);
     const [stats, discover] = await Promise.all([
       api.discoverStats().catch(() => null),
-      api.discover(6, '', near ? { center: near.center, r: readNearPrefs().radius } : null).catch(() => null),
+      (near ? api.discover(6, '', { center: near.center, r: readNearPrefs().radius }) : this.ui.discover()).catch(() => null),
     ]);
     Object.assign(this.ui.slider, { stats, groups: discover?.groups ?? [], harbors: discover?.harbors ?? [] });
+    // Fehler beim (geteilten) Entdecken-Abruf: beim nächsten Weg zur Startseite neu versuchen (F-530)
+    if (!discover) this.loaded = false;
   }
 
   /** × – auf diesem Gerät nicht mehr zeigen; der Stream bleibt. */

@@ -4,7 +4,7 @@ import { GROUP_KIND_LABEL, streamHeadline, isAutomaticKind } from '../domain/gro
 import { dayCardText, withoutAuto } from '../domain/large-groups';
 import type { ShownDay } from '../services/day-cards';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
-import { icon, type IconName } from './icons';
+import { ENTITY_ICON, icon, type IconName } from './icons';
 import { POST_KIND_ICON, base, coverBanner, coverBannerStyles, emit, highlightStyles, linkedText, logbookTag, revealCard } from './shared';
 import './sx-reactions';
 import './sx-poll';
@@ -336,7 +336,7 @@ export class SxStream extends LitElement {
             <span class="what">${i.kind === 'voyage' ? (v.logbook ? 'hat einen Törn ins Fahrtenbuch eingetragen:' : 'hat einen Törn geteilt:') : `${i.photos!.count === 1 ? '1 neues Foto' : `${i.photos!.count} neue Fotos`} zu`}
               <a href="/s/${v.id}">${v.title}</a></span>
           </div>
-          <div class="ctx">${facts.join(' · ')}${v.boat ? html` · ${icon('sail')} <a href="/b/${v.boat.id}">${v.boat.name}</a>` : ''}${v.logbook ? html` ${logbookTag()}` : ''}</div>
+          <div class="ctx">${facts.join(' · ')}${v.boat ? html` · ${icon(ENTITY_ICON.boat)} <a href="/b/${v.boat.id}">${v.boat.name}</a>` : ''}${v.logbook ? html` ${logbookTag()}` : ''}</div>
           ${i.kind === 'photos'
             ? html`<div class="thumbs" data-scroll-x>${i.photos!.thumbs.map((id) => html`<a href="/s/${v.id}?foto=${id}"><img src=${photoImageUrl(id, 't')} alt="" loading="lazy" decoding="async" /></a>`)}</div>`
             : v.hasImage
@@ -407,7 +407,7 @@ export class SxStream extends LitElement {
       ${p.body ? html`<p class="body">${linkedText(p.body)}</p>` : ''}
       ${this.kindPayload(p)}
       ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}
-      ${p.voyage ? html`<span class="attach">${icon('map')} Törn: <a href="/s/${p.voyage.id}">${p.voyage.title}</a> · ${fmtNum(p.voyage.distNm, 1)} sm</span>` : ''}`;
+      ${p.voyage ? html`<span class="attach">${icon(ENTITY_ICON.voyage)} Törn: <a href="/s/${p.voyage.id}">${p.voyage.title}</a> · ${fmtNum(p.voyage.distNm, 1)} sm</span>` : ''}`;
   }
 
   /**
@@ -465,7 +465,7 @@ export class SxStream extends LitElement {
     const shown = this.visible(d.open ? d.open.items : d.top);
     const next = d.open ? d.open.cursor : null;
     return html`<li class="day" aria-label=${dayCardText(d)}>
-      <span class="ic" aria-hidden="true">${icon('book')}</span>
+      <span class="ic" aria-hidden="true">${icon(ENTITY_ICON.logbook)}</span>
       <div>
         <div class="head"><strong class="what">${dayCardText(d)}</strong></div>
         ${shown.length ? html`<ol>${shown.map((i) => this.item(i))}</ol>` : ''}

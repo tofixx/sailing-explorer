@@ -1839,7 +1839,7 @@ Zahl eine Einheit behält; eigene Farben je Nutzer; Verläufe je Hell/Dunkel (di
 den Kontrast auf beiden Grundkarten). Die Verlaufsfarben sind Daten des Sets (wie bisher `RAMP`), keine Tokens.
 Diagramme und die Bedeutungsfarben (`--c-speed` usw.) ändern sich nicht.
 
-**Bedienung (Entscheidung des Betreibers):** ein Zahnrad („Ansicht konfigurieren“) unten rechts über der Karte (nur in
+**Bedienung (Entscheidung des Betreibers):** ein Knopf mit Ebenen-Symbol („Kartenstil“; bis F-531 ein Zahnrad, das nach UX N6 nur noch dem Seiten-Menü gehört) unten rechts über der Karte (nur in
 der Törn-Ansicht, nicht in Einbettungen) öffnet ein kleines Menü mit den Stilen (Name, Farbverlauf, Haken am geltenden).
 Ein Klick wendet den Stil sofort an – kein „Übernehmen“, kein „Nur jetzt“. Angemeldet stehen darunter „… als Standard
 setzen“ (für den geltenden Stil) und „Standard entfernen“. Mobil kommt das Menü als Sheet vom unteren Rand.
@@ -2574,7 +2574,7 @@ Diese Entscheidungen gehen allen Vorschlägen unten vor; die Abschnitte sind ang
 | B9 | **Umfragen** Standard anonym, „namentlich“ wählbar, vorher angekündigt, nicht umstellbar | 21.5 |
 | B10 | **Fahrtenbuch-Zusatzangaben:** Binnen/Küste umschaltbar (passende Felder), Motor-/Segelzeit auch bei GPX nur Vorschlag und änderbar, zusätzliche Posten (Brücken, Mast legen, Training …); alles Vorschläge, änderbar | 21.6 |
 | B11 | **Wertung:** Plattform-Admins schlagen Vorlagen vor; Vereine übernehmen, erweitern oder nutzen nur eigene; Mitglieder wählen **je Eintrag eine Vorlage (Pflicht)**; Vereine listen Punktesummen ihrer Mitglieder (Gewichtung einstellbar); Mitglieder erstellen ihren **Jahresbericht** (Excel/CSV, druckbar) zur Abgabe im Verein; dafür ein **Verwaltungsbereich im Konto** | 21.6 |
-| B13 | **„Ansehen als …“** auf der eigenen Seite hinter einem Zahnrad (wie der Kartenstil): Vorschau „Öffentlich“, „jemand aus meinem Hafen“, „Mitglied von …“ (eigene Gruppen) – der Server rechnet mit einem simulierten Betrachter, nie mehr als ein echter dürfte; deutlich als Vorschau markiert, „Vorschau beenden“ | 21.11, F-423 |
+| B13 | **„Ansehen als …“** auf der eigenen Seite im Zahnrad des Seiten-Menüs (UX N6; der Kartenstil trägt seit F-531 das Ebenen-Symbol): Vorschau „Öffentlich“, „jemand aus meinem Hafen“, „Mitglied von …“ (eigene Gruppen) – der Server rechnet mit einem simulierten Betrachter, nie mehr als ein echter dürfte; deutlich als Vorschau markiert, „Vorschau beenden“ | 21.11, F-423 |
 | B14 | **„Ins Fahrtenbuch“** je Beitrag mit Strecke, Standard an, je Eintrag abschaltbar; dreistufig `shares.log_state`: `confirmed` (eigener Fahrtenbuch-Eintrag), `suggested` (GPX, zählt mit, solange kein Filter „nur bestätigte“), `excluded` (zählt nie, bleibt Beitrag). Bestand: manuell bestätigt, GPX Vorschlag. Phase 1: Schalter am Eintrag + „Bestätigen“; Filter im Fahrtenbuch erst Phase 8 | 21.6, 21.11, F-422 |
 | B12 | **Eigene Seite** zeigt einem selbst immer alles (Törns, Beiträge, Fahrtenbuch, auch Privates); „wer sieht es“ (Sichtbarkeit) und „wo steht es“ (Verlauf) werden klar getrennt; Privates steht in einem privaten Bereich und ist gekennzeichnet | 21.2 |
 

@@ -10,7 +10,7 @@ import type { SeasonImageState } from './sx-season-review';
 import './sx-season-badges';
 import './sx-season-review';
 import { fmtDate, fmtNum } from '../domain/format';
-import { icon } from './icons';
+import { ENTITY_ICON, icon } from './icons';
 import { base, emit, logbookTag } from './shared';
 
 /**
@@ -370,7 +370,7 @@ export class SxLogbookPage extends LitElement {
         ${e.title && (e.from || e.to) ? html`<span>${this.route(e)}</span>` : ''}
         <span>${fmtNum(e.distNm, 1)} sm (${DIST_SOURCE_LABEL[e.distSource]})</span>
         ${e.role ? html`<span>${roleText(e)}</span>` : ''}
-        ${e.boat ? html`<span>${icon('sail')} ${e.boat}</span>` : ''}
+        ${e.boat ? html`<span>${icon(ENTITY_ICON.boat)} ${e.boat}</span>` : ''}
         ${extras.length ? html`<span>${extras.join(' · ')}</span>` : ''}
         ${e.logState === 'excluded' || !this.scored ? '' : html`<span class="points">${fmtNum(scoreEntry(e, t.rules), 1)} Punkte · ${templateLabel(t)}</span>`}
       </div>

@@ -95,7 +95,7 @@ import type { SxEventDialog } from './components/sx-event-dialog';
 import type { SxEvent } from './components/sx-event';
 import { EventsController } from './controllers/events';
 import type { EventView, LogbookPreset, RsvpStatus } from './domain/events';
-import type { EventFields } from './services/api';
+import type { DiscoverData, EventFields } from './services/api';
 import type { ComposeKind } from './components/sx-compose';
 import type { ChannelPostInput, CreatedPost } from './services/api';
 import type { MyPostArea, PostKind, PostVisibility, ProfilePreview, Reach } from './domain/posts';
@@ -202,6 +202,10 @@ export class App {
   private notifications: NotificationsController;
   /** Startseite als Einstieg (nicht Profil-, Boots-, Gruppen- oder Entdecken-Seite) – nur dort lädt die Startseite Neuigkeiten */
   private homeRoute = false;
+  /** Ein Abruf `/api/discover?limit=6` für Community-Leiste und Gäste-Slider (F-530) */
+  private homeDiscover: Promise<DiscoverData> | null = null;
+  /** der letzte Abruf ist fehlgeschlagen – die Leiste versucht es beim nächsten Weg zur Startseite neu */
+  private homeDiscoverFailed = false;
   private timelinePts: TimedPoint[] = [];
 
   constructor() {
@@ -340,7 +344,7 @@ export class App {
       toast: (msg, ms) => this.toast(msg, ms),
       refreshOwn: () => this.posts.load(),
     });
-    new GuestSliderController(this.store, { slider: $<SxGuestSlider>('sx-guest-slider'), feed: this.ui.homeFeed, samples: SAMPLES, ready: () => this.session.backendReady });
+    new GuestSliderController(this.store, { slider: $<SxGuestSlider>('sx-guest-slider'), feed: this.ui.homeFeed, samples: SAMPLES, ready: () => this.session.backendReady, discover: () => this.loadHomeDiscover() });
     this.ui.empty.samples = SAMPLES;
     if (new URLSearchParams(location.search).has('embed')) this.ui.app.setAttribute('data-embed', '');
     this.store.subscribe((s, prev) => this.render(s, prev));
@@ -1132,13 +1136,29 @@ export class App {
   private async loadDiscoverStrip() {
     const strip = this.ui.discoverStrip;
     try {
-      const data = await api.discover(6);
+      const data = await this.loadHomeDiscover(true);
       strip.data = data;
       this.groups.setPublicGroups(data.groups);
       strip.hidden = false;
     } catch {
       strip.hidden = true;
     }
+  }
+
+  /**
+   * Entdecken-Auszug der Startseite (F-530): geteilt von Leiste und Gäste-Slider, solange die Seite lebt. Ein Fehler
+   * bleibt stehen (beide sehen denselben), bis die Leiste mit `retry` neu lädt – den neuen Abruf teilt der Slider wieder.
+   */
+  private loadHomeDiscover(retry = false): Promise<DiscoverData> {
+    if (retry && this.homeDiscoverFailed) this.homeDiscover = null;
+    if (!this.homeDiscover) {
+      this.homeDiscoverFailed = false;
+      this.homeDiscover = api.discover(6).catch((err: unknown) => {
+        this.homeDiscoverFailed = true;
+        throw err;
+      });
+    }
+    return this.homeDiscover;
   }
 
   /**

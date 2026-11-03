@@ -1,7 +1,7 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
 import type { HarborRef, HarborSearchHit } from '../services/api';
 import { HARBOR_LIMITS, harborKey } from '../domain/harbors';
-import { icon } from './icons';
+import { ENTITY_ICON, icon } from './icons';
 import './sx-verified-badge';
 import { base, emit } from './shared';
 import './sx-place-picker';
@@ -192,7 +192,7 @@ export class SxHarborPicker extends LitElement {
         ? html`<ul id=${listId} role="listbox" aria-label="Vorhandene Häfen">
             ${this.results.map(
               (h, i) => html`<li id="${listId}-${i}" role="option" aria-selected=${i === this.active ? 'true' : 'false'} @mousedown=${(e: Event) => e.preventDefault()} @click=${() => this.pick(h)}>
-                ${icon('anchor')}<span>${h.name}${h.verified ? html` <sx-verified-badge kind="harbor" compact></sx-verified-badge>` : ''}</span><span class="n">${h.boats === 1 ? '1 Boot' : `${h.boats} Boote`}</span>
+                ${icon(ENTITY_ICON.harbor)}<span>${h.name}${h.verified ? html` <sx-verified-badge kind="harbor" compact></sx-verified-badge>` : ''}</span><span class="n">${h.boats === 1 ? '1 Boot' : `${h.boats} Boote`}</span>
               </li>`,
             )}
           </ul>`

@@ -1,5 +1,5 @@
 import { css, html } from 'lit';
-import { icon, type IconName } from './icons';
+import { ENTITY_ICON, icon, type IconName } from './icons';
 import type { CoverRef } from '../domain/cover';
 import { linkify } from '../domain/comment-text';
 import { POST_KIND_LABEL, hasKindCard, type PostKind, type PostVisibility } from '../domain/posts';
@@ -429,7 +429,7 @@ export const highlightStyles = css`
 
 /** Symbol je Beitrags-Sichtbarkeit („Wer sieht es“, Konzept 21). */
 /** Symbol je Beitragsart (Stream-Karte, „Mein Verlauf“) – neue Arten: eine Zeile. */
-export const POST_KIND_ICON: Partial<Record<PostKind, IconName>> = { voyage: 'map', logbook: 'book', text: 'comment', poll: 'poll', gallery: 'camera', event: 'calendar' };
+export const POST_KIND_ICON: Partial<Record<PostKind, IconName>> = { voyage: ENTITY_ICON.voyage, logbook: ENTITY_ICON.logbook, text: ENTITY_ICON.post, poll: 'poll', gallery: 'camera', event: 'calendar' };
 
 /**
  * Link „Umfrage öffnen“ (bzw. zur Karte einer anderen Art mit eigener Nutzlast) aus Profil und „Mein Verlauf“, die
@@ -441,8 +441,9 @@ export const kindCardLink = (kind: PostKind | undefined, path: string, cls = 'li
 export const POST_VISIBILITY_ICON: Record<PostVisibility, IconName> = { public: 'globe', members: 'community', unlisted: 'link', private: 'lock' };
 
 /**
- * Aufklapp-Menü am Zahnrad (Kartenstil, „Ansehen als …“): Tafel, Überschrift, Einträge mit `aria-pressed`. Die Lage
- * der Tafel (über bzw. unter dem Knopf) setzt jede Komponente selbst; mobil kommt sie als Sheet vom unteren Rand.
+ * Aufklapp-Menü an einem Knopf (Kartenstil mit Ebenen-Symbol, „Ansehen als …“ im Zahnrad des Seiten-Menüs): Tafel,
+ * Überschrift, Einträge mit `aria-pressed`. Die Lage der Tafel (über bzw. unter dem Knopf) setzt jede Komponente selbst;
+ * mobil kommt sie als Sheet vom unteren Rand.
  */
 export const menuStyles = css`
   .menu {

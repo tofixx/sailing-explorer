@@ -1550,6 +1550,40 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     await vi.waitFor(() => expect(slider().hidden).toBe(false));
   });
 
+  describe('F-530 ein Entdecken-Abruf für Leiste und Slider', () => {
+    const discoverCalls = () => server.calls.filter((c) => c.url.startsWith('/api/discover?')).map((c) => c.url);
+    const strip = () => el<{ hidden: boolean }>('sx-discover[slot="discover"]');
+    beforeEach(() => localStorage.removeItem('sx-guest-slider-dismissed'));
+    afterEach(() => localStorage.removeItem('sx-guest-slider-dismissed'));
+
+    it('[F-530] Gast ohne gemerkten Ort: Community-Leiste und Slider teilen einen Abruf von /api/discover?limit=6', async () => {
+      server.groups = {};
+      server.discover = { voyages: [], boats: [], people: [], groups: [{ slug: 'pyc', name: 'PYC', kind: 'club', members: 3 }], harbors: [] };
+      await startApp();
+      await vi.waitFor(() => expect(slider().groups).toEqual(server.discover!.groups));
+      await vi.waitFor(() => expect(strip().hidden).toBe(false));
+      expect(discoverCalls()).toEqual(['/api/discover?limit=6']);
+    });
+
+    it('[F-530] nach einem Fehler versuchen Leiste und Slider es beim nächsten Weg zur Startseite erneut', async () => {
+      server.groups = {};
+      server.discover = null;
+      await startApp();
+      await vi.waitFor(() => expect(discoverCalls()).toHaveLength(1));
+      await vi.waitFor(() => expect(strip().hidden).toBe(true));
+      await vi.waitFor(() => expect(slider().groups).toEqual([]));
+      server.discover = { voyages: [], boats: [], people: [], groups: [{ slug: 'pyc', name: 'PYC', kind: 'club', members: 3 }], harbors: [] };
+      // Weg zurück zur Startseite: erst ein Törn (Stream verdeckt), dann wieder die Startseite
+      await load(file('a.gpx', leg('A')));
+      expect(state().home).toBe(false);
+      emit('sx-home');
+      await vi.waitFor(() => expect(strip().hidden).toBe(false));
+      await vi.waitFor(() => expect(slider().groups).toEqual(server.discover!.groups));
+      // Leiste und Slider teilen auch den zweiten Versuch
+      expect(discoverCalls()).toEqual(['/api/discover?limit=6', '/api/discover?limit=6']);
+    });
+  });
+
   it('[F-260] Startseite angemeldet: Stream zuerst', async () => {
     server.user = { id: 'U1', email: 'a@example.org' };
     server.groups = { myStream: { items: [post], cursor: null, hasGroups: true }, mine: { groups: [], requests: [] } };
