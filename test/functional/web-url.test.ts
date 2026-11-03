@@ -34,7 +34,11 @@ describe('F-540 … F-543 Web-URL', () => {
   it('[F-540] Prüfung wie der Link eines Beitrags: nur http(s) mit Host, höchstens 500 Zeichen; Anzeige ohne www.', () => {
     expect(parseWebUrl('https://www.svp-potsdam.de/verein')).toBe('https://www.svp-potsdam.de/verein');
     expect(parseWebUrl('')).toBe('');
-    for (const bad of ['javascript:alert(1)', 'ftp://x.de', 'mailto:a@b.de', 'https://localhost', 'svp.de', `https://x.de/${'a'.repeat(500)}`, 42]) expect(parseWebUrl(bad), String(bad)).toBeNull();
+    for (const bad of ['javascript:alert(1)', 'ftp://x.de', 'mailto:a@b.de', 'https://localhost', 'svp.de', `https://x.de/${'a'.repeat(500)}`, 42, 'https://user:geheim@svp.de/', 'https://user@svp.de/']) {
+      expect(parseWebUrl(bad), String(bad)).toBeNull();
+    }
+    // Länge auch nach dem Normalisieren (Umlaute werden kodiert)
+    expect(parseWebUrl(`https://x.de/${'ä'.repeat(200)}`)).toBeNull();
     expect(webUrlLabel('https://www.svp-potsdam.de/verein')).toBe('svp-potsdam.de');
     expect(webUrlLabel('javascript:alert(1)')).toBe('');
   });
@@ -89,11 +93,24 @@ describe('F-540 … F-543 Web-URL', () => {
     expect((await harborPage(hb.slug)).harbor.webUrl).toBeNull();
     expect(await one(`SELECT 1 AS x FROM admin_log WHERE action = 'harbor_edit' AND target_id = ? AND detail LIKE 'Webseite%'`, hb.id)).not.toBeNull();
 
-    // Altbestand ohne Anleger:in und Position: Position setzen geht (F-307), die Webseite dabei nicht
+    // Altbestand ohne Anleger:in und Position: nur die Webseite geht nicht; wer die Position setzt, wird Anleger:in
+    // (F-307) und darf sie im selben Schritt setzen
     const db = await h.db();
     await db.prepare('UPDATE harbors SET created_by = NULL, lat = NULL, lon = NULL WHERE id = ?').bind(hb.id).run();
-    expect((await s.send('PATCH', `/api/harbors/${hb.id}`, other.cookie, { lat: 52.4, lon: 13.05, webUrl: 'https://spam.example.org' })).status).toBe(403);
-    expect(await one('SELECT web_url, created_by FROM harbors WHERE id = ?', hb.id)).toEqual({ web_url: null, created_by: null });
+    expect((await s.send('PATCH', `/api/harbors/${hb.id}`, other.cookie, { webUrl: 'https://spam.example.org' })).status).toBe(403);
+    expect((await s.send('PATCH', `/api/harbors/${hb.id}`, other.cookie, { lat: 52.4, lon: 13.05, webUrl: 'https://neu.example.org' })).status).toBe(200);
+    expect(await one('SELECT web_url, created_by FROM harbors WHERE id = ?', hb.id)).toEqual({ web_url: 'https://neu.example.org/', created_by: other.user.id });
+  });
+
+  it('[F-541] verifizierter Hafen: die Vertretung setzt die Webseite, die frühere Anleger:in nicht mehr', async () => {
+    const before = await s.person({ profile: 'public' });
+    const rep = await s.person({ profile: 'public' });
+    const hb = await newHarbor(before);
+    // Angenommener Antrag (Konzept 20): Vertretung wird Anleger:in, der Hafen verifiziert
+    await (await h.db()).prepare('UPDATE harbors SET created_by = ?, verified_at = ? WHERE id = ?').bind(rep.user.id, Date.now(), hb.id).run();
+    expect((await s.send('PATCH', `/api/harbors/${hb.id}`, rep.cookie, { webUrl: 'https://vertretung.example.org' })).status).toBe(200);
+    expect((await s.send('PATCH', `/api/harbors/${hb.id}`, before.cookie, { webUrl: 'https://alt.example.org' })).status).toBe(403);
+    expect((await harborPage(hb.slug)).harbor.webUrl).toBe('https://vertretung.example.org/');
   });
 
   it('[F-542] Häfen zusammenführen: Ziel ohne Webseite übernimmt die der Dublette, eigene bleibt; Löschen nimmt sie mit', async () => {
@@ -127,6 +144,10 @@ describe('F-540 … F-543 Web-URL', () => {
     expect(await one('SELECT web_url FROM groups WHERE id = ?', g.id)).toEqual({ web_url: null });
     expect(await one('SELECT web_url FROM harbors WHERE id = ?', hb.id)).toEqual({ web_url: 'https://richtig.example.org/' });
     for (const id of [g.id, hb.id]) expect(await one(`SELECT 1 AS x FROM admin_log WHERE action = 'rename' AND target_id = ? AND detail LIKE 'Webseite%'`, id)).not.toBeNull();
+    // Nur die Webseite geändert: kein Umbenennen-Eintrag für den unveränderten Namen
+    const harborName = (await one<{ name: string }>('SELECT name FROM harbors WHERE id = ?', hb.id))!.name;
+    expect((await s.send('PATCH', `/api/admin/harbors/${hb.id}`, admin.cookie, { name: harborName, webUrl: '' })).status).toBe(200);
+    for (const id of [g.id, hb.id]) expect(await one(`SELECT COUNT(*) AS n FROM admin_log WHERE action = 'rename' AND target_id = ? AND detail NOT LIKE 'Webseite%'`, id)).toEqual({ n: 0 });
     // Nur Admins
     expect((await s.send('PATCH', `/api/admin/groups/${g.id}`, p.cookie, { webUrl: '' })).status).toBe(404);
   });
@@ -146,6 +167,13 @@ describe('F-544 Sitemap öffentlicher Seiten', () => {
     const empty = await newHarbor(pub);
     const boat = await s.boat(pub, { harborId: hb.id });
     const privBoat = await s.boat(priv, { visibility: 'public' });
+    // Gesperrte Gruppe, gesperrtes und ausgeblendetes Boot (Konzept 18.2, 4.4)
+    const lockedGroup = await s.group(pub, { kind: 'team' });
+    const lockedBoat = await s.boat(pub);
+    const hiddenBoat = await s.boat(pub);
+    await db.prepare('UPDATE groups SET locked_at = ? WHERE id = ?').bind(Date.now(), lockedGroup.id).run();
+    await db.prepare('UPDATE boats SET locked_at = ? WHERE id = ?').bind(Date.now(), lockedBoat.id).run();
+    await db.prepare('UPDATE boats SET hidden_at = ? WHERE id = ?').bind(Date.now(), hiddenBoat.id).run();
     const listed = await s.share(pub, { boatId: boat.id });
     const narrow = await s.share(pub);
     await db.prepare(`UPDATE posts SET reach = 'harbor' WHERE id = ?`).bind(narrow.id).run();
@@ -170,10 +198,15 @@ describe('F-544 Sitemap öffentlicher Seiten', () => {
     expect(xml).toMatch(/^<\?xml version="1.0" encoding="UTF-8"\?>\n<urlset xmlns="http:\/\/www.sitemaps.org\/schemas\/sitemap\/0.9">/);
     const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => new URL(m[1]).pathname);
     for (const p of ['/', '/entdecken', `/g/${club.slug}`, `/h/${hb.slug}`, `/b/${boat.id}`, `/s/${listed.id}`, `/u/${handle.toLowerCase()}`]) expect(locs, p).toContain(p);
-    for (const p of [`/g/${closed.slug}`, `/g/${linkOnly.slug}`, `/g/${hidden.slug}`, `/h/${empty.slug}`, `/b/${privBoat.id}`, `/s/${narrow.id}`, `/s/${unlisted.id}`, `/u/${privHandle.toLowerCase()}`, `/u/${banned.handle!.toLowerCase()}`, `/g/${bannedClub.slug}`, `/b/${bannedBoat.id}`, `/s/${bannedShare.id}`]) {
+    for (const p of [`/g/${closed.slug}`, `/g/${linkOnly.slug}`, `/g/${hidden.slug}`, `/h/${empty.slug}`, `/b/${privBoat.id}`, `/s/${narrow.id}`, `/s/${unlisted.id}`, `/u/${privHandle.toLowerCase()}`, `/u/${banned.handle!.toLowerCase()}`, `/g/${bannedClub.slug}`, `/b/${bannedBoat.id}`, `/s/${bannedShare.id}`, `/g/${lockedGroup.slug}`, `/b/${lockedBoat.id}`, `/b/${hiddenBoat.id}`]) {
       expect(locs, p).not.toContain(p);
     }
     expect(xml).not.toMatch(/\/[a-zA-Z0-9]+\?k=|share_key/);
+    // Törnseiten sind genau dann indexierbar, wenn sie in der Sitemap stehen (LISTED)
+    const noindex = async (path: string) => (await (await h.fetch(path)).text()).includes('<meta name="robots" content="noindex">');
+    expect(await noindex(`/s/${listed.id}`)).toBe(false);
+    expect(await noindex(`/s/${narrow.id}`)).toBe(true);
+    expect(await noindex(`/s/${bannedShare.id}`)).toBe(true);
   });
 });
 
@@ -194,6 +227,10 @@ describe('F-545 robots.txt und noindex', () => {
       expect(robots.headers.get('X-Robots-Tag')).toBe('noindex');
       expect((await preview.fetch('/sitemap.xml')).status).toBe(404);
       for (const path of ['/', '/entdecken', '/impressum']) expect((await preview.fetch(path)).headers.get('X-Robots-Tag'), path).toBe('noindex');
+      // F-546: keine kanonische Adresse auf Vorschauen (sie zeigte sonst auf den Vorschau-Host)
+      const page = await (await preview.fetch('/entdecken')).text();
+      expect(page).not.toContain('rel="canonical"');
+      expect(page).not.toContain('og:url');
     } finally {
       await preview.dispose();
     }

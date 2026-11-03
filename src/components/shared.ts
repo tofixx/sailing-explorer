@@ -393,6 +393,26 @@ export function linkedText(t: string) {
   return linkify(t).map((p) => (p.href ? html`<a href=${p.href} rel="nofollow ugc noopener noreferrer" target="_blank">${p.text}</a>` : p.text));
 }
 
+/** Stile zu `webLink` im Seitenkopf (`.facts`) – Gruppen- und Hafenseite. */
+export const webLinkStyles = css`
+  .facts .web {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .facts .web svg {
+    flex: none;
+    width: 14px;
+    height: 14px;
+  }
+  /* Tippziel ≥ 44 px (CLAUDE.md Selbstprüfung 5) – ohne negativen Rand, damit es die Zeile darüber nicht überdeckt */
+  .facts .web a {
+    padding-block: 13px;
+  }
+`;
+
 /**
  * Webseite eines Vereins, Teams oder Hafens (F-540, F-541) als Angabe im Seitenkopf (`.facts`): neuer Tab,
  * rel="noopener nofollow ugc" (von Nutzern gepflegt, kein Empfehlungs-Link). Ungültiges zeigt nichts (fail closed).
@@ -400,7 +420,7 @@ export function linkedText(t: string) {
 export function webLink(url: string | null | undefined) {
   const href = parseWebUrl(url);
   if (!href) return '';
-  return html`<span class="vis web">${icon('globe')}<a href=${href} target="_blank" rel="noopener nofollow ugc" title=${href}>${webUrlLabel(href)}</a></span>`;
+  return html`<span class="web">${icon('globe')}<a href=${href} target="_blank" rel="noopener nofollow ugc" title=${href}>${webUrlLabel(href)}</a></span>`;
 }
 
 /**

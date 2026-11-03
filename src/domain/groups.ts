@@ -362,13 +362,17 @@ export const POST_MAX = 2000;
 export const POST_MAX_LINKS = 5;
 export const POST_LINK_MAX = 500;
 
-/** Optionaler Link eines Beitrags: http(s) mit Host, höchstens 500 Zeichen; leer = keiner; ungültig = null. */
+/**
+ * Optionaler Link eines Beitrags: http(s) mit Host, ohne Zugangsdaten (`user:pass@`), höchstens 500 Zeichen – vor und
+ * nach dem Normalisieren; leer = keiner; ungültig = null.
+ */
 export function parsePostLink(input: unknown): string | '' | null {
   if (input === undefined || input === null || input === '') return '';
   if (typeof input !== 'string' || input.length > POST_LINK_MAX) return null;
   try {
     const u = new URL(input.trim());
     if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !u.hostname.includes('.')) return null;
+    if (u.username || u.password || u.href.length > POST_LINK_MAX) return null;
     return u.href;
   } catch {
     return null;

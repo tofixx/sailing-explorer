@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { canonicalRedirect } from './canonical';
+import { canonicalRedirect, indexableHost } from './canonical';
 import { deleteAccount, logout, me, peekLink, requestLink, verifyCode, verifyLink } from './auth';
 import { HttpError, errorResponse, json } from './http';
 import { listShareGroupChoices } from './share-groups';
@@ -8,7 +8,7 @@ import { getMyLogbook, getMyLogbookCsv } from './logbook-list';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
-import { getDiscover, getDiscoverStats } from './discover';
+import { LISTED, getDiscover, getDiscoverStats } from './discover';
 import { confirmCrew, setCrewRole, setOwnerRole, unconfirmCrew } from './crew-roles';
 import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteCrew, inviteFriend, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
 import { withPageHeaders } from './security';
@@ -43,7 +43,7 @@ import { getUnread, listNotifications, markRead } from './notifications';
 import { liveSocket } from './live';
 import { deletePush, getPushKey, putPush } from './push';
 // ---- Auffindbarkeit (F-544 … F-546) ----
-import { indexableHost, robotsTxt, sitemap } from './sitemap';
+import { robotsTxt, sitemap } from './sitemap';
 
 /** Durable Object für Live-Benachrichtigungen (wrangler.jsonc: durable_objects). */
 export { NotificationHub } from './live';
@@ -200,10 +200,12 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
     if (!row || !canViewShare(row, false, viewer.key)) return fallback;
     // Das Bild eines „Nur mit Link“-Törns braucht den Schlüssel als ?k= (Bilder können keine Header setzen).
     const k = row.visibility === 'unlisted' && row.share_key && key ? `?k=${key}` : '';
+    // Indexierbar wie in Entdecken und der Sitemap (F-544): öffentlich, „Sichtbar bis: überall“, Konto nicht gesperrt
+    const listed = index(row.visibility) && !!(await env.DB.prepare(`SELECT 1 AS x FROM shares s WHERE s.id = ? AND ${LISTED}`).bind(row.id).first());
     return {
       title: `${row.title} · ${env.APP_NAME}`,
       description: row.summary || 'Segeltörn mit Wind- und Wellendaten',
-      index: index(row.visibility),
+      index: listed,
       image: row.has_image ? `${origin}/api/shares/${row.id}/image${k}` : undefined,
     };
   }
@@ -253,7 +255,8 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
 /** /s/:id(/:key), /p/:id(/:key), /u/:handle(/:key), /b/:id(/:key), /g/:slug(/:key), /entdecken – liefert die App mit passenden Vorschau-Metadaten. */
 async function metaPage(request: Request, env: Env, kind: string, id: string, key: string | null | undefined): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL('/', request.url), { headers: request.headers }));
-  const origin = new URL(request.url).origin;
+  const url = new URL(request.url);
+  const origin = url.origin;
   const meta: PageMeta = await pageMeta(env, kind, id, origin, key).catch(() => ({ title: env.APP_NAME, description: DEFAULT_DESCRIPTION, index: false }));
   const rewritten = new HTMLRewriter()
     .on('title', { element: (el) => void el.setInnerContent(meta.title) })
@@ -263,7 +266,7 @@ async function metaPage(request: Request, env: Env, kind: string, id: string, ke
       element: (el) => {
         if (!meta.index) el.append('<meta name="robots" content="noindex">', { html: true });
         // Kanonische Adresse (F-546): nur indexierbare Seiten, ohne Schlüssel und Query – Pfad aus validierten Teilen
-        if (meta.index) {
+        if (meta.index && indexableHost(url, env)) {
           const href = `${origin}${kind === 'entdecken' ? '/entdecken' : `/${kind}/${id}`}`;
           el.append(`<link rel="canonical" href="${href}"><meta property="og:url" content="${href}">`, { html: true });
         }

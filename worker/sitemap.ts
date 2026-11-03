@@ -4,21 +4,14 @@
 // ab (kein Cookie, keine Rolle) und ist deshalb öffentlich cachebar.
 import type { Env } from './env';
 import { LISTED } from './discover';
+import { IN_LOGBOOK_SQL } from './logbook-sql';
 import { xmlEscape } from './feed-xml';
 import { liveSql, notSuspendedSql, publicSql } from './visible-sql';
+import { indexableHost } from './canonical';
 
 const TTL = 3600;
 /** Höchstens so viele Einträge je Art – zusammen deutlich unter der Grenze von 50 000 URLs je Sitemap. */
 export const SITEMAP_PER_KIND = 5000;
-
-/**
- * Darf dieser Host in Suchmaschinen? Nur die Hauptdomain (CANONICAL_HOST). Vorschauen `dev-*` (CANONICAL_HOST leer),
- * lokale Entwicklung und unbekannte Hosts nie – fail closed.
- */
-export function indexableHost(url: URL, env: Pick<Env, 'CANONICAL_HOST'>): boolean {
-  const canonical = env.CANONICAL_HOST?.trim().toLowerCase();
-  return !!canonical && url.hostname.toLowerCase() === canonical;
-}
 
 /** GET /robots.txt – Hauptdomain: alles erlaubt plus Sitemap; sonst (Vorschau, lokal) alles gesperrt. */
 export function robotsTxt(request: Request, env: Env): Response {
@@ -28,12 +21,14 @@ export function robotsTxt(request: Request, env: Env): Response {
 }
 
 /**
- * Pfade der Sitemap, je Art nach Sichtbarkeit wie auf der Seite bzw. in Entdecken:
+ * Pfade der Sitemap, je Art nach Sichtbarkeit wie auf der Seite bzw. in Entdecken (`discover.ts`):
  * - Vereine/Teams: öffentlich, nicht ausgeblendet oder gesperrt, Eigner nicht gesperrt
- * - Häfen: nicht ausgeblendet (die Sperre blendet aus), mit öffentlichem Boot oder öffentlicher Gruppe (wie Entdecken)
- * - Törns: `LISTED` (öffentlich, „Sichtbar bis: überall“, Konto nicht gesperrt)
- * - Boote: öffentlich und nicht gesperrt, öffentliches Eigner-Profil (wie Entdecken)
- * - Profile: öffentlich, Konto nicht gesperrt, mit gelistetem Törn oder öffentlichem Boot (wie Entdecken)
+ * - Häfen: nicht ausgeblendet (die Sperre blendet aus), mit öffentlichem Boot oder öffentlicher Gruppe – wie `HARBORS`
+ * - Törns: `LISTED` (öffentlich, „Sichtbar bis: überall“, Konto nicht gesperrt) – wie `VOYAGES` und die Törnseite (index)
+ * - Boote: wie `BOATS` (öffentlich, öffentliches Eigner-Profil, Konto nicht gesperrt), zusätzlich nicht einzeln gesperrt
+ * - Profile: wie `PEOPLE` (öffentlich, Konto nicht gesperrt, mit gelistetem Törn im Fahrtenbuch oder öffentlichem Boot)
+ * Was sich ändert (Sichtbarkeit, Ausblenden, Sperre), verschwindet spätestens mit dem Cache nach einer Stunde; die Seite
+ * selbst ist ab sofort nicht mehr sichtbar bzw. `noindex` (F-544).
  */
 export async function sitemapPaths(env: Env): Promise<string[]> {
   const q = (sql: string) => env.DB.prepare(sql).bind(SITEMAP_PER_KIND).all<{ p: string }>().then((r) => r.results.map((x) => x.p));
@@ -52,7 +47,7 @@ export async function sitemapPaths(env: Env): Promise<string[]> {
        ORDER BY b.created_at DESC LIMIT ?1`),
     q(`SELECT '/u/' || lower(p.handle) AS p FROM profiles p
        WHERE ${publicSql('p')} AND ${notSuspendedSql('p.user_id')}
-         AND (EXISTS (SELECT 1 FROM shares s WHERE s.user_id = p.user_id AND ${LISTED})
+         AND (EXISTS (SELECT 1 FROM shares s WHERE s.user_id = p.user_id AND ${LISTED} AND ${IN_LOGBOOK_SQL})
            OR EXISTS (SELECT 1 FROM boats b WHERE b.owner_id = p.user_id AND ${publicSql('b')}))
        ORDER BY p.created_at DESC LIMIT ?1`),
   ]);

@@ -10,7 +10,7 @@ import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
-import { base, emit, offerFollow, onMapStyles, pageMenuReveal, webLink, writePostButton } from './shared';
+import { base, emit, offerFollow, onMapStyles, pageMenuReveal, webLink, webLinkStyles, writePostButton } from './shared';
 import './sx-page-menu';
 import type { PageMenuItem } from './sx-page-menu';
 import { recordedNote } from '../domain/logbook';
@@ -103,6 +103,7 @@ export class SxGroupPage extends LitElement {
   static styles = [
     base,
     pageMenuReveal,
+    webLinkStyles,
     css`
       :host {
         display: block;
@@ -172,14 +173,6 @@ export class SxGroupPage extends LitElement {
         color: var(--accent);
         font-weight: 600;
         text-decoration: none;
-      }
-      .facts .web {
-        min-width: 0;
-        overflow-wrap: anywhere;
-      }
-      /* Tippziel ≥ 44 px (CLAUDE.md Selbstprüfung 5) – ohne negativen Rand, damit es die Zeile darüber nicht überdeckt */
-      .facts .web a {
-        padding-block: 13px;
       }
       .facts .vis {
         display: inline-flex;

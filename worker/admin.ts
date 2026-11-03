@@ -2,12 +2,11 @@
 // zuweisen, endgültig löschen, Protokoll. Jede Route prüft requireAdmin (404 für alle anderen); jede Aktion und jeder
 // Einblick landet im Admin-Protokoll. Zusammenführen steht in worker/admin-merge.ts.
 import { transferGroupStmts } from './groups';
-import { readWebUrl } from './harbors';
 import type { Env } from './env';
 import { HttpError, json, readJson } from './http';
 import { LOCKED, adminLogStmt, isAdmin, ownsLockedSql, requireAdmin } from './moderation';
 import { loadLock, lockTarget, releaseViaLockStmts, removeTarget, sendLockNotice, targetExists, unlockTarget } from './locks';
-import { LIMITS, SHARE_ID_RE, cleanText, normalizeHandle } from './validate';
+import { LIMITS, SHARE_ID_RE, cleanText, normalizeHandle, readWebUrl } from './validate';
 import { HARBOR_LIMITS, harborKey } from '../src/domain/harbors';
 import { normalizeSlug } from '../src/domain/groups';
 import { funnyName } from '../src/domain/names';
@@ -319,7 +318,8 @@ export async function adminRename(request: Request, env: Env, rawKind: string, i
       kind === 'groups'
         ? env.DB.prepare('UPDATE groups SET name = ?, slug = ?, updated_at = ? WHERE id = ?').bind(name, slug, now, id)
         : env.DB.prepare('UPDATE boats SET name = ?, updated_at = ? WHERE id = ?').bind(name, now, id),
-      log(kind === 'groups' ? `${cur!.name} (/g/${cur!.slug}) → ${name} (/g/${slug})` : `${cur!.name} → ${name}`),
+      // Protokoll nur, wenn sich Name bzw. Adresse geändert haben (die Webseite protokolliert `webUrl` selbst)
+      ...(name !== cur!.name || slug !== cur!.slug ? [log(kind === 'groups' ? `${cur!.name} (/g/${cur!.slug}) → ${name} (/g/${slug})` : `${cur!.name} → ${name}`)] : []),
       ...(kind === 'groups' ? await webUrl('groups') : []),
     ]);
   } else if (kind === 'harbors') {
@@ -335,7 +335,7 @@ export async function adminRename(request: Request, env: Env, rawKind: string, i
       // Anzeige-Kopien wie beim normalen Bearbeiten (worker/harbors.ts)
       env.DB.prepare('UPDATE boats SET home_port = ? WHERE harbor_id = ?').bind(name, id),
       env.DB.prepare('UPDATE groups SET home_port = ? WHERE harbor_id = ?').bind(name, id),
-      log(`${cur!.name} → ${name}`),
+      ...(name !== cur!.name ? [log(`${cur!.name} → ${name}`)] : []),
       ...(await webUrl('harbors')),
     ]);
   } else {

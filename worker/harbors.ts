@@ -12,9 +12,9 @@ import { harborActivityCleanup } from './activity';
 import { channelGalleryCleanup } from './photo-keys';
 import { reachAtLeastSql } from './reach-sql';
 import { writableChannel } from './post-chain';
-import { LIMITS, SHARE_ID_RE, cleanText } from './validate';
+import { LIMITS, SHARE_ID_RE, cleanText, readWebUrl } from './validate';
 import { HARBOR_LIMITS, harborKey, harborSlugBase, isHarborSlug, mayPlaceHarbor, parseHarborPosition, type HarborRef } from '../src/domain/harbors';
-import { canManageGroup, parseWebUrl, seasonStart } from '../src/domain/groups';
+import { canManageGroup, seasonStart } from '../src/domain/groups';
 import { claimTargetCleanup, mayAdoptHarbor } from './claim-cleanup';
 import { notSuspendedSql, publicSql } from './visible-sql';
 
@@ -40,16 +40,6 @@ export interface HarborRow {
 
 export const HARBOR_NOT_FOUND = () => new HttpError(404, 'not_found', 'Diesen Hafen gibt es nicht (mehr).');
 export const INVALID_HARBOR = () => new HttpError(400, 'invalid_harbor', 'Diesen Hafen gibt es nicht (mehr). Bitte einen anderen wählen.');
-
-/**
- * Webseite aus einer Eingabe (Verein, Team, Hafen; F-540, F-541): '' bzw. null = keine (NULL), sonst eine geprüfte
- * http(s)-URL wie der Link eines Beitrags – alles andere 400 (fail closed).
- */
-export function readWebUrl(input: unknown): string | null {
-  const url = input === null ? '' : parseWebUrl(input);
-  if (url === null) throw new HttpError(400, 'invalid_web_url', 'Die Webseite muss mit http:// oder https:// beginnen (höchstens 500 Zeichen).');
-  return url || null;
-}
 
 export const harborRef = (h: Pick<HarborRow, 'id' | 'slug' | 'name'>): HarborRef => ({ id: h.id, slug: h.slug, name: h.name });
 
@@ -281,12 +271,11 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
   const admin = isAdmin(env, user.id);
   if (!harborVisible(h, admin)) throw HARBOR_NOT_FOUND();
   const input = await readJson<{ name?: unknown; lat?: unknown; lon?: unknown; webUrl?: unknown; clubId?: unknown }>(request);
-  const editsBasics = input.name !== undefined || input.lat !== undefined || input.lon !== undefined || input.webUrl !== undefined;
+  const editsBasics = input.name !== undefined || input.lat !== undefined || input.lon !== undefined;
   // Altbestand ohne Anleger:in und ohne Position (L3, F-307): wer als Erste:r die Position setzt, wird Anleger:in.
   // Je verifizierte Häfen übernimmt so niemand (Konzept 20.5, F-367).
   const adopts = input.name === undefined && h.created_by === null && h.lat === null && mayPlaceHarbor(h, user.id) && (await mayAdoptHarbor(env, h.id));
-  // Die Webseite übernimmt niemand über die Erst-Position (adopts) – nur Anleger:in bzw. Vertretung und Moderation
-  if (editsBasics && (input.webUrl !== undefined || !adopts) && !canEditHarbor(env, h, user.id)) throw new HttpError(403, 'forbidden', 'Name, Position und Webseite ändert, wer den Hafen angelegt hat.');
+  if (editsBasics && !adopts && !canEditHarbor(env, h, user.id)) throw new HttpError(403, 'forbidden', 'Name und Position ändert, wer den Hafen angelegt hat.');
   // Gesperrte Häfen (Konzept 18.2) ändert niemand – auch die Moderation erst nach dem Entsperren
   if (await isLockedTarget(env, 'harbor', h.id)) throw LOCKED();
   const before = h.name;
@@ -306,8 +295,12 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
     h.lon = pos.lon;
     if (adopts && pos.lat !== null) h.created_by = user.id;
   }
+  // Webseite (F-541): wie Name und Position – Anleger:in (auch, wer gerade per Erst-Position übernimmt), Moderation
   const beforeUrl = h.web_url ?? null;
-  if (input.webUrl !== undefined) h.web_url = readWebUrl(input.webUrl);
+  if (input.webUrl !== undefined) {
+    if (!canEditHarbor(env, h, user.id)) throw new HttpError(403, 'forbidden', 'Die Webseite ändert, wer den Hafen angelegt hat.');
+    h.web_url = readWebUrl(input.webUrl);
+  }
   // Verifizierter Hafen (Konzept 20.5, F-371): den Verein ordnen nur Hafen-Vertretung und Moderation zu
   if (input.clubId !== undefined && h.verified_at && h.created_by !== user.id && !admin) {
     throw new HttpError(403, 'verified_harbor', 'Den Verein dieses verifizierten Hafens ordnet die Hafen-Vertretung zu.');

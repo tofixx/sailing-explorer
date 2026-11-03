@@ -7,7 +7,7 @@ import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
 import { icon } from './icons';
-import { base, emit, logbookTag, onMapStyles, pageMenuReveal, webLink, writePostButton } from './shared';
+import { base, emit, logbookTag, onMapStyles, pageMenuReveal, webLink, webLinkStyles, writePostButton } from './shared';
 import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
@@ -107,6 +107,7 @@ export class SxProfilePage extends LitElement {
   static styles = [
     base,
     pageMenuReveal,
+    webLinkStyles,
     css`
       /* Kopf „Neuigkeiten“ mit „Beitrag schreiben“ (F-405) */
       .news-head {
@@ -204,14 +205,6 @@ export class SxProfilePage extends LitElement {
         color: var(--accent);
         text-decoration: none;
         font-weight: 600;
-      }
-      .facts .web {
-        min-width: 0;
-        overflow-wrap: anywhere;
-      }
-      /* Tippziel ≥ 44 px (CLAUDE.md Selbstprüfung 5) – ohne negativen Rand, damit es die Zeile darüber nicht überdeckt */
-      .facts .web a {
-        padding-block: 13px;
       }
       .facts .vis {
         display: inline-flex;

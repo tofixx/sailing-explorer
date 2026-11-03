@@ -8,6 +8,8 @@ import {
   isCommentsMode, isNotifyMode, isReportKind, isReportReason,
   type CommentsMode, type NotifyMode, type ReportKind, type ReportReason,
 } from '../src/domain/comment-text';
+import { parseWebUrl } from '../src/domain/groups';
+import { HttpError } from './http-error';
 
 /**
  * Technische Obergrenzen einzelner Anfragen. Kontingente pro Konto (Törns, Speicher, Boote, Fotos) stehen je Stufe
@@ -226,3 +228,13 @@ export function adminIds(env: { ADMIN_USER_IDS?: string }): Set<string> {
 }
 
 export const isAdmin = (env: { ADMIN_USER_IDS?: string }, userId: string | null | undefined): boolean => !!userId && adminIds(env).has(userId);
+
+/**
+ * Webseite aus einer Eingabe (Verein, Team, Hafen; F-540, F-541): '' bzw. null = keine (NULL), sonst eine geprüfte
+ * http(s)-URL wie der Link eines Beitrags (`parseWebUrl`) – alles andere 400 `invalid_web_url` (fail closed).
+ */
+export function readWebUrl(input: unknown): string | null {
+  const url = input === null ? '' : parseWebUrl(input);
+  if (url === null) throw new HttpError(400, 'invalid_web_url', 'Die Webseite muss mit http:// oder https:// beginnen (höchstens 500 Zeichen).');
+  return url || null;
+}
