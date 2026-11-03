@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Kartenstil-Menü (F-218): Zahnrad über der Karte, Menü mit den Stilen, ein Klick wendet sofort an; angemeldet
+// Kartenstil-Menü (F-218): Knopf mit Ebenen-Symbol über der Karte (F-531), Menü mit den Stilen, ein Klick wendet sofort an; angemeldet
 // „als Standard setzen“ und „Standard entfernen“. Controller (F-219): Vorrang Ansicht > Profil, nichts lokal gespeichert.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../src/components/sx-map-style';
@@ -7,6 +7,8 @@ import type { SxMapStyle } from '../../src/components/sx-map-style';
 import { MapStyleController } from '../../src/controllers/map-style';
 import { Store, initialState } from '../../src/services/store';
 import { MAP_STYLE_IDS } from '../../src/domain/map-style';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 type LitEl = SxMapStyle & { shadowRoot: ShadowRoot };
 
@@ -33,11 +35,27 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('F-531 Zahnrad nur im Seiten-Menü', () => {
+  it('[F-531] Kartenstil-Knopf trägt das Ebenen-Symbol, nicht das Zahnrad', async () => {
+    const el = await mount({ current: 'classic' });
+    expect(el.shadowRoot.querySelector('.toggle')!.getAttribute('aria-label')).toBe('Kartenstil');
+    const src = readFileSync(resolve('src/components/sx-map-style.ts'), 'utf8');
+    expect(src).toContain("icon('layers')");
+    expect(src).not.toContain("icon('gear')");
+  });
+
+  it("[F-531] icon('gear') kommt nur in sx-page-menu vor (UX N6)", () => {
+    const dir = resolve('src/components');
+    const users = readdirSync(dir).filter((f) => f.endsWith('.ts') && readFileSync(resolve(dir, f), 'utf8').includes("icon('gear')"));
+    expect(users).toEqual(['sx-page-menu.ts']);
+  });
+});
+
 describe('F-218 Kartenstil-Menü', () => {
-  it('[F-218] Zahnrad öffnet ein Menü mit allen Stilen, der geltende ist markiert, je mit Farbverlauf', async () => {
+  it('[F-218] der Kartenstil-Knopf öffnet ein Menü mit allen Stilen, der geltende ist markiert, je mit Farbverlauf', async () => {
     const el = await mount({ current: 'contrast' });
     const gear = el.shadowRoot.querySelector<HTMLButtonElement>('.toggle')!;
-    expect(gear.getAttribute('aria-label')).toBe('Ansicht konfigurieren');
+    expect(gear.getAttribute('aria-label')).toBe('Kartenstil');
     expect(menu(el).hidden).toBe(true);
     gear.click();
     await el.updateComplete;
@@ -61,7 +79,7 @@ describe('F-218 Kartenstil-Menü', () => {
     expect(byText(el, 'Nur jetzt')).toBeUndefined();
   });
 
-  it('[F-218] Fokus: beim Öffnen auf den geltenden Stil, beim Schließen zurück aufs Zahnrad; Tab hinaus schließt', async () => {
+  it('[F-218] Fokus: beim Öffnen auf den geltenden Stil, beim Schließen zurück auf den Knopf; Tab hinaus schließt', async () => {
     const el = await mount({ current: 'subtle' });
     const gear = el.shadowRoot.querySelector<HTMLButtonElement>('.toggle')!;
     gear.click();

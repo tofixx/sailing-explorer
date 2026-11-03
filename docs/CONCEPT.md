@@ -1839,7 +1839,7 @@ Zahl eine Einheit behält; eigene Farben je Nutzer; Verläufe je Hell/Dunkel (di
 den Kontrast auf beiden Grundkarten). Die Verlaufsfarben sind Daten des Sets (wie bisher `RAMP`), keine Tokens.
 Diagramme und die Bedeutungsfarben (`--c-speed` usw.) ändern sich nicht.
 
-**Bedienung (Entscheidung des Betreibers):** ein Zahnrad („Ansicht konfigurieren“) unten rechts über der Karte (nur in
+**Bedienung (Entscheidung des Betreibers):** ein Knopf mit Ebenen-Symbol („Kartenstil“; bis F-531 ein Zahnrad, das nach UX N6 nur noch dem Seiten-Menü gehört) unten rechts über der Karte (nur in
 der Törn-Ansicht, nicht in Einbettungen) öffnet ein kleines Menü mit den Stilen (Name, Farbverlauf, Haken am geltenden).
 Ein Klick wendet den Stil sofort an – kein „Übernehmen“, kein „Nur jetzt“. Angemeldet stehen darunter „… als Standard
 setzen“ (für den geltenden Stil) und „Standard entfernen“. Mobil kommt das Menü als Sheet vom unteren Rand.

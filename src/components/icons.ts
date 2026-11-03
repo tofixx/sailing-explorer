@@ -97,9 +97,31 @@ const paths = {
   scale: svg`<path d="M12 4v16M7 20h10M5 7h14M5 7l-2.5 6a2.5 2.5 0 0 0 5 0zM19 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/>`,
   // Meilennachweis drucken (Konzept 27.5)
   print: svg`<rect class="f" x="4" y="9" width="16" height="7.5" rx="2"/><path d="M7 9V3.5h10V9M7 14h10v6.5H7zM4 16.5h3M17 16.5h3M4 16.5V11a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5.5"/>`,
+  // Kartenstil (F-531): Ebenen statt Zahnrad – das Zahnrad gehört nur dem Seiten-Menü (UX N6)
+  layers: svg`<path class="f" d="M12 4 21 8.5 12 13 3 8.5z"/><path d="M12 4 21 8.5 12 13 3 8.5z"/><path d="m3 12.5 9 4.5 9-4.5M3 16.5l9 4.5 9-4.5"/>`,
+  // Team (F-532): Crew aus drei Köpfen – unterscheidbar von Boot (`sail`) und Verein (`pennant`)
+  team: svg`<circle class="f" cx="12" cy="7.5" r="2.8"/><circle cx="12" cy="7.5" r="2.8"/><circle cx="5.8" cy="9.5" r="2.2"/><circle cx="18.2" cy="9.5" r="2.2"/><path d="M7.5 19.5c.5-3.3 2.2-5.2 4.5-5.2s4 1.9 4.5 5.2M2.5 18c.3-2.4 1.5-3.9 3.3-3.9M21.5 18c-.3-2.4-1.5-3.9-3.3-3.9"/>`,
 };
 
 export type IconName = keyof typeof paths;
+
+/**
+ * Ein Icon je Objektart (UX N4, F-532): überall, wo eine Person, ein Boot, ein Verein, ein Team, ein Hafen, ein Törn,
+ * ein Fahrtenbuch-Eintrag oder ein Beitrag genannt wird. Neue Arten: eine Zeile.
+ */
+export const ENTITY_ICON = {
+  user: 'user',
+  boat: 'sail',
+  club: 'pennant',
+  team: 'team',
+  harbor: 'anchor',
+  voyage: 'map',
+  logbook: 'book',
+  post: 'comment',
+} as const satisfies Record<string, IconName>;
+
+/** Icon einer Gruppe nach Art (`club`/`team`); Unbekanntes wie ein Verein. */
+export const groupIcon = (kind: string): IconName => (kind === 'team' ? ENTITY_ICON.team : ENTITY_ICON.club);
 
 /**
  * Logo „Kielspur“ (32er-Raster): Groß- und Vorsegel mit Verlauf Havelblau → Türkis, schlichter Jollenrumpf, darunter

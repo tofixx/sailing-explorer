@@ -353,7 +353,7 @@ body {
   }
 }
 
-/* „Ansicht konfigurieren“ (Kartenstil) unten rechts über der Karte, oberhalb der Quellenangabe */
+/* Kartenstil-Knopf (Ebenen-Symbol) unten rechts über der Karte, oberhalb der Quellenangabe */
 sx-map-style {
   position: absolute;
   right: var(--s-3);
