@@ -3384,4 +3384,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 34. Bootsklasse und Filter in Entdecken (F-535 … F-539) → [`docs/concept/34-bootsklasse.md`](concept/34-bootsklasse.md)
 
 ## 35. Moderation: Abgleich des Entwurfs mit dem Gebauten (Textfilter, Vertrauensstufen, Bildprüfung, Melden, Sperren) → [`docs/concept/35-moderation.md`](concept/35-moderation.md)
+
 ## 38. GPX nachreichen: Track zu einem gespeicherten Fahrtenbuch-Eintrag (F-600 … F-607) → [`docs/concept/38-gpx-nachreichen.md`](concept/38-gpx-nachreichen.md)

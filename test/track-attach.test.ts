@@ -1,6 +1,6 @@
 // GPX nachreichen (Konzept 38): reine Regeln in src/domain/track-attach.ts.
 import { describe, expect, it } from 'vitest';
-import { attachExpiryError, canAttachTrack, trackDateError } from '../src/domain/track-attach';
+import { attachExpiryError, canAttachTrack, offerAttachTrack, trackDateError } from '../src/domain/track-attach';
 import { WARN_MS, shareExpiry } from '../src/domain/support';
 
 const DAY = 86_400_000;
@@ -44,16 +44,22 @@ describe('F-602 trackDateError: Tag des Eintrags ± 1 Kalendertag (UTC)', () => 
 describe('F-604 attachExpiryError: Löschtermin nach Törn-Regel', () => {
   const now = Date.UTC(2026, 10, 3);
   it('[F-604] angelegt in der laufenden Saison: in Ordnung', () => {
-    expect(attachExpiryError(Date.UTC(2026, 5, 1), null, now)).toBeNull();
+    expect(attachExpiryError(shareExpiry(Date.UTC(2026, 5, 1), null), now)).toBeNull();
   });
   it('[F-604] angelegt in der Vorsaison: Termin vorbei → Meldung mit Datum', () => {
-    expect(attachExpiryError(Date.UTC(2025, 5, 1), null, now)).toContain('01.02.2026');
+    expect(attachExpiryError(shareExpiry(Date.UTC(2025, 5, 1), null), now)).toContain('01.02.2026');
   });
   it('[F-604] Grenze ist die Warnfrist; Unterstützung verschiebt sie', () => {
-    const created = Date.UTC(2025, 5, 1);
-    const expires = shareExpiry(created, null);
-    expect(attachExpiryError(created, null, expires - WARN_MS - DAY)).toBeNull();
-    expect(attachExpiryError(created, null, expires - WARN_MS)).not.toBeNull();
-    expect(attachExpiryError(created, Date.UTC(2027, 0, 1), now)).toBeNull();
+    const expires = shareExpiry(Date.UTC(2025, 5, 1), null);
+    expect(attachExpiryError(expires, expires - WARN_MS - DAY)).toBeNull();
+    expect(attachExpiryError(expires, expires - WARN_MS)).not.toBeNull();
+    expect(attachExpiryError(shareExpiry(Date.UTC(2025, 5, 1), Date.UTC(2027, 0, 1)), now)).toBeNull();
+  });
+  it('[F-604] Menüeintrag nur, wenn es nicht an der Warnfrist scheitert (F-605)', () => {
+    const base = { isOwner: true, source: 'manual' };
+    expect(offerAttachTrack(base, now)).toBe(true);
+    expect(offerAttachTrack({ ...base, trackExpiresAt: now + WARN_MS + DAY }, now)).toBe(true);
+    expect(offerAttachTrack({ ...base, trackExpiresAt: now + WARN_MS - DAY }, now)).toBe(false);
+    expect(offerAttachTrack({ ...base, source: 'gpx', trackExpiresAt: now + 400 * DAY }, now)).toBe(false);
   });
 });

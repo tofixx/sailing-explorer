@@ -55,15 +55,10 @@ export const replaceImageStmt = (env: Env, shareId: string, newBytes: number) =>
     newBytes, shareId, STORAGE_COUNTER,
   );
 
-/** Neue Payload eines Törns (Fahrtenbuch-Route): vor dem UPDATE im selben Batch die Differenz zur alten Größe buchen. */
-export const replacePayloadStmt = (env: Env, shareId: string, newBytes: number) =>
-  env.DB.prepare('UPDATE counters SET value = MAX(0, value + ?1 - COALESCE((SELECT size_bytes FROM shares WHERE id = ?2), ?1)) WHERE name = ?3').bind(
-    newBytes, shareId, STORAGE_COUNTER,
-  );
-
 /**
- * GPX nachgereicht (Konzept 38): wie replacePayloadStmt, aber nur, solange der Törn noch ein Eintrag ohne GPX ist –
- * hat ein paralleler Aufruf ihn schon umgestellt, bucht dieser nichts (Differenz 0).
+ * Neue Payload eines Eintrags ohne GPX (geänderte Route bzw. nachgereichtes GPX, Konzept 38): vor dem UPDATE im selben
+ * Batch die Differenz zur alten Größe buchen – nur, solange der Törn noch ein Eintrag ohne GPX ist; hat ein paralleler
+ * Aufruf ihn schon umgestellt, bucht dieser nichts (Differenz 0).
  */
 export const replaceManualPayloadStmt = (env: Env, shareId: string, newBytes: number) =>
   env.DB.prepare(

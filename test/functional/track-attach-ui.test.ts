@@ -131,6 +131,9 @@ describe('F-605 Einstieg „GPX nachreichen“', () => {
     expect(voyageMenuItems(share(), null)[0]).toMatchObject({ id: 'track-attach', label: 'GPX nachreichen', icon: 'upload' });
     expect(voyageMenuItems(share({ source: 'gpx' }), null).map((i) => i.id)).not.toContain('track-attach');
     expect(voyageMenuItems(share({ isOwner: false }), null).map((i) => i.id)).not.toContain('track-attach');
+    // F-604: läge der Löschtermin nach Törn-Regel in der 14-Tage-Warnfrist, gibt es den Eintrag nicht
+    expect(voyageMenuItems(share({ trackExpiresAt: Date.now() + 3 * DAY }), null).map((i) => i.id)).not.toContain('track-attach');
+    expect(voyageMenuItems(share({ trackExpiresAt: Date.now() + 90 * DAY }), null)[0].id).toBe('track-attach');
   });
 
   it('[F-605] die Byline öffnet die Dateiauswahl direkt aus dem Klick und meldet die Datei als sx-track-attach', async () => {

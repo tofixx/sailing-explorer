@@ -9,14 +9,14 @@ import { canView, nextShareKey, requestKey } from './access';
 import { assertActive, deleteShareReports, isAdmin, logLockedView } from './moderation';
 import { deleteKeys, photoKeysForShares, previewKey, shareKey } from './photo-keys';
 import { checkShareQuota, checkStorageQuota, checkVisibilityChoice, storageQuotaError, supportStatus, visibilityRequiresSupport } from './supporter';
-import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, replacePayloadStmt, subtractShareStmt } from './storage';
+import { addStorageStmt, checkBrake, currentBrake, replaceImageStmt, replaceManualPayloadStmt, subtractShareStmt } from './storage';
 import { deleteShareNotifications } from './notification-cleanup';
 import { deleteShareActivity, deleteShareGroups, recordLogbook, recordVoyage, syncShareActivity } from './activity';
 import { checkGroupIds, insertShareGroupsStmt, presetShareGroupsStmt, replaceShareGroups, selectedGroupIds, selectedGroupsOf } from './share-groups';
 import { deleteShareReactions } from './reaction-cleanup';
 import { quotaVerdict } from '../src/domain/limits';
 import { BOAT_ID_RE, LIMITS, PAYLOAD_PREFIX, SHARE_ID_RE, cleanText, cleanView, isGzip, parseCommentsMode, parseVisibility } from './validate';
-import { EXPIRES_SQL } from './expiry-sql';
+import { EXPIRES_SQL, TRACK_EXPIRES_SQL } from './expiry-sql';
 import { shareContext } from './share-context';
 import { voyageRole, type VoyageRole } from '../src/domain/crew-roles';
 import { clearConfirmations } from './crew-cleanup';
@@ -93,6 +93,8 @@ const harborAt = (id: string | null | undefined, slug: string | null | undefined
   id && slug ? { id, slug, name: name ?? '', lat: lat ?? null, lon: lon ?? null } : null;
 
 export const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
+/** Der Törn wurde zwischen Lesen und Schreiben anderweitig geändert (z. B. GPX nachgereicht, Konzept 38). */
+const STALE = () => new HttpError(409, 'conflict', 'Dieser Törn wurde gerade anderweitig geändert – bitte neu laden.');
 
 const SHARE_COLS = `s.*, (SELECT reach FROM posts WHERE id = s.id) AS reach, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, b.locked_at AS boat_locked_at, ${EXPIRES_SQL} AS expires_at,
   hf.slug AS hf_slug, hf.name AS hf_name, hf.lat AS hf_lat, hf.lon AS hf_lon, ht.slug AS ht_slug, ht.name AS ht_name, ht.lat AS ht_lat, ht.lon AS ht_lon`;
@@ -355,7 +357,13 @@ export const shareDetail = async (env: Env, row: ShareRow, isOwner: boolean, vie
   ...shareShape(row, isOwner),
   ...(await shareContext(env, row, viewerId)),
   ...(isOwner ? { groupIds: await selectedGroupIds(env, row.id) } : {}),
+  // GPX nachreichen (F-604, F-605): Löschtermin nach Törn-Regel – der Browser bietet das Nachreichen nur an, wenn er
+  // nicht in der Warnfrist läge. Nur für die Eigentümer:in eines Eintrags ohne GPX.
+  ...(isOwner && row.source === 'manual' ? { trackExpiresAt: await trackExpiresAt(env, row.id) } : {}),
 });
+
+const trackExpiresAt = async (env: Env, id: string): Promise<number | null> =>
+  (await env.DB.prepare(`SELECT ${TRACK_EXPIRES_SQL} AS t FROM shares s WHERE s.id = ?`).bind(id).first<{ t: number }>())?.t ?? null;
 
 /** GET /api/shares/:id – Metadaten. */
 export async function getShareMeta(request: Request, env: Env, id: string): Promise<Response> {
@@ -420,22 +428,32 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
   row.updated_at = Date.now();
   // Ein anderes Boot ändert, was der Skipper bestätigt hat (Konzept 15): Bestätigungen fallen.
   if (boatChanged) await env.DB.batch(clearConfirmations(env, row.id));
-  // Neue Route (≤ 32 KB): Datei ersetzen, Speicherzähler um die Differenz verschieben
+  // Neue Route (≤ 32 KB, nur Einträge ohne GPX): Datei ersetzen – nur, wenn sie seit dem Lesen niemand geändert hat
+  // (ETag; ein paralleles „GPX nachreichen“ schreibt dieselbe Datei, Konzept 38) –, Speicherzähler um die Differenz
   if (payload) {
-    await env.TRACKS.put(shareKey(row.id), payload, { httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' }, customMetadata: { owner: row.user_id } });
+    const head = await env.TRACKS.head(shareKey(row.id));
+    const meta = { httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' }, customMetadata: { owner: row.user_id } };
+    if (!(await env.TRACKS.put(shareKey(row.id), payload, head ? { ...meta, onlyIf: { etagMatches: head.etag } } : meta))) throw STALE();
     row.size_bytes = payload.length;
   }
-  await env.DB.batch([
-    // Zähler vor dem UPDATE um die Differenz zur gespeicherten Größe verschieben (auch bei parallelen Änderungen stimmig)
-    ...(payload ? [replacePayloadStmt(env, row.id, row.size_bytes)] : []),
+  const results = await env.DB.batch([
+    // Zähler vor dem UPDATE um die Differenz zur gespeicherten Größe verschieben – nur, solange der Eintrag ohne GPX ist
+    ...(payload ? [replaceManualPayloadStmt(env, row.id, row.size_bytes)] : []),
+    // nur auf dem gelesenen Stand der Herkunft: ein inzwischen nachgereichter Track wird nicht mit alten Daten überschrieben
     env.DB.prepare(
       `UPDATE shares SET title = ?, visibility = ?, share_key = ?, listed = ?, boat_id = ?, view = ?, comments_mode = ?, updated_at = ?,
-         summary = ?, log = ?, from_harbor_id = ?, to_harbor_id = ?, started_at = ?, ended_at = ?, dist_nm = ?, dist_source = ?, size_bytes = ?, log_state = ? WHERE id = ?`,
+         summary = ?, log = ?, from_harbor_id = ?, to_harbor_id = ?, started_at = ?, ended_at = ?, dist_nm = ?, dist_source = ?, size_bytes = ?, log_state = ? WHERE id = ? AND source = ?`,
     ).bind(
       row.title, row.visibility, row.share_key, row.visibility === 'public' ? 1 : 0, row.boat_id, row.view, row.comments_mode ?? 'on', row.updated_at,
       row.summary, row.log ?? '{}', row.from_harbor_id ?? null, row.to_harbor_id ?? null, row.started_at, row.ended_at ?? null, row.dist_nm, row.dist_source ?? 'track', row.size_bytes, row.log_state ?? 'suggested', row.id,
+      row.source ?? 'gpx',
     ),
   ]);
+  if (!results[results.length - 1].meta.changes) {
+    // Törn inzwischen gelöscht: eine eben geschriebene Route hätte keine Zeile mehr
+    if (payload && !(await env.DB.prepare('SELECT 1 AS x FROM shares WHERE id = ?').bind(row.id).first())) await deleteKeys(env, [shareKey(row.id)]);
+    throw STALE();
+  }
   // „Sichtbar bis“ (F-427) an der Post-Zeile; danach Ziele angleichen (auch mit neuer Gruppen-Auswahl)
   if (reach) await env.DB.prepare('UPDATE posts SET reach = ?, updated_at = ? WHERE id = ?').bind(reach, row.updated_at, row.id).run();
   if (groupIds) await env.DB.batch(replaceShareGroups(env, row.id, user.id, groupIds, row.updated_at));

@@ -1,8 +1,8 @@
 // Funktionale Tests: GPX nachreichen (Konzept 38, F-600 … F-606) gegen den echten Worker (Miniflare).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createShare, gzip, payloadJson, startWorker, type Harness } from './worker-harness';
+import { createShare, grantSupport, gzip, payloadJson, startWorker, type Harness } from './worker-harness';
 import { social, type Person } from './social-helpers';
-import { shareExpiry } from '../../src/domain/support';
+import { GRACE_MS, WARN_MS, shareExpiry } from '../../src/domain/support';
 
 let h: Harness;
 let s: ReturnType<typeof social>;
@@ -32,6 +32,7 @@ interface Share {
   endedAt: number | null;
   sizeBytes: number;
   trackCount: number;
+  trackExpiresAt?: number | null;
   hasImage: boolean;
   expiresAt: number | null;
   visibility: string;
@@ -79,6 +80,7 @@ function attach(id: string, cookie: string | undefined, o: { gpx?: string; start
   );
 }
 
+const named = (name: string) => `<?xml version="1.0"?><gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${name}</name><trkseg><trkpt lat="54" lon="13"><time>2026-06-13T10:00:00Z</time></trkpt><trkpt lat="54.01" lon="13"><time>2026-06-13T10:10:00Z</time></trkpt></trkseg></trk></gpx>`;
 const errorOf = async (res: Response) => ((await res.json()) as { error: string; message: string });
 const db = () => h.db();
 const counter = async () => (await (await db()).prepare("SELECT value FROM counters WHERE name = 'storage_bytes'").first<{ value: number }>())!.value;
@@ -112,6 +114,19 @@ describe('F-600 GPX nachreichen: nur Eigentümer:in, nur Einträge ohne GPX', ()
 });
 
 describe('F-601 Aus dem Eintrag wird ein GPX-Törn, der Rest bleibt', () => {
+  it('[F-601] öffentlich: Meilensteine für den Zuwachs an Strecke (keine neue Neuigkeit)', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const now = Date.now();
+    const entry = await manual(owner, { startedAt: now - 8 * 3_600_000, distNm: 3 });
+    const res = await attach(entry.id, owner.cookie, { started: now - 7 * 3_600_000, ended: now - 3_600_000, dist: 120 });
+    expect(res.status, await res.clone().text()).toBe(200);
+    const d = await db();
+    const ms = await d.prepare("SELECT data FROM activity WHERE kind = 'milestone' AND actor_id = ?").bind(owner.user.id).all<{ data: string }>();
+    expect(ms.results.map((r) => (JSON.parse(r.data) as { nm: number }).nm)).toEqual([100]);
+    const voyages = await d.prepare("SELECT COUNT(*) AS n FROM activity WHERE kind = 'voyage' AND subject_id = ?").bind(entry.id).first<{ n: number }>();
+    expect(voyages!.n).toBe(1); // nur die vom Anlegen
+  });
+
   it('[F-601] Herkunft, Distanz, Zeiten und Payload aus dem Track; Titel, Häfen, Angaben, Crew, Kommentare, Reaktionen bleiben', async () => {
     const owner = await s.person({ profile: 'public' });
     const fan = await s.person({ profile: 'public' });
@@ -187,6 +202,34 @@ describe('F-602 Plausibilität und Zeitfenster wie beim Hochladen', () => {
 });
 
 describe('F-603 Kontingente und Speicherzähler', () => {
+  it('[F-603] Notbremse: 503 storage_paused, Eintrag unverändert', async () => {
+    const owner = await s.person();
+    const entry = await manual(owner);
+    const before = await counter();
+    await (await db()).prepare("UPDATE counters SET value = ? WHERE name = 'storage_bytes'").bind(1e15).run();
+    try {
+      const res = await attach(entry.id, owner.cookie);
+      expect(res.status).toBe(503);
+      expect((await errorOf(res)).error).toBe('storage_paused');
+    } finally {
+      await (await db()).prepare("UPDATE counters SET value = ? WHERE name = 'storage_bytes'").bind(before).run();
+    }
+    expect((await meta(entry.id, owner.cookie)).source).toBe('manual');
+  });
+
+  it('[F-603] Speicher reicht nur für die alte Route: größerer Track → 413 too_large', async () => {
+    const owner = await s.person();
+    const entry = await manual(owner);
+    const { bytesMax, bytesUsed } = (await (await h.fetch('/api/me/support', { cookie: owner.cookie })).json()) as { bytesMax: number; bytesUsed: number };
+    // ein anderer Törn belegt fast alles: frei bleiben 10 Bytes plus die Route des Eintrags
+    const other = ((await (await createShare(h, owner.cookie)).json()) as { share: Share }).share;
+    await (await db()).prepare('UPDATE shares SET image_bytes = ? WHERE id = ?').bind(bytesMax - bytesUsed - other.sizeBytes - 10, other.id).run();
+    const res = await attach(entry.id, owner.cookie, { gpx: named(Array.from(crypto.getRandomValues(new Uint8Array(3000)), (b) => b.toString(36)).join('')) });
+    expect(res.status).toBe(413);
+    expect((await errorOf(res)).error).toBe('too_large');
+    expect((await meta(entry.id, owner.cookie)).source).toBe('manual');
+  });
+
   it('[F-603] Zähler wächst um die Differenz neue Payload − alte Route; Größe am Törn', async () => {
     const owner = await s.person();
     const entry = await manual(owner);
@@ -212,6 +255,30 @@ describe('F-603 Kontingente und Speicherzähler', () => {
 });
 
 describe('F-604 Aufbewahrung nach Törn-Regel', () => {
+  it('[F-604] Löschtermin innerhalb der 14-Tage-Warnfrist (Unterstützung endete): 409 expiry_soon', async () => {
+    const owner = await s.person();
+    const entry = await manual(owner);
+    // Saison 2025 (Törn-Frist vorbei), Unterstützung bis vor 24 Tagen → Löschtermin nach Törn-Regel in 7 Tagen
+    await (await db()).prepare('UPDATE shares SET created_at = ? WHERE id = ?').bind(Date.UTC(2025, 5, 14), entry.id).run();
+    await grantSupport(h, owner.user.id, Date.now() - GRACE_MS + 7 * 86_400_000);
+    const m = await meta(entry.id, owner.cookie);
+    expect(m.trackExpiresAt).toBeGreaterThan(Date.now());
+    expect(m.trackExpiresAt!).toBeLessThan(Date.now() + WARN_MS);
+    const res = await attach(entry.id, owner.cookie);
+    expect(res.status).toBe(409);
+    expect((await errorOf(res)).error).toBe('expiry_soon');
+  });
+
+  it('[F-604] trackExpiresAt nur für die Eigentümer:in eines Eintrags ohne GPX', async () => {
+    const owner = await s.person();
+    const entry = await manual(owner);
+    const row = (await (await db()).prepare('SELECT created_at FROM shares WHERE id = ?').bind(entry.id).first<{ created_at: number }>())!;
+    expect((await meta(entry.id, owner.cookie)).trackExpiresAt).toBe(shareExpiry(row.created_at, null));
+    expect((await meta(entry.id)).trackExpiresAt).toBeUndefined();
+    expect((await attach(entry.id, owner.cookie)).status).toBe(200);
+    expect((await meta(entry.id, owner.cookie)).trackExpiresAt).toBeUndefined();
+  });
+
   it('[F-604] Löschtermin danach wie ein GPX-Törn (eine Saison früher), Warnung zurückgesetzt', async () => {
     const owner = await s.person();
     const entry = await manual(owner);
@@ -293,20 +360,99 @@ describe('F-606 Löschwege nach dem Nachreichen', () => {
     expect(await files(entry.id)).toBe(0);
   });
 
-  // Ein echter paralleler Aufruf hat vor diesem Batch umgestellt (ein D1-Batch ist eine Transaktion); dann bucht
-  // replaceManualPayloadStmt 0 – die Simulation hier stellt erst nach dem Zähler um und prüft nur den Ausgang.
-  it('[F-606] parallel schon nachgereicht: 409 conflict, der Törn bleibt beim anderen Stand', async () => {
+  const fileOf = async (id: string) => {
+    const obj = await (await h.r2()).get(`shares/${id}`);
+    return obj ? new Uint8Array(await obj.arrayBuffer()) : null;
+  };
+  const textOf = async (id: string) => {
+    const b = await fileOf(id);
+    return b ? JSON.parse(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).text()) as { tracks: Array<{ name: string }>; route?: unknown } : null;
+  };
+  /** Speicherzähler wie der Nachtlauf (recomputeStorage); andere Tests setzen Spalten direkt – verglichen wird die Abweichung davor und danach */
+  const recomputed = async () =>
+    (await (await db()).prepare(
+      'SELECT (SELECT COALESCE(SUM(size_bytes + image_bytes), 0) FROM shares) + (SELECT COALESCE(SUM(bytes), 0) FROM photos) + (SELECT COALESCE(SUM(bytes), 0) FROM covers) AS v',
+    ).first<{ v: number }>())!.v;
+
+  it('[F-606] zwei gleichzeitige Nachreichungen: eine gewinnt, Datei, Zeile und Zähler passen zueinander (ETag, S1)', async () => {
+    const owner = await s.person();
+    const drift = (await counter()) - (await recomputed());
+    for (let round = 0; round < 3; round++) {
+      const entry = await manual(owner);
+      const [a, b] = await Promise.all([attach(entry.id, owner.cookie, { gpx: named('A') }), attach(entry.id, owner.cookie, { gpx: named('B') })]);
+      const statuses = [a.status, b.status].sort();
+      expect(statuses).toEqual([200, 409]);
+      const winner = a.status === 200 ? 'A' : 'B';
+      const loser = await errorOf(a.status === 200 ? b : a);
+      expect(['conflict', 'not_manual']).toContain(loser.error);
+      const payload = (await textOf(entry.id))!;
+      expect(payload.tracks).toHaveLength(1);
+      // der Gewinner steht in der Datei (Track-Name im GPX), die Größe in D1 ist die der Datei
+      expect(JSON.stringify(payload)).toContain(`<name>${winner}</name>`);
+      const row = (await (await db()).prepare('SELECT size_bytes AS sb, source FROM shares WHERE id = ?').bind(entry.id).first<{ sb: number; source: string }>())!;
+      expect(row.source).toBe('gpx');
+      expect(row.sb).toBe((await fileOf(entry.id))!.length);
+    }
+    expect((await counter()) - (await recomputed())).toBe(drift);
+  });
+
+  it('[F-606] D1 scheitert nach dem Schreiben: die Route kommt zurück, nichts gebucht (S2)', async () => {
     const owner = await s.person();
     const entry = await manual(owner);
-    await race(entry.id, `UPDATE shares SET source = 'gpx' WHERE id = '${entry.id}'`);
+    const route = await fileOf(entry.id);
+    const before = await counter();
+    await (await db()).prepare(`CREATE TRIGGER fail_${entry.id} BEFORE UPDATE OF source ON shares WHEN OLD.id = '${entry.id}' BEGIN SELECT RAISE(ABORT, 'kaputt'); END`).bind().run();
     try {
-      const res = await attach(entry.id, owner.cookie);
-      expect(res.status).toBe(409);
-      expect((await errorOf(res)).error).toBe('conflict');
+      expect((await attach(entry.id, owner.cookie)).status).toBe(500);
     } finally {
-      await dropRace(entry.id);
+      await (await db()).prepare(`DROP TRIGGER IF EXISTS fail_${entry.id}`).bind().run();
     }
-    const row = (await (await db()).prepare('SELECT source, dist_source AS ds, size_bytes AS sb FROM shares WHERE id = ?').bind(entry.id).first<{ source: string; ds: string; sb: number }>())!;
-    expect(row).toEqual({ source: 'gpx', ds: entry.distSource, sb: entry.sizeBytes });
+    expect(await fileOf(entry.id)).toEqual(route);
+    expect((await textOf(entry.id))!.route).toBeTruthy();
+    expect(await counter()).toBe(before);
+    expect((await meta(entry.id, owner.cookie)).source).toBe('manual');
+    // danach geht es normal
+    expect((await attach(entry.id, owner.cookie)).status).toBe(200);
+  });
+
+  it('[F-606] veraltete Änderung nach dem Nachreichen überschreibt den Track nicht (S3)', async () => {
+    const owner = await s.person();
+    const entry = await manual(owner);
+    // PATCH liest den Eintrag noch als „ohne GPX“; zwischen Lesen und UPDATE wird nachgereicht (Trigger am Zähler)
+    await (await db()).prepare(
+      `CREATE TRIGGER stale_${entry.id} AFTER UPDATE ON counters BEGIN UPDATE shares SET source = 'gpx', dist_source = 'track', dist_nm = 0.6 WHERE id = '${entry.id}'; END`,
+    ).bind().run();
+    let res: Response;
+    try {
+      res = await s.send('PATCH', `/api/shares/${entry.id}`, owner.cookie, { distNm: 9, toHarbor: { harborId: harbors.from } });
+    } finally {
+      await (await db()).prepare(`DROP TRIGGER IF EXISTS stale_${entry.id}`).bind().run();
+    }
+    expect(res.status).toBe(409);
+    expect((await errorOf(res)).error).toBe('conflict');
+    const row = (await (await db()).prepare('SELECT source, dist_nm AS nm, to_harbor_id AS t FROM shares WHERE id = ?').bind(entry.id).first<{ source: string; nm: number; t: string }>())!;
+    expect(row).toEqual({ source: 'gpx', nm: 0.6, t: harbors.to });
+  });
+
+  it('[F-606] Nachreichen und Routen-Änderung gleichzeitig: Datei, Zeile und Zähler bleiben stimmig (S1, S3)', async () => {
+    const owner = await s.person();
+    const drift = (await counter()) - (await recomputed());
+    for (let round = 0; round < 3; round++) {
+      const entry = await manual(owner);
+      const [a, p] = await Promise.all([
+        attach(entry.id, owner.cookie),
+        s.send('PATCH', `/api/shares/${entry.id}`, owner.cookie, { toHarbor: { harborId: harbors.from }, distNm: 5 }),
+      ]);
+      expect(a.status === 200 || a.status === 409).toBe(true);
+      expect([200, 409]).toContain(p.status);
+      const row = (await (await db()).prepare('SELECT size_bytes AS sb, source FROM shares WHERE id = ?').bind(entry.id).first<{ sb: number; source: string }>())!;
+      const payload = (await textOf(entry.id))!;
+      if (row.source === 'gpx') {
+        expect(payload.tracks).toHaveLength(1);
+        expect(payload.route).toBeUndefined();
+      } else expect(payload.route).toBeTruthy();
+      expect(row.sb).toBe((await fileOf(entry.id))!.length);
+    }
+    expect((await counter()) - (await recomputed())).toBe(drift);
   });
 });

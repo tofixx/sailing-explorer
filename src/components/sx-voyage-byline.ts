@@ -8,7 +8,7 @@ import { base, emit } from './shared';
 import './sx-title-edit';
 import './sx-page-menu';
 import type { PageMenuItem } from './sx-page-menu';
-import { canAttachTrack } from '../domain/track-attach';
+import { offerAttachTrack } from '../domain/track-attach';
 
 const MODE_ICON: Record<CommentsMode, IconName> = { on: 'comment', off: 'lock', hidden: 'eyeOff' };
 
@@ -16,11 +16,12 @@ const MODE_ICON: Record<CommentsMode, IconName> = { on: 'comment', off: 'lock', 
  * Zahnrad-Menü des Törns (N6, F-510): Verwaltung, die nicht ständig sichtbar sein muss – Crew bearbeiten (Eigentümer:in
  * bzw. Skipper:in, wenn es etwas zu bearbeiten gibt), Crew verlassen (Crew-Mitglied), Kommentar-Einstellung
  * (Eigentümer:in) und Melden (alle anderen). Nur, was erlaubt ist; ohne Einträge kein Zahnrad. „GPX nachreichen“ nur für
- * die Eigentümer:in eines Fahrtenbuch-Eintrags ohne GPX (Konzept 38, F-605) – der einzige Einstieg dafür.
+ * die Eigentümer:in eines Fahrtenbuch-Eintrags ohne GPX (Konzept 38, F-605) – der einzige Einstieg dafür; er fehlt, wenn der
+ * Löschtermin nach Törn-Regel in der Warnfrist läge (F-604, der Eintrag bliebe sonst nur noch Tage).
  */
-export function voyageMenuItems(share: Pick<ShareMeta, 'isOwner' | 'commentsMode' | 'source'>, crew: Crew | null): PageMenuItem[] {
+export function voyageMenuItems(share: Pick<ShareMeta, 'isOwner' | 'commentsMode' | 'source' | 'trackExpiresAt'>, crew: Crew | null): PageMenuItem[] {
   const items: PageMenuItem[] = [];
-  if (canAttachTrack(share)) items.push({ id: 'track-attach', label: 'GPX nachreichen', icon: 'upload' });
+  if (offerAttachTrack(share)) items.push({ id: 'track-attach', label: 'GPX nachreichen', icon: 'upload' });
   // Skipper:in aus der Crew bestätigt auch die Eigentümer:in – dann gibt es auch ohne weitere Mitglieder etwas zu tun
   const ownerToConfirm = !!crew?.isSkipper && !crew.isOwner && !!crew.ownerRole;
   if (crew && (crew.isOwner || crew.isSkipper) && (crew.members.length > 0 || ownerToConfirm)) items.push({ id: 'crew-edit', label: 'Crew bearbeiten', icon: 'pencil' });
@@ -125,7 +126,7 @@ export class SxVoyageByline extends LitElement {
       <sx-title-edit heading share-id=${s.id} .value=${s.title} ?editable=${s.isOwner}></sx-title-edit>
       <sx-page-menu label=${s.title || 'Törn'} .items=${voyageMenuItems(s, this.crew)}
         @sx-page-menu-pick=${(e: CustomEvent<{ id: string }>) => this.onMenu(s, e.detail.id)}></sx-page-menu>
-      ${canAttachTrack(s) ? html`<input type="file" accept=".gpx,application/gpx+xml" aria-hidden="true" tabindex="-1" @change=${this.onFile} />` : ''}
+      ${offerAttachTrack(s) ? html`<input type="file" accept=".gpx,application/gpx+xml" aria-hidden="true" tabindex="-1" @change=${this.onFile} />` : ''}
     </div>`;
     const boat = s.boatPage;
     if (!s.sailor && !boat && !s.groups?.length) return head;

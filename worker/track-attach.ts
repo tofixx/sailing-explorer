@@ -10,6 +10,8 @@ import { LIMITS, cleanText } from './validate';
 import { NOT_FOUND, checkPayload, decodeHeader, getShareRow, ownedShare, shareDetail } from './shares';
 import { plausibleGpx } from '../src/domain/logbook';
 import { attachExpiryError, trackDateError } from '../src/domain/track-attach';
+import { shareExpiry } from '../src/domain/support';
+import { recordDistanceGain } from './activity';
 
 /** Zeitpunkt aus einem Header: endlich, positiv, höchstens einen Tag in der Zukunft – sonst null (wie createShare). */
 function headerTime(v: string | null, now: number): number | null {
@@ -34,7 +36,7 @@ export async function attachTrack(request: Request, env: Env, id: string): Promi
   checkShareQuota(env, usage);
   const remaining = checkStorageQuota(env, usage) + row.size_bytes;
   checkBrake(await currentBrake(env), usage.supporter);
-  const expiry = attachExpiryError(row.created_at, usage.supporterUntil, now);
+  const expiry = attachExpiryError(shareExpiry(row.created_at, usage.supporterUntil), now);
   if (expiry) throw new HttpError(409, 'expiry_soon', expiry);
 
   const bytes = await readBodyCapped(request, Math.min(LIMITS.uploadBytes, remaining)).catch((e: unknown) => {
@@ -58,29 +60,51 @@ export async function attachTrack(request: Request, env: Env, id: string): Promi
   const trackCount = Math.max(1, Math.min(LIMITS.tracksPerShare, Number(h.get('X-Share-Tracks')) || 1));
   const summary = cleanText(decodeHeader(h.get('X-Share-Summary')), LIMITS.summaryLength) || row.summary;
 
-  // Dieselbe Datei wie die Route: sie wird überschrieben, es bleibt kein zweites Objekt (38.3).
-  await env.TRACKS.put(shareKey(row.id), bytes, {
-    httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' },
-    customMetadata: { owner: row.user_id },
-  });
-  const [, upd] = await env.DB.batch([
-    // Zähler vor dem UPDATE um die Differenz verschieben – nur, solange der Törn noch ein Eintrag ohne GPX ist
-    replaceManualPayloadStmt(env, row.id, bytes.length),
-    env.DB.prepare(
-      `UPDATE shares SET source = 'gpx', dist_source = 'track', dist_nm = ?1, started_at = ?2, ended_at = ?3, track_count = ?4, size_bytes = ?5,
-         summary = ?6, updated_at = ?7, expiry_warned_at = NULL WHERE id = ?8 AND source = 'manual'`,
-    ).bind(distNm, startedAt, endedAt, trackCount, bytes.length, summary, now, row.id),
-    // Post-Art folgt der Herkunft (shareKindOf): aus dem Fahrtenbuch-Eintrag wird ein Törn
-    env.DB.prepare("UPDATE posts SET kind = 'voyage', updated_at = ?1 WHERE id = ?2 AND kind = 'logbook'").bind(now, row.id),
-  ]);
-  if (!upd.meta.changes) {
-    // Törn inzwischen gelöscht: die gerade geschriebene Datei hätte keine Zeile mehr.
-    if (!(await env.DB.prepare('SELECT 1 AS x FROM shares WHERE id = ?').bind(row.id).first())) {
+  // Dieselbe Datei wie die Route: sie wird überschrieben, es bleibt kein zweites Objekt (38.3). Nur, wenn sie seit dem
+  // Lesen niemand geändert hat (ETag) – sonst hat ein paralleler Weg sie geschrieben: 409, nichts angefasst (S1).
+  const old = await env.TRACKS.get(shareKey(row.id));
+  const route = old ? new Uint8Array(await old.arrayBuffer()) : null;
+  const meta = { httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' }, customMetadata: { owner: row.user_id } };
+  const put = await env.TRACKS.put(shareKey(row.id), bytes, old ? { ...meta, onlyIf: { etagMatches: old.etag } } : meta);
+  if (!put) throw CONFLICT();
+
+  const still = () => env.DB.prepare('SELECT source FROM shares WHERE id = ?').bind(row.id).first<{ source: string }>();
+  /** D1 hat nicht umgestellt: Route zurück, solange der Eintrag noch ohne GPX ist; ist er weg, die Datei auch (S2). */
+  const undo = async (): Promise<'gone' | 'other'> => {
+    const cur = await still();
+    if (!cur) {
       await deleteKeys(env, [shareKey(row.id)]);
-      throw NOT_FOUND();
+      return 'gone';
     }
-    throw new HttpError(409, 'conflict', 'Dieser Törn hat inzwischen schon einen Track.');
+    if (cur.source === 'manual' && route) await env.TRACKS.put(shareKey(row.id), route, meta);
+    return 'other';
+  };
+  let changed: number;
+  try {
+    const [, upd] = await env.DB.batch([
+      // Zähler vor dem UPDATE um die Differenz verschieben – nur, solange der Törn noch ein Eintrag ohne GPX ist
+      replaceManualPayloadStmt(env, row.id, bytes.length),
+      env.DB.prepare(
+        `UPDATE shares SET source = 'gpx', dist_source = 'track', dist_nm = ?1, started_at = ?2, ended_at = ?3, track_count = ?4, size_bytes = ?5,
+           summary = ?6, updated_at = ?7, expiry_warned_at = NULL WHERE id = ?8 AND source = 'manual'`,
+      ).bind(distNm, startedAt, endedAt, trackCount, bytes.length, summary, now, row.id),
+      // Post-Art folgt der Herkunft (shareKindOf): aus dem Fahrtenbuch-Eintrag wird ein Törn
+      env.DB.prepare("UPDATE posts SET kind = 'voyage', updated_at = ?1 WHERE id = ?2 AND kind = 'logbook'").bind(now, row.id),
+    ]);
+    changed = upd.meta.changes;
+  } catch (err) {
+    // ein Timeout kann trotz Schreiben einen Fehler melden – dann gilt der Track (Zeile ist schon 'gpx')
+    await undo();
+    throw err;
+  }
+  if (!changed) {
+    if ((await undo()) === 'gone') throw NOT_FOUND();
+    throw CONFLICT();
   }
   const saved = await getShareRow(env, row.id);
+  // Meilensteine für den Zuwachs an Strecke (öffentlich, F-601) – keine neue Neuigkeit
+  if (saved && saved.visibility === 'public' && !saved.hidden_at) await recordDistanceGain(env, saved, distNm - row.dist_nm, now);
   return json({ share: await shareDetail(env, saved ?? row, true, user.id) });
 }
+
+const CONFLICT = () => new HttpError(409, 'conflict', 'Dieser Törn wurde gerade anderweitig geändert – bitte neu laden.');

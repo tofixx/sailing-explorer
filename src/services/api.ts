@@ -80,6 +80,8 @@ export interface ShareMeta extends Linkable {
   logState?: LogState;
   /** „Sichtbar bis“ (F-427) – nur für die Eigentümer:in */
   reach?: Reach;
+  /** GPX nachreichen (F-604): Löschtermin nach Törn-Regel – nur für die Eigentümer:in eines Eintrags ohne GPX */
+  trackExpiresAt?: number | null;
 }
 
 /** Start- bzw. Zielhafen eines Törns (ausgeblendete Häfen: null) */

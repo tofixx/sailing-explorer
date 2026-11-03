@@ -573,7 +573,8 @@ Ein Endpunkt `PUT /api/shares/:id/track`, ein Menüeintrag, keine Migration. Ent
   und Kurzbeschreibung aus dem Upload, Abfahrt/Ankunft aus dem Track (ohne Zeitstempel bleiben die des Eintrags),
   Post-Art `voyage`. Die Payload (gleiches Format wie `POST /api/shares`) ersetzt die Route in derselben Datei. ID, Link,
   Titel, Sichtbarkeit, „Sichtbar bis“, Gruppen, Boot, Häfen, Angaben (`log`), Stand „Ins Fahrtenbuch“, eigene Rolle,
-  Crew samt Bestätigungen, Kommentare und Reaktionen bleiben; Neuigkeiten und Benachrichtigungen gibt es keine.
+  Crew samt Bestätigungen, Kommentare und Reaktionen bleiben; Neuigkeiten und Benachrichtigungen gibt es keine. Ist
+  der Törn öffentlich, prüft der Worker Meilensteine (F-166) für den Zuwachs an Strecke (`recordDistanceGain`).
   Fotos und Übersichtsbild sind ab dann erlaubt (F-309 gilt nicht mehr).
 - **F-602** Plausibilität wie beim Hochladen (`plausibleGpx`, F-311: 400 `implausible_distance`; ungültiges Format 400
   `invalid_payload`) und Zeitfenster (`trackDateError`): Ein Track mit Zeitstempeln muss die Kalendertage des Eintrags
@@ -585,14 +586,19 @@ Ein Endpunkt `PUT /api/shares/:id/track`, ein Menüeintrag, keine Migration. Ent
   Fahrtenbuch-Kontingent (F-305) wird frei.
 - **F-604** Aufbewahrung: Ab dem Nachreichen gilt die Frist der Törns (`shareExpiry` ab dem Anlegen, F-65), eine Saison
   kürzer als ohne GPX (F-306); `expiry_warned_at` wird zurückgesetzt. Läge der neue Löschtermin innerhalb der Warnfrist
-  (14 Tage) oder schon vorbei, 409 `expiry_soon` mit Datum, der Eintrag bleibt unverändert.
+  (14 Tage) oder schon vorbei, 409 `expiry_soon` mit Datum, der Eintrag bleibt unverändert. Die Einzelansicht liefert
+  der Eigentümer:in eines Eintrags ohne GPX dafür `trackExpiresAt` (Löschtermin nach Törn-Regel, `TRACK_EXPIRES_SQL`);
+  läge er in der Warnfrist, zeigt das Menü „GPX nachreichen“ nicht (F-605).
 - **F-605** Einziger Einstieg: „GPX nachreichen“ (Symbol `upload`) als erster Eintrag im Zahnrad-Menü des Törns
-  (`voyageMenuItems`), nur für die Eigentümer:in eines Eintrags ohne GPX. Die Byline öffnet die Dateiauswahl (`.gpx`)
+  (`voyageMenuItems`, `offerAttachTrack`), nur für die Eigentümer:in eines Eintrags ohne GPX und nicht in der Warnfrist (F-604). Die Byline öffnet die Dateiauswahl (`.gpx`)
   direkt aus dem Klick und meldet `sx-track-attach` { file }.
 - **F-606** Löschwege: keine neuen. Die Route wird überschrieben (eine Datei); Track und Übersichtsbild gehen mit dem
-  Törn (einzeln, Frist nach Törn-Regel, Konto, Moderation, Zusammenführen über die bestehenden Pfade). Wird der Törn
-  während des Nachreichens gelöscht, entfernt der Worker die gerade geschriebene Datei (404); hat ein paralleler Aufruf
-  schon nachgereicht, 409 `conflict`.
+  Törn (einzeln, Frist nach Törn-Regel, Konto, Moderation, Zusammenführen über die bestehenden Pfade). Gleichzeitigkeit:
+  Die Datei wird nur ersetzt, wenn ihr ETag seit dem Lesen gleich ist (sonst 409 `conflict`, nichts angefasst); scheitert
+  danach D1, kommt die alte Route zurück (Eintrag noch ohne GPX) bzw. die Datei wird entfernt (Törn gelöscht, 404); hat
+  ein paralleler Aufruf schon nachgereicht, 409 `conflict`. Auch `PATCH /api/shares/:id` schreibt eine neue Route nur
+  mit passendem ETag und ändert die Zeile nur auf dem gelesenen Stand von `source` (sonst 409 `conflict`) – eine
+  veraltete Änderung überschreibt keinen nachgereichten Track; Datei, `size_bytes` und Zähler bleiben stimmig.
 - **F-607** Ablauf im Browser (`WorkspaceController.attach`): GPX lesen, F-602 prüfen, Rückfrage (`sx-confirm`, nennt
   Datei, Datum, Strecke, was bleibt und die kürzere Aufbewahrung), Wetter einmal laden und mitspeichern, hochladen,
   Törn neu öffnen, Hinweis „Track nachgereicht“, Übersichtsbild im Querformat nachziehen (`SessionController.uploadPreview`,
