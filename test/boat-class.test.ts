@@ -10,7 +10,6 @@ import {
   classifyBoatType,
   isBoatClass,
   isBoatClassFilter,
-  resolveBoatClass,
 } from '../src/domain/boat-class';
 import { BOAT_TYPE_SAMPLES } from './boat-class-samples';
 
@@ -29,7 +28,7 @@ describe('F-535 Klassenliste und Zuordnung des freien Typs', () => {
   it('[F-535] Regeln nennen nur bekannte Klassen, Muster sind ASCII-Kleinbuchstaben ohne Trennzeichen', () => {
     for (const [id, ps] of BOAT_CLASS_RULES) {
       expect(isBoatClass(id)).toBe(true);
-      for (const p of ps) expect(p).toMatch(/^[a-z0-9 ]+$/);
+      for (const p of ps) expect(p).toMatch(/^=?[a-z0-9 ]+$/);
     }
     // „Sonstige“ wählt nur der Eigner – keine Regel führt dorthin
     expect(BOAT_CLASS_RULES.some(([id]) => id === 'sonstige')).toBe(false);
@@ -39,14 +38,6 @@ describe('F-535 Klassenliste und Zuordnung des freien Typs', () => {
     expect(classifyBoatType(type)).toBe(cls);
   });
 
-  it('[F-536] gewählte gültige Klasse gilt, sonst die aus dem Typ abgeleitete; Unbekanntes nie gespeichert', () => {
-    expect(resolveBoatClass('drachen', 'Bavaria 34')).toBe('drachen');
-    expect(resolveBoatClass('', 'Bavaria 34')).toBe('fahrtenyacht');
-    expect(resolveBoatClass('quatsch', 'Bavaria 34')).toBe('fahrtenyacht');
-    expect(resolveBoatClass('jollen', 'Segelboot')).toBe('');
-    expect(resolveBoatClass(42, '')).toBe('');
-  });
-
   it('[F-537] Filterwerte: Klasse oder Gruppe, Unbekanntes filtert nicht', () => {
     expect(boatClassesOf('folkeboot')).toEqual(['folkeboot']);
     expect(boatClassesOf('jollen')).toEqual(['optimist', 'ilca', '420', '470', 'pirat', 'korsar', 'conger', 'jollenkreuzer']);
@@ -54,6 +45,9 @@ describe('F-535 Klassenliste und Zuordnung des freien Typs', () => {
     expect(boatClassesOf('x')).toBeNull();
     expect(boatClassesOf('')).toBeNull();
     expect(boatClassesOf(null)).toBeNull();
+    // „Sonstige“ ist nur eine Wahl am Boot, kein Filter
+    expect(boatClassesOf('sonstige')).toBeNull();
+    expect(isBoatClassFilter('sonstige')).toBe(false);
     expect(isBoatClassFilter('kielboote')).toBe(true);
     expect(boatClassFilterLabel('jollen')).toBe('Alle Jollen');
     expect(boatClassFilterLabel('h-boot')).toBe('H-Boot');

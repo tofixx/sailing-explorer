@@ -3,7 +3,8 @@ import { BOAT_CLASSES, BOAT_CLASS_GROUPS, boatClassFilterLabel } from '../domain
 
 /**
  * Optionen einer Bootsklassen-Auswahl (Konzept 34), gruppiert wie BOAT_CLASS_GROUPS – geteilt von Bootsformular
- * (`sx-account-dialog`) und Filter auf /entdecken (`sx-discover`). `groups`: je Gruppe zusätzlich „Alle …“ (Filter).
+ * (`sx-account-dialog`) und Filter auf /entdecken (`sx-discover`). `groups` (Filter): je Gruppe zusätzlich „Alle …“,
+ * ohne „Sonstige“ (nur eine Wahl am Boot, F-537).
  * Die erste Option (Wert '') bringt der Aufrufer mit.
  */
 export function boatClassOptions(selected: string, groups = false) {
@@ -12,5 +13,5 @@ export function boatClassOptions(selected: string, groups = false) {
     ([g, label]) => html`<optgroup label=${label}>
       ${groups ? opt(g, boatClassFilterLabel(g)) : ''}${BOAT_CLASSES.filter((c) => c.group === g).map((c) => opt(c.id, c.label))}
     </optgroup>`,
-  )}${BOAT_CLASSES.filter((c) => !c.group).map((c) => opt(c.id, c.label))}`;
+  )}${groups ? '' : BOAT_CLASSES.filter((c) => !c.group).map((c) => opt(c.id, c.label))}`;
 }

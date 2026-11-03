@@ -18,7 +18,7 @@ import { checkBoatQuota, checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 import { publicSql } from './visible-sql';
-import { resolveBoatClass } from '../src/domain/boat-class';
+import { classifyBoatType, isBoatClass } from '../src/domain/boat-class';
 
 interface BoatRow {
   id: string;
@@ -123,7 +123,7 @@ export function boatShape(b: BoatRow, role: Role) {
 interface BoatInput {
   name?: unknown;
   boatType?: unknown;
-  /** Klasse aus BOAT_CLASSES; leer/unbekannt = aus dem Typ ableiten (F-536) */
+  /** Klasse aus BOAT_CLASSES, '' = keine (F-536) */
   boatClass?: unknown;
   lengthM?: unknown;
   sailNumber?: unknown;
@@ -147,8 +147,13 @@ function applyInput(b: BoatRow, input: BoatInput): Visibility | null {
     b.name = name;
   }
   if (input.boatType !== undefined) b.boat_type = cleanText(input.boatType, LIMITS.nameLength);
-  // Klasse (F-536): gewählt oder aus dem Typ abgeleitet – neu bestimmt, sobald Typ oder Klasse mitkommen.
-  if (input.boatType !== undefined || input.boatClass !== undefined) b.boat_class = resolveBoatClass(input.boatClass, b.boat_type);
+  // Klasse (F-536): gespeichert wird, was der Eigner schickt; abgeleitet aus dem Typ nur, solange das Boot keine hat
+  // (neues Boot, Altbestand ohne Treffer, Clients ohne das Feld).
+  const cls = input.boatClass;
+  if (cls !== undefined) {
+    if (!(cls === '' || isBoatClass(cls))) throw new HttpError(400, 'invalid_boat_class', 'Unbekannte Bootsklasse.');
+    b.boat_class = cls;
+  } else if (input.boatType !== undefined && !b.boat_class) b.boat_class = classifyBoatType(b.boat_type);
   if (input.sailNumber !== undefined) b.sail_number = cleanText(input.sailNumber, 20);
   if (input.description !== undefined) b.description = cleanText(input.description, LIMITS.bioLength);
   if (input.ownerLabel !== undefined) b.owner_label = cleanText(input.ownerLabel, LIMITS.nameLength);

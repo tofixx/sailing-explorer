@@ -49,7 +49,8 @@ describe('F-539 Bootsklasse auf /entdecken', () => {
     const select = el.shadowRoot.querySelector<HTMLSelectElement>('select[aria-label="Bootsklasse"]')!;
     expect(select.options[0]).toMatchObject({ value: '', text: 'Alle Bootsklassen' });
     const values = [...select.options].map((o) => o.value);
-    expect(values).toEqual(expect.arrayContaining(['jollen', 'kielboote', 'yachten', ...BOAT_CLASSES.map((c) => c.id)]));
+    expect(values).toEqual(expect.arrayContaining(['jollen', 'kielboote', 'yachten', ...BOAT_CLASSES.filter((c) => c.group).map((c) => c.id)]));
+    expect(values).not.toContain('sonstige');
     expect([...select.querySelectorAll('optgroup')].map((g) => g.label)).toEqual(['Jollen', 'Kielboote', 'Yachten und Mehrrumpf']);
     select.value = 'folkeboot';
     select.dispatchEvent(new Event('change'));
@@ -111,23 +112,30 @@ describe('F-536 Bootsklasse im Bootsformular', () => {
     return el;
   }
 
-  it('[F-536] aus dem Typ abgeleitete Klasse steht auf „Automatisch“ (folgt dem Typ), eine abweichende als Wahl', async () => {
-    const auto = await edit(boat());
-    const sel = auto.shadowRoot.querySelector<HTMLSelectElement>('select[name="boatClass"]')!;
-    expect(sel.value).toBe('');
-    expect(sel.options[0].text).toBe('Automatisch: Folkeboot');
-    document.body.innerHTML = '';
-    const chosen = await edit(boat({ boatType: 'Eigenbau', boatClass: 'drachen' }));
+  it('[F-536] gespeicherte Klasse vorausgewählt, ohne sie der Vorschlag aus dem Typ; „Sonstige“ wählbar', async () => {
+    const own = await edit(boat({ boatType: 'Folkeboot', boatClass: 'drachen' }));
     // Vorauswahl per selected-Attribut (happy-dom wertet es in optgroup nicht für .value aus)
-    expect(chosen.shadowRoot.querySelector<HTMLOptionElement>('select[name="boatClass"] option[selected]')!.value).toBe('drachen');
+    expect(own.shadowRoot.querySelector<HTMLOptionElement>('select[name="boatClass"] option[selected]')!.value).toBe('drachen');
+    expect(own.shadowRoot.querySelector('select[name="boatClass"] option[value="sonstige"]')).not.toBeNull();
+    document.body.innerHTML = '';
+    const old = await edit(boat({ boatType: 'Bavaria 34', boatClass: '' }));
+    expect(old.shadowRoot.querySelector<HTMLOptionElement>('select[name="boatClass"] option[selected]')!.value).toBe('fahrtenyacht');
   });
 
-  it('[F-536] Speichern sendet die Wahl als boatClass (leer = automatisch)', async () => {
+  it('[F-536] Typ eingeben schlägt die Klasse vor, bis sie von Hand gewählt ist; gesendet wird die Auswahl', async () => {
     const saves = listen('sx-boat-save');
-    const el = await edit(boat());
+    const el = await edit(boat({ boatType: '', boatClass: '' }));
+    const type = el.shadowRoot.querySelector<HTMLInputElement>('#bt')!;
     const sel = el.shadowRoot.querySelector<HTMLSelectElement>('select[name="boatClass"]')!;
+    type.value = 'Hobie 16';
+    type.dispatchEvent(new Event('input'));
+    expect(sel.value).toBe('katamaran');
     sel.value = 'sonstige';
+    sel.dispatchEvent(new Event('change'));
+    type.value = 'Optimist';
+    type.dispatchEvent(new Event('input'));
+    expect(sel.value).toBe('sonstige');
     el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
-    expect(saves).toEqual([{ id: 'BoatId1234567890', input: expect.objectContaining({ boatType: 'Folkeboot', boatClass: 'sonstige' }) }]);
+    expect(saves).toEqual([{ id: 'BoatId1234567890', input: expect.objectContaining({ boatType: 'Optimist', boatClass: 'sonstige' }) }]);
   });
 });

@@ -1,7 +1,10 @@
 // Migrationstest 0042 (F-538): vorhandene Boote bekommen ihre Klasse aus dem freien Typ – genau wie classifyBoatType
 // beim Speichern; Boote ohne Typ bleiben leer, der Typ selbst bleibt unverändert.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { applyMigrations, migrationFiles, startWorker, type Harness } from './worker-harness';
+import { migration0042 } from '../boat-class-sql';
 import { BOAT_TYPE_SAMPLES } from '../boat-class-samples';
 import { classifyBoatType } from '../../src/domain/boat-class';
 
@@ -28,6 +31,10 @@ afterAll(async () => {
 });
 
 describe('F-538 Migration Bootsklasse', () => {
+  it('[F-538] Datei ist aus den aktuellen Regeln erzeugt (test/boat-class-sql.ts)', () => {
+    expect(readFileSync(resolve('migrations', '0042_boat_class.sql'), 'utf8').split('\r').join('')).toBe(migration0042());
+  });
+
   it('[F-538] Altbestand: Klasse wie classifyBoatType, Typ unverändert, ohne Treffer leer', async () => {
     const db = await h.db();
     for (const [i, t] of SAMPLES.entries()) {
@@ -41,5 +48,7 @@ describe('F-538 Migration Bootsklasse', () => {
     expect(await get(SAMPLES.indexOf('J/24'))).toBe('j24');
     expect(await get(SAMPLES.indexOf('Segelboot'))).toBe('');
     expect(await get(SAMPLES.indexOf('FOLKEBOOT'))).toBe('folkeboot');
+    expect(await get(SAMPLES.indexOf('Laser'))).toBe('ilca');
+    expect(await get(SAMPLES.indexOf('Laser 2000'))).toBe('');
   });
 });

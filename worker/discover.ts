@@ -99,9 +99,9 @@ const PEOPLE = (m: string) => `SELECT * FROM (
  * Häfen (F-332): nicht ausgeblendet, mit Zahl der öffentlichen Boote und Vereine/Teams. Ohne Suche nur Häfen, in
  * denen etwas los ist (meiste zuerst); mit Suche jeder passende – Häfen sind immer öffentlich (Konzept 12.2).
  */
-const HARBORS = (m: string) => `SELECT * FROM (
+const HARBORS = (m: string, cls: boolean) => `SELECT * FROM (
     SELECT h.id, h.slug, h.name,
-      (SELECT COUNT(*) FROM boats b WHERE b.harbor_id = h.id AND ${publicSql('b')} AND ${notSuspendedSql('b.owner_id')}) AS boats,
+      (SELECT COUNT(*) FROM boats b WHERE b.harbor_id = h.id AND ${publicSql('b')} AND ${notSuspendedSql('b.owner_id')}${cls ? ` AND ${IN_CLASS('b.boat_class')}` : ''}) AS boats,
       (SELECT COUNT(*) FROM groups g WHERE g.harbor_id = h.id AND ${publicSql('g')} AND ${notSuspendedSql('g.owner_id')}) AS clubs
     FROM harbors h
     WHERE h.hidden_at IS NULL ${m}
@@ -256,7 +256,8 @@ export async function getDiscover(request: Request, env: Env): Promise<Response>
     bind(VOYAGES(`${matching(search, 's.title')} ${n('voyage')}`)),
     bind(BOATS(`${matching(search, 'b.name', 'b.boat_type', 'b.home_port')} ${n('boat')}`)),
     bind(PEOPLE(`${matching(search, 'p.display_name', 'p.handle')} ${n('person')}`)),
-    bind(HARBORS(`${matching(search, 'h.name')} ${n('harbor')}`)),
+    // mit Klassen-Filter zählt der Hafen nur Boote dieser Klassen (F-537)
+    bind(HARBORS(`${matching(search, 'h.name')} ${n('harbor')}`, !!cls)),
   ]);
   return json(
     {

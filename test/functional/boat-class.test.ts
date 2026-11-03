@@ -25,7 +25,7 @@ interface Found {
   voyages: Array<{ id: string }>;
   boats: Array<{ id: string; boatClass: string }>;
   people: Array<{ handle: string }>;
-  harbors: Array<{ slug: string }>;
+  harbors: Array<{ slug: string; boats: number }>;
   groups: Array<{ slug: string }>;
   boatClass: string | null;
 }
@@ -36,28 +36,30 @@ async function discover(klasse: string, cookie?: string): Promise<{ body: Found;
 }
 
 describe('F-536 Bootsklasse beim Speichern', () => {
-  it('[F-536] ohne Wahl aus dem Typ abgeleitet, gewählte Klasse gilt, Unbekanntes zählt wie keine Wahl', async () => {
+  it('[F-536] neues Boot: gewählte Klasse gilt, ohne Wahl aus dem Typ abgeleitet, Unbekanntes 400', async () => {
     const a = await s.person({ profile: 'public', supporter: true });
     const derived = await boatOf(await s.send('POST', '/api/boats', a.cookie, { name: 'A', boatType: 'Bavaria 34' }));
     expect(derived).toMatchObject({ boatType: 'Bavaria 34', boatClass: 'fahrtenyacht' });
-    const chosen = await boatOf(await s.send('POST', '/api/boats', a.cookie, { name: 'B', boatType: 'Eigenbau', boatClass: 'drachen' }));
+    const chosen = await boatOf(await s.send('POST', '/api/boats', a.cookie, { name: 'B', boatType: 'Folkeboot', boatClass: 'drachen' }));
     expect(chosen.boatClass).toBe('drachen');
-    const unknown = await boatOf(await s.send('POST', '/api/boats', a.cookie, { name: 'C', boatType: 'Folke', boatClass: 'gibtsnicht' }));
-    expect(unknown.boatClass).toBe('folkeboot');
-    const none = await boatOf(await s.send('POST', '/api/boats', a.cookie, { name: 'D' }));
+    const none = await boatOf(await s.send('POST', '/api/boats', a.cookie, { name: 'C', boatType: 'Folkeboot', boatClass: '' }));
     expect(none.boatClass).toBe('');
+    const bad = await s.send('POST', '/api/boats', a.cookie, { name: 'D', boatType: 'Folke', boatClass: 'gibtsnicht' });
+    expect(bad.status).toBe(400);
+    expect(await s.errorOf(bad)).toBe('invalid_boat_class');
     // gelesen wie gespeichert
     expect(((await (await s.send('GET', `/api/boats/${chosen.id}`, undefined)).json()) as { boat: BoatOut }).boat.boatClass).toBe('drachen');
   });
 
-  it('[F-536] Ändern: neuer Typ leitet neu ab, andere Felder lassen die Klasse stehen, Wahl überschreibt', async () => {
+  it('[F-536] Ändern: gespeichert wird die Wahl; ein neuer Typ ändert eine vorhandene Klasse nicht, füllt nur eine leere', async () => {
     const a = await s.person({ profile: 'public' });
     const b = await boatOf(await s.send('POST', '/api/boats', a.cookie, { name: 'Möwe', boatType: 'Optimist' }));
     expect(b.boatClass).toBe('optimist');
     expect((await boatOf(await s.send('PATCH', `/api/boats/${b.id}`, a.cookie, { name: 'Möwe II' }))).boatClass).toBe('optimist');
-    expect((await boatOf(await s.send('PATCH', `/api/boats/${b.id}`, a.cookie, { boatType: '20er Jollenkreuzer', boatClass: '' }))).boatClass).toBe('jollenkreuzer');
+    expect((await boatOf(await s.send('PATCH', `/api/boats/${b.id}`, a.cookie, { boatType: '20er Jollenkreuzer' }))).boatClass).toBe('optimist');
     expect((await boatOf(await s.send('PATCH', `/api/boats/${b.id}`, a.cookie, { boatClass: 'sonstige' }))).boatClass).toBe('sonstige');
-    expect((await boatOf(await s.send('PATCH', `/api/boats/${b.id}`, a.cookie, { boatClass: '' }))).boatClass).toBe('jollenkreuzer');
+    expect((await boatOf(await s.send('PATCH', `/api/boats/${b.id}`, a.cookie, { boatClass: '' }))).boatClass).toBe('');
+    expect((await boatOf(await s.send('PATCH', `/api/boats/${b.id}`, a.cookie, { boatType: 'Drachen' }))).boatClass).toBe('drachen');
   });
 });
 
@@ -76,7 +78,18 @@ describe('F-537 Entdecken nach Bootsklasse', () => {
     const hidden = await s.boat(a, { name: 'Folke ausgeblendet', boatType: 'Folkeboot' });
     await (await s.db()).prepare('UPDATE boats SET hidden_at = 1 WHERE id = ?').bind(hidden.id).run();
     const privat = await s.boat(b, { name: 'Folke privat', boatType: 'Folkeboot', visibility: 'private' });
-    const opti = await s.boat(c, { name: 'Opti C', boatType: 'Optimist' });
+    const opti = await s.boat(c, { name: 'Opti C', boatType: 'Optimist', harborId: harbor.id });
+    // Hafen nur mit Booten einer anderen Klasse
+    const optiHarbor = ((await (await s.send('POST', '/api/harbors', c.cookie, { name: s.uniq('Optihafen'), lat: -45, lon: -170 })).json()) as { harbor: { slug: string; id: string } }).harbor;
+    await s.boat(c, { name: 'Opti D', boatType: 'Optimist', harborId: optiHarbor.id });
+    // gesperrtes Konto mit Folkeboot in eigenem Hafen und in einem offenen Verein (Eigner:in des Vereins nicht gesperrt)
+    const d = await s.person({ profile: 'public', supporter: true });
+    const dHarbor = ((await (await s.send('POST', '/api/harbors', d.cookie, { name: s.uniq('Sperrhafen'), lat: -45, lon: -170 })).json()) as { harbor: { slug: string; id: string } }).harbor;
+    const dBoat = await s.boat(d, { name: 'Folke gesperrt', boatType: 'Folkeboot', harborId: dHarbor.id });
+    const dClub = await s.group(a, { name: 'Verein mit gesperrtem Boot', membersVisible: 'public' });
+    await s.join(a, dClub, d);
+    expect((await s.send('POST', `/api/groups/${dClub.id}/boats`, d.cookie, { boatId: dBoat.id })).status).toBeLessThan(300);
+    await (await s.db()).prepare('UPDATE users SET suspended_at = 1 WHERE id = ?').bind(d.user.id).run();
     const v1 = await s.share(a, { title: 'Mit Folkeboot', boatId: folke.id });
     const v2 = await s.share(b, { title: 'Mit privatem Folkeboot', boatId: privat.id });
     const v3 = await s.share(c, { title: 'Mit Opti', boatId: opti.id });
@@ -86,7 +99,7 @@ describe('F-537 Entdecken nach Bootsklasse', () => {
     const closed = await s.group(a, { name: 'Geschlossen', membersVisible: 'members' });
     for (const g of [open, closed]) expect((await s.send('POST', `/api/groups/${g.id}/boats`, a.cookie, { boatId: folke.id })).status).toBeLessThan(300);
     ids = { folke: folke.id, hidden: hidden.id, privat: privat.id, opti: opti.id, v1: v1.id, v2: v2.id, v3: v3.id, v4: v4.id };
-    slugs = { harbor: harbor.slug, open: open.slug, closed: closed.slug };
+    slugs = { harbor: harbor.slug, open: open.slug, closed: closed.slug, optiHarbor: optiHarbor.slug, dHarbor: dHarbor.slug, dClub: dClub.slug };
   }, 60_000);
 
   it('[F-537] Klasse: nur Boote, Törns, Segler, Häfen und Vereine an einem öffentlichen Boot dieser Klasse', async () => {
@@ -103,10 +116,21 @@ describe('F-537 Entdecken nach Bootsklasse', () => {
     expect(people).toContain(a.handle);
     expect(people).not.toContain(c.handle);
     expect(body.harbors.map((x) => x.slug)).toContain(slugs.harbor);
+    // Hafen nur mit anderen Klassen bzw. nur mit dem Boot eines gesperrten Kontos: nicht dabei
+    expect(body.harbors.map((x) => x.slug)).not.toContain(slugs.optiHarbor);
+    expect(body.harbors.map((x) => x.slug)).not.toContain(slugs.dHarbor);
+    expect(body.groups.map((x) => x.slug)).not.toContain(slugs.dClub);
     const groups = body.groups.map((x) => x.slug);
     expect(groups).toContain(slugs.open);
     // Bootsliste nur für Mitglieder: der Filter verrät sie nicht
     expect(groups).not.toContain(slugs.closed);
+  });
+
+  it('[F-537] Hafen zählt unter dem Filter nur Boote dieser Klassen', async () => {
+    const count = async (k: string) => (await discover(k)).body.harbors.find((x) => x.slug === slugs.harbor)?.boats;
+    expect(await count('folkeboot')).toBe(1);
+    expect(await count('jollen')).toBe(1);
+    expect(await count('')).toBe(2);
   });
 
   it('[F-537] Gruppe „alle Jollen“ fasst die Jollenklassen zusammen; unbekannter Wert filtert nicht', async () => {
@@ -117,6 +141,8 @@ describe('F-537 Entdecken nach Bootsklasse', () => {
     expect(jollen.voyages.map((x) => x.id)).toEqual(expect.arrayContaining([ids.v3]));
     const unknown = (await discover('quatsch')).body;
     expect(unknown.boatClass).toBeNull();
+    // „Sonstige“ ist nur eine Wahl am Boot, kein Filter
+    expect((await discover('sonstige')).body.boatClass).toBeNull();
     expect(unknown.voyages.map((x) => x.id)).toEqual(expect.arrayContaining([ids.v1, ids.v3, ids.v4]));
   });
 
