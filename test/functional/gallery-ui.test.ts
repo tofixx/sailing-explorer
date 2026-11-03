@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   uploadPhoto: vi.fn(),
   remove: vi.fn(),
   compose: vi.fn(),
+  audience: vi.fn(async () => ({ audience: null })),
 }));
 vi.mock('../../src/services/api', async (orig) => {
   const real = await orig<typeof import('../../src/services/api')>();
@@ -64,6 +65,7 @@ afterEach(() => {
   cleanups = [];
   document.body.innerHTML = '';
   vi.clearAllMocks();
+  api.audience.mockImplementation(async () => ({ audience: null }));
 });
 
 const targets: ComposeTarget[] = [{ ref: { kind: 'user' }, id: '', choices: ['public'], reaches: [{ reach: 'all', label: 'Überall', chain: 'dein Profil → überall' }] }];
@@ -113,6 +115,21 @@ describe('sx-compose-dialog: Galerie', () => {
     expect(d.gallery.map((f) => f.name)).toEqual(['a.jpg', 'b.jpg']);
   });
 
+  it('[F-491] keine Nutzlast einer anderen Art: Umfrage ausgefüllt, abgebrochen, dann „Fotos“ – Veröffentlichen erst mit Foto (B1)', async () => {
+    const el = await mount('sx-compose-dialog', { open: true, kind: 'poll', targets });
+    await settle(el);
+    (el as unknown as { payload: unknown }).payload = { options: ['Ja', 'Nein'], multi: false };
+    // derselbe Dialog wird für „Fotos“ wiederverwendet
+    Object.assign(el, { kind: 'gallery', gallery: { used: 0, max: 10, perPost: 30 } });
+    await settle(el);
+    const comp = inner(el, 'sx-post-composer');
+    await pickerOf(el).updateComplete;
+    await settle(el);
+    expect((el as unknown as { payload: unknown }).payload).toBeNull();
+    const send = [...comp.shadowRoot.querySelectorAll('button')].find((b) => /Veröffentlichen/.test(b.textContent ?? ''))!;
+    expect(send.disabled).toBe(true);
+  });
+
   it('[F-493] Monat ausgeschöpft: Auswahl gesperrt, Hinweis auf den nächsten Monat', async () => {
     const el = await mount('sx-compose-dialog', { open: true, kind: 'gallery', targets, gallery: { used: 10, max: 10, perPost: 30 } });
     await settle(el);
@@ -149,6 +166,18 @@ describe('ComposeController: Galerie-Ablauf', () => {
     expect(toasts[0]).toMatch(/1 Foto nicht hochgeladen: Bild konnte nicht gelesen werden/);
     expect(dialog.open).toBe(false);
     expect(api.remove).not.toHaveBeenCalled();
+  });
+
+  it('[F-491] Galerie ohne Fotos (keine Liste): kein Beitrag, Fehler im Dialog; der Controller setzt die Nutzlast beim Öffnen zurück (B1)', async () => {
+    api.compose.mockResolvedValue({ targets, preselect: null, shares: [], supporter: false });
+    const { c, dialog } = await controller();
+    (dialog as unknown as { payload: unknown }).payload = { options: ['a', 'b'] };
+    c.open('gallery');
+    await vi.waitFor(() => expect(dialog.loading).toBe(false));
+    expect((dialog as unknown as { payload: unknown }).payload).toBeNull();
+    await c.submit({ ...input([]), gallery: { options: ['a'] } as unknown as File[] });
+    expect(api.createIn).not.toHaveBeenCalled();
+    expect(dialog.error).toMatch(/mindestens ein Foto/);
   });
 
   it('[F-491] [F-493] kein Foto ging (Kontingent): Beitrag wieder gelöscht, Fehler im Dialog, Rest nicht mehr versucht', async () => {

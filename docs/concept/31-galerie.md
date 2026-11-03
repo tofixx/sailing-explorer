@@ -43,7 +43,8 @@ nennt `photo_log`, die Kaskade `photos → posts` und die neuen Wege für `photo
 ## 31.4 Festlegungen
 
 - **Ein Weg zum Anlegen:** „+ Neu → Fotos“. Die Galerie entsteht in zwei Schritten (Beitrag, dann Fotos) – ein
-  Beitrag ohne Foto erscheint nirgends und bekommt keine Benachrichtigung. Der nächtliche Lauf löscht Galerie-Beiträge
+  Beitrag ohne Foto erscheint nirgends und benachrichtigt nicht; „neuer Beitrag“ geht genau einmal mit dem ersten Foto
+  hinaus (Merker `notified` in `posts.data`, atomar gesetzt). Der nächtliche Lauf löscht Galerie-Beiträge
   ohne ein einziges Foto, die älter als 24 h sind (`emptyGalleries` in `worker/post-photos.ts` → `removePost`).
 - **Text optional:** Galerie-Beiträge brauchen keinen Text; Bildunterschriften je Foto gibt es beim Anlegen nicht.
 - **Einzelne Fotos löschen:** die Autor:in in der Großansicht der Karte („Foto löschen“, `DELETE /api/photos/:id`,

@@ -377,6 +377,8 @@ export interface MyPost {
   attached?: { id: string; title: string } | null;
   /** im eigenen Profil angepinnt (F-403) */
   pinned?: boolean;
+  /** Galerie: Anzahl der sichtbaren Fotos (Konzept 31) – ohne Foto kein Link zur Karte */
+  photos?: number;
 }
 
 /** Foto eines Galerie-Beitrags (Konzept 31, F-492) – ohne Ort, Sichtbarkeit wie der Beitrag. */

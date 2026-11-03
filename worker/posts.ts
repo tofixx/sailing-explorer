@@ -451,6 +451,7 @@ interface MyRow {
   a_id: string | null;
   a_title: string | null;
   pinned: number;
+  n_photos: number | null;
 }
 
 /**
@@ -465,7 +466,8 @@ const MY_POSTS_SQL = `SELECT p.id, p.kind, p.visibility, p.body, p.link, p.hidde
     g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis,
     h.slug AS h_slug, h.name AS h_name, b.id AS b_id, b.name AS b_name, b.visibility AS b_vis,
     a.id AS a_id, a.title AS a_title,
-    EXISTS (SELECT 1 FROM channel_pins cp WHERE cp.channel_kind = 'user' AND cp.channel_id = ?1 AND cp.post_id = p.id) AS pinned
+    EXISTS (SELECT 1 FROM channel_pins cp WHERE cp.channel_kind = 'user' AND cp.channel_id = ?1 AND cp.post_id = p.id) AS pinned,
+    CASE WHEN p.kind = 'gallery' THEN (SELECT COUNT(*) FROM photos f WHERE f.post_id = p.id AND ${publicSql('f')}) END AS n_photos
   FROM posts p
   LEFT JOIN shares s ON s.id = p.share_id
   LEFT JOIN groups g ON g.id = p.group_id
@@ -514,6 +516,7 @@ function myPostShape(r: MyRow): MyPost | null {
     reach: isReach(r.reach) ? r.reach : 'here', path: postPath(r.id, r.visibility, r.link_key),
     attached: r.a_id ? { id: r.a_id, title: r.a_title ?? '' } : null,
     pinned: !!r.pinned,
+    ...(r.n_photos !== null ? { photos: r.n_photos } : {}),
   };
 }
 

@@ -403,7 +403,7 @@ export class SxStream extends LitElement {
             : html`<button class="btn small ghost" aria-label="Beitrag melden" @click=${() => emit(this, 'sx-report', { kind: 'post', id: p.id, label: 'diesen Beitrag' })}>${icon('flag')}</button>`}
         </span>
       </div>
-      <p class="body">${linkedText(p.body)}</p>
+      ${p.body ? html`<p class="body">${linkedText(p.body)}</p>` : ''}
       ${this.kindPayload(p)}
       ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}
       ${p.voyage ? html`<span class="attach">${icon('map')} Törn: <a href="/s/${p.voyage.id}">${p.voyage.title}</a> · ${fmtNum(p.voyage.distNm, 1)} sm</span>` : ''}`;

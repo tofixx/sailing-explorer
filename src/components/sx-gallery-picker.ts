@@ -63,6 +63,11 @@ export class SxGalleryPicker extends LitElement {
     `,
   ];
 
+  /** Neu im Formular: „noch kein Foto“ melden – überschreibt eine Nutzlast, die der Dialog von einer anderen Art hat. */
+  firstUpdated() {
+    emit(this, 'sx-payload', { value: null });
+  }
+
   disconnectedCallback() {
     super.disconnectedCallback();
     this.set([]);

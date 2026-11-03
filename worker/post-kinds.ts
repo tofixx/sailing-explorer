@@ -43,8 +43,11 @@ export const COMPOSE_KINDS: Record<ComposePostKind, ComposeKindDef> = {
 function galleryView(raw: string | null | undefined): KindPayload | null {
   try {
     const list = JSON.parse(raw ?? '[]') as Array<Record<string, unknown>>;
+    // Upload-Reihenfolge (created_at, dann ID) – json_group_array sichert keine Reihenfolge zu
+    const at = (p: Record<string, unknown>) => (typeof p.at === 'number' ? p.at : 0);
     const photos: PostPhoto[] = list
       .filter((p) => typeof p.id === 'string' && typeof p.width === 'number' && typeof p.height === 'number')
+      .sort((a, b) => at(a) - at(b) || String(a.id).localeCompare(String(b.id)))
       .map((p) => ({ id: p.id as string, width: p.width as number, height: p.height as number, caption: typeof p.caption === 'string' ? p.caption : '', takenAt: typeof p.takenAt === 'number' ? p.takenAt : null }));
     return photos.length ? { gallery: { photos } } : null;
   } catch {

@@ -33,7 +33,7 @@ import { DEFAULT_RADIUS, NEAR_MAX_PLACES, boundingBox, isNearRadius, parseCenter
  * gelesen (nicht in attachKindData), weil eine Galerie ohne Foto keine Karte ist; für alle Lesenden gleich.
  */
 const GALLERY_PHOTOS_SQL = `CASE WHEN p.kind = 'gallery' THEN (SELECT json_group_array(json_object('id', f.id, 'width', f.width, 'height', f.height,
-      'caption', f.caption, 'takenAt', f.taken_at)) FROM (SELECT * FROM photos x WHERE x.post_id = p.id AND ${publicSql('x')} ORDER BY x.created_at, x.id) f) END`;
+      'caption', f.caption, 'takenAt', f.taken_at, 'at', f.created_at)) FROM (SELECT * FROM photos x WHERE x.post_id = p.id AND ${publicSql('x')} ORDER BY x.created_at, x.id) f) END`;
 
 /** Spalten und Verknüpfungen je Aktivität `a` (`?1` = Betrachter) – gleich für Streams und die Einzelkarte `/p/<id>`. */
 const ROW_COLS_JOINS = `SELECT a.id, a.kind, a.actor_id, a.subject_kind, a.subject_id, a.group_id, a.data, a.created_at,

@@ -113,7 +113,12 @@ export async function uploadPostPhoto(request: Request, env: Env, postId: string
     await deleteKeys(env, keys);
     throw new HttpError(409, 'quota', 'Grenze erreicht: zu viele Fotos in diesem Beitrag oder in diesem Monat.');
   }
-  if (post.n === 0) {
+  // „Neuer Beitrag“ genau einmal (F-416): beim ersten Foto überhaupt – auch bei parallelen Uploads oder wenn alle Fotos
+  // gelöscht und neue hochgeladen werden. Der Merker in posts.data wird atomar gesetzt; nur wer ihn setzt, benachrichtigt.
+  const mark = await env.DB.prepare(`UPDATE posts SET data = json_set(data, '$.notified', 1) WHERE id = ? AND json_extract(data, '$.notified') IS NULL`)
+    .bind(post.id)
+    .run();
+  if (mark.meta.changes) {
     const channel = { kind: post.channel_kind, id: post.channel_kind === 'user' ? post.author_id : post.channel_id };
     await notifyPost(env, { id: post.id, authorId: post.author_id, kind: 'gallery', channel, visibility: post.visibility });
   }

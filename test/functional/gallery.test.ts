@@ -96,10 +96,17 @@ describe('F-491 Galerie-Beitrag anlegen: Beitrag, dann Fotos', () => {
     expect(await one('SELECT share_id, placement, lat, visibility FROM photos WHERE id = ?', a.id)).toEqual({ share_id: null, placement: 'none', lat: null, visibility: 'public' });
     // „Mein Verlauf“ und Profil verlinken die Karte (hasKindCard); im Profil führt /p/<id> zur einzelnen Karte
     const mine = await ok<{ items: Array<{ id: string; kind: string; path?: string }> }>(await s.send('GET', '/api/me/posts?area=all', me.cookie));
-    expect(mine.items.find((i) => i.id === post.id)).toMatchObject({ kind: 'gallery', path: `/p/${post.id}` });
+    expect(mine.items.find((i) => i.id === post.id)).toMatchObject({ kind: 'gallery', path: `/p/${post.id}`, photos: 2 });
+    // Reihenfolge nach Upload-Zeit, nicht nach ID oder Abfrage (K4)
+    await run('UPDATE photos SET created_at = created_at + 60000 WHERE id = ?', a.id);
+    expect((await ok<Card>(await card(post.id))).item.post.gallery!.photos.map((p) => p.id)).toEqual([b.id, a.id]);
+    await run('UPDATE photos SET created_at = created_at - 60000 WHERE id = ?', a.id);
     expect((await ok<{ link: { inStream: boolean } }>(await card(post.id))).link.inStream).toBe(false);
     // Profil für Besucher: dieselben Fotos; eine leere Galerie fehlt dort
     const empty = (await gallery(me, { kind: 'user' }, { visibility: 'public', body: 'leer' }))!;
+    // „Mein Verlauf“: ohne sichtbares Foto die Anzahl 0 – die Oberfläche zeigt dann keinen Link zur Karte (K3)
+    const mine2 = await ok<{ items: Array<{ id: string; photos?: number }> }>(await s.send('GET', '/api/me/posts?area=all', me.cookie));
+    expect(mine2.items.find((i) => i.id === empty.id)?.photos).toBe(0);
     const prof = await ok<{ posts: Array<{ id: string; kind?: string }> }>(await s.send('GET', `/api/profiles/${me.handle}`, undefined));
     expect(prof.posts.find((p) => p.id === post.id)?.kind).toBe('gallery');
     expect(prof.posts.some((p) => p.id === empty.id)).toBe(false);
@@ -126,10 +133,18 @@ describe('F-491 Galerie-Beitrag anlegen: Beitrag, dann Fotos', () => {
     const post = (await gallery(owner, { kind: 'group', id: club.id }, { visibility: 'members' }))!;
     const notes = async () => (await one<{ n: number }>(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND kind = 'post' AND subject_id = ?`, member.user.id, post.id))!.n;
     expect(await notes()).toBe(0);
-    await uploaded(post.id, owner);
+    const first = await uploaded(post.id, owner);
     expect(await notes()).toBe(1);
     await uploaded(post.id, owner);
     expect(await notes()).toBe(1);
+    // alles gelöscht und neu hochgeladen (per API): keine zweite Benachrichtigung (S1) – auch nicht, wenn die erste gelesen
+    // bzw. entfernt wurde
+    for (const id of [first.id, ...(await photoRows(post.id)).map((r) => r.id).filter((x) => x !== first.id)]) {
+      expect((await s.send('DELETE', `/api/photos/${id}`, owner.cookie)).status).toBe(204);
+    }
+    await run(`DELETE FROM notifications WHERE kind = 'post' AND subject_id = ?`, post.id);
+    await Promise.all([uploaded(post.id, owner), uploaded(post.id, owner)]);
+    expect(await notes()).toBe(0);
   });
 });
 

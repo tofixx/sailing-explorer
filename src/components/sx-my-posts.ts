@@ -225,7 +225,7 @@ export class SxMyPosts extends LitElement {
           : this.textHead(p)}</span>
       </div>
       ${p.body ? html`<p class="body">${linkedText(p.body)}</p>` : ''}
-      ${p.path ? kindCardLink(p.kind, p.path, 'note') : ''}
+      ${p.path && (p.kind !== 'gallery' || p.photos) ? kindCardLink(p.kind, p.path, 'note') : ''}
       ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}
       ${p.attached ? html`<span class="note">${icon('map')} Törn: <a href="/s/${p.attached.id}">${p.attached.title}</a></span>` : ''}
       ${this.meta(p)}

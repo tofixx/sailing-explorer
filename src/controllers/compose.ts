@@ -55,7 +55,8 @@ export class ComposeController {
 
   private async show(kind: ComposePostKind): Promise<void> {
     const d = this.ui.dialog;
-    Object.assign(d, { open: true, loading: true, error: '', targets: [], shares: [], kind });
+    // payload: null – keine Nutzlast einer anderen Art (z. B. abgebrochene Umfrage) in dieses Formular mitnehmen
+    Object.assign(d, { open: true, loading: true, error: '', targets: [], shares: [], kind, payload: null });
     try {
       const data = await postApi.compose(this.ctx ? `${this.ctx.kind}:${this.ctx.id}` : null);
       const selected = data.preselect ?? 'user';
@@ -92,12 +93,14 @@ export class ComposeController {
     const d = this.ui.dialog;
     d.busy = true;
     d.error = '';
-    const { gallery: files, ...post } = input;
+    const { gallery, ...post } = input;
+    const files = Array.isArray(gallery) ? gallery.filter((f) => f instanceof File) : [];
     try {
+      if (post.kind === 'gallery' && !files.length) throw new Error('Bitte mindestens ein Foto wählen.');
       const created = (await postApi.createIn(post)).post;
       let note = 'Veröffentlicht';
       if (post.kind === 'gallery') {
-        const up = await this.uploadAll(created.id, files ?? []);
+        const up = await this.uploadAll(created.id, files).catch((e: unknown) => ({ done: 0, count: files.length, first: errorText(e) }));
         if (up.done === 0) {
           // ohne ein einziges Foto bliebe eine leere Karte – wieder löschen (die Nacht täte es sonst nach 24 h)
           await postApi.remove(created.id).catch(() => undefined);
