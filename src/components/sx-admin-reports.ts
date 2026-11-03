@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import type { AdminAction, AdminReport } from '../services/api';
-import { REPORT_KIND_LABEL, REPORT_REASON_LABEL, type ReportKind, type ReportReason } from '../domain/comment-text';
+import { COVER_REPORT_KINDS, IMAGE_REASONS, REPORT_KIND_LABEL, REPORT_REASON_LABEL, type ReportKind, type ReportReason } from '../domain/comment-text';
 import { fmtDate, plural } from '../util/html';
 import { noticeReasons, reportLockTarget, suggestLock } from '../domain/report-decisions';
 import { icon } from './icons';
@@ -24,7 +24,7 @@ export class SxAdminReports extends LitElement {
   /** null = lädt */
   declare reports: AdminReport[] | null;
   declare busy: boolean;
-  /** "delete:<id>" oder "suspend:<userId>" wartet auf Bestätigung */
+  /** "delete:<id>", "cover:<id>" oder "suspend:<userId>" wartet auf Bestätigung */
   declare confirm: string | null;
   /** Begründung der Sperre im Lösch-Dialog (geht an die Betroffenen, F-296) */
   declare lockReason: string;
@@ -199,32 +199,41 @@ export class SxAdminReports extends LitElement {
     const t = r.target;
     const reasons = Object.entries(r.reasons) as Array<[ReportReason, number]>;
     const owner = t?.owner;
+    // Titelbild von Profil, Boot, Gruppe: einzeln entfernbar (F-564)
+    const cover = !!t?.imagePath && COVER_REPORT_KINDS.includes(r.kind);
     return html`<li>
       <div class="top">
         <span class="kind">${KIND[r.kind]}</span>
         <span class="title">${t ? t.title : 'Gibt es nicht mehr'}</span>
         ${t?.path ? html`<a href=${t.path} target="_blank" rel="noopener noreferrer">${icon('open')} Ansehen</a>` : ''}
       </div>
-      ${t?.imagePath ? html`<img class="thumb" src=${t.imagePath} alt="Gemeldetes Foto" loading="lazy" />` : ''}
+      ${t?.imagePath ? html`<img class="thumb" src=${t.imagePath} alt=${cover ? 'Titelbild' : 'Gemeldetes Foto'} loading="lazy" />` : ''}
       ${t?.text ? html`<p class="text">${t.text}</p>` : ''}
       <div class="chips">
         <span class="chip">${plural(r.count, 'Meldung', 'Meldungen')} von ${plural(r.reporters, 'Konto', 'Konten')}</span>
-        ${reasons.map(([k, n]) => html`<span class="chip ${k === 'depicted' || k === 'illegal' ? 'warn' : ''}">${REPORT_REASON_LABEL[k] ?? k}${n > 1 ? ` ×${n}` : ''}</span>`)}
+        ${reasons.map(([k, n]) => html`<span class="chip ${IMAGE_REASONS.includes(k) || k === 'illegal' ? 'warn' : ''}">${REPORT_REASON_LABEL[k] ?? k}${n > 1 ? ` ×${n}` : ''}</span>`)}
         ${t?.hiddenAt ? html`<span class="chip warn">ausgeblendet seit ${fmtDate(t.hiddenAt)}</span>` : ''}
+        ${t?.coverHeld ? html`<span class="chip warn">Titelbild zurückgehalten</span>` : ''}
+        ${r.newReporters ? html`<span class="chip">${r.newReporters === 1 ? 'Meldende:r ist neues Konto' : `${r.newReporters} Meldende sind neue Konten`}</span>` : ''}
       </div>
       ${r.notes.length ? html`<ul class="notes" aria-label="Anmerkungen">${r.notes.map((n) => html`<li>${n.note}</li>`)}</ul>` : ''}
       <p class="sub">Erste Meldung ${fmtDate(r.firstAt)}${owner ? html` · Eigentümer: ${owner.displayName}${owner.suspended ? ' (suspendiert)' : ''}` : ''}</p>
-      ${this.confirm === `delete:${r.id}` ? this.deletePanel(r) : this.actions(r)}
+      ${this.confirm === `delete:${r.id}` ? this.deletePanel(r) : this.actions(r, cover)}
     </li>`;
   }
 
-  private actions(r: AdminReport) {
+  /** Entscheidungen; „Nur Titelbild entfernen“ (F-564) fragt wie „Löschen“ nach. */
+  private actions(r: AdminReport, cover: boolean) {
     const t = r.target;
     const owner = t?.owner;
     return html`<div class="actions">
-        <button class="btn small" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'keep')}>${icon('check')} Behalten${t?.hiddenAt ? ' & einblenden' : ''}</button>
+        ${this.confirm === `cover:${r.id}`
+          ? html`<button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'cover')}>${icon('trash')} Ja, Titelbild löschen</button>
+              <button class="btn small" type="button" @click=${() => (this.confirm = null)}>Abbrechen</button>`
+          : html`<button class="btn small" type="button" ?disabled=${this.busy} @click=${() => this.decide(r.id, 'keep')}>${icon('check')} Behalten${t?.hiddenAt ? ' & einblenden' : ''}</button>
               <button class="btn small" type="button" ?disabled=${this.busy || !t} @click=${() => this.decide(r.id, 'hide')}>${icon('eyeOff')} Ausblenden</button>
-              <button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => this.askDelete(r)}>${icon('trash')} Löschen</button>
+              ${cover ? html`<button class="btn small" type="button" ?disabled=${this.busy} @click=${() => (this.confirm = `cover:${r.id}`)}>${icon('image')} Nur Titelbild entfernen</button>` : ''}
+              <button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => this.askDelete(r)}>${icon('trash')} Löschen</button>`}
         ${owner
           ? this.confirm === `suspend:${owner.id}:${r.id}`
             ? html`<button class="btn small danger" type="button" ?disabled=${this.busy} @click=${() => {

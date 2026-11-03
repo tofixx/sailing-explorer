@@ -15,7 +15,7 @@ import { deleteKeys, photoKeysForShares, shareFileKeys } from './photo-keys';
 import { nightlyNotificationCleanup } from './notification-cleanup';
 import { nightlyActivityCleanup } from './activity';
 import { sendGroupDigests } from './group-digest';
-import { sweepOrphanCovers } from './covers';
+import { coverLogCleanup, sweepOrphanCovers } from './covers';
 import { emptyGalleries, photoLogCleanup } from './post-photos';
 import { removePost } from './posts';
 import { expireClaims } from './claims';
@@ -241,6 +241,8 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
     ...nightlyActivityCleanup(env, now),
     // Monatszähler der Galerie (Konzept 31) nach 32 Tagen
     photoLogCleanup(env, now),
+    // Tageslimit der Titelbilder (Konzept 36) nach 2 Tagen
+    coverLogCleanup(env, now),
   ]), []);
   // Galerie-Beiträge ohne Foto (Hochladen abgebrochen) nach 24 h über den einen Löschpfad (Konzept 31, F-494)
   await step('galleries', sweepEmptyGalleries(env, now), 0);

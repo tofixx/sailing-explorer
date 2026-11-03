@@ -203,7 +203,7 @@ ${link ? `<p><a href="${link}" style="display:inline-block;background:#0e6bd8;co
 }
 
 export interface ReportDecisionMailInput {
-  decision: 'keep' | 'hide' | 'delete';
+  decision: 'keep' | 'hide' | 'delete' | 'cover';
   /** fester Text, z. B. „dein Törn“ */
   what: string;
   /** Substantiv für den Betreff, z. B. „Hafen“ */
@@ -233,11 +233,13 @@ export function reportDecisionMail(env: Env, to: string, m: ReportDecisionMailIn
     hide: 'wurde gemeldet und von der Moderation ausgeblendet',
     delete: 'wurde gemeldet und von der Moderation gelöscht',
     keep: 'wurde gemeldet und bis zur Prüfung ausgeblendet. Die Moderation hat nichts beanstandet – der Inhalt ist wieder sichtbar',
+    cover: 'wurde gemeldet. Die Moderation hat das Titelbild entfernt',
   }[m.decision];
   const after = {
     hide: `Der Inhalt ist bis auf Weiteres ${m.ownerSees ? 'für alle außer dir' : 'für alle'} nicht mehr sichtbar, aber nicht gelöscht.`,
     delete: 'Der Inhalt ist samt zugehöriger Dateien endgültig entfernt und lässt sich nicht wiederherstellen.',
     keep: '',
+    cover: 'Das Titelbild ist endgültig gelöscht; der Inhalt selbst ist wieder sichtbar. Ein neues Titelbild kannst du jederzeit hochladen.',
   }[m.decision];
   const ground =
     m.decision === 'keep'
@@ -262,8 +264,8 @@ ${after ? `<p>${after}</p>` : ''}
 <p style="color:#5b6b7b;font-size:13px">${how}</p>
 <p>${escapeHtml(object)}</p>
 </body></html>`;
-  const label = { hide: 'ausgeblendet', delete: 'gelöscht', keep: 'wieder sichtbar' }[m.decision];
-  return { to, subject: `${app}: Moderation – ${m.noun} ${label}`, text, html };
+  const label = { hide: `${m.noun} ausgeblendet`, delete: `${m.noun} gelöscht`, keep: `${m.noun} wieder sichtbar`, cover: `Titelbild entfernt, ${m.noun} wieder sichtbar` }[m.decision];
+  return { to, subject: `${app}: Moderation – ${label}`, text, html };
 }
 
 /** Neuer Passkey am Konto (Konzept 14.7) – damit ein unbemerkt hinterlegter Zugang auffällt. Name ist Nutzertext. */

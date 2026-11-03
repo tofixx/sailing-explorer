@@ -137,6 +137,15 @@ export async function recordVoyage(env: Env, s: ShareForActivity, now = Date.now
   });
 }
 
+/**
+ * Strecke eines öffentlichen Törns ist gewachsen (GPX nachgereicht, Konzept 38): Meilensteine für den Zuwachs prüfen –
+ * neue Neuigkeit gibt es keine. Gleiche Regeln wie nach einem neuen Törn (laufende Saison, je Schwelle einmal im Jahr).
+ */
+export async function recordDistanceGain(env: Env, s: ShareForActivity, gainNm: number, now = Date.now()): Promise<void> {
+  if (!(gainNm > 0)) return;
+  await safely('milestones', () => recordMilestones(env, { ...s, dist_nm: gainNm }, now));
+}
+
 /** Fotos zu einem öffentlichen Törn: gebündelt „n neue Fotos“ je Törn und Tag. */
 export async function recordPhotos(env: Env, s: ShareForActivity, count = 1, now = Date.now()): Promise<void> {
   await safely('photos', async () => {

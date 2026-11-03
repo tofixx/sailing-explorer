@@ -21,6 +21,7 @@ import './sx-my-posts';
 import './sx-profile-posts';
 import './sx-page-menu';
 import type { PageMenuItem } from './sx-page-menu';
+import type { ReportTarget } from './sx-report-dialog';
 
 /** Kurzer Hinweis für Eigentümer, wer die Seite sieht. */
 const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
@@ -424,14 +425,14 @@ export class SxProfilePage extends LitElement {
     return html`<sx-page-menu label=${p.displayName} .items=${items} @sx-page-menu-pick=${(e: CustomEvent<{ id: string }>) => {
       const id = e.detail.id;
       if (id === 'edit') emit(this, 'sx-account', 'profile');
-      else if (id === 'report') emit(this, 'sx-report', { kind: 'profile', id: p.handle, label: `das Profil von ${p.displayName}` });
+      else if (id === 'report') emit(this, 'sx-report', { kind: 'profile', id: p.handle, label: `das Profil von ${p.displayName}`, image: !!d.cover && !d.coverHeldUntil });
       else if (id === 'preview:end') emit(this, 'sx-profile-preview', { preview: null });
       else if (id.startsWith('preview:')) emit(this, 'sx-profile-preview', { preview: parseProfilePreview(id.slice('preview:'.length)) });
     }}></sx-page-menu>`;
   }
 
   /** Zahnrad-Menü einfacher Seiten: Bearbeiten für Verwalter, sonst Melden. */
-  private simpleMenu(label: string, canEdit: boolean, onEdit: () => void, report: { kind: string; id: string; label: string }) {
+  private simpleMenu(label: string, canEdit: boolean, onEdit: () => void, report: ReportTarget) {
     const items: PageMenuItem[] = canEdit ? [{ id: 'edit', label: 'Bearbeiten', icon: 'pencil' }] : [{ id: 'report', label: 'Melden', icon: 'flag' }];
     return html`<sx-page-menu label=${label} .items=${items}
       @sx-page-menu-pick=${(e: CustomEvent<{ id: string }>) => (e.detail.id === 'edit' ? onEdit() : emit(this, 'sx-report', report))}></sx-page-menu>`;
@@ -461,7 +462,7 @@ export class SxProfilePage extends LitElement {
     }
     return html`
       ${this.previewBanner(d)}
-      <sx-cover kind="u" target-id=${p.handle} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} ?can-edit=${p.isSelf} label="Titelbild von ${p.displayName}"></sx-cover>
+      <sx-cover kind="u" target-id=${p.handle} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} .heldUntil=${d.coverHeldUntil ?? null} ?can-edit=${p.isSelf} label="Titelbild von ${p.displayName}"></sx-cover>
       <header class="hero">
         <div class="mark" aria-hidden="true">${p.displayName[0]}</div>
         <div>
@@ -503,7 +504,7 @@ export class SxProfilePage extends LitElement {
     const b = d.boat;
     const facts = [b.boatType, b.lengthM != null ? `${fmtNum(b.lengthM, 1)} m` : '', b.sailNumber, !b.harbor && b.homePort && `Heimathafen ${b.homePort}`].filter(Boolean);
     return html`
-      <sx-cover kind="b" target-id=${b.id} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} ?can-edit=${!!b.role} label="Titelbild von ${b.name}"></sx-cover>
+      <sx-cover kind="b" target-id=${b.id} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} .heldUntil=${d.coverHeldUntil ?? null} ?can-edit=${!!b.role} label="Titelbild von ${b.name}"></sx-cover>
       <header class="hero">
         <div class="mark" aria-hidden="true">${icon(ENTITY_ICON.boat)}</div>
         <div>
@@ -522,7 +523,7 @@ export class SxProfilePage extends LitElement {
             ? html`<sx-follow kind="boat" target-id=${b.id} label=${b.name} .stats=${d.social} ?signed-in=${this.signedIn}></sx-follow>`
             : ''}
           ${this.shareButton('b', b.id, b.name, 'Boot teilen', b, !!b.role)}
-          ${this.simpleMenu(b.name, !!b.role, () => emit(this, 'sx-account', 'boats'), { kind: 'boat', id: b.id, label: `das Boot ${b.name}` })}
+          ${this.simpleMenu(b.name, !!b.role, () => emit(this, 'sx-account', 'boats'), { kind: 'boat', id: b.id, label: `das Boot ${b.name}`, image: !!d.cover && !d.coverHeldUntil })}
         </div>
       </header>
       ${b.role && b.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}

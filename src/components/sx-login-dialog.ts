@@ -89,12 +89,15 @@ export class SxLoginDialog extends LitElement {
         padding-top: var(--s-3);
         border-top: 1px solid var(--border-soft);
       }
+      /* bricht bei 375 px um statt rechts herauszuragen (F-615) */
       form.code .row {
         display: flex;
+        flex-wrap: wrap;
         gap: var(--s-2);
       }
       form.code input {
-        flex: 1;
+        flex: 1 1 8rem;
+        width: auto;
         min-width: 0;
         font-size: 1.25rem;
         letter-spacing: 0.2em;
@@ -225,7 +228,7 @@ export class SxLoginDialog extends LitElement {
           <form class="code" @submit=${this.submitCode}>
             <label class="label" for="code">Oder den Code aus der Mail eingeben</label>
             <div class="row">
-              <input id="code" name="code" required inputmode="numeric" autocomplete="one-time-code" pattern="\\d{3} ?\\d{3}" maxlength="7" placeholder="123 456" />
+              <input id="code" name="code" type="text" required inputmode="numeric" autocomplete="one-time-code" pattern="\\d{3} ?\\d{3}" maxlength="7" placeholder="123 456" />
               <button class="btn primary" type="submit" ?disabled=${this.busy}>${icon('check')} ${this.busy ? 'Melde an …' : 'Anmelden'}</button>
             </div>
             <span class="muted small">Praktisch in der App auf dem Home-Bildschirm oder wenn die Mail auf einem anderen Gerät ankommt.</span>

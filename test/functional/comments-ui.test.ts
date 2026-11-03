@@ -158,12 +158,13 @@ describe('sx-report-dialog', () => {
     expect(text(el)).toContain('Du meldest Kommentar von Anna.');
     expect(button(el, /^\s*Melden/)!.disabled).toBe(true);
     const radios = [...el.shadowRoot.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
-    expect(radios.map((r) => r.value)).toEqual(['spam', 'abuse', 'illegal', 'depicted', 'other']);
+    // Bild-Gründe gibt es für Kommentare nicht (F-566)
+    expect(radios.map((r) => r.value)).toEqual(['spam', 'abuse', 'illegal', 'other']);
     radios[3].dispatchEvent(new Event('change'));
     await el.updateComplete;
     el.shadowRoot.querySelector('textarea')!.value = ' Das bin ich ';
     el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
-    expect(submitted).toEqual([{ reason: 'depicted', note: 'Das bin ich' }]);
+    expect(submitted).toEqual([{ reason: 'other', note: 'Das bin ich' }]);
     expect(el.shadowRoot.querySelector('textarea')!.getAttribute('maxlength')).toBe('500');
   });
 
@@ -300,12 +301,12 @@ describe('sx-profile-page – Melden', () => {
     const profile = { handle: 'mats', displayName: 'Mats', bio: '', visibility: 'public', isSelf: false };
     const el = await mount('sx-profile-page', { data: { kind: 'profile', profile, boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [] } });
     menuItem(el, /Melden/)!.click();
-    expect(reports).toEqual([{ kind: 'profile', id: 'mats', label: 'das Profil von Mats' }]);
+    expect(reports).toEqual([{ kind: 'profile', id: 'mats', label: 'das Profil von Mats', image: false }]);
     const self = await mount('sx-profile-page', { data: { kind: 'profile', profile: { ...profile, isSelf: true }, boats: [], stats: { voyages: 0, distNm: 0 }, voyages: [] } });
     expect(menuItem(self, /Melden/)).toBeUndefined();
     const boat = { id: 'B1', name: 'Möwe', boatType: '', lengthM: null, sailNumber: '', homePort: '', description: '', visibility: 'public', createdAt: 0, updatedAt: 0, owner: null, role: null };
     const b = await mount('sx-profile-page', { data: { kind: 'boat', boat, stats: { voyages: 0, distNm: 0 }, voyages: [] } });
     menuItem(b, /Melden/)!.click();
-    expect(reports[1]).toEqual({ kind: 'boat', id: 'B1', label: 'das Boot Möwe' });
+    expect(reports[1]).toEqual({ kind: 'boat', id: 'B1', label: 'das Boot Möwe', image: false });
   });
 });

@@ -7,6 +7,7 @@ import { json } from './http';
 import { randomId } from './crypto';
 import { adminEmails, adminLogStmt, requireAdmin } from './moderation';
 import { reportDecisionMail, reportDigestMail, sendMail } from './mail';
+import { COVER_REPORT_KIND } from './covers';
 import type { ReportKind } from '../src/domain/comment-text';
 import { decisionGround, noticeReasons, shouldNotify, type ReportDecision } from '../src/domain/report-decisions';
 
@@ -134,7 +135,12 @@ export async function prepareDecisionNotice(env: Env, kind: ReportKind, id: stri
     .bind(kind, id)
     .all<{ reason: string; n: number }>();
   const reasons = Object.fromEntries(results.map((r) => [r.reason, r.n]));
-  return { kind, id, owner: row.owner, email: u.email, what: row.what, noun: row.noun, name: row.name ?? '', wasHidden: !!row.hidden_at, ownerSees: !!row.sees, reasons };
+  // Ein zurückgehaltenes Titelbild (Bild-Meldung oder neues Konto, F-562/F-566) zählt wie ausgeblendet: „Behalten“ gibt es frei
+  const cover = (Object.keys(COVER_REPORT_KIND) as Array<keyof typeof COVER_REPORT_KIND>).find((k) => COVER_REPORT_KIND[k] === kind);
+  const held = cover
+    ? !!(await env.DB.prepare('SELECT 1 AS x FROM covers WHERE kind = ? AND object_id = ? AND held_until > ?').bind(cover, id, Date.now()).first())
+    : false;
+  return { kind, id, owner: row.owner, email: u.email, what: row.what, noun: row.noun, name: row.name ?? '', wasHidden: !!row.hidden_at || held, ownerSees: !!row.sees, reasons };
 }
 
 /**

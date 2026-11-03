@@ -59,7 +59,7 @@ const digests = (from: number) => mails(ADMIN_MAIL).slice(from).filter((l) => l.
 describe('Moderation: reine Regeln', () => {
   it('[F-572] [F-573] [F-574] Gründe, Benachrichtigung, Sperr-Ziel, Zähler', () => {
     expect(noticeReasons({ spam: 1, illegal: 3, abuse: 0 })).toEqual(['rechtswidriger Inhalt', 'Spam oder Werbung']);
-    expect(noticeReasons({ depicted: 1 })).toEqual(['Recht am eigenen Bild bzw. Persönlichkeitsrecht einer abgebildeten oder genannten Person']);
+    expect(noticeReasons({ depicted: 1, minors: 2 })).toEqual(['Schutz von Kindern: ein Kind ist abgebildet', 'Recht am eigenen Bild: eine abgebildete Person möchte nicht gezeigt werden']);
     expect([decisionGround({ illegal: 1, spam: 2 }), decisionGround({ depicted: 1 }), decisionGround({ spam: 3, abuse: 1 })]).toEqual(['law', 'law', 'rules']);
     expect(noticeReasons({ neu: 1 })).toEqual(['sonstiger Grund']);
     const base = { wasHidden: false, reasons: { abuse: 1 }, sentToday: 0, sentTotal: 0, selfDecided: false };
@@ -305,5 +305,39 @@ describe('Moderation 6: Begründung an Betroffene', () => {
     await (await s.db()).prepare('UPDATE reports SET created_at = ? WHERE id = ?').bind(Date.now() - 200 * DAY, rc).run();
     await h.scheduled();
     expect(await one<{ note: string }>('SELECT note FROM reports WHERE id = ?', rc)).toEqual({ note: 'Beleg-Notiz' });
+  });
+
+  it('[F-572] [F-573] Titelbild: „Nur Titelbild entfernen“ mit eigener Begründung; „Behalten“ nach Zurückhalten meldet „wieder sichtbar“', async () => {
+    const le32 = (v: number) => [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff];
+    const data = [0x00, 0x00, 0x00, 0x9d, 0x01, 0x2a, 1500 & 0xff, (1500 >> 8) & 0x3f, 500 & 0xff, (500 >> 8) & 0x3f, ...new Array<number>(20).fill(0)];
+    const vp8 = [...[...'VP8 '].map((c) => c.charCodeAt(0)), ...le32(data.length), ...data];
+    const body = [...[...'WEBP'].map((c) => c.charCodeAt(0)), ...vp8];
+    const webp = new Uint8Array([...[...'RIFF'].map((c) => c.charCodeAt(0)), ...le32(body.length), ...body]);
+    const owner = await s.person({ profile: 'public' });
+    // altes Konto: sein Titelbild ist sofort öffentlich (sonst hielte F-562 es zurück)
+    await (await s.db()).prepare('UPDATE users SET created_at = ? WHERE id = ?').bind(Date.now() - 30 * DAY, owner.user.id).run();
+    const reporter = await s.person({ profile: 'public' });
+    const boatWithCover = async (name: string) => {
+      const b = await s.boat(owner, { visibility: 'public', name });
+      const res = await h.fetch(`/api/covers/b/${b.id}`, { method: 'PUT', cookie: owner.cookie, headers: { 'Content-Type': 'application/octet-stream' }, body: webp });
+      expect(res.status, await res.clone().text()).toBe(201);
+      return b;
+    };
+    const a = await boatWithCover('Bildboot');
+    let before = mails(owner.email).length;
+    expect((await decide(await report(reporter, 'boat', a.id, 'depicted'), 'cover')).notified).toBe(true);
+    const removed = mails(owner.email).slice(before);
+    expect(removed).toHaveLength(1);
+    for (const part of ['Moderation – Titelbild entfernt, Boot wieder sichtbar', 'dein Boot „Bildboot“', 'Titelbild entfernt', 'Recht am eigenen Bild', 'Grundlage der Entscheidung: rechtswidriger Inhalt', 'an ein Gericht']) {
+      expect(removed[0]).toContain(part);
+    }
+
+    // Bild-Meldung hält das Titelbild zurück → „Behalten“ gibt es frei und meldet das
+    const b = await boatWithCover('Zweitboot');
+    const rb = await report(reporter, 'boat', b.id, 'depicted');
+    expect((await one<{ held_until: number | null }>(`SELECT held_until FROM covers WHERE kind = 'b' AND object_id = ?`, b.id))!.held_until).toBeGreaterThan(Date.now());
+    before = mails(owner.email).length;
+    expect((await decide(rb, 'keep')).notified).toBe(true);
+    expect(mails(owner.email).slice(before)[0]).toContain('Boot wieder sichtbar');
   });
 });

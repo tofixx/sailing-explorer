@@ -203,13 +203,15 @@ export interface CsvScores {
 /**
  * Meilennachweis als CSV: Datum; Von; Nach; sm; Quelle; Rolle; Boot; Dauer – Semikolon, UTF-8 mit BOM (öffnet in Excel),
  * Zeilenende CRLF, älteste zuerst. Rundtörns nennen bei „Nach“ den Starthafen. `truncated`: Hinweiszeile am Ende. Mit
- * `scores` wird daraus der Jahresbericht (F-505): zusätzlich Revier; Posten; Vorlage; Punkte und Summen je Vorlage.
+ * `scores` wird daraus der Jahresbericht (F-505): zusätzlich Revier; Posten; Vorlage; Punkte und Summen je Vorlage. Mit
+ * `withSeason` (Segellebenslauf, F-610) steht als erste Spalte die Saison.
  */
-export function logbookCsv(entries: LogbookEntry[], truncated = false, scores?: CsvScores): string {
+export function logbookCsv(entries: LogbookEntry[], truncated = false, scores?: CsvScores, withSeason = false): string {
+  const lead = (r: string[], v = ''): string[] => (withSeason ? [v, ...r] : r);
   const rows = [...entries]
     .sort((a, b) => a.startedAt - b.startedAt)
     .map((e) => {
-      const row = [
+      const row = lead([
         berlinDate(e.startedAt),
         e.from?.name ?? '',
         e.to?.name ?? e.from?.name ?? '',
@@ -218,14 +220,14 @@ export function logbookCsv(entries: LogbookEntry[], truncated = false, scores?: 
         roleText(e),
         e.boat ?? '',
         durationText(e),
-      ];
+      ], String(entrySeason(e)));
       if (!scores) return row;
       const p = scores.of(e);
       return [...row, areaText(e.log), itemsText(e.log), p.template, comma(p.points)];
     });
-  const header: readonly string[] = scores ? [...CSV_HEADER, ...REPORT_HEADER] : CSV_HEADER;
+  const header = lead([...CSV_HEADER, ...(scores ? REPORT_HEADER : [])], 'Saison');
   const sums: string[][] = scores
-    ? [[], ...scores.totals.map((t) => ['Summe', '', '', comma(t.nm), '', '', '', '', '', '', t.template, comma(t.points)]), [scores.note]]
+    ? [[], ...scores.totals.map((t) => lead(['Summe', '', '', comma(t.nm), '', '', '', '', '', '', t.template, comma(t.points)])), [scores.note]]
     : [];
   // gekappt (mehr als LOGBOOK_MAX_ENTRIES): Hinweis als letzte Zeile, damit der Nachweis nicht unbemerkt unvollständig ist
   const note = truncated ? [[`Hinweis: nur die neuesten ${LOGBOOK_MAX_ENTRIES} Einträge – ältere fehlen in dieser Datei.`]] : [];
@@ -235,5 +237,6 @@ export function logbookCsv(entries: LogbookEntry[], truncated = false, scores?: 
 /** Zusätzliche Spalten des Jahresberichts (F-505). */
 export const REPORT_HEADER = ['Revier', 'Posten', 'Vorlage', 'Punkte'] as const;
 
-/** Dateiname des Exports: `meilennachweis-2026.csv` bzw. `meilennachweis.csv` (alle Jahre). */
-export const csvFileName = (season: number | null) => `meilennachweis${season ? `-${season}` : ''}.csv`;
+/** Dateiname des Exports: `meilennachweis-2026.csv`, `meilennachweis.csv` (ohne Saison) bzw. `segellebenslauf.csv` (alle Saisons, F-610). */
+export const csvFileName = (season: number | 'alle' | null) =>
+  season === 'alle' ? 'segellebenslauf.csv' : `meilennachweis${season ? `-${season}` : ''}.csv`;

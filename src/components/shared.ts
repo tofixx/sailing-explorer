@@ -261,9 +261,11 @@ export const dialogStyles = css`
     font-size: var(--fs-l);
     letter-spacing: -0.01em;
   }
+  /* Spalte minmax(0, 1fr) (F-615): breite Inhalte (Eingabe + Knopf, lange Adressen) verbreitern den Dialog nicht. */
   .body {
     padding: var(--s-2) var(--s-5) var(--s-5);
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--s-4);
   }
   .actions {

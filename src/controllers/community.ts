@@ -237,7 +237,7 @@ export class CommunityController {
   }
 
   decide(id: string, action: AdminAction) {
-    const done = action === 'keep' ? 'Behalten – wieder sichtbar' : action === 'hide' ? 'Ausgeblendet' : 'Gelöscht';
+    const done = action === 'keep' ? 'Behalten – wieder sichtbar' : action === 'hide' ? 'Ausgeblendet' : action === 'cover' ? 'Titelbild entfernt' : 'Gelöscht';
     return this.accountAct(async () => {
       const { notified } = await communityApi.decideReport(id, action);
       await this.loadReports();

@@ -4,7 +4,8 @@
 import { REPORT_REASON_LABEL, type ReportKind } from './comment-text';
 import type { AdminKind } from './admin';
 
-export type ReportDecision = 'keep' | 'hide' | 'delete';
+/** `cover`: nur das Titelbild entfernt, Profil/Boot/Gruppe wieder sichtbar (F-564) */
+export type ReportDecision = 'keep' | 'hide' | 'delete' | 'cover';
 
 export const REPORT_NOTICE_LIMITS = {
   /** Begründungsmails je Konto in 24 h, wenn nur „Spam“ gemeldet wurde (DSA Art. 17 Abs. 2: Spam in Massen) */
@@ -50,7 +51,8 @@ const NOTICE_REASON: Partial<Record<string, string>> = {
   spam: 'Spam oder Werbung',
   abuse: 'beleidigend oder belästigend',
   illegal: 'rechtswidriger Inhalt',
-  depicted: 'Recht am eigenen Bild bzw. Persönlichkeitsrecht einer abgebildeten oder genannten Person',
+  depicted: 'Recht am eigenen Bild: eine abgebildete Person möchte nicht gezeigt werden',
+  minors: 'Schutz von Kindern: ein Kind ist abgebildet',
   other: 'sonstiger Grund',
 };
 
@@ -74,8 +76,8 @@ export const decisionGround = (reasons: Partial<Record<string, number>>): 'law' 
   LEGAL_REASONS.some((r) => (reasons[r] ?? 0) > 0) ? 'law' : 'rules';
 
 /**
- * Bekommt die Eigentümer:in eine Begründung? Ausblenden und Löschen immer (DSA Art. 17), „Behalten“ nur, wenn der
- * Inhalt bis dahin ausgeblendet war (er ist dann wieder sichtbar); nicht an die entscheidende Person selbst. Nur
+ * Bekommt die Eigentümer:in eine Begründung? Ausblenden, Löschen und „Nur Titelbild entfernen“ immer (DSA Art. 17), „Behalten“ nur, wenn der
+ * Inhalt bis dahin ausgeblendet oder sein Titelbild zurückgehalten war (er ist dann wieder sichtbar); nicht an die entscheidende Person selbst. Nur
  * Spam-Meldungen: höchstens `spamPerOwnerPerDay` Mails je Konto und Tag; insgesamt höchstens `perDay` in 24 h.
  */
 export function shouldNotify(m: { decision: ReportDecision; wasHidden: boolean; reasons: Partial<Record<string, number>>; sentToday: number; sentTotal: number; selfDecided: boolean }): boolean {

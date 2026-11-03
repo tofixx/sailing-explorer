@@ -3114,7 +3114,7 @@ Der Arbeitsbereich (Karte, Seitenleiste) zeigt immer **genau einen Törn**:
 | Art | `State.mode` | Status in der Kopfzeile | GPX hinzufügen / entfernen | Gespeichert in |
 |---|---|---|---|---|
 | Entwurf | `local` | „Entwurf · nur dieses Gerät“, Titel = erster Track (sonst „Neuer Törn“) | ja (Track-Liste) | IndexedDB, **ein** Platz `current`, mit Eigentümer (`owner`: Konto-ID bzw. `guest`) |
-| eigener gespeicherter Törn | `share`, `isOwner` | „Gespeichert · Öffentlich / Nur mit Link / Nur ich“ | nein (Server kann Tracks nicht ersetzen, 23.3) | D1/R2 (Konzept 21) |
+| eigener gespeicherter Törn | `share`, `isOwner` | „Gespeichert · Öffentlich / Nur mit Link / Nur ich“ | nein (Server ersetzt keine Tracks, 23.3); Einträge ohne GPX: „GPX nachreichen“ im Zahnrad-Menü (Konzept 38) | D1/R2 (Konzept 21) |
 | fremde bzw. geteilte Ansicht, Beispiel, `?track=`, `#g=` | `share` bzw. `link` | „Ansicht“ | nein | – |
 
 - **Neuer Törn:** „+ Neu → Törn (GPX)“, die Startkarte ohne Community und Ziehen & Ablegen außerhalb des offenen
@@ -3158,7 +3158,8 @@ Der Arbeitsbereich (Karte, Seitenleiste) zeigt immer **genau einen Törn**:
 - **Tracks an gespeicherten Törns ändern:** `PATCH /api/shares/:id` ersetzt die Nutzlast nur für Fahrtenbuch-Einträge
   ohne GPX (Route ≤ 32 KB). Für GPX-Törns gibt es keinen Weg, Tracks zu ersetzen oder zu ergänzen. Dafür bräuchte es
   Plausibilität, Speicherzähler-Differenz, Neuberechnung von Distanz und Zeit sowie Wetter, Fotos (Zeitbezug) und das
-  Vorschaubild. Bis dahin gibt es „GPX hinzufügen“ nur im Entwurf.
+  Vorschaubild. Bis dahin gibt es „GPX hinzufügen“ nur im Entwurf. **Teilweise gelöst (Konzept 38):** An
+  Fahrtenbuch-Einträge ohne GPX lässt sich ein Track nachreichen; Tracks von GPX-Törns ersetzen bleibt offen.
 
 ## 24. Sichtbarkeit von Mitgliedschaften, Folgen und Benachrichtigungen
 
@@ -3385,3 +3386,6 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 34. Bootsklasse und Filter in Entdecken (F-535 … F-539) → [`docs/concept/34-bootsklasse.md`](concept/34-bootsklasse.md)
 
 ## 35. Moderation: Abgleich des Entwurfs mit dem Gebauten (Textfilter, Vertrauensstufen, Bildprüfung, Melden, Sperren) → [`docs/concept/35-moderation.md`](concept/35-moderation.md)
+
+## 36. Moderation: Titelbilder absichern, Melde-Gewicht und Gründe (F-560 … F-569) → [`docs/concept/36-moderation-titelbilder.md`](concept/36-moderation-titelbilder.md)
+## 38. GPX nachreichen: Track zu einem gespeicherten Fahrtenbuch-Eintrag (F-600 … F-607) → [`docs/concept/38-gpx-nachreichen.md`](concept/38-gpx-nachreichen.md)

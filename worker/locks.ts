@@ -10,6 +10,7 @@ import { removeShare } from './shares';
 import { removeBoat } from './boats';
 import { removeGroup } from './groups';
 import { removeHarbor } from './harbors';
+import { releaseCoverStmt } from './covers';
 import { ADMIN_LIMITS, LOCK_WARN_MS, lockUntil, type LockKind } from '../src/domain/admin';
 
 /** Tabelle, ID-Spalte und ob es eine eigene locked_at-Spalte gibt – feste Werte, nie aus der Anfrage. */
@@ -85,8 +86,15 @@ export async function lockTarget(env: Env, adminId: string, kind: LockKind, id: 
     ]);
     return 'extend';
   }
+  // Melde-Sperre des Titelbilds aufheben (Konzept 36): gesperrt sieht es ohnehin nur die Moderation, und Meldungen zu
+  // Gesperrtem entscheidet niemand – nach dem Entsperren bliebe das Bild sonst unbefristet zurückgehalten.
+  const cover = kind === 'boat' ? releaseCoverStmt(env, 'b', id) : kind === 'group' ? releaseCoverStmt(env, 'g', id) : kind === 'user' ? releaseCoverStmt(env, 'u', id) : null;
   if (kind !== 'user') {
-    await env.DB.batch([...lockObjectStmts(env, kind, { col: TABLE[kind].id, value: id }, adminId, reason, null, now), adminLogStmt(env, adminId, 'lock', kind, id, reason, now)]);
+    await env.DB.batch([
+      ...lockObjectStmts(env, kind, { col: TABLE[kind].id, value: id }, adminId, reason, null, now),
+      ...(cover ? [cover] : []),
+      adminLogStmt(env, adminId, 'lock', kind, id, reason, now),
+    ]);
     return 'lock';
   }
   await env.DB.batch([
@@ -99,6 +107,7 @@ export async function lockTarget(env: Env, adminId: string, kind: LockKind, id: 
     ...lockObjectStmts(env, 'profile', { col: 'user_id', value: id }, adminId, '', id, now),
     ...lockObjectStmts(env, 'share', { col: 'user_id', value: id }, adminId, '', id, now),
     ...lockObjectStmts(env, 'boat', { col: 'owner_id', value: id }, adminId, '', id, now),
+    ...(cover ? [cover] : []),
     adminLogStmt(env, adminId, 'lock', kind, id, reason, now),
   ]);
   return 'lock';

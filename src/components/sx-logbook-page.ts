@@ -1,11 +1,11 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { DIST_SOURCE_LABEL, LOG_STATES, LOG_STATE_LABEL, type LogState } from '../domain/logbook';
 import {
-  LOG_FILTER_LABEL, areaText, entrySeason, recordedNote, filterEntries, logbookSeasons, logbookTotals, pickSeason, roleText, type LogbookEntry, type LogbookTotals,
+  LOGBOOK_MAX_ENTRIES, LOG_FILTER_LABEL, areaText, entrySeason, recordedNote, filterEntries, logbookSeasons, logbookTotals, pickSeason, roleText, type LogbookEntry, type LogbookTotals,
 } from '../domain/logbook-year';
 import { SCORING_NOTE, pointsByTemplate, scoreEntry, templateFor, templateLabel, usesTemplates, type ScoringTemplate } from '../domain/scoring';
 import { SCORING_PATH } from '../services/url-state';
-import { seasonReview } from '../domain/season-review';
+import { lifetimeReview, seasonReview } from '../domain/season-review';
 import type { SeasonImageState } from './sx-season-review';
 import './sx-season-badges';
 import './sx-season-review';
@@ -27,6 +27,10 @@ export class SxLogbookPage extends LitElement {
   static properties = {
     entries: { attribute: false },
     season: { type: Number },
+    /** Segellebenslauf (F-610): Übersicht über alle Saisons statt einer Saison */
+    all: { type: Boolean },
+    /** mehr Einträge als geliefert (höchstens 1.000) – Hinweis in der Übersicht */
+    truncated: { type: Boolean },
     states: { attribute: false },
     loading: { type: Boolean },
     busy: { type: Boolean },
@@ -43,6 +47,8 @@ export class SxLogbookPage extends LitElement {
   /** null = noch nicht geladen */
   declare entries: LogbookEntry[] | null;
   declare season: number;
+  declare all: boolean;
+  declare truncated: boolean;
   declare states: LogState[];
   declare loading: boolean;
   declare busy: boolean;
@@ -56,6 +62,8 @@ export class SxLogbookPage extends LitElement {
     super();
     this.entries = null;
     this.season = shownSeason(Date.now());
+    this.all = false;
+    this.truncated = false;
     this.states = ['confirmed', 'suggested'];
     this.loading = false;
     this.busy = false;
@@ -187,6 +195,30 @@ export class SxLogbookPage extends LitElement {
       sx-season-badges {
         margin-top: var(--s-3);
       }
+      .years {
+        width: 100%;
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+      }
+      .years th,
+      .years td {
+        padding: var(--s-2) var(--s-1);
+        border-bottom: 1px solid var(--border-soft);
+        text-align: right;
+      }
+      .years th:first-child,
+      .years td:first-child {
+        text-align: left;
+      }
+      .years thead th {
+        font-size: var(--fs-s);
+        color: var(--text-3);
+      }
+      .years tfoot th,
+      .years tfoot td {
+        font-weight: 700;
+        border-bottom: 0;
+      }
       h3 {
         margin: var(--s-3) 0 var(--s-2);
         font-size: var(--fs-m);
@@ -300,9 +332,9 @@ export class SxLogbookPage extends LitElement {
     return this.states.map((s) => LOG_FILTER_LABEL[s]).join(', ');
   }
 
-  /** CSV mit Saison und Filter der Ansicht (F-457). */
+  /** CSV mit Saison (bzw. `alle` = Segellebenslauf, F-610) und Filter der Ansicht (F-457). */
   private csvHref(): string {
-    return `/api/me/logbook.csv?saison=${this.season}&stand=${this.states.join(',')}`;
+    return `/api/me/logbook.csv?saison=${this.all ? 'alle' : this.season}&stand=${this.states.join(',')}`;
   }
 
   private toggle(s: LogState) {
@@ -331,6 +363,18 @@ export class SxLogbookPage extends LitElement {
     return html`<dl class="totals" aria-label="Summen">
       ${items.map(([k, v, sub]) => html`<div><dt>${k}</dt><dd>${v}${sub ? html`<small>${sub}</small>` : ''}</dd></div>`)}
     </dl>`;
+  }
+
+  /** Segellebenslauf (F-611): je Saison Törns, Seemeilen, Stunden und Tage, darunter die Summen über alle Saisons. */
+  private lifetime() {
+    const { rows, total } = lifetimeReview(this.entries ?? [], this.states);
+    const hours = (h: number) => fmtNum(h, h < 10 ? 1 : 0);
+    return html`<table class="years">
+      <caption class="note">Stunden: Angaben unter Segel und Motor, sonst die Fahrtzeit am selben Tag.</caption>
+      <thead><tr><th scope="col">Saison</th><th scope="col">Törns</th><th scope="col">sm</th><th scope="col">Stunden</th><th scope="col">Tage</th></tr></thead>
+      <tbody>${rows.length ? '' : html`<tr><td colspan="5">Keine Einträge mit diesem Filter.</td></tr>`}${rows.map((r) => html`<tr><th scope="row">${r.season}</th><td>${r.voyages}</td><td>${fmtNum(r.nm, 1)}</td><td>${hours(r.hours)}</td><td>${r.days}</td></tr>`)}</tbody>
+      <tfoot><tr><th scope="row">Gesamt</th><td>${total.voyages}</td><td>${fmtNum(total.nm, 1)}</td><td>${hours(total.hours)}</td><td>${total.days}</td></tr></tfoot>
+    </table>`;
   }
 
   /** Punkte je Vorlage (Jahresbericht, F-505) – mit dem Hinweis „Vereinshilfe“ und dem Weg zur Wertung. */
@@ -403,19 +447,34 @@ export class SxLogbookPage extends LitElement {
         <p><button class="btn" @click=${() => emit(this, 'sx-logbook-start')}>${icon('plus')} Eintrag hinzufügen</button></p>`;
     const seasons = this.seasons();
     const season = pickSeason(seasons, this.season);
+    const tabs = html`<div class="seasons" role="tablist" aria-label="Saison" data-scroll-x>
+        <button role="tab" aria-selected=${this.all ? 'true' : 'false'} @click=${() => !this.all && emit(this, 'sx-logbook-season', { season: 'alle' })}>Alle Saisons</button>
+        ${seasons.map((s) => html`<button role="tab" aria-selected=${!this.all && s === season ? 'true' : 'false'} @click=${() => (this.all || s !== season) && emit(this, 'sx-logbook-season', { season: s })}>${s}</button>`)}
+      </div>`;
+    const filter = html`<div class="filter" role="group" aria-label="Stand im Fahrtenbuch">
+        ${LOG_STATES.map((s) => html`<button aria-pressed=${this.states.includes(s) ? 'true' : 'false'} @click=${() => this.toggle(s)}>
+          ${this.states.includes(s) ? icon('check') : ''} ${LOG_FILTER_LABEL[s]}</button>`)}
+      </div>`;
+    if (this.all) {
+      const everything = filterEntries(this.entries, this.states, null);
+      return html`${tabs}${filter}
+        <p class="print-only">Segellebenslauf · ${this.filterLabel()} · Stand ${fmtDate(Date.now())}</p>
+        <section aria-labelledby="sum-h">
+          <h2 id="sum-h">Segellebenslauf</h2>
+          <p class="note">Summen aller Saisons (${this.filterLabel()}); ausgeschlossene zählen nie. Jeder Eintrag steht in der CSV-Datei.</p>
+          ${this.truncated ? html`<p class="note" role="status">Nur die neuesten ${LOGBOOK_MAX_ENTRIES} Einträge sind geladen – ältere fehlen in Übersicht und CSV.</p>` : nothing}
+          ${this.totals(logbookTotals(everything))}
+          ${this.lifetime()}
+        </section>`;
+    }
     const shown = filterEntries(this.entries, this.states, season);
     // Punkte nur, wenn ein gezeigter Eintrag mehr als „Nur Meilen“ zählt (F-505)
     this.scored = usesTemplates(shown, this.templates);
     const inSeason = this.entries.filter((e) => entrySeason(e) === season).length;
     const review = seasonReview(shown, season);
     return html`
-      <div class="seasons" role="tablist" aria-label="Saison" data-scroll-x>
-        ${seasons.map((s) => html`<button role="tab" aria-selected=${s === season ? 'true' : 'false'} @click=${() => s !== season && emit(this, 'sx-logbook-season', { season: s })}>${s}</button>`)}
-      </div>
-      <div class="filter" role="group" aria-label="Stand im Fahrtenbuch">
-        ${LOG_STATES.map((s) => html`<button aria-pressed=${this.states.includes(s) ? 'true' : 'false'} @click=${() => this.toggle(s)}>
-          ${this.states.includes(s) ? icon('check') : ''} ${LOG_FILTER_LABEL[s]}</button>`)}
-      </div>
+      ${tabs}
+      ${filter}
       <p class="print-only">Jahresbericht Saison ${season} · ${this.filterLabel()} · Stand ${fmtDate(Date.now())}</p>
       <section aria-labelledby="sum-h">
         <div class="sum-head">
@@ -442,12 +501,12 @@ export class SxLogbookPage extends LitElement {
       <header>
         <div>
           <h1>Mein Fahrtenbuch</h1>
-          <p class="lead">Deine Törns nach Saison – mit und ohne GPX, dazu Törns, auf denen du als Crew mitgesegelt bist. Als Meilennachweis und Jahresbericht exportieren oder drucken.</p>
+          <p class="lead">Deine Törns nach Saison – mit und ohne GPX, dazu Törns, auf denen du als Crew mitgesegelt bist. Als Meilennachweis, Jahresbericht oder Segellebenslauf exportieren oder drucken.</p>
         </div>
         ${ready || this.scoringLink
           ? html`<div class="tools">
               ${ready
-                ? html`<a class="btn" href=${this.csvHref()} download title="Meilennachweis und Jahresbericht mit Punkten">${icon('download')} CSV</a>
+                ? html`<a class="btn" href=${this.csvHref()} download title="Meilennachweis, Jahresbericht mit Punkten bzw. Segellebenslauf (alle Saisons)">${icon('download')} CSV</a>
                     <button class="btn" @click=${() => emit(this, 'sx-logbook-print')}>${icon('print')} Drucken</button>`
                 : ''}
               ${this.scoringLink ? html`<a class="btn" href=${SCORING_PATH}>${icon('scale')} Wertung</a>` : ''}

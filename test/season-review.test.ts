@@ -3,9 +3,9 @@ import { createCanvas } from '@napi-rs/canvas';
 import { describe, expect, it } from 'vitest';
 import { datenschutz } from '../src/content/legal';
 import { MILESTONES_NM } from '../src/domain/groups';
-import type { LogbookEntry } from '../src/domain/logbook-year';
+import { filterEntries, logbookTotals, type LogbookEntry } from '../src/domain/logbook-year';
 import {
-  badgeText, reviewAltText, reviewFigures, reviewHeadline, reviewHours, seasonBadges, seasonImageFileName, seasonReview,
+  badgeText, reviewAltText, reviewFigures, reviewHeadline, reviewHours, seasonBadges, seasonImageFileName, seasonReview, lifetimeReview,
 } from '../src/domain/season-review';
 import { drawSeasonImage, seasonLayout } from '../src/services/season-image';
 import { FORMATS, type ImageFormat } from '../src/services/share-image';
@@ -14,6 +14,28 @@ const entry = (o: Partial<LogbookEntry>): LogbookEntry => ({
   id: 'A', own: true, path: '/s/A', title: 'Havel', startedAt: Date.UTC(2026, 5, 13, 8), endedAt: null, timed: false, source: 'gpx',
   distNm: 10, distSource: 'track', from: { slug: 'potsdam', name: 'Potsdam' }, to: { slug: 'werder', name: 'Werder' },
   role: 'skipper', roleConfirmed: false, boat: 'Möwe', logState: 'confirmed', log: {}, ...o,
+});
+
+describe('Segellebenslauf (F-611)', () => {
+  it('[F-611] Zeilen je Saison (neueste zuerst), Summe = Summe über alles inkl. Crew; Ausgeschlossene nie; Stand-Filter; Novembergrenze', () => {
+    const entries = [
+      entry({ id: 'A', distNm: 20, startedAt: Date.UTC(2026, 5, 13, 8), timed: true, endedAt: Date.UTC(2026, 5, 13, 14) }),
+      entry({ id: 'B', own: false, path: null, title: null, distNm: 15, role: 'crew', roleConfirmed: true, startedAt: Date.UTC(2025, 6, 1, 8) }),
+      entry({ id: 'C', distNm: 500, logState: 'excluded', startedAt: Date.UTC(2025, 6, 2, 8) }),
+      entry({ id: 'D', distNm: 7, logState: 'suggested', startedAt: Date.UTC(2025, 9, 31, 12), log: { daysAboard: 3, sailH: 2 } }),
+      // ab November zählt zur nächsten Saison
+      entry({ id: 'E', distNm: 9, startedAt: Date.UTC(2025, 10, 2, 12) }),
+      entry({ id: 'F', distNm: 600, logState: 'excluded', startedAt: Date.UTC(2020, 6, 2, 8) }),
+    ];
+    const l = lifetimeReview(entries, ['confirmed', 'suggested']);
+    expect(l.rows.map((r) => [r.season, r.voyages, r.nm])).toEqual([[2026, 2, 29], [2025, 2, 22]]);
+    expect(l.total).toEqual({ voyages: 4, nm: 51, hours: 8, days: 6 });
+    const all = logbookTotals(filterEntries(entries, ['confirmed', 'suggested'], null));
+    expect(l.total).toMatchObject({ voyages: all.count, nm: all.nm, days: all.days });
+    // nur Bestätigte: der Vorschlag fällt weg; nur Ausgeschlossene: nichts zählt, keine leeren Zeilen
+    expect(lifetimeReview(entries, ['confirmed']).total.voyages).toBe(3);
+    expect(lifetimeReview(entries, ['excluded'])).toEqual({ rows: [], total: { voyages: 0, nm: 0, hours: 0, days: 0 } });
+  });
 });
 
 describe('Zahlen der Saison', () => {

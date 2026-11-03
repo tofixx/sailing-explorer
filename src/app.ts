@@ -221,6 +221,7 @@ export class App {
       leavePage: () => this.leavePage(),
       onPage: () => this.ui.app.hasAttribute('data-page'),
       showHome: () => this.showHome(),
+      trackAttached: (share) => this.session.uploadPreview(share),
     });
     this.session = new SessionController(this.store, {
       login: this.ui.login,
@@ -750,6 +751,7 @@ export class App {
     on<{ userId: string }>('sx-crew-remove', (d) => s.removeCrew(d.userId));
     on('sx-crew-leave', () => s.leaveCrew());
     on('sx-crew-edit', () => this.editCrew());
+    on<{ file: File }>('sx-track-attach', (d) => void this.ws.attach(d.file));
     on<string>('sx-boat-admins', (id) => s.loadAdmins(id));
     on<{ boatId: string; to: { email: string } | { handle: string } }>('sx-boat-admin-invite', (d) => s.inviteAdmin(d.boatId, d.to));
     on<string>('sx-my-invite-accept', (id) => s.acceptMyInvite(id));
@@ -1111,7 +1113,7 @@ export class App {
         el.adjust();
       } else {
         await coverApi.remove(d.kind, d.id);
-        this.patchCover(d.kind, { cover: null });
+        this.patchCover(d.kind, { cover: null, coverHeldUntil: null });
       }
       this.toast(d.file ? 'Titelbild gespeichert' : 'Titelbild entfernt');
     } catch (err) {

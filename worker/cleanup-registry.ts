@@ -55,6 +55,7 @@ export const TABLES: Record<string, Loeschweg> = {
   // Törn-Fotos mit dem Törn, Galerie-Fotos (Konzept 31) mit dem Beitrag – Dateien und Zähler vorher galleryPhotoCleanup
   photos: { cascade: ['shares', 'users', 'posts'], durch: ['removePhoto', 'removeShare', 'purgeUser', 'removePost', 'galleryPhotoCleanup', 'channelGalleryCleanup'] },
   photo_log: { cascade: ['users'], durch: ['purgeUser', 'mergeUsers'], nachts: 'nach 32 Tagen (photoLogCleanup)' },
+  cover_log: { cascade: ['users'], durch: ['purgeUser', 'mergeUsers'], nachts: 'nach 2 Tagen (coverLogCleanup)' },
   groups: { cascade: ['users'], durch: ['removeGroup', 'purgeUserGroups'] },
   group_members: { cascade: ['groups', 'users'], durch: ['leaveGroupStmts', 'removeGroup', 'purgeUserGroups', 'mergeUsers'] },
   group_requests: { cascade: ['groups', 'users'], durch: ['withdrawRequest', 'removeGroup', 'purgeUserGroups'], nachts: 'nach 90 Tagen' },
