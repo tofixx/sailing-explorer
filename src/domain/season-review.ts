@@ -4,7 +4,7 @@ import { fmtDate, fmtNum } from './format';
 import { MILESTONES_NM } from './groups';
 import { calendarDaysBerlin } from './logbook-suggest';
 import { countsInLogbook } from './logbook';
-import { entryHours, logbookTotals, type LogbookEntry } from './logbook-year';
+import { entryHours, logbookTotals, recordedNote, type LogbookEntry } from './logbook-year';
 
 /** Ein Abzeichen der Reihe (F-521). */
 export interface SeasonBadge {
@@ -30,13 +30,15 @@ export interface SeasonReview {
   days: number;
   boats: number;
   harbors: number;
-  /** längster **aufgezeichneter** Törn (K6), ohne Titel und Häfen */
+  /** längster **aufgezeichneter** eigener Törn (K6), ohne Titel und Häfen */
   longest: { nm: number; startedAt: number } | null;
   badges: SeasonBadge[];
 }
 
 /** Abzeichen aus `MILESTONES_NM`: erreicht, das nächste mit Rest, die übrigen offen. */
-export function seasonBadges(nm: number, thresholds: readonly number[] = MILESTONES_NM): SeasonBadge[] {
+export function seasonBadges(raw: number, thresholds: readonly number[] = MILESTONES_NM): SeasonBadge[] {
+  // auf die gezeigte Nachkommastelle runden: 99,97 sm steht als „100,0 sm“ da und zählt dann auch als erreicht
+  const nm = Math.round(raw * 10) / 10;
   const nextAt = thresholds.find((t) => nm < t);
   return thresholds.map((t) => ({
     nm: t,
@@ -52,8 +54,8 @@ export function seasonBadges(nm: number, thresholds: readonly number[] = MILESTO
  * mit echten Uhrzeiten und am selben Tag – mehrtägige Spannen enthielten Liegezeiten.
  */
 export function reviewHours(e: Pick<LogbookEntry, 'startedAt' | 'endedAt' | 'timed' | 'log'>): number {
-  const stated = (e.log.sailH ?? 0) + (e.log.engineH ?? 0);
-  if (stated > 0) return stated;
+  // eine Angabe (auch 0) gilt – dann zählt die Zeitspanne nicht
+  if (e.log.sailH != null || e.log.engineH != null) return (e.log.sailH ?? 0) + (e.log.engineH ?? 0);
   const h = entryHours(e);
   return h !== null && e.endedAt !== null && calendarDaysBerlin(e.startedAt, e.endedAt) === 1 ? h : 0;
 }
@@ -68,7 +70,7 @@ export function seasonReview(entries: LogbookEntry[], season: number): SeasonRev
   const boats = new Set(counted.flatMap((e) => (e.boat ? [e.boat.trim().toLocaleLowerCase('de-DE')] : [])));
   let longest: SeasonReview['longest'] = null;
   for (const e of counted) {
-    if (e.distSource === 'track' && e.distNm > 0 && (!longest || e.distNm > longest.nm)) longest = { nm: e.distNm, startedAt: e.startedAt };
+    if (e.own && e.distSource === 'track' && e.distNm > 0 && (!longest || e.distNm > longest.nm)) longest = { nm: e.distNm, startedAt: e.startedAt };
   }
   return {
     season,
@@ -98,7 +100,7 @@ const sm = (n: number) => `${fmtNum(n, 1)} sm`;
 
 /** Kopfzahl: Seemeilen, mit „davon … aufgezeichnet“, wenn geschätzte Meilen dabei sind (K3). */
 export function reviewHeadline(r: SeasonReview): ReviewFigure {
-  return { label: 'Seemeilen', value: sm(r.nm), detail: r.recordedNm < r.nm - 0.05 ? `davon ${sm(r.recordedNm)} aufgezeichnet` : undefined };
+  return { label: 'Seemeilen', value: sm(r.nm), detail: recordedNote(r) };
 }
 
 /** Kacheln unter der Kopfzahl – nur vorhandene Werte (F-520). */

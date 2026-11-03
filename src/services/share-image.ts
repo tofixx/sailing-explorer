@@ -70,6 +70,12 @@ export const SHARE_COLORS = {
   line: '#e3e9ef',
   accent: '#0e6bd8',
   halo: '#ffffff',
+  /** Schrift auf Akzentfarbe (Saison-Abzeichen) */
+  onAccent: '#ffffff',
+  /** heller Wasserverlauf oben links im Saison-Bild */
+  sky: '#dcebf7',
+  /** offenes Abzeichen im Saison-Bild */
+  open: '#eef2f6',
   start: '#1f8a4c',
   end: '#c2372b',
   speed: '#7a55c7',
@@ -474,6 +480,15 @@ export function downloadFile(f: File): void {
   a.download = f.name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+/** Kann das Gerät Dateien (Bilder) teilen? Prüft mit einer echten Datei – `canShare` allein sagt das nicht. */
+export function canShareFiles(): boolean {
+  try {
+    return typeof navigator.canShare === 'function' && navigator.canShare({ files: [new File([''], 'bild.jpg', { type: 'image/jpeg' })] });
+  } catch {
+    return false;
+  }
 }
 
 /** Über das Teilen-Menü des Geräts teilen, wenn es Dateien teilen kann – sonst herunterladen. */

@@ -1,6 +1,7 @@
 // Saisonrückblick (Konzept 33): Zahlen der Saison (F-520), Abzeichen-Reihe (F-521) und das Bild ohne Browser (F-523).
 import { createCanvas } from '@napi-rs/canvas';
 import { describe, expect, it } from 'vitest';
+import { datenschutz } from '../src/content/legal';
 import { MILESTONES_NM } from '../src/domain/groups';
 import type { LogbookEntry } from '../src/domain/logbook-year';
 import {
@@ -25,6 +26,8 @@ describe('Zahlen der Saison', () => {
     entry({ id: 'C', distNm: 30, timed: true, startedAt: Date.UTC(2026, 6, 1, 8), endedAt: Date.UTC(2026, 6, 3, 16), boat: 'Jolle', to: { slug: 'brandenburg', name: 'Brandenburg' } }),
     // Crew-Törn anderer (M1): nur Eckdaten
     entry({ id: 'D', own: false, path: null, title: null, distNm: 15, boat: null, from: null, to: null, role: 'crew', roleConfirmed: true }),
+    // Crew-Törn anderer, länger und aufgezeichnet: zählt in die Summen, aber nicht als „längster Törn“
+    entry({ id: 'F', own: false, path: null, title: null, distNm: 35, boat: null, from: null, to: null, role: 'crew', roleConfirmed: true }),
     // ausgeschlossen: zählt nie
     entry({ id: 'E', distNm: 500, logState: 'excluded', boat: 'Yacht' }),
   ];
@@ -32,20 +35,23 @@ describe('Zahlen der Saison', () => {
   it('[F-520] Summen wie die Seite, Stunden nur aus Angaben bzw. am selben Tag, Boote ohne Groß-/Kleinschreibung, längster nur aufgezeichnet', () => {
     const r = seasonReview(entries, 2026);
     expect(r.season).toBe(2026);
-    expect(r.voyages).toBe(4);
-    expect(r.nm).toBe(105);
-    expect(r.recordedNm).toBe(65);
+    expect(r.voyages).toBe(5);
+    expect(r.nm).toBe(140);
+    expect(r.recordedNm).toBe(100);
     expect(r.hours).toBeCloseTo(10.5);
     expect(r.boats).toBe(2);
     expect(r.harbors).toBe(3);
-    expect(r.days).toBe(1 + 1 + 3 + 1);
+    expect(r.days).toBe(1 + 1 + 3 + 1 + 1);
     expect(r.longest).toEqual({ nm: 30, startedAt: Date.UTC(2026, 6, 1, 8) });
     expect(reviewHours(entry({ timed: false, endedAt: Date.UTC(2026, 5, 13, 14) }))).toBe(0);
+    // eine Angabe 0 h gilt als Angabe – die Zeitspanne zählt dann nicht
+    expect(reviewHours(entry({ timed: true, endedAt: Date.UTC(2026, 5, 13, 14), log: { engineH: 0 } }))).toBe(0);
+    expect(reviewHours(entry({ timed: true, endedAt: Date.UTC(2026, 5, 13, 14) }))).toBe(6);
   });
 
   it('[F-520] Kacheln nur für vorhandene Werte; Kopfzahl nennt den aufgezeichneten Anteil (K3); Dateiname', () => {
     const r = seasonReview(entries, 2026);
-    expect(reviewHeadline(r)).toEqual({ label: 'Seemeilen', value: '105,0 sm', detail: 'davon 65,0 sm aufgezeichnet' });
+    expect(reviewHeadline(r)).toEqual({ label: 'Seemeilen', value: '140,0 sm', detail: 'davon 100,0 sm aufgezeichnet' });
     expect(reviewFigures(r).map((f) => f.label)).toEqual(['Törns', 'Stunden', 'Tage an Bord', 'Boote', 'Häfen', 'Längster Törn']);
     const small = seasonReview([entry({ distSource: 'stated', boat: null, from: null, to: null })], 2026);
     expect(reviewHeadline(seasonReview([entry({})], 2026)).detail).toBeUndefined();
@@ -68,6 +74,10 @@ describe('Abzeichen-Reihe', () => {
     expect(seasonBadges(50).map(badgeText)).toEqual(['100 sm – noch 50,0 sm', '500 sm', '1.000 sm']);
     expect(seasonBadges(1000).every((x) => x.reached && !x.next)).toBe(true);
     expect(seasonBadges(0)[0]).toMatchObject({ next: true, progress: 0 });
+    // gerundet wie gezeigt: 99,97 sm steht als „100,0 sm“ da und ist erreicht
+    expect(seasonBadges(99.97)[0]).toMatchObject({ reached: true, missing: 0 });
+    expect(seasonBadges(99.94)[0]).toMatchObject({ reached: false, next: true });
+    expect(badgeText(seasonBadges(99.94)[0])).toBe('100 sm – noch 0,1 sm');
   });
 
   it('[F-521] Alternativtext nennt Zahlen und Abzeichen – keine Vergleiche mit anderen (K6)', () => {
@@ -96,5 +106,14 @@ describe('Saison-Bild', () => {
     const corner = ctx.getImageData(2, 2, 1, 1).data;
     expect(corner[3]).toBe(255);
     expect(canvas.toBuffer('image/png').length).toBeGreaterThan(10_000);
+  });
+});
+
+describe('Datenschutz', () => {
+  it('[F-524] der Datenschutztext nennt das Saison-Bild: nur im Browser, nicht gespeichert, verlässt das Gerät nur beim Teilen', () => {
+    const t = JSON.stringify(datenschutz());
+    expect(t).toContain('Das Bild „Meine Saison“');
+    expect(t).toContain('entsteht nur in deinem Browser; wir speichern es nicht');
+    expect(t).toContain('dein Gerät verlässt es nur, wenn du es selbst teilst');
   });
 });

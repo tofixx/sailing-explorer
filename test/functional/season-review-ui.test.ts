@@ -7,6 +7,7 @@ import { LogbookPageController } from '../../src/controllers/logbook-page';
 import type { SxLogbookPage } from '../../src/components/sx-logbook-page';
 import type { SxSeasonReview } from '../../src/components/sx-season-review';
 import type { LogbookEntry } from '../../src/domain/logbook-year';
+import { APP_NAME } from '../../src/domain/brand';
 
 const render = vi.hoisted(() => vi.fn(async () => new Blob(['jpeg'], { type: 'image/jpeg' })));
 // Canvas gibt es in happy-dom nicht – das Zeichnen selbst prüft test/season-review.test.ts
@@ -41,7 +42,7 @@ describe('Abzeichen-Reihe und Einstieg auf „Mein Fahrtenbuch“', () => {
     const badges = el.shadowRoot.querySelector('sx-season-badges')! as HTMLElement & { updateComplete: Promise<boolean> };
     await badges.updateComplete;
     const items = [...badges.shadowRoot!.querySelectorAll('li')];
-    expect(items.map((li) => [li.className, li.getAttribute('aria-label')])).toEqual([
+    expect(items.map((li) => [li.className, li.querySelector('.sr-only')!.textContent!.trim()])).toEqual([
       ['reached', '100 sm erreicht'],
       ['next', '500 sm – noch 350,0 sm'],
       ['later', '1.000 sm'],
@@ -50,7 +51,7 @@ describe('Abzeichen-Reihe und Einstieg auf „Mein Fahrtenbuch“', () => {
     el.states = ['suggested'];
     await el.updateComplete;
     await badges.updateComplete;
-    expect(badges.shadowRoot!.querySelector('li')!.getAttribute('aria-label')).toBe('100 sm – noch 70,0 sm');
+    expect(badges.shadowRoot!.querySelector('li .sr-only')!.textContent!.trim()).toBe('100 sm – noch 70,0 sm');
   });
 
   it('[F-522] Ein Knopf „Meine Saison <Jahr>“ neben der Saison-Überschrift, nur mit zählenden Einträgen, nicht im Druck', async () => {
@@ -69,7 +70,7 @@ describe('Abzeichen-Reihe und Einstieg auf „Mein Fahrtenbuch“', () => {
     expect(el.shadowRoot.querySelector('sx-season-badges')).toBeNull();
     // Druckstil blendet den Knopf aus
     const css = (el.constructor as typeof SxLogbookPage).styles!.toString();
-    expect(css).toMatch(/\.sum-head \.btn,/);
+    expect(css).toMatch(/\.sum-head \.btn,\s*sx-season-badges,/);
   });
 
   it('[F-522] Dialog: Vorschau mit Alternativtext, Format, Herunterladen; Teilen nur mit Datei-Teilen des Geräts', async () => {
@@ -83,6 +84,7 @@ describe('Abzeichen-Reihe und Einstieg auf „Mein Fahrtenbuch“', () => {
     expect(text(root.querySelector('h2')!)).toBe('Meine Saison 2026');
     expect(root.querySelector('img')!.getAttribute('alt')).toMatch(/^Meine Saison 2026: Seemeilen 150,0 sm, Törns 2/);
     expect(text(root)).toMatch(/nur in deinem Browser/);
+    expect(root.querySelector('[role="status"]')!.getAttribute('aria-live')).toBe('polite');
     expect(button(root, /Teilen/)).toBeUndefined();
     const got: string[] = [];
     for (const n of ['sx-season-format', 'sx-season-download', 'sx-season-share', 'sx-season-close'])
@@ -96,6 +98,13 @@ describe('Abzeichen-Reihe und Einstieg auf „Mein Fahrtenbuch“', () => {
     dlg.requestUpdate();
     await dlg.updateComplete;
     button(root, /Teilen/)!.click();
+    // während des Zeichnens: Teilen und Herunterladen gesperrt, Status wird angesagt
+    el.seasonImage = { url: 'blob:x', busy: true, format: 'landscape' };
+    await el.updateComplete;
+    await dlg.updateComplete;
+    expect(button(root, /Teilen/)!.disabled).toBe(true);
+    expect(button(root, /Herunterladen/)!.disabled).toBe(true);
+    expect(root.querySelector<HTMLElement>('[role="status"]')!.hidden).toBe(false);
     expect(got).toEqual([
       'sx-season-format {"format":"landscape"}',
       'sx-season-download null',
@@ -137,9 +146,14 @@ describe('Ablauf im Controller', () => {
     el.dispatchEvent(new CustomEvent('sx-season-share'));
     await vi.waitFor(() => expect(share).toHaveBeenCalledOnce());
     const shared = (share.mock.calls[0] as unknown as [{ files: File[]; title: string }])[0];
-    expect(shared.title).toBe('Meine Saison 2026');
+    expect(shared.title).toBe(`Meine Saison 2026 · ${APP_NAME}`);
     expect(shared.files[0].name).toBe('meine-saison-2026.jpg');
     click.mockRestore();
+
+    // Fehler beim Zeichnen: die bisherige Vorschau samt Format bleibt
+    render.mockRejectedValueOnce(new Error('kaputt'));
+    el.dispatchEvent(new CustomEvent('sx-season-format', { detail: { format: 'square' } }));
+    await vi.waitFor(() => expect(el.seasonImage).toEqual({ url: 'blob:2', busy: false, format: 'landscape' }));
 
     // Schließen verwirft die Vorschau
     el.dispatchEvent(new CustomEvent('sx-season-close'));

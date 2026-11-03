@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { DIST_SOURCE_LABEL, LOG_STATES, LOG_STATE_LABEL, type LogState } from '../domain/logbook';
 import {
-  LOG_FILTER_LABEL, areaText, entrySeason, filterEntries, logbookSeasons, logbookTotals, roleText, type LogbookEntry, type LogbookTotals,
+  LOG_FILTER_LABEL, areaText, entrySeason, recordedNote, filterEntries, logbookSeasons, logbookTotals, roleText, type LogbookEntry, type LogbookTotals,
 } from '../domain/logbook-year';
 import { SCORING_NOTE, pointsByTemplate, scoreEntry, templateFor, templateLabel, usesTemplates, type ScoringTemplate } from '../domain/scoring';
 import { SCORING_PATH } from '../services/url-state';
@@ -265,6 +265,7 @@ export class SxLogbookPage extends LitElement {
         .filter,
         .row-tools,
         .sum-head .btn,
+        sx-season-badges,
         .lead {
           display: none !important;
         }
@@ -313,7 +314,7 @@ export class SxLogbookPage extends LitElement {
     const h = (v: number) => `${fmtNum(v, 1)} h`;
     const items: Array<[string, string, string?]> = [
       ['Törns', fmtNum(t.count, 0)],
-      ['Seemeilen', `${fmtNum(t.nm, 1)} sm`, t.recordedNm < t.nm - 0.05 ? `davon ${fmtNum(t.recordedNm, 1)} sm aufgezeichnet` : undefined],
+      ['Seemeilen', `${fmtNum(t.nm, 1)} sm`, recordedNote(t)],
     ];
     if (t.sailH) items.push(['Unter Segel', h(t.sailH)]);
     if (t.engineH) items.push(['Unter Motor', h(t.engineH)]);

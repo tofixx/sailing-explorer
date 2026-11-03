@@ -1,6 +1,6 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
 import { reviewAltText, type SeasonReview } from '../domain/season-review';
-import { FORMATS, type ImageFormat } from '../services/share-image';
+import { FORMATS, canShareFiles, type ImageFormat } from '../services/share-image';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 
@@ -129,7 +129,7 @@ export class SxSeasonReview extends LitElement {
   render() {
     const r = this.review;
     const img = this.image;
-    const canShareFiles = typeof navigator.canShare === 'function';
+    const ready = !!img?.url && !img.busy;
     return html`<dialog aria-labelledby="season-h" @close=${this.close}>
       <header>
         <h2 id="season-h">Meine Saison ${r?.season ?? ''}</h2>
@@ -137,15 +137,16 @@ export class SxSeasonReview extends LitElement {
       </header>
       <div class="body">
         <div class="preview ${img?.format ?? 'square'}">
-          ${img?.url && r ? html`<img src=${img.url} alt=${reviewAltText(r)} />` : html`<p class="hint">Erzeuge Bild …</p>`}
-          ${img?.busy && img.url ? html`<span class="busy">Aktualisiere …</span>` : ''}
+          ${img?.url && r ? html`<img src=${img.url} alt=${reviewAltText(r)} />` : ''}
+          <span class=${img?.url ? 'busy' : 'hint'} role="status" aria-live="polite" ?hidden=${!!img?.url && !img.busy}>
+            ${img?.url ? 'Aktualisiere …' : 'Erzeuge Bild …'}</span>
         </div>
         ${img ? this.formats(img) : ''}
         <p class="hint">Das Bild entsteht nur in deinem Browser und zeigt nur deine eigenen Zahlen – ohne Namen, Titel und Orte.
           Gespeichert oder geteilt wird es erst, wenn du es selbst teilst oder herunterlädst.</p>
         <div class="actions">
-          ${canShareFiles ? html`<button class="btn" ?disabled=${!img?.url} @click=${() => emit(this, 'sx-season-share')}>${icon('share')} Teilen …</button>` : ''}
-          <button class="btn primary" ?disabled=${!img?.url} @click=${() => emit(this, 'sx-season-download')}>${icon('download')} Herunterladen</button>
+          ${canShareFiles() ? html`<button class="btn" ?disabled=${!ready} @click=${() => emit(this, 'sx-season-share')}>${icon('share')} Teilen …</button>` : ''}
+          <button class="btn primary" ?disabled=${!ready} @click=${() => emit(this, 'sx-season-download')}>${icon('download')} Herunterladen</button>
         </div>
       </div>
     </dialog>`;

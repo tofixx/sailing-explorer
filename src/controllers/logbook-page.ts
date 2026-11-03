@@ -11,6 +11,7 @@ import type { LogState } from '../domain/logbook';
 import { seasonOf } from '../domain/support';
 import { errorText } from './session';
 import { scoringApi } from '../services/scoring-api';
+import { APP_NAME } from '../domain/brand';
 import { seasonImageFileName } from '../domain/season-review';
 import { renderSeasonImage } from '../services/season-image';
 import { downloadFile, shareOrDownload, type ImageFormat } from '../services/share-image';
@@ -157,7 +158,7 @@ export class LogbookPageController {
 
   private async shareSeason(): Promise<void> {
     const f = this.seasonFile();
-    if (f) await shareOrDownload(f, `Meine Saison ${this.page.review().season}`);
+    if (f) await shareOrDownload(f, `Meine Saison ${this.page.review().season} · ${APP_NAME}`);
   }
 
   /** Dialog schließen: Vorschau verwerfen, nichts bleibt zurück. */

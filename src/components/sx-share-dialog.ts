@@ -2,7 +2,7 @@ import { LitElement, html, css, type PropertyValues } from 'lit';
 import type { Boat, ShareMeta, SupportStatus } from '../services/api';
 import { needsSupport, quotaText, type SupportTier } from '../domain/support';
 import { storageHint } from '../domain/limits';
-import { CONTENT_LABELS, FORMATS, type ImageContent, type ImageFormat } from '../services/share-image';
+import { CONTENT_LABELS, FORMATS, canShareFiles, type ImageContent, type ImageFormat } from '../services/share-image';
 import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, isVisibility, type Visibility } from '../domain/visibility';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
@@ -357,7 +357,7 @@ export class SxShareDialog extends LitElement {
   private imageTab() {
     const img = this.image;
     if (!img) return html`<div class="body"><p class="muted">Erzeuge Bild …</p></div>`;
-    const canShareFiles = typeof navigator.canShare === 'function';
+    const canShare = canShareFiles();
     return html`<div class="body">
       <div class="preview ${img.format}">
         ${img.url ? html`<img src=${img.url} alt="Vorschau des Übersichtsbilds" />` : html`<p class="muted">Erzeuge Bild …</p>`}
@@ -385,7 +385,7 @@ export class SxShareDialog extends LitElement {
         <div class="hint">Die Angaben stehen am Rand, der Track wird nicht verdeckt. Das Bild entsteht nur in deinem Browser.</div>
       </div>
       <div class="actions">
-        ${canShareFiles ? html`<button class="btn" ?disabled=${!img.url} @click=${() => emit(this, 'sx-image-share')}>${icon('share')} Teilen …</button>` : ''}
+        ${canShare ? html`<button class="btn" ?disabled=${!img.url} @click=${() => emit(this, 'sx-image-share')}>${icon('share')} Teilen …</button>` : ''}
         <button class="btn primary" ?disabled=${!img.url} @click=${() => emit(this, 'sx-image-download')}>${icon('download')} Bild herunterladen</button>
       </div>
     </div>`;

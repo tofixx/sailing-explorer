@@ -114,7 +114,7 @@ function drawBadges(ctx: CanvasRenderingContext2D, badges: SeasonBadge[], b: Box
     const cx = b.x + slot * i + slot / 2;
     ctx.beginPath();
     ctx.arc(cx, cy, rad, 0, Math.PI * 2);
-    ctx.fillStyle = badge.reached ? C.accent : badge.next ? C.panel : '#eef2f6';
+    ctx.fillStyle = badge.reached ? C.accent : badge.next ? C.panel : C.open;
     ctx.fill();
     ctx.lineWidth = big ? 8 : 6;
     ctx.strokeStyle = badge.reached ? C.accent : C.line;
@@ -128,7 +128,7 @@ function drawBadges(ctx: CanvasRenderingContext2D, badges: SeasonBadge[], b: Box
       ctx.lineCap = 'butt';
     }
     ctx.textAlign = 'center';
-    ctx.fillStyle = badge.reached ? '#ffffff' : badge.next ? C.ink : C.faint;
+    ctx.fillStyle = badge.reached ? C.onAccent : badge.next ? C.ink : C.faint;
     fit(ctx, fmtNum(badge.nm, 0), 850, big ? 36 : 28, rad * 1.6);
     ctx.fillText(fmtNum(badge.nm, 0), cx, cy + 6);
     ctx.font = `700 ${big ? 18 : 15}px ${FONT}`;
@@ -153,7 +153,7 @@ export function drawSeasonImage(canvas: HTMLCanvasElement, review: SeasonReview,
   const L = seasonLayout(format);
   // heller Wasserverlauf – unabhängig vom Farbschema wie das Törn-Bild
   const bg = ctx.createLinearGradient(0, 0, width, height);
-  bg.addColorStop(0, '#dcebf7');
+  bg.addColorStop(0, C.sky);
   bg.addColorStop(1, C.panel);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, width, height);

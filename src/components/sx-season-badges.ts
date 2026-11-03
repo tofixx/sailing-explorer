@@ -83,7 +83,8 @@ export class SxSeasonBadges extends LitElement {
   render() {
     return html`<ul aria-label="Abzeichen der Saison">
       ${this.badges.map(
-        (b) => html`<li class=${b.reached ? 'reached' : b.next ? 'next' : 'later'} aria-label=${badgeText(b)}>
+        (b) => html`<li class=${b.reached ? 'reached' : b.next ? 'next' : 'later'}>
+          <span class="sr-only">${badgeText(b)}</span>
           <span class="ring" style="--p: ${b.reached ? 1 : b.next ? b.progress : 0}" aria-hidden="true"><b>${fmtNum(b.nm, 0)}<small>sm</small></b></span>
           <span class="caption" aria-hidden="true">${badgeCaption(b) || ' '}</span>
         </li>`,
