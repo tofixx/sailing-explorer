@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-voyage-byline';
 import '../../src/components/sx-crew';
 import '../../src/components/sx-comments';
+import '../../src/components/sx-track-list';
 import { voyageMenuItems } from '../../src/components/sx-voyage-byline';
+import { P, makeTrack } from './helpers';
 import type { Crew, ShareMeta } from '../../src/services/api';
 
 type LitEl = HTMLElement & { updateComplete: Promise<boolean>; shadowRoot: ShadowRoot } & Record<string, unknown>;
@@ -189,5 +191,14 @@ describe('F-514 Kommentarfeld nach Klick', () => {
     const css = (el.constructor as unknown as { elementStyles: Array<{ cssText: string }> }).elementStyles.map((s) => s.cssText).join('\n');
     expect(css).toMatch(/@media \(hover: hover\) and \(pointer: fine\)\s*\{\s*li \.tools\s*\{\s*opacity: 0/);
     expect(css).toMatch(/li:focus-within \.tools/);
+  });
+
+  it('[F-514] lange Track-Namen verbreitern die Seitenleiste nicht (Spalte minmax(0, 1fr), Name mit Ellipse)', async () => {
+    const name = 'Potsdam Yachthafen Testlang → Werder an der Havel Steg';
+    const el = await mount('sx-track-list', { tracks: [makeTrack([P(52.4, 13, 0), P(52.41, 13.01, 60_000)], { id: 'T1', name })], readonly: true });
+    expect(el.shadowRoot.querySelector('.name')!.getAttribute('title')).toBe(name);
+    const css = (el.constructor as unknown as { elementStyles: Array<{ cssText: string }> }).elementStyles.map((s) => s.cssText).join('\n');
+    expect(css).toMatch(/ul\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
+    expect(css).toMatch(/\.name\s*\{[^}]*text-overflow: ellipsis/);
   });
 });

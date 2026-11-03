@@ -318,4 +318,4 @@ S = Skipper:in, E = Eigentümer:in. Gilt mobil (Bottom-Sheet, Zahnrad öffnet al
 | „Für diesen Törn: [Kommentare an]“ | E | Auswahl im Panel | Zahnrad (F-510) |
 | Melden/Löschen je Kommentar | alle bzw. Autor:in, E | immer | mit Maus bei Hover/Fokus, Touch immer (F-514) |
 | „Törn melden“ | G, C | unter den Kommentaren | Zahnrad (F-510) |
-| Tracks: Ein-/Ausblenden, GPX laden | alle | sichtbar | unverändert |
+| Tracks: Ein-/Ausblenden, GPX laden | alle | sichtbar | unverändert; lange Namen mit Ellipse statt breiter Seitenleiste bei 375 px (F-514) |

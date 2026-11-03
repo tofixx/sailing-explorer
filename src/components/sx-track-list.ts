@@ -53,6 +53,8 @@ export class SxTrackList extends LitElement {
         margin: 0;
         padding: 0;
         display: grid;
+        /* minmax(0, …): lange Track-Namen kürzen (Ellipse) statt die Zeile über den Rand zu schieben */
+        grid-template-columns: minmax(0, 1fr);
         gap: 2px;
       }
       li {
