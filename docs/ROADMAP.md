@@ -112,7 +112,7 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 
 ### Reservierungen
 
-Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-509**, **Konzept 32**, **Migration 0040** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
+Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-514**, **Konzept 32**, **Migration 0040** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
 sind F-451, Konzept 27 (`docs/concept/27-….md`; Konzept 26 = Diagramm-Zoom, F-430) und Migration 0034. Neue Aufträge bekommen ihren Bereich hier, bevor
 sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
@@ -127,3 +127,4 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
 | `feature/veranstaltungen` (Phase 5, F-408/F-410) – Welle 2 nach dem Register | F-480 … F-489 | 30 | 0037 | | gestartet 03.11. |
 | `feature/galerie` (Phase 7, Neubau `photos`) – Welle 2 nach dem Register | F-490 … F-499 | 31 | 0038, 0039 | | gestartet 03.11. |
 | `feature/wertung` (Phase 9, F-413/F-414) – Welle 3 nach Phase 8 | F-500 … F-509 | 32 | 0040 | | reserviert |
+| `feature/toern-ruhiger` (Törn-Seitenleiste: weniger sichtbare Schaltflächen, Crew/Einladen/Kommentare) | F-510 … F-514 | – | – | `sx-crew`, `sx-comments`, Törn-Seitenleiste, `sx-page-menu` | gestartet 03.11. |
