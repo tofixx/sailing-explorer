@@ -7,6 +7,7 @@ import { createShare, startWorker, type Harness } from './worker-harness';
 import { social, type GroupOut, type Person, type StreamOut } from './social-helpers';
 import { canSeeMembers, canSeeMembership, type GroupRole } from '../../src/domain/groups';
 import { isMemberSql, membersVisibleSql } from '../../worker/member-sql';
+import { memberAlias } from '../../src/domain/names';
 
 let h: Harness;
 let s: ReturnType<typeof social>;
@@ -136,9 +137,10 @@ describe('F-441 Mitgliederliste je Betrachter', () => {
     const d = await page(g);
     expect(d.membersHidden).toBe(false);
     expect(d.members.filter((m) => m.handle).map((m) => m.handle).sort()).toEqual([owner.handle, pub.handle].sort());
-    const alias1 = d.members.find((m) => m.alias)!.displayName;
-    const alias2 = (await page(g2)).members.find((m) => m.alias)!.displayName;
-    expect(alias1).not.toBe(alias2);
+    // Je Gruppe abgeleitet (Gruppe + Konto) – nicht auf Ungleichheit prüfen: zwei Zufalls-IDs können zufällig denselben
+    // Spaßnamen ergeben (Flake in Pipeline 131)
+    expect(d.members.find((m) => m.alias)!.displayName).toBe(memberAlias(priv.user.id, g.id));
+    expect((await page(g2)).members.find((m) => m.alias)!.displayName).toBe(memberAlias(priv.user.id, g2.id));
     expect(JSON.stringify(d)).not.toContain(`Name ${priv.handle}`);
     expect(JSON.stringify(d)).not.toContain(priv.user.id);
   });
