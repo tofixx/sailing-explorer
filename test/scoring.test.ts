@@ -115,10 +115,12 @@ describe('Gewichtung der Vereinsliste (F-504)', () => {
     expect(clubPoints([])).toBe(0);
   });
 
-  it('[F-504] Saison ohne Angabe: im November und Dezember die abgelaufene, sonst die laufende', () => {
+  it('[F-504] [F-555] Saison ohne Angabe: bis Ende Februar die abgelaufene, ab 1. März die laufende', () => {
     expect(clubListSeason(Date.UTC(2026, 10, 3))).toBe(2026);
     expect(clubListSeason(Date.UTC(2026, 11, 31))).toBe(2026);
-    expect(clubListSeason(Date.UTC(2027, 0, 2))).toBe(2027);
+    expect(clubListSeason(Date.UTC(2027, 0, 2))).toBe(2026);
+    expect(clubListSeason(Date.UTC(2027, 1, 28, 23))).toBe(2026);
+    expect(clubListSeason(Date.UTC(2027, 2, 1))).toBe(2027);
     expect(clubListSeason(Date.UTC(2026, 6, 1))).toBe(2026);
   });
 });

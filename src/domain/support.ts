@@ -22,6 +22,18 @@ export function seasonOf(t: number): number {
   return d.getUTCFullYear() + (d.getUTCMonth() >= NEXT_SEASON_FROM_MONTH ? 1 : 0);
 }
 
+/** Ab diesem Monat (0 = Januar) zeigen Fahrtenbuch und Wertung ohne Angabe die neue Saison: März. */
+export const SHOWN_SEASON_FROM_MONTH = 2;
+
+/**
+ * Saison, die Fahrtenbuch und Wertung ohne Angabe vorwählen: bis Ende Februar die abgelaufene (gesegelt wird erst
+ * wieder ab dem Frühjahr), ab dem 1. März die neue. Wozu ein Eintrag zählt, bleibt `seasonOf`.
+ */
+export function shownSeason(t: number): number {
+  const d = new Date(t);
+  return d.getUTCFullYear() - (d.getUTCMonth() < SHOWN_SEASON_FROM_MONTH ? 1 : 0);
+}
+
 /** Ende einer Saison: 1. Januar des Folgejahres, 0 Uhr UTC. */
 export const seasonEnd = (season: number): number => Date.UTC(season + 1, 0, 1);
 

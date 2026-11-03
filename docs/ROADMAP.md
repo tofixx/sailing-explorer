@@ -120,8 +120,8 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 
 ### Reservierungen
 
-Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-549**, **Konzept 35**, **Migration 0043** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
-sind F-550, Konzept 36 und Migration 0044. Neue Aufträge bekommen ihren Bereich hier, bevor
+Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-559**, **Konzept 35**, **Migration 0043** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
+sind F-560, Konzept 36 und Migration 0044. Neue Aufträge bekommen ihren Bereich hier, bevor
 sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
 | Branch / Auftrag | F-IDs | Konzept | Migration | Berührt | Stand |
@@ -160,3 +160,4 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
   Verwaltern (der Boots-Schlüssel fehlt dem Betrachter), gesperrte nie, bei gesperrtem Konto (Törn oder Boot) nichts;
   Plattform-Admins sehen ausgeblendete Boote dort nicht (enger als `getBoat`). Gesperrte Boote fallen auch aus `boat`.
   Wortlaut „auf <Boot>“.
+| `fix/saison-ab-maerz` (Fahrtenbuch und Wertung wählen bis Ende Februar die abgelaufene Saison) | F-555 … F-559 | – | – | `src/domain/support.ts` (`shownSeason`), `logbook-year.ts`, `controllers/logbook-page.ts`, `scoring.ts` (`clubListSeason`), `controllers/scoring-page.ts` | gebaut 03.11. |

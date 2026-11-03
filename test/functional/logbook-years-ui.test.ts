@@ -123,7 +123,7 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
     expect(parseRoute({ pathname: '/u/anna', search: '', hash: '' })).toEqual({ kind: 'profile', handle: 'anna' });
   });
 
-  it('[F-411] Controller: lädt nach der Anmeldung, wählt die neueste Saison mit Einträgen, merkt Saison und Filter in der Adresse', async () => {
+  it('[F-411] [F-555] Controller: lädt nach der Anmeldung, wählt die vorgewählte Saison, merkt Saison und Filter in der Adresse', async () => {
     history.replaceState(null, '', '/konto/fahrtenbuch?stand=excluded');
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -145,10 +145,10 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
     signedIn = true;
     then!();
     await vi.waitFor(() => expect(page.entries).toHaveLength(5));
-    // im November wäre die laufende Saison schon die nächste – gewählt wird die neueste mit Einträgen
+    // vorgewählt bis Ende Februar die abgelaufene Saison (F-555), hier 2026 mit Einträgen
     expect(page.season).toBe(2026);
     expect(page.states).toEqual(['excluded']);
-    expect(location.search).toBe('?stand=excluded&saison=2026');
+    expect(location.search).toBe('?stand=excluded'); // Vorgabe steht nicht in der Adresse
     c.setFilter(['confirmed', 'suggested']);
     c.setSeason(2025);
     expect(location.search).toBe('?saison=2025');

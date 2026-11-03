@@ -60,8 +60,8 @@ Törns).
 Törns (gelesen ausgehend von `share_groups` über den Index `share_groups_group`, neueste zuerst), die (1) sie in diesem
 Verein zeigt, (2) öffentlich und nicht ausgeblendet oder gesperrt sind,
 (3) im Fahrtenbuch stehen (`log_state` ≠ ausgeschlossen), (4) deren Konto nicht gesperrt ist und (5) deren Vorlage eine
-Vorlage dieses Vereins mit Faktor ist. Ohne Saison: im November und Dezember die abgelaufene, sonst die laufende
-(`clubListSeason`).
+Vorlage dieses Vereins mit Faktor ist. Ohne Saison: bis Ende Februar die abgelaufene, ab 1. März die laufende
+(`clubListSeason` = `shownSeason`, F-555).
 
 | Wer | sieht |
 | --- | --- |

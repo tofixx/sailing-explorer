@@ -4,12 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { LOG_LIMITS, fieldInArea, parseLog, readLog } from '../src/domain/logbook';
 import { calendarDaysBerlin, suggestFromTracks, sunAltitude } from '../src/domain/logbook-suggest';
 import {
-  crewLogState, csvCell, csvFileName, durationText, entrySeason, filterEntries, logbookCsv, logbookSeasons, logbookTotals, parseLogFilter,
+  crewLogState, csvCell, csvFileName, durationText, entrySeason, filterEntries, logbookCsv, logbookSeasons, logbookTotals, parseLogFilter, pickSeason,
   type LogbookEntry,
 } from '../src/domain/logbook-year';
 import { LOG_STATES, type LogState } from '../src/domain/logbook';
 import { computeTrackStats } from '../src/domain/stats';
 import type { Track, TrackPoint } from '../src/domain/types';
+import { shownSeason } from '../src/domain/support';
 
 const H = 3_600_000;
 const DAY = 24 * H;
@@ -137,7 +138,19 @@ describe('Fahrtenbuch nach Jahren (F-411, F-455)', () => {
   it('[F-411] Saison wie überall (ab November die nächste), neueste zuerst; ohne Einträge die laufende', () => {
     expect(entrySeason(e({ startedAt: Date.UTC(2025, 10, 2) }))).toBe(2026);
     expect(logbookSeasons([e({ startedAt: Date.UTC(2024, 6, 1) }), e({ startedAt: Date.UTC(2026, 6, 1) }), e({ startedAt: Date.UTC(2024, 7, 1) })], 0)).toEqual([2026, 2024]);
-    expect(logbookSeasons([], Date.UTC(2026, 10, 3))).toEqual([2027]);
+    expect(logbookSeasons([], Date.UTC(2026, 10, 3))).toEqual([2026]);
+  });
+
+  it('[F-555] vorgewählt wird bis Ende Februar die abgelaufene Saison, ab 1. März die neue', () => {
+    expect(shownSeason(Date.UTC(2026, 10, 3))).toBe(2026);
+    expect(shownSeason(Date.UTC(2027, 1, 28))).toBe(2026);
+    expect(shownSeason(Date.UTC(2027, 2, 1))).toBe(2027);
+    expect(shownSeason(Date.UTC(2027, 6, 1))).toBe(2027);
+    expect(pickSeason([2027, 2025], 2026)).toBe(2025);
+    expect(pickSeason([2027], 2026)).toBe(2027);
+    expect(pickSeason([2027, 2026], 2026)).toBe(2026);
+    // Einträge ab November zählen weiter zur nächsten Saison
+    expect(entrySeason(e({ startedAt: Date.UTC(2026, 10, 3) }))).toBe(2027);
   });
 
   it('[F-455] Filter nach Stand mit Mehrfachauswahl; Unbekanntes fällt weg, leer = Bestätigte und Vorschläge', () => {

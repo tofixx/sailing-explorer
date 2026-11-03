@@ -5,7 +5,7 @@ import { VOYAGE_ROLE_SHORT, type VoyageRole } from './crew-roles';
 import { DIST_SOURCE_LABEL, LOG_AREA_LABEL, LOG_STATES, countsInLogbook, isLogState, type DistSource, type LogState, type Logbook, type ShareSource } from './logbook';
 import { fmtNum } from './format';
 import { calendarDaysBerlin } from './logbook-suggest';
-import { seasonOf } from './support';
+import { seasonOf, shownSeason } from './support';
 import type { Visibility } from './visibility';
 
 const HOUR = 3_600_000;
@@ -44,12 +44,16 @@ export const LOGBOOK_MAX_ENTRIES = 1000;
 /** Saison eines Eintrags – wie überall (ab November zählt zur nächsten Saison). */
 export const entrySeason = (e: Pick<LogbookEntry, 'startedAt'>): number => seasonOf(e.startedAt);
 
-/** Saisons mit Einträgen, neueste zuerst; ohne Einträge die laufende. */
+/** Saisons mit Einträgen, neueste zuerst; ohne Einträge die vorgewählte (`shownSeason`). */
 export function logbookSeasons(entries: Array<Pick<LogbookEntry, 'startedAt'>>, now: number): number[] {
   const set = new Set(entries.map(entrySeason));
-  if (!set.size) set.add(seasonOf(now));
+  if (!set.size) set.add(shownSeason(now));
   return [...set].sort((a, b) => b - a);
 }
+
+/** Gewünschte Saison, wenn sie Einträge hat – sonst die nächstältere mit Einträgen, sonst die älteste (F-555). */
+export const pickSeason = (seasons: number[], wanted: number): number =>
+  seasons.includes(wanted) ? wanted : (seasons.find((s) => s <= wanted) ?? seasons[seasons.length - 1]);
 
 /** Standard-Filter (B14): Bestätigte und Vorschläge – Ausgeschlossene nur auf Wunsch. */
 export const DEFAULT_LOG_FILTER: readonly LogState[] = ['confirmed', 'suggested'];
