@@ -30,7 +30,7 @@ interface LogbookPageUi {
 export class LogbookPageController {
   constructor(private ui: LogbookPageUi) {
     const on = <T>(name: string, fn: (d: T) => void) => ui.page.addEventListener(name, (e) => fn((e as CustomEvent<T>).detail));
-    on<{ season: number }>('sx-logbook-season', (d) => this.setSeason(d.season));
+    on<{ season: number | 'alle' }>('sx-logbook-season', (d) => this.setSeason(d.season));
     on<{ states: LogState[] }>('sx-logbook-filter', (d) => this.setFilter(d.states));
     on<{ id: string; logState: LogState }>('sx-logbook-state', (d) => void this.setLogState(d.id, d.logState));
     on<{ id: string }>('sx-logbook-edit-entry', (d) => void this.edit(d.id));
@@ -57,6 +57,7 @@ export class LogbookPageController {
 
   async open(): Promise<void> {
     const q = new URLSearchParams(location.search);
+    this.page.all = q.get('saison') === 'alle';
     const season = Number(q.get('saison'));
     this.page.season = Number.isInteger(season) && season > 2000 ? season : shownSeason(Date.now());
     this.page.states = parseLogFilter(q.get('stand'));
@@ -84,7 +85,7 @@ export class LogbookPageController {
       page.scoringLink = (scoring?.clubs?.length ?? 0) > 0 || !!scoring?.admin;
       // gewählte Saison ohne Einträge: die nächstältere mit Einträgen, sonst die älteste (F-555)
       const season = pickSeason(logbookSeasons(page.entries, Date.now()), page.season);
-      if (season !== page.season) {
+      if (!page.all && season !== page.season) {
         page.season = season;
         this.syncUrl();
       }
@@ -96,8 +97,10 @@ export class LogbookPageController {
     }
   }
 
-  setSeason(season: number): void {
-    this.page.season = season;
+  /** Saison wählen bzw. `'alle'` (Segellebenslauf, F-610); die zuletzt gewählte Saison bleibt dahinter erhalten. */
+  setSeason(season: number | 'alle'): void {
+    this.page.all = season === 'alle';
+    if (season !== 'alle') this.page.season = season;
     this.syncUrl();
   }
 
@@ -172,7 +175,7 @@ export class LogbookPageController {
   /** Saison und Filter in der Adresse (Neuladen, Lesezeichen); der Standard-Filter steht nicht darin. */
   private syncUrl(): void {
     const url = new URL(location.href);
-    url.searchParams.set('saison', String(this.page.season));
+    url.searchParams.set('saison', this.page.all ? 'alle' : String(this.page.season));
     const states = this.page.states;
     if (states.length === DEFAULT_LOG_FILTER.length && DEFAULT_LOG_FILTER.every((s) => states.includes(s))) url.searchParams.delete('stand');
     else url.searchParams.set('stand', states.join(','));

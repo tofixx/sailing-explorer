@@ -189,6 +189,39 @@ describe('F-457 Meilennachweis als CSV', () => {
   });
 });
 
+describe('F-610 Segellebenslauf als CSV', () => {
+  it('[F-610] saison=alle: Datei segellebenslauf.csv mit Saison als erster Spalte über alle Jahre, Stand-Filter und Crew-Regeln wie die Seite', async () => {
+    const p = await s.person();
+    const owner = await s.person();
+    const now = await manual(p, { distNm: 7 });
+    const old = await manual(p, { distNm: 5, startedAt: Date.UTC(2023, 6, 1, 10) });
+    const crewShare = await gpx(owner, { distNm: 20 });
+    await addCrew(crewShare.id, p, 'crew', true);
+    const skip = await manual(p, { distNm: 99, startedAt: Date.UTC(2024, 6, 1, 10) });
+    expect((await s.send('PATCH', `/api/shares/${skip.id}`, p.cookie, { logState: 'excluded' })).status).toBe(200);
+    expect((await h.fetch('/api/me/logbook.csv?saison=alle')).status).toBe(401);
+    const res = await h.fetch('/api/me/logbook.csv?saison=alle', { cookie: p.cookie });
+    expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="segellebenslauf.csv"');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    const lines = new TextDecoder().decode(await res.arrayBuffer()).trimEnd().split('\r\n');
+    expect(lines[0]).toContain('Saison;Datum;Von;Nach;sm;Quelle;Rolle;Boot;Dauer');
+    // ausgeschlossen (99 sm) fehlt, älteste zuerst, Saison vorn
+    expect(lines).toHaveLength(4);
+    expect(lines[1]).toMatch(/^2023;01\.07\.2023;.*;5,0;/);
+    expect(lines[2]).toMatch(/^\d{4};.*;7,0;/);
+    expect(lines[3]).toContain(';20,0;aufgezeichnet;Crew (bestätigt)');
+    expect(lines.join('')).not.toContain('99,0');
+    // mit Filter „Ausgeschlossen“ nur der eine; ohne `saison=alle` bleibt die Datei ohne Saison-Spalte
+    const ex = new TextDecoder().decode(await (await h.fetch('/api/me/logbook.csv?saison=alle&stand=excluded', { cookie: p.cookie })).arrayBuffer());
+    expect(ex.trimEnd().split('\r\n')[1]).toMatch(/^2024;/);
+    const plain = new TextDecoder().decode(await (await h.fetch('/api/me/logbook.csv', { cookie: p.cookie })).arrayBuffer());
+    expect(plain).toContain('Datum;Von;Nach;sm;Quelle;Rolle;Boot;Dauer');
+    expect(plain).not.toContain('Saison');
+    expect(old.id).toBeTruthy();
+    expect(now.id).toBeTruthy();
+  });
+});
+
 describe('F-412 / F-461 Zusatzangaben an GPX- und Fahrtenbuch-Törns', () => {
   it('[F-461] GPX-Törn: Häfen und Zusatzangaben per PATCH, Datum und Strecke nicht (409); erscheinen im Fahrtenbuch', async () => {
     const p = await s.person();

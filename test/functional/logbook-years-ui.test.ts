@@ -50,7 +50,7 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
   it('[F-411] [F-455] Saison-Reiter, Filter mit Mehrfachauswahl, Summen nur über die gefilterten Einträge (ausgeschlossene nie)', async () => {
     const el = await mount('sx-logbook-page', { entries, season: 2026, states: ['confirmed', 'suggested'] });
     const tabs = [...el.shadowRoot.querySelectorAll('[role="tab"]')].map((b) => [b.textContent!.trim(), b.getAttribute('aria-selected')]);
-    expect(tabs).toEqual([['2026', 'true'], ['2025', 'false']]);
+    expect(tabs).toEqual([['2026', 'true'], ['2025', 'false'], ['Alle Saisons', 'false']]);
     expect(el.shadowRoot.querySelector('.seasons')!.hasAttribute('data-scroll-x')).toBe(true);
     expect([...el.shadowRoot.querySelectorAll('li')].map((li) => li.getAttribute('data-id'))).toEqual(['A', 'B', 'D']);
     const sums = text(el.shadowRoot.querySelector('.totals')!);
@@ -103,6 +103,27 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
     button(el.shadowRoot, /Drucken/)!.click();
     expect(print).toHaveLength(1);
     expect(text(el.shadowRoot.querySelector('.print-only')!)).toContain('Saison 2026 · Bestätigt');
+  });
+
+  it('[F-611] [F-612] [F-613] Segellebenslauf: Reiter „Alle Saisons“, Summen je Saison und gesamt, CSV mit saison=alle, Druckzeile', async () => {
+    const el = await mount('sx-logbook-page', { entries, season: 2026, states: ['confirmed', 'suggested'], all: true });
+    const tabs = [...el.shadowRoot.querySelectorAll('[role="tab"]')].map((b) => [b.textContent!.trim(), b.getAttribute('aria-selected')]);
+    expect(tabs).toEqual([['2026', 'false'], ['2025', 'false'], ['Alle Saisons', 'true']]);
+    const cells = (r: Element) => [...r.querySelectorAll('th, td')].map((c) => c.textContent!.trim());
+    expect([...el.shadowRoot.querySelectorAll('.years tbody tr')].map(cells)).toEqual([['2026', '3', '35,0', '0,0', '3'], ['2025', '1', '3,0', '0,0', '1']]);
+    expect(cells(el.shadowRoot.querySelector('.years tfoot tr')!)).toEqual(['Gesamt', '4', '38,0', '0,0', '4']);
+    expect(text(el.shadowRoot.querySelector('.totals')!)).toContain('38,0 sm');
+    expect(el.shadowRoot.querySelector('li')).toBeNull();
+    expect(el.shadowRoot.querySelector('a[download]')!.getAttribute('href')).toBe('/api/me/logbook.csv?saison=alle&stand=confirmed,suggested');
+    expect(text(el.shadowRoot.querySelector('.print-only')!)).toContain('Segellebenslauf · Bestätigt, Vorschläge');
+    const seasons = events(el, 'sx-logbook-season');
+    button(el.shadowRoot, /^ *2025/)!.click();
+    button(el.shadowRoot, /Alle Saisons/)!.click(); // schon gewählt: nichts
+    expect(seasons).toEqual([{ season: 2025 }]);
+    el.all = false;
+    await el.updateComplete;
+    button(el.shadowRoot, /Alle Saisons/)!.click();
+    expect(seasons).toEqual([{ season: 2025 }, { season: 'alle' }]);
   });
 
   it('[F-418] Gäste sehen „Anmelden“; leer mit „Eintrag hinzufügen“ ohne Export', async () => {
@@ -158,6 +179,12 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
     c.setFilter(['confirmed', 'suggested']);
     c.setSeason(2025);
     expect(location.search).toBe('?saison=2025');
+    c.setSeason('alle'); // F-612: Segellebenslauf steht in der Adresse, die Saison dahinter bleibt
+    expect(page.all).toBe(true);
+    expect(page.season).toBe(2025);
+    expect(location.search).toBe('?saison=alle');
+    c.setSeason(2025);
+    expect(page.all).toBe(false);
     page.dispatchEvent(new CustomEvent('sx-logbook-state', { detail: { id: 'A', logState: 'confirmed' } }));
     await vi.waitFor(() => expect(calls).toContain('PATCH /api/shares/A'));
     page.dispatchEvent(new CustomEvent('sx-logbook-edit-entry', { detail: { id: 'A' } }));

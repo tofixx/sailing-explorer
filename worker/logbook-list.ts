@@ -116,23 +116,24 @@ export async function getMyLogbook(request: Request, env: Env): Promise<Response
 
 /**
  * GET /api/me/logbook.csv?saison=2026&stand=confirmed,suggested – Meilennachweis (F-457) und Jahresbericht mit Punkten
- * (F-505). Ohne `saison` alle Jahre (Segellebenslauf); ohne `stand` Bestätigte und Vorschläge.
+ * (F-505). `saison=alle`: Segellebenslauf mit Saison-Spalte (F-610); ohne `saison` alle Jahre ohne diese Spalte; ohne `stand` Bestätigte und Vorschläge.
  */
 export async function getMyLogbookCsv(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const url = new URL(request.url);
   const raw = url.searchParams.get('saison');
+  const all = raw === 'alle';
   const season = raw && /^\d{4}$/.test(raw) ? Number(raw) : null;
   const [{ entries, truncated }, templates] = await Promise.all([entriesOf(env, user.id), templatesFor(env, user.id)]);
   const shown = filterEntries(entries, parseLogFilter(url.searchParams.get('stand')), season);
   // Jahresbericht (F-505): mit Vorlage und Punkten je Eintrag und Summen je Vorlage – nur, wenn eine Vorlage mehr als
   // „Nur Meilen“ zählt; sonst der Meilennachweis wie bisher (F-457)
-  const csv = logbookCsv(shown, truncated, usesTemplates(shown, templates) ? reportScores(shown, templates) : undefined);
+  const csv = logbookCsv(shown, truncated, usesTemplates(shown, templates) ? reportScores(shown, templates) : undefined, all);
   return withApiHeaders(
     new Response(csv, {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${csvFileName(season)}"`,
+        'Content-Disposition': `attachment; filename="${csvFileName(all ? 'alle' : season)}"`,
         'Cache-Control': 'private, no-store',
       },
     }),
