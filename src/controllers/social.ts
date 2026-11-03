@@ -10,6 +10,7 @@ import type { ReactDetail, ReactionValue, SxReactions } from '../components/sx-r
 import type { ReactionSubject, ReactionSummary } from '../domain/reactions';
 import { errorText } from './session';
 import { appendDays, withDayPage } from '../services/day-cards';
+import { APP_NAME } from '../domain/brand';
 
 export interface SocialUi {
   /** Profil-/Boots-/Hafenseite (eine Komponente) */
@@ -62,7 +63,7 @@ export class SocialController {
     const d = await socialApi.harbor(this.harborSlug);
     const stream = await socialApi.harborStream(d.harbor.id).catch(() => ({ items: [], cursor: null }) as StreamPage);
     this.ui.page.data = { kind: 'harbor', ...d, stream };
-    document.title = `Hafen ${d.harbor.name} · Sail Explorer`;
+    document.title = `Hafen ${d.harbor.name} · ${APP_NAME}`;
   }
 
   /** Hafenseite neu laden (z. B. nach dem Löschen eines Beitrags dort). */

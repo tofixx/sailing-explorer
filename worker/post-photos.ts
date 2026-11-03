@@ -16,6 +16,7 @@ import { SHARE_ID_RE } from './validate';
 import { GALLERY_LIMITS, galleryLimitMessage, galleryVerdict, monthStart, quotaVerdict } from '../src/domain/limits';
 import { fmtMB } from '../src/domain/format';
 import type { GalleryQuota, PostPhoto } from '../src/domain/posts';
+import { APP_NAME } from '../src/domain/brand';
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diesen Beitrag gibt es nicht (mehr).');
 const DAY = 86_400_000;
@@ -82,7 +83,7 @@ export async function uploadPostPhoto(request: Request, env: Env, postId: string
       throw new HttpError(
         402,
         'supporter_required',
-        `Kostenlos stehen dir ${fmtMB(freeBytes)} für Fotos in Beiträgen zur Verfügung – lösche ältere Beiträge mit Fotos${supportConfigured(env) ? ' oder unterstütze Sail Explorer' : ''}.`,
+        `Kostenlos stehen dir ${fmtMB(freeBytes)} für Fotos in Beiträgen zur Verfügung – lösche ältere Beiträge mit Fotos${supportConfigured(env) ? ` oder unterstütze ${APP_NAME}` : ''}.`,
       );
     }
     remaining = Math.min(remaining, freeBytes - gallery);

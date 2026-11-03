@@ -204,7 +204,7 @@ describe('[F-162] Atom-Feed und Texte', () => {
   it('atomFeed: Einträge mit escapetem Nutzertext, Links aus der eigenen Origin', () => {
     const item: StreamItem = { id: 'Act1', kind: 'post', createdAt: Date.UTC(2026, 9, 1), actor: { handle: 'a', displayName: '<Anna>' }, group: { slug: 'sc', name: 'S&C', kind: 'club' }, post: { id: 'P1', body: '</content><script>', link: null, canDelete: false, path: '/p/P1' } };
     const xml = atomFeed('https://sail.example', { slug: 'sc', name: 'S&C', description: '', updated: 0 }, [item]);
-    expect(xml).toContain('<title>S&amp;C · Sail Explorer</title>');
+    expect(xml).toContain('<title>S&amp;C · Luv &amp; Leute</title>');
     expect(xml).toContain('<content type="text">&lt;/content&gt;&lt;script&gt;</content>');
     expect(xml).toContain('<name>&lt;Anna&gt;</name>');
     expect(xml).toContain('<link rel="alternate" href="https://sail.example/g/sc"/>');

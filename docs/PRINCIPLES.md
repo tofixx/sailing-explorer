@@ -1,6 +1,6 @@
 # Prinzipien
 
-Diese Prinzipien gelten für jede Änderung am Sail Explorer. Bei Zielkonflikten
+Diese Prinzipien gelten für jede Änderung an Luv & Leute (vormals Sail Explorer). Bei Zielkonflikten
 gilt die Reihenfolge innerhalb eines Abschnitts.
 
 ## Design

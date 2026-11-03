@@ -359,7 +359,7 @@ describe('F-161/F-162 Beiträge und RSS', () => {
     expect(res.headers.get('Content-Type')).toBe('application/atom+xml; charset=utf-8');
     expect(res.headers.get('Cache-Control')).toBe('public, max-age=600');
     const xml = await res.text();
-    expect(xml).toContain('<title>Club &lt;&amp;&gt; &quot;Möwe&quot; · Sail Explorer</title>');
+    expect(xml).toContain('<title>Club &lt;&amp;&gt; &quot;Möwe&quot; · Luv &amp; Leute</title>');
     expect(xml).toContain('&lt;script&gt;');
     expect(xml).not.toContain('<script>');
     expect(xml).not.toContain('<b>');

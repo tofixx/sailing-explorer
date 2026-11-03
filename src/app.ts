@@ -36,6 +36,7 @@ import type { SxToast } from './components/sx-toast';
 import type { SxTopbar, TopbarSection } from './components/sx-topbar';
 import type { SxTrackList } from './components/sx-track-list';
 import type { NearRadius, StreamMode } from './domain/near';
+import { APP_NAME } from './domain/brand';
 // ---- Kommentare & Melden (Phase D) ----
 import { CommunityController } from './controllers/community';
 import type { SxComments } from './components/sx-comments';
@@ -988,13 +989,13 @@ export class App {
       // Impressum und Datenschutz kommen aus src/content/legal.ts – ohne Backend (Konzept 12.7).
       this.ui.legalPage.page = route.page;
       this.ui.legalPage.hidden = false;
-      document.title = `${route.page === 'impressum' ? 'Impressum' : 'Datenschutz'} · Sail Explorer`;
+      document.title = `${route.page === 'impressum' ? 'Impressum' : 'Datenschutz'} · ${APP_NAME}`;
       return;
     }
     if (route.kind === 'guide') {
       // Anleitung „Aufzeichnen“ aus src/content/recording-guide.ts – ohne Backend (Konzept 25, F-450).
       this.ui.guidePage.hidden = false;
-      document.title = `${RECORDING_GUIDE.title} · Sail Explorer`;
+      document.title = `${RECORDING_GUIDE.title} · ${APP_NAME}`;
       return;
     }
     this.compose.setContext(null);
@@ -1035,14 +1036,14 @@ export class App {
       if (route.kind === 'profile') {
         const d = await api.profile(route.handle, route.key);
         page.data = { kind: 'profile', ...d };
-        document.title = `${d.profile.displayName} · Sail Explorer`;
+        document.title = `${d.profile.displayName} · ${APP_NAME}`;
         // eigene Seite: „Mein Verlauf“ mit allem, auch Privatem (F-401)
         page.myPosts = null;
         if (d.profile.isSelf) this.pageReady = this.posts.openOwn();
       } else {
         const d = await api.boat(route.id, route.key);
         page.data = { kind: 'boat', ...d };
-        document.title = `${d.boat.name} · Sail Explorer`;
+        document.title = `${d.boat.name} · ${APP_NAME}`;
         // Neuigkeiten des Boots (F-425) und „+ Neu → Text“ mit diesem Boot
         this.pageReady = this.social.loadBoatStream(route.key);
         this.compose.setContext({ kind: 'boat', id: d.boat.id });
@@ -1160,7 +1161,7 @@ export class App {
     const page = document.querySelector<SxAdminPage>('sx-admin-page');
     if (!page) return;
     page.hidden = false;
-    document.title = 'Admin · Sail Explorer';
+    document.title = `Admin · ${APP_NAME}`;
     new AdminController(page).start();
   }
 
@@ -1175,7 +1176,7 @@ export class App {
     const { LogbookPageController } = await import('./controllers/logbook-page');
     const page = document.querySelector<SxLogbookPage>('sx-logbook-page');
     if (!page) return;
-    document.title = 'Mein Fahrtenbuch · Sail Explorer';
+    document.title = `Mein Fahrtenbuch · ${APP_NAME}`;
     const c: InstanceType<typeof LogbookPageController> = new LogbookPageController({
       page,
       toast: (msg, ms) => this.toast(msg, ms),
@@ -1193,7 +1194,7 @@ export class App {
     const { ScoringPageController } = await import('./controllers/scoring-page');
     const page = document.querySelector<SxScoringPage>('sx-scoring-page');
     if (!page) return;
-    document.title = 'Wertung · Sail Explorer';
+    document.title = `Wertung · ${APP_NAME}`;
     await new ScoringPageController({
       page,
       toast: (msg, ms) => this.toast(msg, ms),
@@ -1249,7 +1250,7 @@ export class App {
     this.ui.legalPage.hidden = true;
     this.ui.guidePage.hidden = true;
     for (const el of document.querySelectorAll<HTMLElement>('sx-admin-page, sx-logbook-page, sx-scoring-page')) el.hidden = true;
-    document.title = 'Sail Explorer';
+    document.title = APP_NAME;
   }
 
   // ---------------------------------------------------------------- Helfer

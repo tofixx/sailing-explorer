@@ -877,7 +877,7 @@ describe('F-34/F-35 Geteilte Links öffnen', () => {
     expect(state().metric).toBe('wind'); // gespeicherte Ansicht
     expect(el<{ readonly: boolean }>('sx-track-list').readonly).toBe(true);
     expect(el<HTMLElement>('#charts-panel').hidden).toBe(false);
-    expect(document.title).toBe('Geteilter Törn · Sail Explorer');
+    expect(document.title).toBe('Geteilter Törn · Luv & Leute');
     expect(h.ws.data).toBeNull(); // geteilte Ansicht überschreibt nicht die Gast-Sitzung
   });
 
@@ -1263,7 +1263,7 @@ describe('F-70 Entdecken', () => {
     expect(page().hidden).toBe(false);
     expect(page().loading).toBe(false);
     expect(page().data?.voyages).toHaveLength(1);
-    expect(document.title).toBe('Entdecken · Sail Explorer');
+    expect(document.title).toBe('Entdecken · Luv & Leute');
     expect(discoverCalls().map((c) => c.url)).toEqual(['/api/discover?limit=24']);
   });
 
@@ -1417,7 +1417,7 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     expect(groupPage().loading).toBe(false);
     expect(groupPage().data?.group.id).toBe('G1');
     expect(groupPage().stream?.items).toHaveLength(1);
-    expect(document.title).toBe('SC Kiel · Sail Explorer');
+    expect(document.title).toBe('SC Kiel · Luv & Leute');
     expect(server.calls.map((c) => c.url)).toEqual(expect.arrayContaining(['/api/groups/slug/sc-kiel', '/api/groups/G1/stream']));
     // keine Startseiten-Daten auf einer Gruppenseite
     expect(server.calls.some((c) => c.url.startsWith('/api/stream'))).toBe(false);
@@ -1727,7 +1727,7 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     await vi.waitFor(() => expect(page.data?.kind).toBe('harbor'));
     expect(page.hidden).toBe(false);
     expect(page.data?.stream.items).toHaveLength(1);
-    expect(document.title).toBe('Hafen Potsdam · Sail Explorer');
+    expect(document.title).toBe('Hafen Potsdam · Luv & Leute');
     expect(document.querySelector('.app')?.hasAttribute('data-page')).toBe(true);
   });
 
@@ -1751,7 +1751,7 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     const legal = el<{ hidden: boolean; page: string }>('sx-legal-page');
     expect(legal.hidden).toBe(false);
     expect(legal.page).toBe('impressum');
-    expect(document.title).toBe('Impressum · Sail Explorer');
+    expect(document.title).toBe('Impressum · Luv & Leute');
     expect(document.querySelector('.app')?.hasAttribute('data-page')).toBe(true);
     await startApp('/datenschutz');
     expect(el<{ page: string }>('sx-legal-page').page).toBe('datenschutz');
@@ -1762,7 +1762,7 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     await startApp('/anleitung/aufzeichnen');
     expect(el<{ hidden: boolean }>('sx-guide-page').hidden).toBe(false);
     expect(el<{ hidden: boolean }>('sx-legal-page').hidden).toBe(true);
-    expect(document.title).toBe('So zeichnest du deinen Törn auf · Sail Explorer');
+    expect(document.title).toBe('So zeichnest du deinen Törn auf · Luv & Leute');
     expect(document.querySelector('.app')?.hasAttribute('data-page')).toBe(true);
   });
 
