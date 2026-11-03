@@ -12,6 +12,7 @@ import { fmtMB } from '../src/domain/format';
 import { LOG_LIMITS, seasonRange } from '../src/domain/logbook';
 import { STORAGE_COUNTER, USER_BYTES_SQL } from './storage';
 import { VISIBILITY_LABEL, canChooseVisibility, type Visibility } from '../src/domain/visibility';
+import { APP_NAME } from '../src/domain/brand';
 
 /** Maximales Alter einer Webhook-Signatur (Schutz gegen Wiedereinspielen). */
 const SIGNATURE_TOLERANCE_S = 5 * 60;
@@ -115,7 +116,7 @@ export function checkShareQuota(env: Env, s: SupportStatus): void {
     402,
     'supporter_required',
     supportConfigured(env)
-      ? `Kostenlos kannst du ${free} speichern. Für weitere Törns unterstütze Sail Explorer mit einem Kaffee oder Bier – oder lösche einen älteren Törn.`
+      ? `Kostenlos kannst du ${free} speichern. Für weitere Törns unterstütze ${APP_NAME} mit einem Kaffee oder Bier – oder lösche einen älteren Törn.`
       : `Kostenlos kannst du ${free} speichern. Lösche einen älteren Törn unter „Konto & Freigaben“, um Platz zu schaffen.`,
   );
 }
@@ -167,7 +168,7 @@ export function visibilityRequiresSupport(env: Env): HttpError {
     402,
     'supporter_required',
     `„${VISIBILITY_LABEL.unlisted}“ und „${VISIBILITY_LABEL.private}“ gibt es nur für Unterstützer – kostenlos ist alles öffentlich.` +
-      (supportConfigured(env) ? ' Unterstütze Sail Explorer mit einem Kaffee oder Bier, um die Sichtbarkeit selbst zu wählen.' : ''),
+      (supportConfigured(env) ? ` Unterstütze ${APP_NAME} mit einem Kaffee oder Bier, um die Sichtbarkeit selbst zu wählen.` : ''),
   );
 }
 

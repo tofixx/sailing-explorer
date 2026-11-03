@@ -117,10 +117,10 @@ describe('Verifizierte Vertretung – Oberfläche', () => {
     const el = await mount('sx-verified-badge', { kind: 'harbor' });
     const span = el.shadowRoot.querySelector('span')!;
     expect(span.textContent).toMatch(/Verifiziert/);
-    expect(span.getAttribute('title')).toBe('Von Sail Explorer bestätigt: wird vom Hafen selbst verwaltet.');
+    expect(span.getAttribute('title')).toBe('Von Luv & Leute bestätigt: wird vom Hafen selbst verwaltet.');
     const c = await mount('sx-verified-badge', { kind: 'group', compact: true });
     expect(c.shadowRoot.querySelector('span')!.textContent).not.toMatch(/Verifiziert/);
-    expect(c.shadowRoot.querySelector('span')!.getAttribute('aria-label')).toMatch(/Verifiziert: Von Sail Explorer bestätigt/);
+    expect(c.shadowRoot.querySelector('span')!.getAttribute('aria-label')).toMatch(/Verifiziert: Von Luv & Leute bestätigt/);
   });
 
   it('[F-372] Eingaben bleiben beim Antrag – nach dem Neuladen nie im nächsten', async () => {

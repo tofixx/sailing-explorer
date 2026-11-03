@@ -1,5 +1,6 @@
 // Atom-Feed als Text (Konzept 11.4, F-162) – rein, ohne Worker-APIs, damit das Escaping unit-testbar ist.
 import { streamHeadline, streamPath, type StreamItem } from '../src/domain/groups';
+import { APP_NAME } from '../src/domain/brand';
 
 /** XML-Escaping für Text und Attribute; entfernt in XML 1.0 verbotene Steuerzeichen. */
 export function xmlEscape(s: string): string {
@@ -32,7 +33,7 @@ export function atomFeed(origin: string, g: { slug: string; name: string; descri
   return `<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
 <id>${xmlEscape(`${origin}/g/${g.slug}`)}</id>
-<title>${xmlEscape(`${g.name} · Sail Explorer`)}</title>
+<title>${xmlEscape(`${g.name} · ${APP_NAME}`)}</title>
 ${g.description ? `<subtitle>${xmlEscape(g.description)}</subtitle>` : ''}
 <link rel="self" href="${xmlEscape(self)}"/>
 <link rel="alternate" href="${xmlEscape(`${origin}/g/${g.slug}`)}"/>

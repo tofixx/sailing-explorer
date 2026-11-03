@@ -159,7 +159,7 @@ describe('F-63 sx-support Slider', () => {
 
   it('[F-63] Unterstützer sehen im Angebot nur den Dank – Slider erst nach „Verlängern“', async () => {
     const s = await mount('sx-support', { variant: 'offer', tiers: TIERS, status: status(5, true) });
-    expect(deepText(s.shadowRoot)).toContain('Danke, dass du Sail Explorer unterstützt!');
+    expect(deepText(s.shadowRoot)).toContain('Danke, dass du Luv & Leute unterstützt!');
     expect(slider(s)).toBeNull();
     const toggle = [...s.shadowRoot.querySelectorAll('button')].find((b) => /Verlängern/.test(b.textContent!))!;
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -225,7 +225,7 @@ describe('F-63 sx-share-dialog', () => {
     const share = { id: 'S1', title: 'Törn', summary: '', visibility: 'unlisted', isOwner: true };
     const el = await mount('sx-share-dialog', { ...base, supportTiers: TIERS, supportStatus: status(1), result: { share, url: 'http://localhost/s/S1' } });
     const s = (await supportEl(el))!;
-    expect(deepText(el.shadowRoot)).toContain('Gefällt dir Sail Explorer?');
+    expect(deepText(el.shadowRoot)).toContain('Gefällt dir Luv & Leute?');
     expect(slider(s)).not.toBeNull();
   });
 });
@@ -252,7 +252,7 @@ describe('F-63 sx-account-dialog', () => {
     expect(el.shadowRoot.querySelector('.badge')?.textContent).toContain('Unterstützer');
     expect(t).toContain(`Unterstützer bis ${fmtDate(until)}`);
     expect(t).toContain('5 von 100 Törns · 12 MB von 200 MB · 1 von 20 Booten');
-    expect(t).toContain('Danke, dass du Sail Explorer unterstützt!');
+    expect(t).toContain('Danke, dass du Luv & Leute unterstützt!');
     expect(t).not.toContain('kostenlosen Freigaben');
   });
 

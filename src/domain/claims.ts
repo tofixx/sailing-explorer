@@ -1,5 +1,8 @@
 // Verifizierte Vertretung von Vereinen und Häfen (Konzept 20, F-360 ff.): Arten, Status, Grenzen, Feldprüfung und
 // Texte. Rein, ohne DOM und Netz – Worker (Antrag, Entscheidung, Aufräumen) und Oberfläche nutzen dieselben Regeln.
+
+import { APP_NAME } from './brand';
+
 const DAY = 86_400_000;
 
 const oneOf =
@@ -117,7 +120,7 @@ export function parseDecisionNote(v: unknown): string | null {
 /** Abzeichen (F-366): Text und Erklärung je Art. */
 export const VERIFIED_LABEL = 'Verifiziert';
 export const verifiedHint = (kind: ClaimKind): string =>
-  `Von Sail Explorer bestätigt: wird ${kind === 'group' ? 'vom Verein' : 'vom Hafen'} selbst verwaltet.`;
+  `Von ${APP_NAME} bestätigt: wird ${kind === 'group' ? 'vom Verein' : 'vom Hafen'} selbst verwaltet.`;
 
 export const CLAIM_KIND_LABEL: Record<ClaimKind, string> = { group: 'Verein', harbor: 'Hafen' };
 

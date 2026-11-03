@@ -471,8 +471,8 @@ describe('F-46 Link-Vorschau /u/ und /b/', () => {
     const s = await sailor('public');
     const m = await head(`/u/${s.handle}`);
     expect(m.status).toBe(200);
-    expect(m.title).toBe('Käpt’n Test · Sail Explorer');
-    expect(m.ogTitle).toBe('Käpt’n Test · Sail Explorer');
+    expect(m.title).toBe('Käpt’n Test · Luv &amp; Leute');
+    expect(m.ogTitle).toBe('Käpt’n Test · Luv & Leute');
     expect(m.ogDesc).toBe('Ostsee');
     expect(m.noindex).toBe(false);
     expect(m.html).not.toContain(s.email);
@@ -480,15 +480,15 @@ describe('F-46 Link-Vorschau /u/ und /b/', () => {
 
   it('[F-46] /u/ ist unabhängig von Groß-/Kleinschreibung', async () => {
     const s = await sailor('public');
-    expect((await head(`/u/${s.handle.toUpperCase()}`)).title).toBe('Käpt’n Test · Sail Explorer');
+    expect((await head(`/u/${s.handle.toUpperCase()}`)).title).toBe('Käpt’n Test · Luv &amp; Leute');
   });
 
   it('[F-46] privates/unbekanntes Profil: Fallback-Titel, noindex', async () => {
     const s = await sailor('private');
     for (const path of [`/u/${s.handle}`, `/u/${uniq('niemand')}`]) {
       const m = await head(path);
-      expect(m.title, path).toBe('Sail Explorer');
-      expect(m.ogTitle, path).toBe('Sail Explorer');
+      expect(m.title, path).toBe('Luv &amp; Leute');
+      expect(m.ogTitle, path).toBe('Luv & Leute');
       expect(m.html, path).not.toContain('Käpt’n Test');
       expect(m.noindex, path).toBe(true);
     }
@@ -498,7 +498,7 @@ describe('F-46 Link-Vorschau /u/ und /b/', () => {
     const s = await sailor('public');
     const b = await newBoat(s.cookie, { name: 'Seeschwalbe', boatType: 'Folkeboot', homePort: 'Stralsund', visibility: 'public' });
     const m = await head(`/b/${b.id}`);
-    expect(m.title).toBe('Seeschwalbe · Sail Explorer');
+    expect(m.title).toBe('Seeschwalbe · Luv &amp; Leute');
     expect(m.ogDesc).toBe('Folkeboot · Heimathafen Stralsund');
     expect(m.noindex).toBe(false);
   });
@@ -508,7 +508,7 @@ describe('F-46 Link-Vorschau /u/ und /b/', () => {
     const b = await newBoat(s.cookie, { name: 'Geheimboot', visibility: 'private' });
     for (const path of [`/b/${b.id}`, '/b/ABCDEFGHJKLMNPQRST']) {
       const m = await head(path);
-      expect(m.title, path).toBe('Sail Explorer');
+      expect(m.title, path).toBe('Luv &amp; Leute');
       expect(m.html, path).not.toContain('Geheimboot');
       expect(m.noindex, path).toBe(true);
     }
@@ -518,11 +518,11 @@ describe('F-46 Link-Vorschau /u/ und /b/', () => {
     const s = await sailor('public');
     const share = await newShare(s.cookie, { title: 'Öffentlicher Törn' });
     const m = await head(`/s/${share.id}`);
-    expect(m.title).toBe('Öffentlicher Törn · Sail Explorer');
+    expect(m.title).toBe('Öffentlicher Törn · Luv &amp; Leute');
     expect(m.noindex).toBe(false);
     // öffentliche Objekte ignorieren einen (auch falschen) Schlüssel – Vorschau ja, Index nein
     const k = await head(`/s/${share.id}/${'Q'.repeat(22)}`);
-    expect(k.title).toBe('Öffentlicher Törn · Sail Explorer');
+    expect(k.title).toBe('Öffentlicher Törn · Luv &amp; Leute');
     expect(k.noindex).toBe(true);
   });
 

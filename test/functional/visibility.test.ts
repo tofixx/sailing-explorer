@@ -294,7 +294,7 @@ describe('F-91 Altbestand „Nur mit Link“ ohne Schlüssel', () => {
     const own = (await getJson<{ share: Share }>(await getShare(s.id, { cookie }))).share;
     expect(own).toMatchObject({ visibility: 'unlisted', shareKey: null, link: `/s/${s.id}` });
     const p = await page(`/s/${s.id}`);
-    expect(p.title).toBe('Alter Törn · Sail Explorer');
+    expect(p.title).toBe('Alter Törn · Luv &amp; Leute');
     expect(p.noindex).toBe(true);
     // nicht gelistet
     expect((await getJson<{ voyages: Array<{ id: string }> }>(await h.fetch('/api/discover?limit=24'))).voyages.map((v) => v.id)).not.toContain(s.id);
@@ -316,7 +316,7 @@ describe('F-91 Altbestand „Nur mit Link“ ohne Schlüssel', () => {
     expect(after.shareKey).toMatch(/^[A-Za-z0-9]{22}$/);
     expect((await getShare(s.id)).status).toBe(404);
     expect((await getShare(s.id, { key: after.shareKey })).status).toBe(200);
-    expect((await page(`/s/${s.id}`)).title).toBe('Sail Explorer');
+    expect((await page(`/s/${s.id}`)).title).toBe('Luv &amp; Leute');
   });
 
   it('[F-91] Wechsel der Sichtbarkeit (über „Nur ich“ zurück) gibt dem Altbestand einen Schlüssel', async () => {
@@ -415,32 +415,32 @@ describe('F-84/F-85 Link-Vorschau mit Schlüssel und robots', () => {
     const { cookie } = await loginSupporter(h, email());
     const s = await newShare(cookie, 'unlisted', 'Geheimtörn');
     const ok = await page(`/s/${s.id}/${s.shareKey}`);
-    expect(ok.title).toBe('Geheimtörn · Sail Explorer');
+    expect(ok.title).toBe('Geheimtörn · Luv &amp; Leute');
     expect(ok.noindex).toBe(true);
     for (const path of [`/s/${s.id}`, `/s/${s.id}/${WRONG_KEY}`, `/s/${s.id}/kurz`, `/s/${UNKNOWN_SHARE}/${s.shareKey}`]) {
       const p = await page(path);
-      expect(p.title, path).toBe('Sail Explorer');
+      expect(p.title, path).toBe('Luv &amp; Leute');
       expect(p.html, path).not.toContain('Geheimtörn');
       expect(p.noindex, path).toBe(true);
     }
     const priv = await newShare(cookie, 'private', 'Privattörn');
-    expect((await page(`/s/${priv.id}/${s.shareKey}`)).title).toBe('Sail Explorer');
+    expect((await page(`/s/${priv.id}/${s.shareKey}`)).title).toBe('Luv &amp; Leute');
   });
 
   it('[F-85] /b/:id/:key und /u/:handle/:key: Vorschau nur mit gültigem Schlüssel, noindex', async () => {
     const { cookie } = await loginSupporter(h, email());
     const boat = (await getJson<{ boat: Boat }>(await newBoat(cookie, { name: 'Linkboot', visibility: 'unlisted' }))).boat;
-    expect((await page(`/b/${boat.id}/${boat.shareKey}`)).title).toBe('Linkboot · Sail Explorer');
+    expect((await page(`/b/${boat.id}/${boat.shareKey}`)).title).toBe('Linkboot · Luv &amp; Leute');
     expect((await page(`/b/${boat.id}/${boat.shareKey}`)).noindex).toBe(true);
-    expect((await page(`/b/${boat.id}`)).title).toBe('Sail Explorer');
-    expect((await page(`/b/${boat.id}/${WRONG_KEY}`)).title).toBe('Sail Explorer');
+    expect((await page(`/b/${boat.id}`)).title).toBe('Luv &amp; Leute');
+    expect((await page(`/b/${boat.id}/${WRONG_KEY}`)).title).toBe('Luv &amp; Leute');
 
     const handle = uniq('vorschau');
     const profile = (await getJson<{ profile: Profile }>(await putProfile(cookie, { handle, displayName: 'Linkperson', visibility: 'unlisted' }))).profile;
     const ok = await page(`/u/${handle}/${profile.shareKey}`);
-    expect(ok.title).toBe('Linkperson · Sail Explorer');
+    expect(ok.title).toBe('Linkperson · Luv &amp; Leute');
     expect(ok.noindex).toBe(true);
-    expect((await page(`/u/${handle}`)).title).toBe('Sail Explorer');
+    expect((await page(`/u/${handle}`)).title).toBe('Luv &amp; Leute');
     expect((await page(`/u/${handle}/${WRONG_KEY}`)).html).not.toContain('Linkperson');
   });
 
@@ -454,7 +454,7 @@ describe('F-84/F-85 Link-Vorschau mit Schlüssel und robots', () => {
     for (const path of [`/s/${s.id}/${WRONG_KEY}`, `/b/${boat.id}/${WRONG_KEY}`, `/u/${handle}/${WRONG_KEY}`]) {
       const p = await page(path);
       expect(p.noindex, path).toBe(true);
-      expect(p.title, path).not.toBe('Sail Explorer'); // öffentlich: Vorschau trotzdem
+      expect(p.title, path).not.toBe('Luv &amp; Leute'); // öffentlich: Vorschau trotzdem
     }
   });
 

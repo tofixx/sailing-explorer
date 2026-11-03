@@ -4,7 +4,7 @@
 self.addEventListener('push', (event) => {
   event.waitUntil(
     (async () => {
-      let title = 'Sail Explorer';
+      let title = 'Luv & Leute'; // = APP_NAME (src/domain/brand.ts), statisch: der Service Worker wird nicht gebündelt
       let body = 'Es gibt Neues für dich.';
       let href = '/';
       let tag = 'sx';

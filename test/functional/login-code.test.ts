@@ -29,6 +29,15 @@ describe('Anmeldung per Code (Konzept 14.6)', () => {
     for (let i = 0; i < 200; i++) expect(randomCode()).toMatch(/^\d{6}$/);
   });
 
+  it('[F-516] Anmelde-Mail: Betreff und Text nennen „Luv & Leute“ mit einfachem „&“', async () => {
+    const mail = email();
+    await request(mail);
+    const log = h.logs.filter((l) => l.includes(`[mail:log] an ${mail}:`)).join('\n');
+    expect(log.split('\n')[0]).toBe(`[mail:log] an ${mail}: Dein Anmeldelink für Luv & Leute`);
+    expect(log).toContain('mit diesem Link meldest du dich bei Luv & Leute an');
+    expect(log).not.toContain('&amp;');
+  });
+
   it('[F-207] richtiger Code meldet an (auch mit Leerzeichen und anderer Groß-/Kleinschreibung der Adresse); danach ist der Link verbraucht', async () => {
     const mail = email();
     const { code, token } = await request(mail);

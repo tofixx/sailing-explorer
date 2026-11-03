@@ -1,6 +1,7 @@
 import { LitElement, css, html } from 'lit';
 import { icon } from './icons';
 import { base } from './shared';
+import { APP_NAME } from '../domain/brand';
 
 /** Das von Chrome/Edge (Android) gelieferte Installations-Ereignis – nicht in den DOM-Typen enthalten. */
 interface InstallPromptEvent extends Event {
@@ -186,7 +187,7 @@ export class SxInstallHint extends LitElement {
     return html`<div class="card" role="region" aria-label="App installieren">
       <img src="/icons/icon-192.png" alt="" />
       <div class="txt">
-        <b>Sail Explorer als App</b>
+        <b>${APP_NAME} als App</b>
         ${this.mode === 'android'
           ? 'Auf den Home-Bildschirm legen – startet wie eine App, ohne Browserleiste.'
           : html`Tippe auf <span class="share" aria-label="Teilen">${icon('iosShare')}</span> „Teilen“ und dann auf „Zum Home-Bildschirm“.`}

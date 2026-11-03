@@ -14,6 +14,7 @@ import './sx-share-groups';
 import './sx-reach-picker';
 import { SHARE_REACH_OPTIONS, type Reach } from '../domain/posts';
 import { presetGroupIds, type ShareGroupChoice } from '../domain/groups';
+import { APP_NAME } from '../domain/brand';
 
 /** Was nach dem Hochladen wer sieht – ein Satz je Stufe (Konzept 1.1). */
 export const SHARE_CONSEQUENCE: Record<Visibility, string> = {
@@ -580,7 +581,7 @@ export class SxShareDialog extends LitElement {
     const storage = storageHint(st);
     return html`${storage ? html`<div class="hint quota storage">${icon('info')} ${storage}</div>` : ''}
       ${st?.storagePaused
-        ? html`<div class="note warn paused" role="status">${icon('info')}<span>Der Speicher von Sail Explorer ist gerade knapp – neue Törns sind vorübergehend pausiert.${st.supporter ? '' : ' Unterstützer können weiter speichern.'} Als Bild teilen geht weiterhin.</span></div>`
+        ? html`<div class="note warn paused" role="status">${icon('info')}<span>Der Speicher von ${APP_NAME} ist gerade knapp – neue Törns sind vorübergehend pausiert.${st.supporter ? '' : ' Unterstützer können weiter speichern.'} Als Bild teilen geht weiterhin.</span></div>`
         : ''}`;
   }
 

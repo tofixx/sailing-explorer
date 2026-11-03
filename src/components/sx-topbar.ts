@@ -5,6 +5,7 @@ import { icon, logo, type IconName } from './icons';
 import { base, emit } from './shared';
 import './sx-compose';
 import './sx-account-menu';
+import { APP_NAME } from '../domain/brand';
 
 /** Angezeigter Bereich: Törn-Ansicht, Community (Startseite), Entdecken oder eine andere Seite (Profil, Gruppe …). */
 export type TopbarSection = 'track' | 'community' | 'discover' | 'page';
@@ -428,8 +429,8 @@ export class SxTopbar extends LitElement {
 
   render() {
     return html`
-      <a class="brand" href="/" aria-label="Sail Explorer – Startseite" @click=${this.onBrand}>
-        <span class="mark">${logo()}</span><span class="name">Sail Explorer</span>
+      <a class="brand" href="/" aria-label="${APP_NAME} – Startseite" @click=${this.onBrand}>
+        <span class="mark">${logo()}</span><span class="name">${APP_NAME}</span>
       </a>
       ${this.nav()}
       ${this.chip()}

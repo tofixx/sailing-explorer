@@ -123,7 +123,7 @@ describe('F-47 Markenzeile', () => {
       format: f,
       content: { map: false },
     });
-    const brand = texts.find((t) => t.text === 'Sail Explorer');
+    const brand = texts.find((t) => t.text === 'Luv & Leute');
     const url = texts.find((t) => t.text === 'segeln-potsdam.de');
     const legend = texts.find((t) => t.text.startsWith('Farbe:'));
     expect(brand).toBeDefined();

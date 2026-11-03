@@ -11,9 +11,9 @@ export const ORIGIN = 'http://localhost';
 /** Minimales index.html, wie es der Vite-Build liefern würde (für /s/:id). */
 export const INDEX_HTML = `<!doctype html><html lang="de"><head>
 <meta charset="utf-8">
-<title>Sail Explorer</title>
+<title>Luv &amp; Leute</title>
 <meta name="description" content="Standard">
-<meta property="og:title" content="Sail Explorer">
+<meta property="og:title" content="Luv &amp; Leute">
 <meta property="og:description" content="Standard">
 </head><body><div class="app"></div></body></html>`;
 
@@ -133,9 +133,9 @@ export async function startWorker(
           LINK_LIMITER: { namespace_id: '1003', simple: { limit: 30, period: 60 } },
         },
         bindings: {
-          APP_NAME: 'Sail Explorer',
+          APP_NAME: 'Luv & Leute',
           MAIL_PROVIDER: 'log',
-          MAIL_FROM: 'Sail Explorer <login@example.test>',
+          MAIL_FROM: 'Luv & Leute <login@example.test>',
           TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
           // kein TURNSTILE_SECRET → Captcha wird lokal übersprungen
           FREE_SHARES: '3',

@@ -113,7 +113,7 @@ describe('F-86 Migration 0006_visibility', () => {
   it('[F-91] übernommener „Nur mit Link“-Törn bleibt über /s/<id> ohne Schlüssel erreichbar, ist aber nirgends gelistet', async () => {
     expect((await h.fetch('/api/shares/MigLinkAAAAAAAAAAA')).status).toBe(200);
     expect((await h.fetch('/api/shares/MigLinkAAAAAAAAAAA/data')).status).toBe(200);
-    expect(await (await h.fetch('/s/MigLinkAAAAAAAAAAA')).text()).toContain('Törn MigLinkAAAAAAAAAAA · Sail Explorer');
+    expect(await (await h.fetch('/s/MigLinkAAAAAAAAAAA')).text()).toContain('Törn MigLinkAAAAAAAAAAA · Luv & Leute');
     const d = (await (await h.fetch('/api/discover?limit=24')).json()) as { voyages: Array<{ id: string; sailor: unknown }> };
     expect(d.voyages.map((v) => v.id)).toEqual(['MigPublicAAAAAAAAA']);
     // Autor hat ein privates Profil → ohne Namen (F-82)
