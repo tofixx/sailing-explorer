@@ -9,6 +9,7 @@ import type { Tier, TierLimits } from '../domain/limits';
 import { readCapped } from './compress';
 import type { CommentsMode, NotifyMode, ReportKind, ReportReason } from '../domain/comment-text';
 import type { Audience, DayCard } from '../domain/large-groups';
+import type { ShownDay } from './day-cards';
 import type { Approvers, GroupKind, GroupNotifyMode, GroupRole, JoinMode, MembersVisible, ShareGroupChoice, StreamItem, SuggestionReason } from '../domain/groups';
 import type { CoverKind, CoverRef } from '../domain/cover';
 import type { HarborRef } from '../domain/harbors';
@@ -886,7 +887,7 @@ export interface StreamPage {
   /** nur im persönlichen Stream: Heimatverein und Heimathafen (Konzept 12.4) */
   home?: { club: { slug: string; name: string } | null; harbor: { slug: string; name: string } | null };
   /** nur Gruppen- und Hafen-Stream: Tageskarten älterer Tage (F-466) */
-  days?: DayCard[];
+  days?: ShownDay[];
 }
 
 export interface Suggestion {

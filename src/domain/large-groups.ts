@@ -22,11 +22,16 @@ export function audienceOf(a: Audience | null | undefined, visibility: PostVisib
   if (!a) return null;
   if (visibility === 'members') return a.members ?? null;
   if (visibility !== 'public') return null;
-  const order: Array<'here' | 'club' | 'harbor'> = ['here', 'club', 'harbor'];
-  const upTo = reach === 'all' || reach === undefined ? 2 : Math.max(0, order.indexOf(reach as 'here' | 'club' | 'harbor'));
-  for (let i = upTo; i >= 0; i--) if (a[order[i]] !== undefined) return a[order[i]]!;
-  return null;
+  return FALLBACK[reach ?? 'all'].map((k) => a[k]).find((n) => n !== undefined) ?? null;
 }
+
+/** Stufe und – fehlt sie im Verlauf – die nächstkleineren; „Überall“ wie die höchste Stufe der Kette. */
+const FALLBACK: Record<Reach, Array<'here' | 'club' | 'harbor'>> = {
+  here: ['here'],
+  club: ['club', 'here'],
+  harbor: ['harbor', 'club', 'here'],
+  all: ['harbor', 'club', 'here'],
+};
 
 /** Hinweis zeigen? Ab GROUP_LIMITS.audienceHint Personen. */
 export const needsAudienceHint = (n: number | null): n is number => n !== null && n >= GROUP_LIMITS.audienceHint;
@@ -89,8 +94,11 @@ export function dayLabel(key: string): string {
  */
 export const DAY_CURSOR_ID = '000000000000';
 
-/** Höchstens so viele Kandidaten je zusammengefasstem Tag; darüber „300+“ und immer Tageskarte. */
-export const DAY_SCAN = 300;
+/**
+ * Höchstens so viele Kandidaten je Tag und Seite; darüber endet die Seite beim letzten geprüften und der Tag geht auf
+ * der nächsten Seite als Fortsetzung weiter (F-468).
+ */
+export const DAY_SCAN = 120;
 
 /** Großer Verlauf: mehr als GROUP_LIMITS.summaryMembers Mitglieder bzw. Boote (F-466). */
 export const isLargeChannel = (members: number): boolean => members > GROUP_LIMITS.summaryMembers;
@@ -113,8 +121,10 @@ export interface DayCard {
   /** Sortierschlüssel im Stream: letzte Millisekunde des Tages (die Karte steht über den Einzelnen des Tages) */
   at: number;
   count: number;
-  /** mehr als DAY_SCAN Kandidaten – Zähler sind Untergrenzen */
+  /** mehr als DAY_SCAN Kandidaten – der Rest folgt auf der nächsten Seite als Fortsetzung */
   more: boolean;
+  /** Fortsetzung eines Tages von der vorigen Seite – die Oberfläche legt sie mit dessen Karte zusammen */
+  continued?: boolean;
   voyages: number;
   distNm: number;
   photos: number;
@@ -122,14 +132,21 @@ export interface DayCard {
   members: number;
   other: number;
   top: StreamItem[];
-  /** aufgeklappt („Alle anzeigen“): geladene Einträge und Cursor für „Weitere laden“ – nur in der Oberfläche */
-  open?: { items: StreamItem[]; cursor: string | null };
 }
 
-const reactionTotal = (i: StreamItem): number => (i.reactions ? Object.values(i.reactions.counts).reduce((s, n) => s + n, 0) : 0);
+/** Beachtung eines Eintrags: Summe seiner Reaktionen (sofern angehängt). */
+export const reactionTotal = (i: StreamItem): number => (i.reactions ? Object.values(i.reactions.counts).reduce((s, n) => s + n, 0) : 0);
+
+/** Die drei meistbeachteten – stabil, bei Gleichstand bleibt die Reihenfolge (neueste zuerst). */
+const topOf = (items: StreamItem[], score: (i: StreamItem) => number) =>
+  items
+    .map((i, n) => ({ i, n, r: score(i) }))
+    .sort((a, b) => b.r - a.r || a.n - b.n)
+    .slice(0, 3)
+    .map((x) => x.i);
 
 /** Tageskarte aus den sichtbaren, zusammengefassten Einträgen eines Tages (neueste zuerst). */
-export function summarizeDay(day: BerlinDay, items: StreamItem[], more = false): DayCard {
+export function summarizeDay(day: BerlinDay, items: StreamItem[], more = false, score: (i: StreamItem) => number = reactionTotal): DayCard {
   const c: DayCard = { day: day.key, at: day.end - 1, count: items.length, more, voyages: 0, distNm: 0, photos: 0, posts: 0, members: 0, other: 0, top: [] };
   for (const i of items) {
     if (i.kind === 'voyage' && i.voyage) {
@@ -143,13 +160,36 @@ export function summarizeDay(day: BerlinDay, items: StreamItem[], more = false):
     else if (i.kind === 'member') c.members++;
     else c.other++;
   }
-  // stabil sortiert: bei Gleichstand bleibt die Reihenfolge (neueste zuerst)
-  c.top = items
-    .map((i, n) => ({ i, n, r: reactionTotal(i) }))
-    .sort((a, b) => b.r - a.r || a.n - b.n)
-    .slice(0, 3)
-    .map((x) => x.i);
+  c.top = topOf(items, score);
   return c;
+}
+
+/**
+ * Fortsetzung (`b.continued`, gleicher Tag) an die Karte `a` der vorigen Seite hängen: Zähler addiert, Vorschau neu
+ * aus beiden (Reaktionen hängen an den Vorschau-Einträgen), „mehr“ wie die Fortsetzung.
+ */
+export function mergeDayCards(a: DayCard, b: DayCard): DayCard {
+  return {
+    ...a,
+    count: a.count + b.count,
+    more: b.more,
+    voyages: a.voyages + b.voyages,
+    distNm: a.distNm + b.distNm,
+    photos: a.photos + b.photos,
+    posts: a.posts + b.posts,
+    members: a.members + b.members,
+    other: a.other + b.other,
+    top: topOf([...a.top, ...b.top], reactionTotal),
+  };
+}
+
+/**
+ * Karte ohne automatische Einträge (Schalter „Automatische Einträge“ aus, F-447): Beitritte (`members`) und Boote,
+ * Häfen, Meilensteine (`other`) zählen dann nicht. Leer: null.
+ */
+export function withoutAuto(c: DayCard): DayCard | null {
+  const count = c.count - c.members - c.other;
+  return count > 0 ? { ...c, count, members: 0, other: 0 } : null;
 }
 
 const count = (n: number, one: string, many: string) => `${fmtNum(n, 0)} ${n === 1 ? one : many}`;
@@ -164,9 +204,4 @@ export function dayCardText(c: DayCard): string {
     c.other ? count(c.other, 'weiterer Eintrag', 'weitere Einträge') : '',
   ].filter(Boolean);
   return `${dayLabel(c.day)} – ${parts.join(', ')}${c.more ? ' und mehr' : ''}`;
-}
-
-/** Eine Seite „Alle anzeigen“ in die Tageskarte `key` übernehmen (erste Seite ersetzt, weitere hängen an). */
-export function withDayPage(days: DayCard[], key: string, page: { items: StreamItem[]; cursor: string | null }, append: boolean): DayCard[] {
-  return days.map((d) => (d.day === key ? { ...d, open: { items: [...(append && d.open ? d.open.items : []), ...page.items], cursor: page.cursor } } : d));
 }

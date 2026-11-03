@@ -3,11 +3,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   DAY_CURSOR_ID, DAY_SCAN, audienceHintText, audienceOf, berlinDay, berlinDayKey, dayCardText, dayLabel, dayOfKey, isLargeChannel,
-  needsAudienceHint, roundAudience, shouldSummarizeDay, staysSingle, summarizeDay, withDayPage,
+  mergeDayCards, needsAudienceHint, roundAudience, shouldSummarizeDay, staysSingle, summarizeDay, withoutAuto,
 } from '../src/domain/large-groups';
+import { appendDays, withDayPage } from '../src/services/day-cards';
 import { GROUP_LIMITS } from '../src/domain/limits';
 import { STREAM_PAGE, decodeCursor, type StreamItem } from '../src/domain/groups';
-import { dayEntries, pageByDays, type Candidate, type Shaped } from '../worker/stream-days';
+import { pageByDays, type Candidate, type Shaped } from '../worker/stream-days';
 
 const H = 3_600_000;
 
@@ -99,6 +100,7 @@ const NOW = Date.parse('2026-06-20T10:00:00Z');
 const dayStart = (key: string) => dayOfKey(key)!.start;
 let seq = 0;
 const cid = () => `C${String(++seq).padStart(15, '0')}`;
+const asItem = (c: Candidate) => ({ id: c.id, kind: 'post', createdAt: c.at, actor: null, group: null }) as StreamItem;
 
 /** Kandidaten: je Tag `n` Einträge (ab 12:00 Ortszeit, minütlich rückwärts), neueste zuerst wie aus der Datenbank. */
 function world(days: Array<[string, number]>, single: (c: Candidate, i: number) => boolean = () => false) {
@@ -107,27 +109,37 @@ function world(days: Array<[string, number]>, single: (c: Candidate, i: number) 
   all.sort((a, b) => b.at - a.at || (a.id < b.id ? 1 : -1));
   const singles = new Set(all.filter(single).map((c) => c.id));
   const after = (c: { at: number; id: string }) => (x: Candidate) => x.at < c.at || (x.at === c.at && x.id < c.id);
+  /** Einträge, an die Reaktionen gehängt wurden (nur gezeigte) */
+  const reacted: string[] = [];
   const deps = {
-    shape: async (cs: Candidate[]): Promise<Shaped[]> =>
-      cs.map((c) => ({ c, item: { id: c.id, kind: 'post', createdAt: c.at, actor: null, group: null } as StreamItem, single: singles.has(c.id) })),
+    shape: async (cs: Candidate[]): Promise<Shaped[]> => cs.map((c) => ({ c, item: asItem(c), single: singles.has(c.id) })),
     rest: async (day: { start: number }, last: Candidate, limit: number) => all.filter(after(last)).filter((x) => x.at >= day.start).slice(0, limit),
-    react: async () => undefined,
+    // jeder siebte Eintrag ist „beachtet“
+    score: async (items: StreamItem[]) => new Map(items.map((i) => [i.id, Number(i.id.slice(1)) % 7 === 0 ? 3 : 0])),
+    react: async (items: StreamItem[]) => void reacted.push(...items.map((i) => i.id)),
   };
   const scan = 60;
   /** Alle Seiten abholen, bis kein Cursor mehr kommt. */
   async function pages(large = false) {
     const out = [];
-    let cur = { at: Number.MAX_SAFE_INTEGER, id: '~' };
+    let cur: { at: number; id: string } | null = null;
     for (let guard = 0; guard < 50; guard++) {
-      const cands = all.filter(after(cur)).slice(0, scan);
-      const p = await pageByDays(cands, scan, NOW, large, deps);
+      const cands = all.filter(after(cur ?? { at: Number.MAX_SAFE_INTEGER, id: '~' })).slice(0, scan);
+      const p = await pageByDays(cands, scan, NOW, large, cur, deps);
       out.push(p);
       if (!p.cursor) break;
       cur = decodeCursor(p.cursor)!;
     }
     return out;
   }
-  return { all, deps, pages, after, scan };
+  return { all, pages, reacted, after };
+}
+
+/** Jeder Eintrag genau einmal – einzeln oder gezählt in einer Karte. */
+function everyEntryOnce(pages: Array<{ items: StreamItem[]; days: Array<{ count: number }> }>, total: number) {
+  const single = pages.flatMap((p) => p.items.map((i) => i.id));
+  expect(new Set(single).size).toBe(single.length);
+  expect(single.length + pages.flatMap((p) => p.days).reduce((s, d) => s + d.count, 0)).toBe(total);
 }
 
 describe('F-468 Cursor über zusammengefasste Tage', () => {
@@ -138,23 +150,19 @@ describe('F-468 Cursor über zusammengefasste Tage', () => {
     const days = pages.flatMap((p) => p.days.map((d) => d.day));
     expect(new Set(days).size).toBe(days.length);
     expect(days).toEqual(keys.filter((_, i) => i % 3 === 0));
-    // jeder Eintrag steht genau einmal – einzeln oder gezählt in einer Karte
-    const single = pages.flatMap((p) => p.items.map((i) => i.id));
-    expect(new Set(single).size).toBe(single.length);
-    expect(single.length + pages.flatMap((p) => p.days).reduce((s, d) => s + d.count, 0)).toBe(w.all.length);
+    everyEntryOnce(pages, w.all.length);
     // laufender Tag einzeln, danach Grenzen „<Tagesbeginn>_000000000000“
     expect(pages[0].items.slice(0, 3).every((i) => i.createdAt >= dayStart('2026-06-20'))).toBe(true);
     for (const p of pages.slice(0, -1)) {
       const c = decodeCursor(p.cursor)!;
       expect(c.id).toBe(DAY_CURSOR_ID);
-      expect(berlinDayKey(c.at)).toBe(berlinDayKey(c.at + 1));
       expect(dayStart(berlinDayKey(c.at))).toBe(c.at);
       expect(p.items.length + p.days.length).toBeLessThanOrEqual(STREAM_PAGE + 16);
     }
     expect(pages.at(-1)!.cursor).toBeNull();
   });
 
-  it('[F-468] ein Tag, der über die Kandidatenliste hinausgeht, wird bis 0:00 vervollständigt; über DAY_SCAN gekappt', async () => {
+  it('[F-468] ein Tag, der über die Kandidatenliste hinausgeht, wird bis 0:00 vervollständigt', async () => {
     const w = world([['2026-06-18', 70], ['2026-06-17', 2]]);
     const [first, second] = await w.pages();
     expect(first.days).toHaveLength(1);
@@ -162,12 +170,27 @@ describe('F-468 Cursor über zusammengefasste Tage', () => {
     expect(decodeCursor(first.cursor)).toEqual({ at: dayStart('2026-06-18'), id: DAY_CURSOR_ID });
     expect(second.items).toHaveLength(2);
     expect(second.cursor).toBeNull();
-    const big = world([['2026-06-18', DAY_SCAN + 5]]);
-    const [p] = await big.pages();
-    expect(p.days[0]).toMatchObject({ count: DAY_SCAN, more: true });
   });
 
-  it('[F-468] laufender Tag: Cursor je Eintrag, volle Seite bricht mitten im Tag ab', async () => {
+  it('[F-468] über DAY_SCAN gekappt: weiter beim letzten geprüften, Rest als Fortsetzung – auch ein Einzelner darin erscheint', async () => {
+    expect(DAY_SCAN).toBe(120);
+    const w = world([['2026-06-18', DAY_SCAN + 5], ['2026-06-17', 1]], (_, i) => i === DAY_SCAN + 2);
+    const pages = await w.pages();
+    const [p1, p2] = pages;
+    expect(p1.days[0]).toMatchObject({ day: '2026-06-18', count: DAY_SCAN, more: true });
+    expect(p1.days[0].continued).toBeUndefined();
+    expect(decodeCursor(p1.cursor)).toEqual(w.all[DAY_SCAN - 1]);
+    // Fortsetzung: Karte mit dem Rest (auch nur ein Zusammenfassbarer genügt), der Einzelne steht daneben
+    expect(p2.days[0]).toMatchObject({ day: '2026-06-18', count: 4, more: false, continued: true });
+    expect(p2.items.map((i) => i.id)).toContain(w.all[DAY_SCAN + 2].id);
+    everyEntryOnce(pages, w.all.length);
+    // die Oberfläche legt beide Karten zusammen – ein Tag, eine Karte
+    const shown = appendDays(appendDays([], p1.days), p2.days);
+    expect(shown.map((d) => [d.day, d.count, d.more])).toEqual([['2026-06-18', DAY_SCAN + 4, false]]);
+    expect(shown[0].top).toHaveLength(3);
+  });
+
+  it('[F-468] laufender Tag: Cursor je Eintrag, volle Seite bricht mitten im Tag ab; nach Mitternacht wird der Rest Fortsetzung', async () => {
     const w = world([['2026-06-20', 25], ['2026-06-19', 17]]);
     const [first, second, third] = await w.pages();
     expect(first.items).toHaveLength(STREAM_PAGE);
@@ -176,6 +199,16 @@ describe('F-468 Cursor über zusammengefasste Tage', () => {
     expect(second.items).toHaveLength(5);
     expect(second.days.map((d) => d.day)).toEqual(['2026-06-19']);
     expect(third).toBeUndefined();
+    // zweite Seite erst am nächsten Tag geholt: der 20.6. ist jetzt älter, sein Rest wird Karte (Fortsetzung)
+    const from = decodeCursor(first.cursor)!;
+    const later = await pageByDays(w.all.filter(w.after(from)).slice(0, 60), 60, NOW + 24 * H, false, from, {
+      shape: async (cs) => cs.map((c) => ({ c, item: asItem(c), single: false })),
+      rest: async () => [],
+      score: async () => new Map(),
+      react: async () => undefined,
+    });
+    expect(later.days.map((d) => [d.day, d.count, d.continued])).toEqual([['2026-06-20', 5, true], ['2026-06-19', 17, undefined]]);
+    expect(later.items).toHaveLength(0);
   });
 
   it('[F-467] Einzelne stehen neben der Karte; zu wenige Zusammenfassbare ergeben keine Karte', async () => {
@@ -193,19 +226,39 @@ describe('F-468 Cursor über zusammengefasste Tage', () => {
     expect((await l.pages(false))[0].days).toHaveLength(0);
   });
 
-  it('[F-468] „Alle anzeigen“: Einträge des Tages ohne Einzelne, Cursor je Eintrag; Seite in die Karte übernehmen', async () => {
-    const w = world([['2026-06-18', 25]], (_, i) => i === 0);
-    const day = w.all.filter((c) => c.at >= dayStart('2026-06-18'));
-    const p1 = await dayEntries(day.slice(0, w.scan), w.scan, w.deps);
-    expect(p1.items).toHaveLength(STREAM_PAGE);
-    expect(p1.items.map((i) => i.id)).not.toContain(day[0].id);
-    const rest = day.filter(w.after(decodeCursor(p1.cursor)!));
-    const p2 = await dayEntries(rest, w.scan, w.deps);
-    expect(p2.items).toHaveLength(4);
-    expect(p2.cursor).toBeNull();
-    const card = summarizeDay(dayOfKey('2026-06-18')!, []);
+  it('[F-466] Vorschau nach Beachtung; Reaktionen nur an Gezeigtes (Einzelne und Vorschau)', async () => {
+    const w = world([['2026-06-18', 30]], (_, i) => i === 5);
+    const [p] = await w.pages();
+    const top = p.days[0].top.map((i) => i.id);
+    expect(top).toHaveLength(3);
+    expect(top.every((id) => Number(id.slice(1)) % 7 === 0)).toBe(true);
+    expect(new Set(w.reacted)).toEqual(new Set([...p.items.map((i) => i.id), ...top]));
+  });
+
+  it('[F-468] „Alle anzeigen“: Seite in die Karte übernehmen (erste ersetzt, weitere hängen an)', () => {
+    const post = (id: string) => ({ id, kind: 'post', createdAt: 0, actor: null, group: null }) as StreamItem;
+    const card = summarizeDay(dayOfKey('2026-06-18')!, [post('a'), post('b')]);
+    const p1 = { items: [post('a')], cursor: 'x' };
     const opened = withDayPage([card], '2026-06-18', p1, false);
-    expect(opened[0].open!.items).toHaveLength(20);
-    expect(withDayPage(opened, '2026-06-18', p2, true)[0].open).toEqual({ items: [...p1.items, ...p2.items], cursor: null });
+    expect(opened[0].open).toEqual(p1);
+    expect(withDayPage(opened, '2026-06-18', { items: [post('b')], cursor: null }, true)[0].open).toEqual({ items: [post('a'), post('b')], cursor: null });
+  });
+});
+
+describe('F-466 Karten zusammenlegen und ohne automatische Einträge', () => {
+  it('[F-466] ohne automatische Einträge zählen Beitritte und Systemzeilen nicht; nur solche: keine Karte', () => {
+    const card = { ...summarizeDay(dayOfKey('2026-06-18')!, []), count: 10, posts: 6, members: 3, other: 1 };
+    expect(withoutAuto(card)).toMatchObject({ count: 6, members: 0, other: 0, posts: 6 });
+    expect(withoutAuto({ ...card, count: 4, posts: 0 })).toBeNull();
+  });
+
+  it('[F-468] Fortsetzung zusammenlegen: Zähler addiert, Vorschau aus beiden, „mehr“ wie die Fortsetzung', () => {
+    const r = (n: number) => ({ subject: 'post' as const, id: 'x', counts: { like: n, mast: 0, tack: 0 }, mine: null });
+    const e = (id: string, n: number) => ({ id, kind: 'post', createdAt: 0, actor: null, group: null, reactions: r(n) }) as StreamItem;
+    const day = dayOfKey('2026-06-18')!;
+    const a = summarizeDay(day, [e('a', 1), e('b', 0), e('c', 0)], true);
+    const b = { ...summarizeDay(day, [e('d', 5), e('f', 0)]), continued: true };
+    expect(mergeDayCards(a, b)).toMatchObject({ count: 5, posts: 5, more: false });
+    expect(mergeDayCards(a, b).top.map((i) => i.id)).toEqual(['d', 'a', 'b']);
   });
 });

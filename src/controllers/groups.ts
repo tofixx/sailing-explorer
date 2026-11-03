@@ -7,7 +7,7 @@ import type { SxGroupPage } from '../components/sx-group-page';
 import type { SxHomeFeed } from '../components/sx-home-feed';
 import type { SxProfilePage } from '../components/sx-profile-page';
 import { errorText } from './session';
-import { withDayPage } from '../domain/large-groups';
+import { appendDays, withDayPage } from '../services/day-cards';
 import { NOTIFY_LEVEL_LABEL, type NotifyLevel } from '../domain/notifications';
 
 export interface GroupsUi {
@@ -293,7 +293,7 @@ export class GroupsController {
       page.streamLoading = true;
       try {
         const next = await groupApi.stream(id, page.stream.cursor, this.current?.key);
-        page.stream = { ...next, items: [...page.stream.items, ...next.items], days: [...(page.stream.days ?? []), ...(next.days ?? [])] };
+        page.stream = { ...next, items: [...page.stream.items, ...next.items], days: appendDays(page.stream.days ?? [], next.days) };
       } catch (e) {
         this.ui.toast(errorText(e));
       } finally {

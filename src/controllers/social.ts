@@ -9,7 +9,7 @@ import type { SxProfilePage } from '../components/sx-profile-page';
 import type { ReactDetail, ReactionValue, SxReactions } from '../components/sx-reactions';
 import type { ReactionSubject, ReactionSummary } from '../domain/reactions';
 import { errorText } from './session';
-import { withDayPage } from '../domain/large-groups';
+import { appendDays, withDayPage } from '../services/day-cards';
 
 export interface SocialUi {
   /** Profil-/Boots-/Hafenseite (eine Komponente) */
@@ -82,7 +82,7 @@ export class SocialController {
     page.streamLoading = true;
     try {
       const next = await socialApi.harborStream(d.harbor.id, d.stream.cursor);
-      page.data = { ...d, stream: { ...next, items: [...d.stream.items, ...next.items], days: [...(d.stream.days ?? []), ...(next.days ?? [])] } };
+      page.data = { ...d, stream: { ...next, items: [...d.stream.items, ...next.items], days: appendDays(d.stream.days ?? [], next.days) } };
     } catch (e) {
       this.ui.toast(errorText(e));
     } finally {

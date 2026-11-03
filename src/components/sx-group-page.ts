@@ -465,7 +465,7 @@ export class SxGroupPage extends LitElement {
       <legend class="label">Große Gruppe</legend>
       <label class="opt"><input type="checkbox" .checked=${on} @change=${(e: Event) => this.set({ daySummary: (e.target as HTMLInputElement).checked })} />
         <span><b>Ältere Tage zusammenfassen</b> <span class="faint">(Standard)</span></span></label>
-      <p class="hint">Bei mehr als ${GROUP_LIMITS.summaryMembers} Mitgliedern oder mehr als ${GROUP_LIMITS.summaryPerDay} Einträgen an einem Tag zeigen die Neuigkeiten ältere Tage als eine Karte mit „Alle anzeigen“. Eigene Beiträge, die von Admins, Umfragen und Veranstaltungen bleiben einzeln.</p>
+      <p class="hint">Bei mehr als ${GROUP_LIMITS.summaryMembers} Mitgliedern oder mehr als ${GROUP_LIMITS.summaryPerDay} Einträgen an einem Tag zeigen die Neuigkeiten ältere Tage als eine Karte mit „Alle anzeigen“. Beiträge von Eigentümer und Admins, Umfragen und Veranstaltungen bleiben einzeln, für Mitglieder auch die eigenen.</p>
     </fieldset>`;
   }
 

@@ -1,7 +1,8 @@
 import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
 import { photoImageUrl, shareImageUrl, type StreamItem } from '../services/api';
 import { GROUP_KIND_LABEL, streamHeadline, isAutomaticKind } from '../domain/groups';
-import { dayCardText, type DayCard } from '../domain/large-groups';
+import { dayCardText, withoutAuto } from '../domain/large-groups';
+import type { ShownDay } from '../services/day-cards';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { icon, type IconName } from './icons';
 import { base, coverBanner, coverBannerStyles, emit, highlightStyles, linkedText, logbookTag, revealCard } from './shared';
@@ -59,7 +60,7 @@ export class SxStream extends LitElement {
   declare pins: StreamItem[];
   declare manage: boolean;
   declare hideAuto: boolean;
-  declare days: DayCard[];
+  declare days: ShownDay[];
 
   constructor() {
     super();
@@ -443,7 +444,7 @@ export class SxStream extends LitElement {
   }
 
   /** Tageskarte (F-466): Zähler, Vorschau der meistbeachteten bzw. alle geladenen Einträge, „Alle anzeigen“. */
-  private dayCard(d: DayCard) {
+  private dayCard(d: ShownDay) {
     const shown = this.visible(d.open ? d.open.items : d.top);
     const next = d.open ? d.open.cursor : null;
     return html`<li class="day" aria-label=${dayCardText(d)}>
@@ -463,10 +464,18 @@ export class SxStream extends LitElement {
     return this.hideAuto ? items.filter((i) => !isAutomaticKind(i.kind)) : items;
   }
 
-  /** Einträge und Tageskarten nach Zeit (neueste zuerst); die Karte steht über den Einzelnen ihres Tages. */
+  /**
+   * Einträge und Tageskarten nach Zeit (neueste zuerst); die Karte steht über den Einzelnen ihres Tages. Ohne
+   * automatische Einträge zählen Beitritte, Boote und Meilensteine auch in den Karten nicht (F-447).
+   */
   private entries() {
-    const days = [...this.days].sort((a, b) => b.at - a.at);
-    const out: Array<{ item: StreamItem } | { day: DayCard }> = [];
+    const days = this.days
+      .flatMap((d) => {
+        const c = this.hideAuto ? withoutAuto(d) : d;
+        return c ? [{ ...d, ...c }] : [];
+      })
+      .sort((a, b) => b.at - a.at);
+    const out: Array<{ item: StreamItem } | { day: ShownDay }> = [];
     let k = 0;
     for (const item of this.visible(this.items)) {
       while (k < days.length && days[k].at >= item.createdAt) out.push({ day: days[k++] });
