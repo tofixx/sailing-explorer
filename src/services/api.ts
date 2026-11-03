@@ -63,6 +63,8 @@ export interface ShareMeta extends Linkable {
   isOwner: boolean;
   /** nur in der Einzelansicht (F-228): Profil des Eigentümers, falls sichtbar */
   sailor?: { handle: string; displayName: string } | null;
+  /** nur in der Einzelansicht (F-533): Boot, dessen Seite der Betrachter öffnen darf (sonst null) */
+  boatPage?: { id: string; name: string } | null;
   /** nur in der Einzelansicht (F-228): Vereine/Teams, in denen der Törn erschienen ist und die der Betrachter sehen darf */
   groups?: Array<{ slug: string; name: string; kind: string }>;
   /** nur für die Eigentümer:in: Auswahl „In Gruppen zeigen“ (F-375) */

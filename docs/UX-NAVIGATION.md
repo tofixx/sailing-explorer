@@ -64,7 +64,7 @@ Legende: ✔ Link aufs Objekt · ◐ nur Name verlinkt, Avatar/Icon/Karte nicht 
 | Kommentare (`sx-comments.ts` 228) | ✔ Name, ohne Profil ✘ ohne Erklärung | – | – | – | – | – |
 | Reaktionen „Wer“ (`sx-reactions.ts` 176) | ✔ | – | – | – | – | – |
 | Crew (`sx-crew.ts` 248–253) | ✔; ohne Profil: Besucher Info-Knopf, Eigentümer ✘ | – | – | – | – | – |
-| Byline Törn (`sx-voyage-byline.ts` 53–58) | ✔ | **✘ fehlt** | ✔ (Icon `sail` auch für Verein) | – | – | – |
+| Byline Törn (`sx-voyage-byline.ts`) | ✔ | ✔ wenn die Bootsseite sichtbar ist (F-533) | ✔ (Icon je Art, F-532) | – | – | – |
 | Fahrtenbuch-Panel (`sx-logbook-panel.ts` 70) | – | – | – | ✔ | – | – |
 | Topbar-Chip (Titel des Törns) (`sx-topbar.ts` 375) | – | – | – | – | ✘ (doppelt zum Titel in der Seitenleiste) | – |
 | Topbar-Avatar (`sx-topbar.ts` 443–444) | ✘ öffnet Konto-Dialog, **Initiale aus E-Mail** | – | – | – | – | – |
@@ -89,7 +89,7 @@ Legende: ✔ Link aufs Objekt · ◐ nur Name verlinkt, Avatar/Icon/Karte nicht 
 | Konto-Kopf (1066) | Initiale/Name ✘ (keine eigene Seite) | – | – | – | – | – |
 | Glocke (`worker/notifications.ts` 312–352) | ✔ Follower → Profil | – | ✔ Anfrage → Gruppe | ✔ | ✔ (ohne `#kommentar-`-Anker) | eigener Profil-Beitrag → `/u/…` ohne Anker; **Reaktion auf Neuigkeit → `/`** |
 
-**Icons für Objektarten sind nicht fest:** Verein = `anchor` (Gruppenkopf, Entdecken-Karte, Start-Chips) **oder**
+**Stand vor F-532 (seitdem eine Tabelle `ENTITY_ICON`, N4) – Icons für Objektarten waren nicht fest:** Verein = `anchor` (Gruppenkopf, Entdecken-Karte, Start-Chips) **oder**
 `pennant` (Filter, Heimatzeile, Entdecken-Leiste); Team = `sail` = Boot; Hafen = `anchor` = Verein; Byline zeigt für
 jede Gruppe `sail`; Entdecken = `compass` (Reiter) bzw. `globe` (Seitenkopf).
 
@@ -171,8 +171,8 @@ Mobil zusätzlich: Reiterzeile kostet eine zweite Kopfzeile; „Track anlegen“
 | B9 | Zahnrad = „Ansehen als …“ | `sx-preview-menu.ts` 90 | Zahnrad = Seitenmenü (Bearbeiten, Ansehen als, Titelbild, Melden) |
 | B10 | „Privat“ als Stufe im Kopf und als Reiter in „Mein Verlauf“ | `sx-profile-page.ts` 331; `sx-my-posts.ts` 190 | Reiter „Nur ich“; Stufe als Symbol im Kopf (Schloss/Globus) mit Tooltip |
 | B11 | Glocke-Sackgassen: Reaktion auf Neuigkeit → `/`, Beitrag/Kommentar ohne Anker, Claim-Ergebnis nicht öffentlich → `/` | `worker/notifications.ts` 320, 325, 349, 352 | Ziel immer konkret (`/p/<id>`, `#kommentar-<id>`), sonst Eintrag nicht anzeigen |
-| B12 | Byline des Törns ohne Boot; Gruppen-Icon immer `sail` | `sx-voyage-byline.ts` 53–58 | Boot ergänzen, Icon aus zentraler Tabelle |
-| B13 | Objekt-Icons uneinheitlich (Verein `anchor`/`pennant`, Team = Boot = `sail`, Hafen = Verein = `anchor`, Entdecken `compass`/`globe`) | mehrere | eine Tabelle `ENTITY_ICON` |
+| B12 | ~~Byline des Törns ohne Boot; Gruppen-Icon immer `sail`~~ erledigt (F-533, F-532) | `sx-voyage-byline.ts` | Boot ergänzen, Icon aus zentraler Tabelle |
+| B13 | ~~Objekt-Icons uneinheitlich~~ erledigt mit `ENTITY_ICON` (F-532) – (Verein `anchor`/`pennant`, Team = Boot = `sail`, Hafen = Verein = `anchor`, Entdecken `compass`/`globe`) | mehrere | eine Tabelle `ENTITY_ICON` |
 | B14 | Freunde einladen nur in der Willkommens-Karte – nach „Später“ verschwunden | `sx-home-feed.ts` 364, 387 | Einladen zentral im Konto-Menü bzw. auf der eigenen Seite |
 | B15 | Vier Einladungs-UIs (Crew, Gruppe, Boots-Admin, Freund) mit unterschiedlichem Aufbau | `sx-crew.ts` 190/333, `sx-group-page.ts` 584, `sx-account-dialog.ts` 831, `sx-home-feed.ts` 431 | ein `sx-invite-box` (Link erzeugen · per E-Mail · offene Einladungen) |
 | B16 | „Gruppe gründen“ an drei Stellen (Startseiten-Kopf, Willkommen, Entdecken-Fuß) | `sx-home-feed.ts` 423/574; `sx-discover.ts` 664 | nur Entdecken → Vereine (bzw. „+ Neu“) **[streichen]** Startseiten-Kopf |
@@ -246,7 +246,7 @@ führen zum selben Ziel (`/u/`, `/b/`, `/g/`, `/h/`, `/s/`, `/p/`). Ausnahme nur
 dann einheitlich Schloss-Symbol mit Erklärung, nie toter Text. Ganze Karten sind ein Link, außer sie enthalten einen
 Knopf – dann ist der Titel der Link, und die Karte zeigt das gleich.
 
-**N4 – Ein Icon je Objektart.** Person `user`, Boot `sail`, Verein `pennant`, Team eigenes Icon (nicht `sail`), Hafen
+**N4 – Ein Icon je Objektart.** Person `user`, Boot `sail`, Verein `pennant`, Team `team` (eigenes Icon, nicht `sail`), Hafen
 `anchor`, Törn `map`, Fahrtenbuch `book`, Beitrag `comment`. Die Tabelle liegt an einer Stelle (`ENTITY_ICON`), Seitenkopf,
 Karten, Chips und Reiter nutzen sie.
 

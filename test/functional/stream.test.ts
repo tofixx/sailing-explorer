@@ -610,4 +610,35 @@ describe('F-228 Törn: von wem, in welcher Gruppe', () => {
     await (await s.db()).prepare('UPDATE users SET suspended_at = 1 WHERE id = ?').bind(other.user.id).run();
     expect(await meta(pub.id)).toMatchObject({ sailor: null, groups: [] });
   });
+
+  it('[F-533] Boot am Törn nur, wenn der Betrachter die Bootsseite öffnen darf (öffentlich, verwaltet; nie gesperrt)', async () => {
+    const owner = await s.person({ profile: 'public', supporter: true });
+    const admin = await s.person();
+    const guest = await s.person();
+    const boat = await s.boat(owner, { name: 'Möwe' });
+    const db = await s.db();
+    await db.prepare('INSERT INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)').bind(boat.id, admin.user.id, Date.now()).run();
+    const share = await s.share(owner, { boatId: boat.id });
+    const boatPage = async (p?: Person) => ((await meta(share.id, p)) as Meta & { boatPage: unknown }).boatPage;
+    const page = async (p?: Person) => (await h.fetch(`/api/boats/${boat.id}`, { cookie: p?.cookie })).status;
+
+    expect(await boatPage()).toEqual({ id: boat.id, name: 'Möwe' });
+    expect(await page()).toBe(200);
+    // „Nur mit Link“: ohne Boots-Schlüssel nur für Verwalter (Eigner, Admins) – wie die Bootsseite
+    await db.prepare(`UPDATE boats SET visibility = 'unlisted' WHERE id = ?`).bind(boat.id).run();
+    expect(await boatPage()).toBeNull();
+    expect(await boatPage(guest)).toBeNull();
+    expect(await page(guest)).toBe(404);
+    expect(await boatPage(owner)).toEqual({ id: boat.id, name: 'Möwe' });
+    expect(await boatPage(admin)).toEqual({ id: boat.id, name: 'Möwe' });
+    // ausgeblendet: Gäste nicht, Verwalter weiter; gesperrt: niemand
+    await db.prepare(`UPDATE boats SET visibility = 'public', hidden_at = 1 WHERE id = ?`).bind(boat.id).run();
+    expect(await boatPage(guest)).toBeNull();
+    expect(await boatPage(admin)).toEqual({ id: boat.id, name: 'Möwe' });
+    await db.prepare('UPDATE boats SET hidden_at = NULL, locked_at = 1 WHERE id = ?').bind(boat.id).run();
+    expect(await boatPage(owner)).toBeNull();
+    expect(await page(owner)).toBe(404);
+    // ohne Boot: null
+    expect(((await meta((await s.share(owner)).id)) as Meta & { boatPage: unknown }).boatPage).toBeNull();
+  });
 });

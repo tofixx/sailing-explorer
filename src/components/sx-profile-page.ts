@@ -6,7 +6,7 @@ import { COVER_FOCUS_DEFAULT } from '../domain/cover';
 import { VOYAGE_ROLE_SHORT } from '../domain/crew-roles';
 import { VISIBILITY_LABEL, sharePath } from '../domain/visibility';
 import { fmtDate, fmtNum } from '../util/html';
-import { icon } from './icons';
+import { ENTITY_ICON, groupIcon, icon } from './icons';
 import { base, emit, logbookTag, onMapStyles, pageMenuReveal, writePostButton } from './shared';
 import { recordedNote } from '../domain/logbook';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
@@ -356,7 +356,7 @@ export class SxProfilePage extends LitElement {
         (v) => html`<a class="card" href="/s/${v.id}">
           <span class="t">${icon(v.source === 'manual' ? 'book' : 'map')}${v.title}</span>
           <span class="s">${v.summary || `${fmtNum(v.distNm, 1)} sm`}${v.source === 'manual' ? html` ${logbookTag()}` : ''}</span>
-          <span class="s">${v.boat ? html`${icon('sail')} ${v.boat.name} · ` : ''}${fmtDate(v.startedAt ?? v.createdAt)}${v.crewRole ? ` · als ${VOYAGE_ROLE_SHORT[v.crewRole]}` : ''}</span>
+          <span class="s">${v.boat ? html`${icon(ENTITY_ICON.boat)} ${v.boat.name} · ` : ''}${fmtDate(v.startedAt ?? v.createdAt)}${v.crewRole ? ` · als ${VOYAGE_ROLE_SHORT[v.crewRole]}` : ''}</span>
         </a>`,
       )}
     </div>`;
@@ -485,7 +485,7 @@ export class SxProfilePage extends LitElement {
             <div class="cards">
               ${d.boats.map(
                 (b) => html`<a class="card" href="/b/${b.id}">
-                  <span class="t">${icon('sail')}${b.name}</span>
+                  <span class="t">${icon(ENTITY_ICON.boat)}${b.name}</span>
                   <span class="s">${[b.boatType, b.lengthM != null ? `${fmtNum(b.lengthM, 1)} m` : ''].filter(Boolean).join(' · ') || '–'}</span>
                 </a>`,
               )}
@@ -504,7 +504,7 @@ export class SxProfilePage extends LitElement {
     return html`
       <sx-cover kind="b" target-id=${b.id} .src=${d.cover ?? null} .focusY=${d.coverY ?? COVER_FOCUS_DEFAULT} ?can-edit=${!!b.role} label="Titelbild von ${b.name}"></sx-cover>
       <header class="hero">
-        <div class="mark" aria-hidden="true">${icon('sail')}</div>
+        <div class="mark" aria-hidden="true">${icon(ENTITY_ICON.boat)}</div>
         <div>
           <h1>${b.name}</h1>
           ${b.description ? html`<div class="lead">${b.description}</div>` : ''}
@@ -654,7 +654,7 @@ export class SxProfilePage extends LitElement {
     const pos = h.lat != null && h.lon != null ? `${fmtNum(Math.abs(h.lat), 4)}° ${h.lat >= 0 ? 'N' : 'S'}, ${fmtNum(Math.abs(h.lon), 4)}° ${h.lon >= 0 ? 'O' : 'W'}` : '';
     return html`
       <header class="hero">
-        <div class="mark" aria-hidden="true">${icon('anchor')}</div>
+        <div class="mark" aria-hidden="true">${icon(ENTITY_ICON.harbor)}</div>
         <div>
           <h1>${h.name}${h.verified ? html` <sx-verified-badge kind="harbor"></sx-verified-badge>` : ''}</h1>
           <div class="facts">
@@ -686,7 +686,7 @@ export class SxProfilePage extends LitElement {
         ? html`<section>
             <h2 class="eyebrow">Vereine und Teams im Hafen</h2>
             <div class="cards">
-              ${this.harborGroups(d).map((g) => html`<a class="card" href="/g/${g.slug}"><span class="t">${icon(g.kind === 'club' ? 'anchor' : 'sail')}${g.name}</span><span class="s">${g.kind === 'club' ? 'Verein' : 'Team'}</span></a>`)}
+              ${this.harborGroups(d).map((g) => html`<a class="card" href="/g/${g.slug}"><span class="t">${icon(groupIcon(g.kind))}${g.name}</span><span class="s">${g.kind === 'club' ? 'Verein' : 'Team'}</span></a>`)}
             </div>
           </section>`
         : ''}
@@ -696,7 +696,7 @@ export class SxProfilePage extends LitElement {
           ? html`<div class="cards">
               ${d.boats.map(
                 (b) => html`<a class="card" href="/b/${b.id}">
-                  <span class="t">${icon('sail')}${b.name}</span>
+                  <span class="t">${icon(ENTITY_ICON.boat)}${b.name}</span>
                   <span class="s">${[b.boatType, b.lengthM != null ? `${fmtNum(b.lengthM, 1)} m` : '', b.owner?.displayName].filter(Boolean).join(' · ') || '–'}</span>
                 </a>`,
               )}

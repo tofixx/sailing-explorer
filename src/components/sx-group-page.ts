@@ -9,7 +9,7 @@ import './sx-filter-select';
 import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy, type PostBy } from '../domain/posts';
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
-import { icon } from './icons';
+import { ENTITY_ICON, groupIcon, icon } from './icons';
 import { base, emit, offerFollow, onMapStyles, pageMenuReveal, writePostButton } from './shared';
 import './sx-page-menu';
 import type { PageMenuItem } from './sx-page-menu';
@@ -605,7 +605,7 @@ export class SxGroupPage extends LitElement {
     const path = manager && g.link ? g.link : sharePath('g', g.slug, g.visibility, null);
     const v = g.visibility;
     return html`<header class="hero">
-      <div class="mark" aria-hidden="true">${icon(g.kind === 'club' ? 'anchor' : 'sail')}</div>
+      <div class="mark" aria-hidden="true">${icon(groupIcon(g.kind))}</div>
       <div class="head">
         <h1>${g.name}${g.verified ? html` <sx-verified-badge kind="group"></sx-verified-badge>` : ''}</h1>
         ${g.description ? html`<div class="lead">${g.description}</div>` : ''}
@@ -728,7 +728,7 @@ export class SxGroupPage extends LitElement {
       ${d.boats.length
         ? html`<div class="cards">
             ${d.boats.map(
-              (b) => html`<div class="card">${icon('sail')}<a href="/b/${b.id}">${b.name}${b.public ? '' : html` <span class="faint">(nicht öffentlich)</span>`}</a>
+              (b) => html`<div class="card">${icon(ENTITY_ICON.boat)}<a href="/b/${b.id}">${b.name}${b.public ? '' : html` <span class="faint">(nicht öffentlich)</span>`}</a>
                 ${b.canRemove ? html`<button class="btn small ghost" aria-label="${b.name} aus der Gruppe entfernen" @click=${() => emit(this, 'sx-group-boat-remove', { id: g.id, boatId: b.id })}>${icon('x')}</button>` : ''}</div>`,
             )}
           </div>`
@@ -760,7 +760,7 @@ export class SxGroupPage extends LitElement {
       ${g.role ? this.invites(g, manager ? (d.invites ?? []) : []) : ''}
       ${d.teams.length
         ? html`<section aria-labelledby="teams-t"><h2 class="eyebrow" id="teams-t">Teams</h2>
-            <div class="cards">${d.teams.map((t) => html`<div class="card">${icon('sail')}<a href="/g/${t.slug}">${t.name}</a></div>`)}</div></section>`
+            <div class="cards">${d.teams.map((t) => html`<div class="card">${icon(ENTITY_ICON.team)}<a href="/g/${t.slug}">${t.name}</a></div>`)}</div></section>`
         : ''}
       <section aria-labelledby="news-t">
         <div class="row" style="justify-content:space-between">

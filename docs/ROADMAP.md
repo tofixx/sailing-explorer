@@ -20,8 +20,8 @@ Das sind kleine Aufräumarbeiten ohne Konzeptänderung. Sie lassen sich nebenbei
 
 | Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
 |---|---|---|---|---|
-| Doppelten Abruf `/api/discover?limit=6` beseitigen | Für Gäste fragen `loadDiscoverStrip` (`app.ts`) und `GuestSliderController` dasselbe ab. Ein Abruf weniger heißt: schnellere Startseite und weniger Last auf dem Worker | S | N (Todo) | – |
-| Zahnrad am Kartenstil umstellen | `sx-map-style` trägt noch das Zahnrad. Nach N6 gehört es nur dem Seiten-Menü. `sx-page-menu` hat das nicht erledigt; das Titelbild ist dagegen richtig gelöst (direkt am Bild, K 21.13) | S | N (zurückgestellt), [U N6](UX-NAVIGATION.md#7-navigations--und-kopfbereich-regeln-vorschlag) | – |
+| ~~Doppelten Abruf `/api/discover?limit=6` beseitigen~~ – erledigt auf `feature/kleinkram-navigation` (F-530), fällt mit dem Merge heraus | Für Gäste fragen `loadDiscoverStrip` (`app.ts`) und `GuestSliderController` dasselbe ab. Ein Abruf weniger heißt: schnellere Startseite und weniger Last auf dem Worker | S | N (Todo) | – |
+| ~~Zahnrad am Kartenstil umstellen~~ – erledigt auf `feature/kleinkram-navigation` (F-531, Ebenen-Symbol) | `sx-map-style` trägt noch das Zahnrad. Nach N6 gehört es nur dem Seiten-Menü. `sx-page-menu` hat das nicht erledigt; das Titelbild ist dagegen richtig gelöst (direkt am Bild, K 21.13) | S | N (zurückgestellt), [U N6](UX-NAVIGATION.md#7-navigations--und-kopfbereich-regeln-vorschlag) | – |
 | Menüwege der empfohlenen Apps in echten Apps prüfen | Die Anleitung soll stimmen. Belegt sind die Menüpfade bisher nur teilweise | S | N (Todo), K 25.2 | Geräte bzw. Apps |
 | B&G/Simrad/Lowrance-GPX klären | Klären, ob diese Plotter GPX mit Zeitstempeln exportieren. Danach eine konkrete statt einer allgemeinen Anleitung | S | N (Todo), K 25.2 | Handbuch oder Testdatei |
 
@@ -38,7 +38,7 @@ ein.
 | 4 | **Veranstaltungen** (Phase 5) | Das stärkste Vereinsargument: Termine, Zusagen, Erinnerung und `.ics`. Danach „Ins Fahrtenbuch übernehmen“ | M | [K 21.5](CONCEPT.md#215-umfragen-und-veranstaltungen), [K 21.8](CONCEPT.md#218-phasenplan) | #3. Atomare Kapazität (R 10). Mail-Budget 100/Tag |
 | 5 | **Umfragen** (Phase 4) | Geringes Risiko, nützt Vereinen und Teams im Alltag („Wer segelt Mittwoch?“) | M | [K 21.5](CONCEPT.md#215-umfragen-und-veranstaltungen), K 21.8 | #3. Stufe „wichtig“ ist vorbereitet (K 24.7) |
 | 6 | **.ADM direkt importieren** | Garmin-Plotter-Nutzer sparen den Umweg über BaseCamp/HomePort. Das senkt die Einstiegshürde für Eigner größerer Boote | M | N (Todo), [K 25.1](CONCEPT.md#251-umsetzung) | Format-Analyse mit echten Dateien. Nur ACTIVE LOG mit Zeit |
-| 7 | **`ENTITY_ICON` und Byline mit Boot** | Ein Icon je Objektart (Team ≠ Boot, Verein ≠ Hafen). Die Törn-Byline nennt das Boot. Das sorgt für Wiedererkennung ohne neue Einstiege | S | U B12, B13, [U N4](UX-NAVIGATION.md#7-navigations--und-kopfbereich-regeln-vorschlag) | – |
+| 7 | ~~**`ENTITY_ICON` und Byline mit Boot**~~ – erledigt auf `feature/kleinkram-navigation` (F-532, F-533) | Ein Icon je Objektart (Team ≠ Boot, Verein ≠ Hafen). Die Törn-Byline nennt das Boot. Das sorgt für Wiedererkennung ohne neue Einstiege | S | U B12, B13, [U N4](UX-NAVIGATION.md#7-navigations--und-kopfbereich-regeln-vorschlag) | – |
 | 8 | **Filter nach Bootsklasse in Entdecken** | Man findet Gleichgesinnte (Jollen, Folkeboot, Fahrtenyachten) | S–M | N (Quick Wins) | `boats.boat_type` ist Freitext: Klassenliste bzw. Normalisierung nötig |
 
 ## Danach
@@ -131,7 +131,21 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
 | `feature/toern-ruhiger` (Törn-Seitenleiste: weniger sichtbare Schaltflächen, Crew/Einladen/Kommentare) | F-510 … F-514 | – | – | `sx-crew`, `sx-comments`, Törn-Seitenleiste, `sx-page-menu` | gemergt 03.11. |
 | `feature/name-luv-leute` (Markenname „Luv & Leute“ überall in der App) | F-515 … F-519 | – | – | sichtbare Texte, `index.html`, `manifest.webmanifest`, Mails, Teilen-Bild, `legal.ts`, `invite-text.ts`, Doku-Kopfzeilen | in Arbeit 03.11. |
 | `feature/saisonrueckblick` (Als Nächstes #2: „Meine Saison“-Bild, Abzeichen-Reihe) | F-520 … F-529 | 33 | 0041 (falls nötig) | `share-image.ts`, Saison-Summen (`logbook-year.ts`), `MILESTONES_NM`, Fahrtenbuch-Seite | in Arbeit 03.11. |
-| `feature/kleinkram-navigation` (Jetzt: doppelter Discover-Abruf, Zahnrad am Kartenstil; Als Nächstes #7: `ENTITY_ICON`, Byline mit Boot) | F-530 … F-534 | – | – | `app.ts` (`loadDiscoverStrip`), `GuestSliderController`, `sx-map-style`, `sx-voyage-byline`, `icons.ts`/`shared.ts` (`ENTITY_ICON`) | in Arbeit 03.11. |
+| `feature/kleinkram-navigation` (Jetzt: doppelter Discover-Abruf, Zahnrad am Kartenstil; Als Nächstes #7: `ENTITY_ICON`, Byline mit Boot) | F-530 … F-533 (F-534 frei geblieben) | – | – | `app.ts` (`loadDiscoverStrip`), `GuestSliderController`, `sx-map-style`, `sx-account-menu`, `sx-voyage-byline`, `icons.ts` (`ENTITY_ICON`, `groupIcon`, Symbole `layers`/`team`), `shared.ts` (`POST_KIND_ICON`), Icon-Zeilen in `sx-discover`, `sx-group-page`, `sx-home-feed`, `sx-profile-page`, `sx-stream`, `sx-my-posts`, `sx-logbook-page`; `worker/share-context.ts` (`boatPage`). Keine Migration, kein Cache | fertig 03.11., wartet auf Review. Entscheidungen siehe unten |
 | `feature/bootsklasse` (Als Nächstes #8: Filter nach Bootsklasse in Entdecken) | F-535 … F-539 | 34 | 0042 | `boats.boat_type`/Klassenliste (`src/domain`), `worker/discover.ts`, Entdecken-Leiste | in Arbeit 03.11. |
 | `feature/web-url` (Web-URL für Vereine und Häfen) und Auffindbarkeit (Sitemap öffentlicher Seiten, SEO-Prüfung) | F-540 … F-549 | – | 0043 | `groups`, `harbors` (Spalte `web_url`), Gruppen-/Hafenseite, neue `/sitemap.xml`, `robots.txt` | in Arbeit 03.11. |
 | `docs/moderation-abgleich` (Moderations-Konzept gegen K 18 abgleichen) | – | 35 | – | nur `docs/` | in Arbeit 03.11. |
+
+**Entscheidungen `feature/kleinkram-navigation` (03.11., ohne Rückfrage getroffen):**
+- Ein Abruf für Leiste und Slider (F-530): die App hält das Versprechen von `api.discover(6)`, solange die Seite lebt,
+  und gibt es beiden; nach einem Fehler wird es verworfen (nächster Weg zur Startseite versucht neu). Hat der Gast einen
+  Ort gemerkt, bleibt der Umgebungs-Abruf des Sliders eigen – das sind andere Daten.
+- Kartenstil (F-531): neues Symbol `layers`, Beschriftung „Kartenstil“ statt „Ansicht konfigurieren“. Das Zahnrad im
+  Konto-Menü („Konto & Einstellungen“) wird zum Personen-Symbol, damit N6 („kein anderes Element trägt das Zahnrad“) gilt;
+  ein Test prüft, dass `icon('gear')` nur in `sx-page-menu` vorkommt.
+- `ENTITY_ICON` (F-532) liegt in `icons.ts` (neben den Symbolen, ohne `shared.ts` wachsen zu lassen); Team bekommt das neue
+  Symbol `team` (drei Köpfe). Allgemeine Knöpfe „Verein oder Team gründen“ behalten `pennant`; Hinweise ohne Objekt
+  (Unterstützer-`pennant`, „Position übernehmen“-`anchor`) bleiben. `sx-entity-link` (Danach) baut darauf auf.
+- Boot in der Byline (F-533): eigenes Feld `boatPage` aus `shareContext` statt `boat` umzudeuten – `boat` nennt der
+  Eigentümer:in auch Boote, deren Seite sie nicht (mehr) öffnen darf. „Nur mit Link“-Boote nennt die Byline nur
+  Verwaltern (der Boots-Schlüssel fehlt dem Betrachter), gesperrte nie. Wortlaut „auf <Boot>“.

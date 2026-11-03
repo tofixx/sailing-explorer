@@ -5,7 +5,7 @@ import { NEAR_RADII, type NearRadius, type StreamMode } from '../domain/near';
 import type { SxHarborPicker } from './sx-harbor-picker';
 import './sx-harbor-picker';
 import { plural } from '../util/html';
-import { icon } from './icons';
+import { ENTITY_ICON, groupIcon, icon } from './icons';
 import { base, emit } from './shared';
 import './sx-stream';
 import './sx-place-picker';
@@ -411,7 +411,7 @@ export class SxHomeFeed extends LitElement {
               ? html`<ul class="people">
                   ${groups.map(
                     (g) => html`<li>
-                      <span class="avatar" aria-hidden="true">${icon(g.kind === 'club' ? 'anchor' : 'sail')}</span>
+                      <span class="avatar" aria-hidden="true">${icon(groupIcon(g.kind))}</span>
                       <span class="txt"><a href="/g/${g.slug}">${g.name}</a><span class="why">${[GROUP_KIND_LABEL[g.kind], g.homePort, plural(g.members, 'Mitglied', 'Mitglieder')].filter(Boolean).join(' · ')}</span></span>
                       ${this.joinButton(g)}
                     </li>`,
@@ -468,8 +468,8 @@ export class SxHomeFeed extends LitElement {
       return html`<div class="home">${icon('info')}<span>Wähle <button class="link" @click=${set}>deinen Verein und Heimathafen</button> – dann siehst du hier, was dort los ist.</span></div>`;
     }
     return html`<div class="home">
-      ${home.club ? html`<span>${icon('pennant')} Mein Verein: <a href="/g/${home.club.slug}">${home.club.name}</a></span>` : html`<button class="link" @click=${set}>Verein wählen</button>`}
-      ${home.harbor ? html`<span>${icon('anchor')} Heimathafen: <a href="/h/${home.harbor.slug}">${home.harbor.name}</a></span>` : html`<button class="link" @click=${set}>Heimathafen wählen</button>`}
+      ${home.club ? html`<span>${icon(ENTITY_ICON.club)} Mein Verein: <a href="/g/${home.club.slug}">${home.club.name}</a></span>` : html`<button class="link" @click=${set}>Verein wählen</button>`}
+      ${home.harbor ? html`<span>${icon(ENTITY_ICON.harbor)} Heimathafen: <a href="/h/${home.harbor.slug}">${home.harbor.name}</a></span>` : html`<button class="link" @click=${set}>Heimathafen wählen</button>`}
     </div>`;
   }
 
@@ -579,7 +579,7 @@ export class SxHomeFeed extends LitElement {
         ? html`${this.homeLine()}
           ${hasGroups
             ? html`<div class="chips" aria-label="Deine Gruppen">
-                ${this.groups.map((g) => html`<a class="chip" href="/g/${g.slug}" title=${GROUP_KIND_LABEL[g.kind]}>${icon(g.kind === 'club' ? 'anchor' : 'sail')} ${g.name}</a>`)}
+                ${this.groups.map((g) => html`<a class="chip" href="/g/${g.slug}" title=${GROUP_KIND_LABEL[g.kind]}>${icon(groupIcon(g.kind))} ${g.name}</a>`)}
               </div>`
             : ''}`
         : ''}

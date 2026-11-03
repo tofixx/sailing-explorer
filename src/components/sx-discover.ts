@@ -15,7 +15,7 @@ import {
 import { GROUP_KIND_LABEL, JOIN_ACTION_LABEL, joinAction } from '../domain/groups';
 import { SEARCH_LIMITS } from '../domain/search';
 import { fmtDate, fmtNum, plural } from '../util/html';
-import { icon } from './icons';
+import { ENTITY_ICON, groupIcon, icon } from './icons';
 import './sx-verified-badge';
 import { base, coverBanner, coverBannerStyles, emit, logbookTag } from './shared';
 import { recordedNote } from '../domain/logbook';
@@ -484,9 +484,9 @@ export class SxDiscover extends LitElement {
         <span class="meta">${fmtNum(v.distNm, 1)} sm · ${fmtDate(v.startedAt ?? v.createdAt)}${v.logbook ? html` ${logbookTag()}` : ''}</span>
         <div class="chips">
           ${v.sailor
-            ? html`<a class="chip" href="/u/${v.sailor.handle}" title="Profil von ${v.sailor.displayName}">${icon('user')}${v.sailor.displayName}</a>`
+            ? html`<a class="chip" href="/u/${v.sailor.handle}" title="Profil von ${v.sailor.displayName}">${icon(ENTITY_ICON.user)}${v.sailor.displayName}</a>`
             : html`<span class="chip anon" title="Profil nicht öffentlich">${icon('user')}Segler:in</span>`}
-          ${v.boat ? html`<a class="chip" href="/b/${v.boat.id}" title="Boot ${v.boat.name}">${icon('sail')}${v.boat.name}</a>` : ''}
+          ${v.boat ? html`<a class="chip" href="/b/${v.boat.id}" title="Boot ${v.boat.name}">${icon(ENTITY_ICON.boat)}${v.boat.name}</a>` : ''}
         </div>
       </div>
     </article>`;
@@ -501,7 +501,7 @@ export class SxDiscover extends LitElement {
     const facts = [b.boatType, b.lengthM != null ? `${fmtNum(b.lengthM, 1)} m` : '', b.homePort].filter(Boolean).join(' · ');
     return html`<a class="card ${b.cover ? 'has-cover' : ''}" href="/b/${b.id}">
       ${this.cardStart(b.cover)}
-      <span class="ic" aria-hidden="true">${icon('sail')}</span>
+      <span class="ic" aria-hidden="true">${icon(ENTITY_ICON.boat)}</span>
       <span class="txt">
         <span class="t">${b.name}</span>
         ${facts ? html`<span class="meta">${facts}</span>` : ''}
@@ -543,7 +543,7 @@ export class SxDiscover extends LitElement {
   private group(g: DiscoverGroup) {
     return html`<article class="card ${g.cover ? 'has-cover' : ''}">
       ${this.cardStart(g.cover)}
-      <span class="ic" aria-hidden="true">${icon(g.kind === 'club' ? 'anchor' : 'sail')}</span>
+      <span class="ic" aria-hidden="true">${icon(groupIcon(g.kind))}</span>
       <span class="txt">
         <a class="t main" href="/g/${g.slug}">${g.name}</a>${g.verified ? html` <sx-verified-badge kind="group" compact></sx-verified-badge>` : ''}
         <span class="meta">${[GROUP_KIND_LABEL[g.kind], g.homePort].filter(Boolean).join(' · ')}</span>
@@ -556,7 +556,7 @@ export class SxDiscover extends LitElement {
 
   private harbor(h: DiscoverHarbor) {
     return html`<a class="card" href="/h/${h.slug}">
-      <span class="ic" aria-hidden="true">${icon('anchor')}</span>
+      <span class="ic" aria-hidden="true">${icon(ENTITY_ICON.harbor)}</span>
       <span class="txt">
         <span class="t">${h.name}${h.km !== undefined ? html` <span class="faint">· ${fmtKm(h.km)}</span>` : ''}</span>
         <span class="meta">${plural(h.boats, 'Boot', 'Boote')} · ${plural(h.groups, 'Verein/Team', 'Vereine/Teams')}</span>
@@ -569,9 +569,9 @@ export class SxDiscover extends LitElement {
     if (!this.data) return '';
     const list = this.data.voyages.slice(0, 6);
     const crew = [
-      ...this.data.boats.slice(0, 4).map((b) => html`<a class="chip" href="/b/${b.id}" title="Boot ${b.name}">${icon('sail')}${b.name}</a>`),
-      ...this.data.people.slice(0, 4).map((p) => html`<a class="chip" href="/u/${p.handle}" title="Profil von ${p.displayName}">${icon('user')}${p.displayName}</a>`),
-      ...(this.data.groups ?? []).slice(0, 4).map((g) => html`<a class="chip" href="/g/${g.slug}" title="${GROUP_KIND_LABEL[g.kind]} ${g.name}">${icon(g.kind === 'club' ? 'anchor' : 'pennant')}${g.name}</a>`),
+      ...this.data.boats.slice(0, 4).map((b) => html`<a class="chip" href="/b/${b.id}" title="Boot ${b.name}">${icon(ENTITY_ICON.boat)}${b.name}</a>`),
+      ...this.data.people.slice(0, 4).map((p) => html`<a class="chip" href="/u/${p.handle}" title="Profil von ${p.displayName}">${icon(ENTITY_ICON.user)}${p.displayName}</a>`),
+      ...(this.data.groups ?? []).slice(0, 4).map((g) => html`<a class="chip" href="/g/${g.slug}" title="${GROUP_KIND_LABEL[g.kind]} ${g.name}">${icon(groupIcon(g.kind))}${g.name}</a>`),
     ];
     return html`<section class="strip" aria-labelledby="strip-t">
       <header>

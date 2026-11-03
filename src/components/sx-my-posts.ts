@@ -5,7 +5,7 @@ import {
   type ComposeTarget, type MyPost, type MyPostArea, type PostVisibility, type Reach,
 } from '../domain/posts';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
-import { icon, type IconName } from './icons';
+import { ENTITY_ICON, icon, type IconName } from './icons';
 import { POST_KIND_ICON, kindCardLink, POST_VISIBILITY_ICON, base, emit, highlightStyles, linkedText, postCardStyles, revealCard } from './shared';
 import './sx-reach-picker';
 import './sx-title-edit';
@@ -227,7 +227,7 @@ export class SxMyPosts extends LitElement {
       ${p.body ? html`<p class="body">${linkedText(p.body)}</p>` : ''}
       ${p.path && (p.kind !== 'gallery' || p.photos) ? kindCardLink(p.kind, p.path, 'note') : ''}
       ${p.link ? html`<a class="link" href=${p.link} rel="nofollow ugc noopener noreferrer" target="_blank">${icon('open')} ${p.link}</a>` : ''}
-      ${p.attached ? html`<span class="note">${icon('map')} Törn: <a href="/s/${p.attached.id}">${p.attached.title}</a></span>` : ''}
+      ${p.attached ? html`<span class="note">${icon(ENTITY_ICON.voyage)} Törn: <a href="/s/${p.attached.id}">${p.attached.title}</a></span>` : ''}
       ${this.meta(p)}
       ${p.hidden ? html`<span class="warn" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung</span>` : ''}
       ${target && this.editing === p.id ? this.editor(p, target) : ''}

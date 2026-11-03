@@ -3,7 +3,7 @@ import type { Crew, ShareMeta } from '../services/api';
 import { GROUP_KIND_LABEL } from '../domain/groups';
 import type { GroupKind } from '../domain/groups';
 import { COMMENTS_MODES, COMMENTS_MODE_LABEL, type CommentsMode } from '../domain/comment-text';
-import { icon, type IconName } from './icons';
+import { ENTITY_ICON, groupIcon, icon, type IconName } from './icons';
 import { base, emit } from './shared';
 import './sx-title-edit';
 import './sx-page-menu';
@@ -34,7 +34,8 @@ export function voyageMenuItems(share: Pick<ShareMeta, 'isOwner' | 'commentsMode
 
 /**
  * Geteilter Törn: Titel (die Eigentümer:in benennt ihn hier um, F-424), Zahnrad-Menü (F-510) und
- * „von <Profil> · in <Verein/Team>“ mit Links – nur, was der Server freigegeben hat (F-228).
+ * „von <Profil> auf <Boot> in <Verein/Team>“ mit Links und dem Icon der Objektart – nur, was der Server freigegeben hat
+ * (F-228; Boot nur, wenn der Betrachter dessen Seite öffnen darf, F-533).
  * Meldet `sx-crew-edit`, `sx-crew-leave`, `sx-comments-mode` { mode } und `sx-report` { kind, id, label }.
  */
 export class SxVoyageByline extends LitElement {
@@ -103,14 +104,16 @@ export class SxVoyageByline extends LitElement {
       <sx-page-menu label=${s.title || 'Törn'} .items=${voyageMenuItems(s, this.crew)}
         @sx-page-menu-pick=${(e: CustomEvent<{ id: string }>) => this.onMenu(s, e.detail.id)}></sx-page-menu>
     </div>`;
-    if (!s.sailor && !s.groups?.length) return head;
+    const boat = s.boatPage;
+    if (!s.sailor && !boat && !s.groups?.length) return head;
     return html`${head}<p>
-      ${s.sailor ? html`<span>von <a href="/u/${s.sailor.handle}" title="Profil von ${s.sailor.displayName}">${icon('user')}${s.sailor.displayName}</a></span>` : ''}
+      ${s.sailor ? html`<span>von <a href="/u/${s.sailor.handle}" title="Profil von ${s.sailor.displayName}">${icon(ENTITY_ICON.user)}${s.sailor.displayName}</a></span>` : ''}
+      ${boat ? html`<span>auf <a href="/b/${boat.id}" title="Boot ${boat.name}">${icon(ENTITY_ICON.boat)}${boat.name}</a></span>` : ''}
       ${s.groups?.length
         ? html`<span
             >in
             ${s.groups.map(
-              (g, i) => html`${i ? ', ' : ''}<a href="/g/${g.slug}">${icon('sail')}${GROUP_KIND_LABEL[g.kind as GroupKind] ?? 'Gruppe'} ${g.name}</a>`,
+              (g, i) => html`${i ? ', ' : ''}<a href="/g/${g.slug}">${icon(groupIcon(g.kind))}${GROUP_KIND_LABEL[g.kind as GroupKind] ?? 'Gruppe'} ${g.name}</a>`,
             )}</span
           >`
         : ''}
