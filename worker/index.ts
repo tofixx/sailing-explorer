@@ -9,6 +9,7 @@ import { canViewShare, createShare, deleteShare, getShareData, getShareImage, ge
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
 import { LISTED, getDiscover, getDiscoverStats } from './discover';
+import { getHeat, putShareHeat } from './heat';
 import { confirmCrew, setCrewRole, setOwnerRole, unconfirmCrew } from './crew-roles';
 import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteCrew, inviteFriend, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
 import { withPageHeaders } from './security';
@@ -110,6 +111,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/invites\/([A-Za-z0-9]+)$/, (r, env, [id]) => revokeInvite(r, env, id)],
   ['GET', /^\/api\/discover$/, (r, env) => getDiscover(r, env)],
   ['GET', /^\/api\/discover\/stats$/, (r, env) => getDiscoverStats(r, env)],
+  ['GET', /^\/api\/discover\/heat$/, (r, env) => getHeat(r, env)],
   ['GET', /^\/api\/shares$/, (r, env) => listShares(r, env)],
   ['GET', /^\/api\/me\/share-groups$/, (r, env) => listShareGroupChoices(r, env)],
   ['POST', /^\/api\/shares$/, (r, env) => createShare(r, env)],
@@ -118,6 +120,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/data$/, (r, env, [id]) => getShareData(r, env, id)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/image$/, (r, env, [id]) => getShareImage(r, env, id)],
   ['PUT', /^\/api\/shares\/([A-Za-z0-9]+)\/image$/, (r, env, [id]) => putShareImage(r, env, id)],
+  ['PUT', /^\/api\/shares\/([A-Za-z0-9]+)\/heat$/, (r, env, [id]) => putShareHeat(r, env, id)],
   ['PATCH', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => updateShare(r, env, id)],
   ['DELETE', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => deleteShare(r, env, id)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/crew$/, (r, env, [id]) => getCrew(r, env, id)],

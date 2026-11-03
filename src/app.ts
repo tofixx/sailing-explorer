@@ -63,6 +63,7 @@ import { SocialController } from './controllers/social';
 import { UnreadController } from './controllers/unread';
 
 import { MapStyleController } from './controllers/map-style';
+import { HeatController } from './controllers/heat';
 import type { MapStyleScope, SxMapStyle } from './components/sx-map-style';
 import type { SxLegalPage } from './components/sx-legal-page';
 import { RECORDING_GUIDE } from './content/recording-guide';
@@ -199,6 +200,7 @@ export class App {
   private started = false;
 
   private mapStyle: MapStyleController;
+  private heat: HeatController;
   private notifications: NotificationsController;
   /** Startseite als Einstieg (nicht Profil-, Boots-, Gruppen- oder Entdecken-Seite) – nur dort lädt die Startseite Neuigkeiten */
   private homeRoute = false;
@@ -297,6 +299,7 @@ export class App {
     this.unread = new UnreadController(this.store, { show: (label) => (this.ui.topbar.unread = label), visible: () => this.markSeen() });
 
     this.mapStyle = new MapStyleController(this.store, { picker: this.ui.mapStyle, toast: (msg, ms) => this.toast(msg, ms) });
+    this.heat = new HeatController(this.store, { layer: this.map.heat, picker: this.ui.mapStyle });
     this.notifications = new NotificationsController(this.store, {
       panel: this.ui.notifications,
       badge: (label) => (this.ui.topbar.bell = label),
@@ -500,6 +503,7 @@ export class App {
     const toern = section === 'track' || section === 'community' ? toernLabel(s) : null;
     Object.assign(this.ui.topbar, { user: s.user, mode: s.mode, hasTracks: has, backend: s.backend, home, saved: s.saved, section, toern, draft: resumableDraft(s) });
     if (changed('home') || changed('tracks')) this.markSeen();
+    this.syncHeat(home && !has);
     // „Abmelden“ im Konto nennt den Entwurf, der dabei verworfen wird (F-438)
     if (changed('draft')) this.ui.account.draft = s.draft?.title ?? null;
     // Neuigkeiten auf der Startseite und Rollen auf der Gruppenseite hängen an der Anmeldung (Konzept 11.5).
@@ -663,6 +667,7 @@ export class App {
 
     // Tracks & Karte
     on<{ id: MapStyleId; scope: MapStyleScope }>('sx-map-style-apply', (d) => void this.mapStyle.choose(d.id, d.scope));
+    on<{ on: boolean }>('sx-map-heat', (d) => this.heat.toggle(d.on));
     on<FileList>('sx-files', (files) => void this.ws.files(files));
     on<FileList>('sx-files-add', (files) => void this.ws.add(files));
     on<string>('sx-sample', (file) => void this.ws.sample(file));
@@ -1223,8 +1228,18 @@ export class App {
   private showPlace(page: HTMLElement, place: { lat: number; lon: number } | null) {
     this.ui.app.toggleAttribute('data-place', !!place);
     page.toggleAttribute('on-map', !!place);
+    this.syncHeat(false);
     // erst nach dem Umschalten des Rasters messen – sonst kennt die Karte ihre Größe nicht
     requestAnimationFrame(() => this.map.showPlace(place, Math.min(window.innerHeight * 0.34, 300)));
+  }
+
+  /**
+   * Revier-Wärmekarte (Konzept 37): Pins, wo die Karte Community-Hintergrund ist (Startseite, Hafen-/Vereinsseite mit
+   * Ort), nicht in der Törn-Ansicht; einpassen nur auf der Startseite ohne Tracks.
+   */
+  private syncHeat(fit: boolean) {
+    const place = this.ui.app.hasAttribute('data-place');
+    this.heat.setView({ pins: place || this.ui.app.hasAttribute('data-empty'), fit: fit && !place });
   }
 
   /**
@@ -1237,6 +1252,7 @@ export class App {
     this.ui.page.removeAttribute('on-map');
     this.ui.groupPage.removeAttribute('on-map');
     this.map.showPlace(null);
+    this.syncHeat(false);
     this.refitAfterPlace = true;
   }
 

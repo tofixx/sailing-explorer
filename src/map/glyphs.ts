@@ -83,3 +83,19 @@ export function photoPin(count = 1, active = false): string {
 <g fill="none" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"><path d="M11 14.5h3l1.3-2h5.4l1.3 2h3v8.5H11z"/><circle cx="18" cy="18.5" r="2.6"/></g>
 </svg>`;
 }
+
+/**
+ * Pin der Revier-Karte (Konzept 37, F-585): Kreis in der Akzentfarbe, mehrere Törns mit Zahl, einer mit Segel-Symbol.
+ * 44 × 44 px (Tippfläche), sichtbar ein Kreis von 28 px.
+ */
+export function voyagePin(count = 1): string {
+  const inner =
+    count > 1
+      ? `<text x="22" y="26" text-anchor="middle" font-family="var(--font)" font-size="11.5" font-weight="750" fill="#fff">${count > 99 ? '99+' : count}</text>`
+      : '<path d="M23 14v13h7zM21 17l-6 10h6zM14 29h16l-2 3H16z" fill="#fff"/>';
+  return `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+<circle cx="22" cy="22" r="16" fill="var(--map-halo)"/>
+<circle cx="22" cy="22" r="14" fill="var(--accent)"/>
+${inner}
+</svg>`;
+}

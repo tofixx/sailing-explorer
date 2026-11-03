@@ -19,6 +19,7 @@ import { workspace } from '../services/workspace';
 import type { ConfirmRequest } from '../components/sx-confirm';
 import type { ToernLabel } from '../components/sx-topbar';
 import { errorText } from './session';
+import { sendHeat } from './heat';
 import { APP_NAME } from '../domain/brand';
 
 /** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
@@ -353,6 +354,8 @@ export class WorkspaceController {
       this.store.set({ metric: view.metric ?? this.store.get().metric, layers: view.layers ?? this.store.get().layers });
       document.title = `${share.title} · ${APP_NAME}`;
       await this.setTracks(tracks, { mode: key ? { kind: 'share', share, key } : { kind: 'share', share }, fit: true, weather: payload.weather });
+      // Altbestand der Revier-Wärmekarte (Konzept 37): eigene öffentliche GPX-Törns bekommen ihr Raster nachgereicht
+      if (share.isOwner && share.source !== 'manual' && share.visibility === 'public') sendHeat(share.id, tracks);
     } catch (e) {
       this.setLoading(null);
       this.ui.toast(e instanceof ApiError && e.status === 404 ? 'Diese Freigabe gibt es nicht (mehr) – oder sie ist privat.' : errorText(e), 6000);
