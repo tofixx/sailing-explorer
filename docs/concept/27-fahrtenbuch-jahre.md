@@ -68,9 +68,11 @@ Felder, die zum gewählten Revier nicht passen, verwirft `parseLog` (eine Regel 
 höchstens 8.000 Zeichen (Notizen und zehn volle Posten passen hinein).
 
 **Vorschläge aus dem GPX** (rein, `src/domain/logbook-suggest.ts`, im Browser): Stunden unter Motor bzw. Segel aus dem
-Speed-Profil (Abschnitte ≥ 10 min mit gleichmäßiger Fahrt ≥ 3 kn und fast geradem Kurs gelten als Motor), Nachtstunden
-aus Zeit und Sonnenstand (Sonne unter dem Horizont), Tage an Bord aus Abfahrt und Ankunft (Kalendertage in Ortszeit).
-Das Formular zeigt sie als „Vorschlag aus dem Track“ mit „Übernehmen“ – gesetzt wird nichts ohne Klick und Speichern.
+Speed-Profil (Abschnitte von 10 min in Fahrt mit ≥ 3 kn im Mittel, Streuung ≤ 12 % und Luftlinie ≥ 97 % der Strecke gelten
+als Motor; Reste unter 5 min zählen nicht), Nachtstunden aus Zeit und Sonnenstand (Sonne unter −0,833°), Tage an Bord aus Abfahrt und Ankunft (Kalendertage in Ortszeit).
+Das Formular zeigt sie als „Vorschlag aus dem Track“ mit „Übernehmen“ – gesetzt wird nichts ohne Klick und Speichern;
+Nullwerte bleiben leer, Nachtstunden ohne Revier wählen „Küste“. Vorschläge gibt es nur in der Törn-Ansicht (dort ist der
+Track geladen), nicht beim Bearbeiten aus der Liste.
 
 **GPX-Törns bearbeiten:** Das Fahrtenbuch-Panel der Törn-Ansicht zeigt der Eigentümer:in immer „Bearbeiten“ (auch ohne
 Angaben); das Formular ändert dann nur Häfen und Angaben (Datum und Strecke kommen aus dem Track, 409 `not_manual`).
@@ -82,7 +84,7 @@ Angaben); das Formular ändert dann nur Häfen und Angaben (Datum und Strecke ko
   Komma, Zellen mit `= + - @` am Anfang mit `'` entschärft. Gleiche Auswahl wie die Seite (Funktion
   `logbookCsv` in `src/domain/logbook-year.ts`), `Content-Disposition: attachment`, `private, no-store`.
 - **Drucken**: Knopf „Drucken“ ruft den Druckdialog des Browsers („Als PDF speichern“); ein Druckstil zeigt nur Kopf,
-  Summen und Tabelle der gewählten Saison und des Filters.
+  Summen und Liste der gewählten Saison und des Filters (ohne Knöpfe, über mehrere Blätter).
 - Kein Server-Speicher, kein Mailversand – abgegeben wird der Nachweis von der Person selbst. Er ersetzt keine
   Unterschrift der Skipper:in (Konzept 15).
 
@@ -93,6 +95,8 @@ Angaben); das Formular ändert dann nur Häfen und Angaben (Datum und Strecke ko
 | Migration 0034 | nicht nötig (alles in `shares.log`); Nummer bleibt reserviert, aber unbenutzt |
 | Revier-Vorschlag aus Hafen/Track | entfällt vorerst – Häfen kennen kein Revier; ohne Angabe zeigt das Formular nur die gemeinsamen Felder |
 | Hafentage | entfällt (nur „Tage an Bord“) – weniger Felder |
+| Tabelle | Liste als Karten in jeder Breite (eine Darstellung statt Tabelle plus Mobil-Karten) |
+| Konto gesperrt | Crew-Törns gesperrter Konten fallen weg (Konzept 4.4, `notSuspendedSql`) – im Konzept 21.6 nicht genannt |
 | Punkte je Vorlage, Jahresbericht für einen Verein | Phase 9 (F-413/F-414) |
 | Konto-Dialog | nicht verkleinert; „Meine Törns“ (Freigaben) bleibt dort, bis der Verwaltungsbereich weitere Reiter bekommt |
 | Lösch-Register | gemergt vor diesem Branch: Crew-Bedingung nutzt `liveSql`/`notSuspendedSql`; keine neue Tabelle, daher kein neuer Eintrag in `worker/cleanup-registry.ts` |
