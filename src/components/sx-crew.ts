@@ -1,9 +1,15 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { Confirmation, Crew, CrewMember, PendingInvite, Visibility } from '../services/api';
+import type { Confirmation, Crew, CrewMember, Visibility } from '../services/api';
 import { SELF_ROLES, VOYAGE_ROLES, VOYAGE_ROLE_LABEL, VOYAGE_ROLE_SHORT, type VoyageRole } from '../domain/crew-roles';
 import { fmtDate } from '../util/html';
 import { icon } from './icons';
-import { base, emit, inviteTarget, pendingLabel } from './shared';
+import { base, emit } from './shared';
+import { inviteShareText, inviteShareTitle } from '../domain/invite-text';
+import './sx-invite-box';
+import type { InviteCreateDetail, InviteRoleChoice } from './sx-invite-box';
+
+/** Rollen für Einladungen – nie Skipper:in (Konzept 15) */
+const INVITE_ROLES: InviteRoleChoice[] = SELF_ROLES.map((r) => ({ value: r, label: VOYAGE_ROLE_LABEL[r] }));
 
 /**
  * Crew eines geteilten Törns (Konzept 10.6/10.7) – reine Darstellung, Aktionen gehen als Events raus.
@@ -17,6 +23,7 @@ export class SxCrew extends LitElement {
     crew: { attribute: false },
     isOwner: { type: Boolean },
     visibility: { type: String },
+    voyageTitle: { type: String },
     busy: { type: Boolean },
     error: { type: String },
     newLink: { type: String },
@@ -30,6 +37,8 @@ export class SxCrew extends LitElement {
   declare isOwner: boolean;
   /** Sichtbarkeit des Törns – Crew erscheint für andere nur bei „Öffentlich“ */
   declare visibility: Visibility;
+  /** Titel des Törns – für den Begleittext beim Teilen des Einladungslinks (F-591) */
+  declare voyageTitle: string;
   declare busy: boolean;
   declare error: string;
   /** gerade erzeugter Einladungslink – das Token gibt es nur dieses eine Mal */
@@ -50,6 +59,7 @@ export class SxCrew extends LitElement {
     this.crew = null;
     this.isOwner = false;
     this.visibility = 'public';
+    this.voyageTitle = '';
     this.busy = false;
     this.error = '';
     this.newLink = '';
@@ -118,15 +128,6 @@ export class SxCrew extends LitElement {
       }
       .muted-row {
         color: var(--text-2);
-        font-size: var(--fs-s);
-      }
-      form,
-      .linkrow {
-        display: flex;
-        gap: var(--s-2);
-      }
-      .linkrow input {
-        font-family: var(--font-mono);
         font-size: var(--fs-s);
       }
       .confirm {
@@ -250,13 +251,6 @@ export class SxCrew extends LitElement {
     if (next && this.shadowRoot!.contains(next)) return;
     this.roleOpen = false;
   };
-
-  private invite(e: Event) {
-    e.preventDefault();
-    const input = (e.target as HTMLFormElement).querySelector('input') as HTMLInputElement;
-    emit(this, 'sx-crew-invite', { to: inviteTarget(input.value), role: this.inviteRole });
-    input.value = '';
-  }
 
   /** Auswahl einer Rolle; `roles` begrenzt, was gewählt werden darf. */
   private roleSelect(value: VoyageRole | null, roles: readonly VoyageRole[], label: string, onPick: (r: VoyageRole) => void, allowEmpty = false, cls = '') {
@@ -393,44 +387,24 @@ export class SxCrew extends LitElement {
     </div>`;
   }
 
-  private pending(list: PendingInvite[]) {
-    if (!list.length) return '';
-    return html`<div class="label">Offene Einladungen</div>
-      <ul>
-        ${list.map(
-          (i) => html`<li>
-            <span class="name">${icon(i.invitee ? 'user' : i.email ? 'mail' : 'link')}<span>${pendingLabel(i)}</span></span>
-            <span class="sub">bis ${fmtDate(i.expiresAt)}</span>
-            <button class="btn ghost small" ?disabled=${this.busy} aria-label="Einladung zurückziehen: ${pendingLabel(i)}" @click=${() => emit(this, 'sx-invite-revoke', { id: i.id, scope: 'crew' })}>Zurückziehen</button>
-          </li>`,
-        )}
-      </ul>`;
-  }
-
-  /** „+ Einladen“ (F-513): Rolle, Link, E-Mail/Profilname und offene Einladungen erst nach dem Aufklappen. */
+  /** „+ Einladen“ (F-513): Rolle, Link, E-Mail/Profilname und offene Einladungen erst nach dem Aufklappen – im
+   *  gemeinsamen `sx-invite-box` (F-590). */
   private inviteBox(c: Crew) {
     const open = this.inviting || !!this.newLink;
     const count = c.invites.length;
     const toggle = html`<div><button class="btn small" type="button" aria-expanded=${open} aria-controls="invite-box" @click=${() => (this.inviting = !open)}>
       ${icon(open ? 'x' : 'plus')} ${open ? 'Einladen schließen' : 'Einladen'}${!open && count ? ` · ${count} offen` : ''}</button></div>`;
     if (!open) return toggle;
-    return html`${toggle}<div class="tools" id="invite-box">
+    return html`${toggle}<sx-invite-box class="tools" id="invite-box" .link=${this.newLink} link-note="Nur jetzt sichtbar · 14 Tage gültig."
+      .roles=${INVITE_ROLES} .role=${this.inviteRole} ?busy=${this.busy} .pending=${c.invites}
+      share-title=${inviteShareTitle()} share-text=${inviteShareText({ kind: 'crew', target: this.voyageTitle || null, role: this.inviteRole })}
+      @invite-create=${(e: CustomEvent<InviteCreateDetail>) => {
+        this.inviteRole = (e.detail.role as VoyageRole | undefined) ?? this.inviteRole;
+        emit(this, 'sx-crew-invite', { to: e.detail.to, role: this.inviteRole, done: e.detail.done });
+      }}
+      @invite-revoke=${(e: CustomEvent<{ id: string }>) => emit(this, 'sx-invite-revoke', { id: e.detail.id, scope: 'crew' })}>
       ${this.visibility !== 'public' ? html`<p class="note">${icon('lock')}<span>Die Crew sehen andere erst, wenn der Törn öffentlich ist.</span></p>` : ''}
-      <div class="row"><span class="label">Einladen als</span>${this.roleSelect(this.inviteRole, SELF_ROLES, 'Rolle für Einladungen', (r) => (this.inviteRole = r))}</div>
-      ${this.newLink
-        ? html`<div class="label">Einladungslink (14 Tage gültig, wird nur jetzt angezeigt)</div>
-            <div class="linkrow">
-              <input type="text" readonly .value=${this.newLink} aria-label="Einladungslink" @focus=${(e: Event) => (e.target as HTMLInputElement).select()} />
-              <button class="btn small" type="button" @click=${() => emit(this, 'sx-invite-copy', this.newLink)}>${icon('copy')} Kopieren</button>
-            </div>`
-        : html`<div><button class="btn small" type="button" ?disabled=${this.busy} @click=${() => emit(this, 'sx-crew-invite', { to: null, role: this.inviteRole })}>${icon('link')} Einladungslink erzeugen</button></div>`}
-      <form @submit=${this.invite}>
-        <input type="text" required maxlength="254" placeholder="E-Mail oder Profilname" aria-label="E-Mail-Adresse oder Profilname" autocomplete="off" />
-        <button class="btn small primary" type="submit" ?disabled=${this.busy}>${icon('mail')} Einladen</button>
-      </form>
-      <p class="sub">Per E-Mail erreichst du neue und bestehende Konten; wer schon dabei ist, findet die Einladung auch im Konto. Bestehende Segler:innen kannst du auch über ihren Profilnamen einladen.</p>
-      ${this.pending(c.invites)}
-    </div>`;
+    </sx-invite-box>`;
   }
 
   render() {

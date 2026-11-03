@@ -1,4 +1,4 @@
-import { LitElement, css, html } from 'lit';
+import { LitElement, css, html, type PropertyValues } from 'lit';
 import { currentPosition } from '../services/near-prefs';
 import type { Boat, CrewVoyage, FollowStats, GroupRef, HarborPageData, HarborPatch, Linkable, PageMedia, PageStats, ProfilePageData, PublicHome, ShareMeta, StreamItem, StreamPage } from '../services/api';
 import { parseProfilePreview, previewLabel, previewParam, type ComposeTarget, type MyPost, type MyPostArea, type PostLink, type ProfilePreview } from '../domain/posts';
@@ -20,8 +20,10 @@ import './sx-filter-select';
 import './sx-my-posts';
 import './sx-profile-posts';
 import './sx-page-menu';
-import type { PageMenuItem } from './sx-page-menu';
+import type { PageMenuItem, SxPageMenu } from './sx-page-menu';
 import type { ReportTarget } from './sx-report-dialog';
+import { friendInviteBox } from './sx-invite-box';
+import { APP_NAME } from '../domain/brand';
 
 /** Kurzer Hinweis für Eigentümer, wer die Seite sieht. */
 const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
@@ -62,6 +64,10 @@ export class SxProfilePage extends LitElement {
     /** automatische Einträge ausblenden (Gerät, F-447) */
     hideAuto: { type: Boolean, attribute: 'hide-auto' },
     editing: { state: true },
+    /** frisch erzeugter Link aus „Freunde einladen“ (F-592) – nur einmal sichtbar */
+    inviteLink: { type: String },
+    inviteBusy: { type: Boolean },
+    inviting: { state: true },
   };
   declare data: PageData | null;
   declare loading: boolean;
@@ -84,6 +90,10 @@ export class SxProfilePage extends LitElement {
   declare pins: StreamItem[];
   declare manage: boolean;
   declare hideAuto: boolean;
+  declare inviteLink: string | null;
+  declare inviteBusy: boolean;
+  /** „Freunde einladen“ auf der eigenen Seite aufgeklappt (Zahnrad, F-592) */
+  declare inviting: boolean;
 
   constructor() {
     super();
@@ -103,6 +113,30 @@ export class SxProfilePage extends LitElement {
     this.manage = false;
     this.hideAuto = false;
     this.supporter = false;
+    this.inviteLink = null;
+    this.inviteBusy = false;
+    this.inviting = false;
+  }
+
+  /** Andere Seite: „Freunde einladen“ klappt zu, der einmal gezeigte Link ist weg (wie „Nur jetzt sichtbar“). */
+  willUpdate(changed: PropertyValues<this>) {
+    if (!changed.has('data')) return;
+    const key = (d: PageData | null | undefined) => (d?.kind === 'profile' && d.profile.isSelf && !d.preview ? d.profile.handle : null);
+    if (key(this.data) !== key(changed.get('data')) && changed.get('data') !== undefined) {
+      this.inviting = false;
+      this.inviteLink = null;
+    }
+  }
+
+  /** Aufklappen: Fokus auf die Überschrift (F-592); Schließen gibt ihn dem Zahnrad zurück. */
+  updated(changed: PropertyValues<this>) {
+    if (changed.has('inviting') && this.inviting) this.renderRoot.querySelector<HTMLElement>('#invite-t')?.focus();
+  }
+
+  private closeInvite() {
+    this.inviting = false;
+    this.inviteLink = null;
+    void this.updateComplete.then(() => this.renderRoot.querySelector<SxPageMenu>('sx-page-menu')?.focusToggle());
   }
 
   static styles = [
@@ -146,6 +180,29 @@ export class SxProfilePage extends LitElement {
         background: linear-gradient(135deg, var(--accent-soft), var(--surface) 70%);
         border: 1px solid var(--border-soft);
         overflow: hidden;
+      }
+      /* „Freunde einladen“ (F-592) */
+      .invite {
+        display: grid;
+        gap: var(--s-2);
+        padding: var(--s-3);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        min-width: 0;
+      }
+      .invite-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--s-2);
+      }
+      .invite-head .eyebrow,
+      .invite .hint {
+        margin: 0;
+      }
+      .invite .hint {
+        font-size: var(--fs-s);
+        color: var(--text-2);
       }
       .note-hidden {
         margin: 0;
@@ -418,17 +475,34 @@ export class SxProfilePage extends LitElement {
   private profileMenu(d: Extract<PageData, { kind: 'profile' }>) {
     const p = d.profile;
     const items: PageMenuItem[] = p.isSelf
-      ? [{ id: 'edit', label: 'Bearbeiten', icon: 'pencil' }, ...this.previewItems(d)]
+      ? [{ id: 'edit', label: 'Bearbeiten', icon: 'pencil' }, ...(d.preview ? [] : [{ id: 'invite', label: 'Freunde einladen', icon: 'mail' as const }]), ...this.previewItems(d)]
       : d.preview
         ? this.previewItems(d)
         : [{ id: 'report', label: 'Melden', icon: 'flag' }];
     return html`<sx-page-menu label=${p.displayName} .items=${items} @sx-page-menu-pick=${(e: CustomEvent<{ id: string }>) => {
       const id = e.detail.id;
       if (id === 'edit') emit(this, 'sx-account', 'profile');
+      else if (id === 'invite') this.inviting = true;
       else if (id === 'report') emit(this, 'sx-report', { kind: 'profile', id: p.handle, label: `das Profil von ${p.displayName}`, image: !!d.cover && !d.coverHeldUntil });
       else if (id === 'preview:end') emit(this, 'sx-profile-preview', { preview: null });
       else if (id.startsWith('preview:')) emit(this, 'sx-profile-preview', { preview: parseProfilePreview(id.slice('preview:'.length)) });
     }}></sx-page-menu>`;
+  }
+
+  /**
+   * „Freunde einladen“ (F-592): auf der eigenen Seite unter dem Kopf, geöffnet über das Zahnrad – der feste Ort, auch
+   * nachdem die Willkommens-Karte mit „Später“ ausgeblendet ist (UX B14). Dieselbe Box wie dort (`friendInviteBox`).
+   */
+  private inviteSection(d: Extract<PageData, { kind: 'profile' }>) {
+    if (!d.profile.isSelf || d.preview || !(this.inviting || this.inviteLink)) return '';
+    return html`<section id="invite" class="invite" aria-labelledby="invite-t">
+      <div class="invite-head">
+        <h2 class="eyebrow" id="invite-t" tabindex="-1">Freunde einladen</h2>
+        <button class="btn ghost" type="button" @click=${() => this.closeInvite()}>${icon('x')} Schließen</button>
+      </div>
+      <p class="hint">Wer annimmt, kommt zu ${APP_NAME}, und ihr folgt einander.</p>
+      ${friendInviteBox(this, this.inviteLink, this.inviteBusy)}
+    </section>`;
   }
 
   /** Zahnrad-Menü einfacher Seiten: Bearbeiten für Verwalter, sonst Melden. */
@@ -479,6 +553,7 @@ export class SxProfilePage extends LitElement {
         </div>
       </header>
       ${p.isSelf && p.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
+      ${this.inviteSection(d)}
       ${this.stats(d.stats)}
       ${this.posts(d)}
       ${d.boats.length

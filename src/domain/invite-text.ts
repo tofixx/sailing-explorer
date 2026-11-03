@@ -57,3 +57,25 @@ export function inviteAcceptedText(r: InviteLike & { requested?: boolean }): str
 export function inviteTargetLabel(kind: InviteKindText): string {
   return kind === 'crew' ? 'Törn ansehen' : kind === 'group' ? 'Zur Gruppe' : kind === 'friend' ? 'Profil ansehen' : 'Bootsseite ansehen';
 }
+
+/** Betreff bzw. Titel beim Teilen eines Einladungslinks (F-591). */
+export function inviteShareTitle(): string {
+  return `Einladung zu ${APP_NAME}`;
+}
+
+/**
+ * Freundlicher Begleittext zum Einladungslink – für das Teilen-Menü des Geräts und das Mail-Programm (F-591).
+ * Der Link selbst steht nicht im Text; Teilen und Mail hängen ihn an.
+ */
+export function inviteShareText(i: InviteLike): string {
+  switch (i.kind) {
+    case 'friend':
+      return `Ich bin bei ${APP_NAME} – Törns, Fahrtenbuch und Neuigkeiten aus Verein und Hafen. Komm dazu, dann folgen wir einander:`;
+    case 'group':
+      return `Ich lade dich ${i.groupKind === 'team' ? 'ins Team' : 'in den Verein'} ${quote(i.target, 'Gruppe')} bei ${APP_NAME} ein:`;
+    case 'boat_admin':
+      return `Ich lade dich ein, das Boot ${quote(i.target, 'Boot')} bei ${APP_NAME} mitzuverwalten:`;
+    default:
+      return `Ich lade dich ${i.role && i.role !== 'crew' ? `als ${VOYAGE_ROLE_SHORT[i.role]} ` : ''}in die Crew meines Törns ${quote(i.target, 'Törn')} bei ${APP_NAME} ein:`;
+  }
+}
