@@ -15,7 +15,9 @@ import { DEFAULT_VISIBILITY, VISIBILITY_LABEL, sharePath, type Visibility } from
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { icon } from './icons';
 import { CHANNEL_LABEL, CHOOSABLE, CHOOSABLE_LABEL, DEFAULT_CHANNELS, MANDATORY_HINT, channelsFor, type Channel, type NotifyLevel } from '../domain/notifications';
-import { base, dialogStyles, emit, inviteTarget, pendingLabel, logbookTag } from './shared';
+import { base, dialogStyles, emit, logbookTag } from './shared';
+import './sx-invite-box';
+import type { InviteCreateDetail } from './sx-invite-box';
 import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-support';
 import './sx-admin-reports';
@@ -771,13 +773,6 @@ export class SxAccountDialog extends LitElement {
     emit(this, 'sx-boat-admins', b.id);
   }
 
-  private inviteAdmin(e: Event, boatId: string) {
-    e.preventDefault();
-    const input = (e.target as HTMLFormElement).querySelector('input') as HTMLInputElement;
-    emit(this, 'sx-boat-admin-invite', { boatId, to: inviteTarget(input.value) });
-    input.value = '';
-  }
-
   /** Admins eines Boots (Konzept 10.7): Eigner lädt ein, entfernt und zieht zurück; Admins können das Boot verlassen. */
   private adminsPanel(b: Boat) {
     const d = this.admins?.boatId === b.id ? this.admins.data : null;
@@ -804,23 +799,10 @@ export class SxAccountDialog extends LitElement {
             )}
           </ul>`
         : html`<p class="hint">Noch keine Admins.</p>`}
-      ${owner && d.invites.length
-        ? html`<div class="label">Offene Einladungen</div>
-            <ul>
-              ${d.invites.map(
-                (i) => html`<li>
-                  <div class="meta"><div class="title">${pendingLabel(i)}</div><div class="sub">gültig bis ${fmtDate(i.expiresAt)}</div></div>
-                  <button class="btn small ghost" ?disabled=${this.busy} aria-label="Einladung zurückziehen: ${pendingLabel(i)}" @click=${() => emit(this, 'sx-invite-revoke', { id: i.id, scope: 'boat', boatId: b.id })}>Zurückziehen</button>
-                </li>`,
-              )}
-            </ul>`
-        : ''}
       ${owner
-        ? html`<form class="inline" @submit=${(e: Event) => this.inviteAdmin(e, b.id)}>
-            <input type="text" required maxlength="254" placeholder="E-Mail oder Profilname" aria-label="E-Mail-Adresse oder Profilname des neuen Admins" autocomplete="off" />
-            <button class="btn small primary" type="submit" ?disabled=${this.busy}>${icon('mail')} Einladen</button>
-          </form>
-          <p class="hint">Per E-Mail erreichst du neue und bestehende Konten; wer schon dabei ist, findet die Einladung auch im Konto. Bestehende Segler:innen kannst du auch über ihren Profilnamen einladen.</p>`
+        ? html`<sx-invite-box no-link ?busy=${this.busy} .pending=${d.invites} recipient-label="E-Mail-Adresse oder Profilname des neuen Admins"
+            @invite-create=${(e: CustomEvent<InviteCreateDetail>) => e.detail.to && emit(this, 'sx-boat-admin-invite', { boatId: b.id, to: e.detail.to })}
+            @invite-revoke=${(e: CustomEvent<{ id: string }>) => emit(this, 'sx-invite-revoke', { id: e.detail.id, scope: 'boat', boatId: b.id })}></sx-invite-box>`
         : this.confirm === `leave:${b.id}`
           ? html`<div class="confirm" role="alert">
               <span>„${b.name}“ verlassen? Du kannst das Boot danach nicht mehr bearbeiten.</span>

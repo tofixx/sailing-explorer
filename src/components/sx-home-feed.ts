@@ -8,6 +8,7 @@ import { plural } from '../util/html';
 import { ENTITY_ICON, groupIcon, icon } from './icons';
 import { base, emit } from './shared';
 import './sx-stream';
+import { friendInviteBox } from './sx-invite-box';
 import './sx-place-picker';
 
 /**
@@ -21,7 +22,7 @@ import './sx-place-picker';
  *   Verein oder Team beitreten bzw. gründen, Freunde einladen.
  * Rein präsentational; meldet `sx-stream-mode` { mode }, `sx-near-radius` { radius }, `sx-near-locate`, `sx-near-forget`,
  * `sx-stream-more`, `sx-stream-filter`, `sx-follow`, `sx-account`,
- * `sx-home-harbor` { harbor }, `sx-home-join` { id, name }, `sx-friend-invite` { email | null }, `sx-invite-copy`.
+ * `sx-home-harbor` { harbor }, `sx-home-join` { id, name }, `sx-friend-invite` { to | null } (über `sx-invite-box`, F-590).
  */
 const WELCOME_KEY = 'sx-welcome-dismissed';
 function readDismissed(): boolean {
@@ -274,12 +275,6 @@ export class SxHomeFeed extends LitElement {
         padding-top: var(--s-2);
         border-top: 1px solid var(--border-soft);
       }
-      code.link {
-        flex: 1;
-        min-width: 0;
-        overflow-wrap: anywhere;
-        font-size: var(--fs-xs);
-      }
       .cta h3 {
         margin: 0;
         font-size: var(--fs-l);
@@ -385,7 +380,6 @@ export class SxHomeFeed extends LitElement {
     const needHarbor = !this.personal?.home?.harbor;
     if (this.dismissed || (hasGroups && !needHarbor)) return '';
     const groups = this.publicGroups.slice(0, 6);
-    let email = '';
     return html`<div class="cta" role="region" aria-labelledby="cta-t">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h3 id="cta-t">Willkommen an Bord!</h3>
@@ -425,19 +419,8 @@ export class SxHomeFeed extends LitElement {
           </div>`}
       <div class="step">
         <div class="label">${icon('mail')} Freunde einladen</div>
-        <form class="row" @submit=${(e: Event) => {
-            e.preventDefault();
-            if (email) emit(this, 'sx-friend-invite', { email });
-          }}>
-          <input type="email" placeholder="E-Mail-Adresse" aria-label="Freund:in per E-Mail einladen" style="flex:1;min-width:180px" @input=${(e: Event) => (email = (e.target as HTMLInputElement).value)} />
-          <button class="btn small" type="submit">Einladen</button>
-          <button class="btn small ghost" type="button" @click=${() => emit(this, 'sx-friend-invite', { email: null })}>${icon('link')} Link erzeugen</button>
-        </form>
-        ${this.inviteLink
-          ? html`<div class="row"><code class="link">${this.inviteLink}</code>
-              <button class="btn small" @click=${() => emit(this, 'sx-invite-copy', this.inviteLink)}>${icon('copy')} Kopieren</button></div>
-              <span class="why">Nur jetzt sichtbar · 14 Tage gültig · bis zu 20 Personen. Wer annimmt, folgt dir – und du ihm.</span>`
-          : ''}
+        ${friendInviteBox(this, this.inviteLink)}
+        <span class="why">Später jederzeit auf deiner Seite: Zahnrad → Freunde einladen.</span>
       </div>
     </div>`;
   }

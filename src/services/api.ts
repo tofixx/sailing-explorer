@@ -985,7 +985,7 @@ export const groupApi = {
   setRole: (id: string, userId: string, role: 'admin' | 'member') => call<{ role: string }>(`/api/groups/${gid(id)}/members/${gid(userId)}`, jsonInit('PATCH', { role })),
   /** userId 'me' = austreten; `follow`: danach weiter folgen (F-446) */
   removeMember: (id: string, userId: string, follow = false) => call<{ followed?: boolean } | void>(`/api/groups/${gid(id)}/members/${gid(userId)}${follow ? '?follow=1' : ''}`, { method: 'DELETE' }),
-  invite: (id: string, email: string | null) => call<InviteCreated>(`/api/groups/${gid(id)}/invites`, jsonInit('POST', email ? { email } : {})),
+  invite: (id: string, to: InviteTo | null) => call<InviteCreated>(`/api/groups/${gid(id)}/invites`, jsonInit('POST', to ?? {})),
   request: (id: string, message: string, key?: string | null) =>
     call<{ requested: boolean; already?: boolean; joined?: boolean }>(`/api/groups/${gid(id)}/requests`, {
       ...jsonInit('POST', { message }),
@@ -1201,7 +1201,7 @@ export const coverApi = {
 
 export const friendApi = {
   /** ohne Adresse: Einladungslink (nur in dieser Antwort) */
-  invite: (to: { email?: string; handle?: string }) => call<InviteCreated>('/api/invites', jsonInit('POST', to)),
+  invite: (to: InviteTo | null) => call<InviteCreated>('/api/invites', jsonInit('POST', to ?? {})),
 };
 
 // ================================================================ Passkeys (Konzept 14.7)

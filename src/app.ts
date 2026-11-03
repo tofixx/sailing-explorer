@@ -57,7 +57,7 @@ import { DiscoverController } from './controllers/discover';
 import type { SxGroupPage } from './components/sx-group-page';
 import type { SxHomeFeed } from './components/sx-home-feed';
 import type { SxGuestSlider } from './components/sx-guest-slider';
-import type { FollowKind, GroupInput } from './services/api';
+import type { FollowKind, GroupInput, InviteTo } from './services/api';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
 import { UnreadController } from './controllers/unread';
@@ -740,6 +740,7 @@ export class App {
     on('sx-invite-accept', () => s.acceptInvite());
     on<{ id: string; scope: 'crew' | 'boat'; boatId?: string }>('sx-invite-revoke', (d) => s.revokeInvite(d));
     on<string>('sx-invite-copy', (url) => s.copyInvite(url));
+    on<{ url: string; title: string; text: string }>('sx-invite-share', (d) => s.shareInvite(d));
     on<{ to: { email: string } | { handle: string } | null; role?: VoyageRole }>('sx-crew-invite', (d) => s.inviteCrew(d.to, d.role));
     on<{ userId: string; role: VoyageRole }>('sx-crew-role', (d) => s.setCrewRole(d.userId, d.role));
     on<{ role: VoyageRole }>('sx-crew-own-role', (d) => s.setOwnerRole(d.role));
@@ -816,7 +817,7 @@ export class App {
     on('sx-discover-locate', () => this.discover.useLocation());
     // Willkommens-Karte der Startseite (Konzept 14.3)
     on<{ id: string; name: string }>('sx-home-join', (d) => g.join(d.id, { name: d.name }));
-    on<{ email: string | null }>('sx-friend-invite', (d) => this.social.inviteFriend(d.email));
+    on<{ to: InviteTo | null }>('sx-friend-invite', (d) => this.social.inviteFriend(d.to));
     // Fahrtenbuch (Konzept 19)
     on('sx-logbook-start', () => this.logbook.start());
     // GPX-Törn: Vorschläge aus dem geladenen Track (F-460). Bearbeiten gibt es nur am offenen Törn, und der Arbeitsbereich
@@ -836,7 +837,7 @@ export class App {
     on<{ id: string; userId: string; approve: boolean }>('sx-group-request', (d) => g.decide(d));
     on<{ id: string; userId: string; role: 'admin' | 'member' }>('sx-group-role', (d) => g.setRole(d));
     on<{ id: string; userId: string }>('sx-group-remove', (d) => g.removeMember(d));
-    on<{ id: string; email: string | null }>('sx-group-invite', (d) => g.invite(d));
+    on<{ id: string; to: InviteTo | null }>('sx-group-invite', (d) => g.invite(d));
     on<{ id: string }>('sx-group-invite-revoke', (d) => g.revokeInvite(d.id));
     on<{ id: string; boatId: string }>('sx-group-boat-add', (d) => g.addBoat(d));
     on<{ id: string; boatId: string }>('sx-group-boat-remove', (d) => g.removeBoat(d));

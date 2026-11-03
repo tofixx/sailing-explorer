@@ -235,6 +235,10 @@ async function router(input: RequestInfo | URL, init: RequestInit = {}): Promise
     return json(server.invite!.accept);
   }
   if (/^\/api\/shares\/[^/]+\/crew$/.test(url)) return server.crew ? json(server.crew) : json({ error: 'not_found', message: 'Nicht gefunden.' }, 404);
+  if (url === '/api/invites' && method === 'POST') {
+    const invite = { id: 'Inv1234567890fffff', email: null, usesLeft: 20, createdAt: Date.now(), expiresAt: Date.now() + 14 * 86_400_000 };
+    return json({ invite, link: `${location.origin}/einladung#token=${'f'.repeat(43)}` }, 201);
+  }
   if (/^\/api\/shares\/[^/]+\/invites$/.test(url) && method === 'POST') {
     const invite = { id: 'Inv1234567890abcde', email: null, usesLeft: 30, createdAt: Date.now(), expiresAt: Date.now() + 14 * 86_400_000 };
     return json({ invite, link: `${location.origin}/einladung#token=${'b'.repeat(43)}` }, 201);
@@ -1359,6 +1363,22 @@ describe('F-139 Crew in der Törn-Ansicht', () => {
     emit('sx-invite-copy', 'https://evil.example/einladung#token=x');
     emit('sx-invite-copy', crew().newLink);
     await vi.waitFor(() => expect(clipboard).toEqual([crew().newLink]));
+  });
+
+  it('[F-592] [F-591] Freunde einladen: Link erscheint in Willkommens-Karte und eigener Seite; Teilen nimmt nur eigene Links, ohne Teilen-Menü wird kopiert', async () => {
+    seed(false);
+    server.user = { id: 'u1', email: 'skipper@example.org' };
+    await startApp('/');
+    await settled();
+    emit('sx-friend-invite', { to: null });
+    const link = `${location.origin}/einladung#token=${'f'.repeat(43)}`;
+    await vi.waitFor(() => expect(el<{ inviteLink: string | null }>('sx-profile-page').inviteLink).toBe(link));
+    expect(el<{ inviteLink: string | null }>('sx-home-feed').inviteLink).toBe(link);
+    expect(server.calls.filter((c) => c.method === 'POST' && c.url === '/api/invites').map((c) => JSON.parse(String(c.body)))).toEqual([{}]);
+    // happy-dom kennt kein navigator.share: dann kopieren – aber nie fremde Adressen
+    emit('sx-invite-share', { url: 'https://evil.example/einladung#token=x', title: 't', text: 'x' });
+    emit('sx-invite-share', { url: link, title: 'Einladung', text: 'Komm dazu' });
+    await vi.waitFor(() => expect(clipboard).toEqual([link]));
   });
 
   it('[F-510] Zahnrad des Törns: das Menü bekommt die Crew; „Crew verlassen“ erst nach Rückfrage, „Crew bearbeiten“ schaltet den Bearbeiten-Modus', async () => {

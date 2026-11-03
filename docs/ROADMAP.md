@@ -152,6 +152,20 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
 | `feature/moderation-titelbilder` (Moderation 1 und 4: Titelbilder absichern, Melde-Gewicht und Gründe) | F-560 … F-569 | 36 | 0044 | `worker/covers.ts`, `worker/reports.ts`, Admin-Liste, `isNewAccount` (`src/domain`), `legal.ts` | in Arbeit 03.11. |
 | `feature/moderation-admin` (Moderation 3, 6, 8: Hinweis auf offene Meldungen, Begründungsmail, Hinweise beim Löschen) | F-570 … F-579 | – | 0045 (falls nötig) | Nachtlauf (`retention.ts`), `worker/mail.ts`, Admin-Meldungsansicht, Konto-Knopf | in Arbeit 03.11. |
 | `feature/revier-heatmap` (Routen und Heatmap auf der Community-Karte, Cluster-Pins) | F-580 … F-589 | 37 | – | Karte (`src/map`), `worker/discover.ts` bzw. neuer öffentlicher Endpunkt, `src/domain/cluster.ts` | in Arbeit 03.11. |
-| `feature/invite-box` (`sx-invite-box`, „Freunde einladen“ auf der eigenen Seite) | F-590 … F-599 | – | – | Einladungs-Komponenten, `sx-profile-page`, `sx-group-page`, `sx-crew`, `invite-text.ts` | in Arbeit 03.11. |
+| `feature/invite-box` (`sx-invite-box`, „Freunde einladen“ auf der eigenen Seite) | F-590 … F-599 (vergeben bis F-592) | – | – | neu `sx-invite-box` (`friendInviteBox`); `sx-crew` (`voyageTitle`), `sx-group-page`, `sx-account-dialog` (Boots-Admins), `sx-home-feed` (Willkommens-Karte), `sx-profile-page` (Zahnrad „Freunde einladen“, `inviteLink`), `invite-text.ts` (`inviteShareText`), `controllers/session.ts` (`shareInvite`, `voyageTitle`), `controllers/groups.ts`/`social.ts` und `api.ts` (`{ to }` statt `email`), `app.ts` (2 Zeilen). Keine Endpunkte, keine Daten, kein Cache | gepusht 03.11., bereit zum Review |
 | `feature/gpx-nachreichen` (GPX zu gespeicherten Törns) | F-600 … F-609 | 38 | 0046 (falls nötig) | `worker/shares.ts`, Upload, Speicherzähler, Wetter, Vorschaubild, Fotos | in Arbeit 03.11. |
 | `feature/segellebenslauf` (Export über alle Saisons) | F-610 … F-614 | – | – | `worker/logbook-list.ts` (CSV), `sx-logbook-page` | in Arbeit 03.11. |
+
+**Entscheidungen `feature/invite-box` (03.11., ohne Rückfrage getroffen):**
+- Ein Baustein `sx-invite-box` (F-590), rein darstellend; er meldet `invite-create`/`invite-revoke` nur an das
+  einbettende Element, das in die bisherigen Events übersetzt. So bleiben Controller und `app.ts` fast unverändert;
+  nur Gruppe und Freunde melden jetzt `{ to }` statt `{ email }`, weil die Endpunkte Profilnamen schon kannten.
+- Abgeleitet aus den vier Vorgängern: Link nur „jetzt sichtbar“, danach kein zweiter Erzeugen-Knopf (wie bisher bei
+  der Crew; die Gruppe zeigte vorher beides). Boots-Admins ohne Link (Endpunkt verlangt ein Ziel). Freunde ohne Liste
+  offener Einladungen (es gibt dafür keinen Endpunkt; nicht neu gebaut). QR-Codes gab es nirgends – keine.
+- „Mail-Text“ (F-591): mit Teilen-Menü des Geräts „Teilen“ mit Begleittext, sonst „Per Mail senden“ als `mailto:` mit
+  Betreff, Text und Link – höchstens zwei Knöpfe neben dem Link, kein Server, keine Zählung. Der serverseitige Mailversand
+  bleibt das Feld „E-Mail oder Profilname“.
+- „Freunde einladen“ (F-592) nur im Zahnrad der eigenen Seite (N6: Seiten-Aktion; N1: kein Eintrag im Konto-Menü). Die
+  Willkommens-Karte bleibt als Abkürzung im Kontext und nennt den festen Ort. Der Link wird an Karte und Seite gegeben;
+  die Seite vergisst ihn beim Wechsel auf eine andere Seite.

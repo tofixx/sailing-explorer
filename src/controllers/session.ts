@@ -471,7 +471,7 @@ export class SessionController {
       this.ui.crewChanged(null);
     }
     this.crewShare = { share, key };
-    Object.assign(crewEl, { visibility: share.visibility, error: '', busy: false });
+    Object.assign(crewEl, { visibility: share.visibility, voyageTitle: share.title, error: '', busy: false });
     try {
       const crew = await api.crew(share.id, key);
       if (this.crewShare?.share.id !== share.id) return;
@@ -555,8 +555,25 @@ export class SessionController {
 
   /** Einladungslink kopieren – nur eigene Links dieser Origin. */
   copyInvite(url: string): Promise<void> {
-    if (!url.startsWith(`${location.origin}/einladung#token=`)) return Promise.resolve();
+    if (!isInviteLink(url)) return Promise.resolve();
     return this.copy(url);
+  }
+
+  /**
+   * Einladungslink über das Teilen-Menü des Geräts weitergeben, mit freundlichem Begleittext (F-591); ohne Teilen-Menü
+   * oder bei einem Fehler kopieren. Nur eigene Links dieser Origin.
+   */
+  async shareInvite(d: { url: string; title: string; text: string }): Promise<void> {
+    if (!isInviteLink(d.url)) return;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: d.title, text: d.text, url: d.url });
+        return;
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') return;
+      }
+    }
+    await this.copy(d.url);
   }
 
   /** Offene Einladung zurückziehen (Crew im Törn-Panel oder Admin im Konto). */
@@ -1101,6 +1118,9 @@ export class SessionController {
 }
 
 /** Bestätigung nach dem Einladen – mit Namen bzw. der selbst eingegebenen Adresse, nie mit einer fremden. */
+/** Einladungslink dieser Origin? (Kopieren und Teilen nehmen nichts anderes) */
+const isInviteLink = (url: string) => url.startsWith(`${location.origin}/einladung#token=`);
+
 function invitedText(invite: { email: string | null; invitee: { displayName: string } | null }): string {
   return `Einladung an ${invite.invitee?.displayName ?? invite.email ?? 'die Crew'} verschickt`;
 }

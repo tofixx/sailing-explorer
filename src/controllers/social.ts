@@ -1,4 +1,4 @@
-import { ApiError, friendApi, socialApi, type HarborPatch, type ShareMeta, type StreamPage } from '../services/api';
+import { ApiError, friendApi, socialApi, type HarborPatch, type InviteTo, type ShareMeta, type StreamPage } from '../services/api';
 import type { Store } from '../services/store';
 import type { SxAccountDialog } from '../components/sx-account-dialog';
 import type { SxGroupPage } from '../components/sx-group-page';
@@ -172,14 +172,17 @@ export class SocialController {
     }
   }
 
-  /** Freunde einladen (Konzept 14.2): per Adresse (Mail) oder als Link, der nur einmal angezeigt wird. */
-  async inviteFriend(email: string | null): Promise<void> {
+  /**
+   * Freunde einladen (Konzept 14.2): per Adresse (Mail), Profilname oder als Link, der nur einmal angezeigt wird. Der
+   * Link erscheint in der Willkommens-Karte und auf der eigenen Seite (F-592) – je nachdem, wo eingeladen wurde.
+   */
+  async inviteFriend(to: InviteTo | null): Promise<void> {
     try {
-      const res = await friendApi.invite(email ? { email } : {});
+      const res = await friendApi.invite(to);
       // Ohne Adresse der Link; lokal im Log-Modus auch bei Adressen (devLink, wie bei Gruppen)
       const link = res.link ?? res.devLink ?? null;
-      if (link) this.ui.home.inviteLink = link;
-      if (email) this.ui.toast('Einladung verschickt');
+      if (link) this.ui.home.inviteLink = this.ui.page.inviteLink = link;
+      if (to) this.ui.toast('Einladung verschickt');
     } catch (e) {
       this.ui.toast(errorText(e), 6000);
     }
