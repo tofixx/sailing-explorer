@@ -43,8 +43,8 @@ export class SxEventDialog extends LitElement {
       dialog {
         width: min(520px, calc(100vw - 32px));
       }
+      /* Raster und Spalte minmax(0, 1fr) aus dialogStyles (F-615) – hier nur der engere Abstand */
       .body {
-        display: grid;
         gap: var(--s-3);
       }
       .foot {

@@ -568,6 +568,12 @@ Nur eigene Werte, keine Vergleiche mit anderen und keine Ranglisten (K6). Nichts
 - **F-612** Ein Einstieg: kein zweiter Knopf – der Reiter „Alle Saisons“ schaltet die Seite um, „CSV“ und „Drucken“ gelten dann für den Segellebenslauf (CSV mit `saison=alle`). Die Adresse trägt `?saison=alle` (Groß-/Kleinschreibung egal); die zuletzt gewählte Saison bleibt innerhalb der Sitzung dahinter erhalten, nach einem Neuladen gilt die Vorgabe. Sind es mehr als 1.000 Einträge, nennt die Übersicht, dass nur die neuesten geladen sind.
 - **F-613** Drucken des Segellebenslaufs: gedruckt werden Kopfzeile „Segellebenslauf · Filter · Stand“, Summen und Saison-Tabelle ohne Reiter, Filter und Knöpfe (Druckstil von F-458); bei 375 px passt die Tabelle ohne seitliches Scrollen.
 
+## Überlauf bei 375 px (Prüfung angemeldet, 03.11.)
+
+- **F-615** Anmelde-Dialog nach „Link senden“ („Prüf dein Postfach“) ragt bei 375 px nicht über den rechten Rand: Der Inhalt aller Dialoge (`.body` in `dialogStyles`) ist ein Raster mit einer Spalte `minmax(0, 1fr)`, breite Inhalte verbreitern den Dialog also nicht; eigene `.body`-Regeln einzelner Dialoge (Termin-Dialog) setzen nur den Abstand, nicht Raster oder Spalten. Die Zeile aus Code-Feld und „Anmelden“ bricht bei Bedarf um, das Code-Feld schrumpft (`min-width: 0`) und ist ein Textfeld im gemeinsamen Eingabe-Raster (Rahmen, Hintergrund wie die übrigen Felder).
+- **F-616** Startseite angemeldet mit langem Boots-, Personen- oder Gruppennamen: Stream-Spalte und Seitenleiste (`.feed`, `.side` in `sx-empty-state`) sowie die Abschnitte in `sx-discover` (Leiste auf der Startseite, Seite /entdecken) haben eine Spalte `minmax(0, 1fr)`; die Namens-Chips in „Neu dabei:“ und auf den Törn-Karten in Entdecken kürzen den Namen mit Ellipse (`min-width: 0`, höchstens volle Breite), der volle Name steht im `title`.
+- **F-617** Törn-Karte bei 375 px: Der Törn-Chip unter der Kopfzeile (Titel · Zustand · ×) bleibt mittig und lässt rechts Platz für die Grundkarten-Wahl oben rechts (je 64 px Abstand zu beiden Rändern), überdeckt sie also nicht. Die Grundkarten-Wahl (Leaflet, oben rechts, angelegt von `addBaseMapControl` in `src/map/basemap-control.ts`) heißt „Grundkarte“ (Titel und `aria-label` statt Leaflets „Layers“); sie wählt die Kacheln, der Kartenstil-Knopf unten rechts (F-218, F-531) die Einfärbung – zwei Aufgaben, je ein Einstieg.
+
 ## Betrieb
 
 - **F-50** Lokale Entwicklung mit `npm run dev`, erreichbar im LAN (Handy) inkl. Login.

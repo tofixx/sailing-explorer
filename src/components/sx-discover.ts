@@ -179,6 +179,7 @@ export class SxDiscover extends LitElement {
         display: inline-flex;
         align-items: center;
         gap: 4px;
+        min-width: 0;
         max-width: 100%;
         min-height: 26px;
         padding: 0 var(--s-2);
@@ -203,6 +204,13 @@ export class SxDiscover extends LitElement {
       .chip svg {
         width: 14px;
         height: 14px;
+        flex: none;
+      }
+      /* lange Namen enden mit Ellipse statt die Startseite zu verbreitern (F-616) */
+      .chip > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       /* ---------- Leiste auf der Startseite */
@@ -321,8 +329,10 @@ export class SxDiscover extends LitElement {
         color: var(--text-2);
         margin-top: var(--s-1);
       }
+      /* Spalte minmax(0, 1fr) (F-616): lange Namen in Chips verbreitern die Leiste nicht */
       section {
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         gap: var(--s-3);
       }
       .grid {
@@ -502,9 +512,9 @@ export class SxDiscover extends LitElement {
         <span class="meta">${fmtNum(v.distNm, 1)} sm · ${fmtDate(v.startedAt ?? v.createdAt)}${v.logbook ? html` ${logbookTag()}` : ''}</span>
         <div class="chips">
           ${v.sailor
-            ? html`<a class="chip" href="/u/${v.sailor.handle}" title="Profil von ${v.sailor.displayName}">${icon(ENTITY_ICON.user)}${v.sailor.displayName}</a>`
+            ? html`<a class="chip" href="/u/${v.sailor.handle}" title="Profil von ${v.sailor.displayName}">${icon(ENTITY_ICON.user)}<span>${v.sailor.displayName}</span></a>`
             : html`<span class="chip anon" title="Profil nicht öffentlich">${icon(ENTITY_ICON.user)}Segler:in</span>`}
-          ${v.boat ? html`<a class="chip" href="/b/${v.boat.id}" title="Boot ${v.boat.name}">${icon(ENTITY_ICON.boat)}${v.boat.name}</a>` : ''}
+          ${v.boat ? html`<a class="chip" href="/b/${v.boat.id}" title="Boot ${v.boat.name}">${icon(ENTITY_ICON.boat)}<span>${v.boat.name}</span></a>` : ''}
         </div>
       </div>
     </article>`;
@@ -588,9 +598,9 @@ export class SxDiscover extends LitElement {
     if (!this.data) return '';
     const list = this.data.voyages.slice(0, 6);
     const crew = [
-      ...this.data.boats.slice(0, 4).map((b) => html`<a class="chip" href="/b/${b.id}" title="Boot ${b.name}">${icon(ENTITY_ICON.boat)}${b.name}</a>`),
-      ...this.data.people.slice(0, 4).map((p) => html`<a class="chip" href="/u/${p.handle}" title="Profil von ${p.displayName}">${icon(ENTITY_ICON.user)}${p.displayName}</a>`),
-      ...(this.data.groups ?? []).slice(0, 4).map((g) => html`<a class="chip" href="/g/${g.slug}" title="${GROUP_KIND_LABEL[g.kind]} ${g.name}">${icon(groupIcon(g.kind))}${g.name}</a>`),
+      ...this.data.boats.slice(0, 4).map((b) => html`<a class="chip" href="/b/${b.id}" title="Boot ${b.name}">${icon(ENTITY_ICON.boat)}<span>${b.name}</span></a>`),
+      ...this.data.people.slice(0, 4).map((p) => html`<a class="chip" href="/u/${p.handle}" title="Profil von ${p.displayName}">${icon(ENTITY_ICON.user)}<span>${p.displayName}</span></a>`),
+      ...(this.data.groups ?? []).slice(0, 4).map((g) => html`<a class="chip" href="/g/${g.slug}" title="${GROUP_KIND_LABEL[g.kind]} ${g.name}">${icon(groupIcon(g.kind))}<span>${g.name}</span></a>`),
     ];
     return html`<section class="strip" aria-labelledby="strip-t">
       <header>
