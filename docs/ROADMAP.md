@@ -106,8 +106,8 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 
 ### Reservierungen
 
-Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-619**, **Konzept 38**, **Migration 0046** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
-sind F-620, Konzept 39 und Migration 0047. Neue Aufträge bekommen ihren Bereich hier, bevor
+Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-624**, **Konzept 38**, **Migration 0046** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
+sind F-625, Konzept 39 und Migration 0047. Neue Aufträge bekommen ihren Bereich hier, bevor
 sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
 | Branch / Auftrag | F-IDs | Konzept | Migration | Berührt | Stand |
@@ -173,3 +173,4 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
   zurück), damit das Adressfeld erst dann leer wird. Die Crew-Rolle bleibt nach dem Erzeugen wählbar (sie gilt für
   E-Mail und Profilname); ein Hinweis nennt die Rolle des gezeigten Links. Die Rate-Grenze zählt jetzt auch erfolglose
   Profilnamen (F-593) – wer in einer Minute mehr als fünf Einladungen versucht, wartet kurz.
+| `feature/logo-icons` (große Objekt-Icons im Seitenkopf im Stil des Logos: Verlauf Havelblau → Türkis, zweifarbige Flächen) | F-620 … F-624 | – | – | `icons.ts` (Kachel-Variante), `shared.ts` (gemeinsamer Kachel-Stil), `sx-group-page`, `sx-profile-page`, `sx-discover` | in Arbeit 03.11. |
