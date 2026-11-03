@@ -3361,3 +3361,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 | Aufzeichnungsrate 1–5 s | Empfehlung des Betreibers, keine Herstellerangabe |
 
 ## 26. Diagramm-Großansicht: Zoomen und Verschieben (F-430) → [`docs/concept/26-diagramm-zoom.md`](concept/26-diagramm-zoom.md)
+
+## 27. Verwaltungsbereich und Fahrtenbuch nach Jahren (Phase 8, F-411, F-412, F-418) → [`docs/concept/27-fahrtenbuch-jahre.md`](concept/27-fahrtenbuch-jahre.md)
