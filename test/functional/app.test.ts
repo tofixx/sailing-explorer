@@ -1550,6 +1550,34 @@ describe('F-163 Vereine, Teams und Neuigkeiten in der App', () => {
     await vi.waitFor(() => expect(slider().hidden).toBe(false));
   });
 
+  it('[F-530] Gast ohne gemerkten Ort: Community-Leiste und Slider teilen einen Abruf von /api/discover?limit=6', async () => {
+    localStorage.removeItem('sx-guest-slider-dismissed');
+    server.groups = {};
+    server.discover = { voyages: [], boats: [], people: [], groups: [{ slug: 'pyc', name: 'PYC', kind: 'club', members: 3 }], harbors: [] };
+    await startApp();
+    await vi.waitFor(() => expect(slider().groups).toEqual(server.discover!.groups));
+    await vi.waitFor(() => expect(el<{ hidden: boolean }>('sx-discover[slot="discover"]').hidden).toBe(false));
+    // zurück zur Startseite lädt die Leiste nicht erneut
+    emit('sx-home');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(server.calls.filter((c) => c.url.startsWith('/api/discover?')).map((c) => c.url)).toEqual(['/api/discover?limit=6']);
+  });
+
+  it('[F-530] nach einem Fehler versucht die Leiste es beim nächsten Weg zur Startseite erneut', async () => {
+    localStorage.setItem('sx-guest-slider-dismissed', '1');
+    server.groups = {};
+    server.discover = null;
+    await startApp();
+    const strip = () => el<{ hidden: boolean }>('sx-discover[slot="discover"]');
+    await vi.waitFor(() => expect(server.calls.filter((c) => c.url.startsWith('/api/discover?'))).toHaveLength(1));
+    await vi.waitFor(() => expect(strip().hidden).toBe(true));
+    server.discover = { voyages: [], boats: [], people: [] };
+    emit('sx-home');
+    await vi.waitFor(() => expect(strip().hidden).toBe(false));
+    expect(server.calls.filter((c) => c.url.startsWith('/api/discover?'))).toHaveLength(2);
+    localStorage.removeItem('sx-guest-slider-dismissed');
+  });
+
   it('[F-260] Startseite angemeldet: Stream zuerst', async () => {
     server.user = { id: 'U1', email: 'a@example.org' };
     server.groups = { myStream: { items: [post], cursor: null, hasGroups: true }, mine: { groups: [], requests: [] } };
