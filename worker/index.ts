@@ -4,6 +4,7 @@ import { deleteAccount, logout, me, peekLink, requestLink, verifyCode, verifyLin
 import { HttpError, errorResponse, json } from './http';
 import { listShareGroupChoices } from './share-groups';
 import { createManualShare } from './logbook';
+import { attachTrack } from './track-attach';
 import { getMyLogbook, getMyLogbookCsv } from './logbook-list';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
@@ -118,6 +119,8 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/data$/, (r, env, [id]) => getShareData(r, env, id)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/image$/, (r, env, [id]) => getShareImage(r, env, id)],
   ['PUT', /^\/api\/shares\/([A-Za-z0-9]+)\/image$/, (r, env, [id]) => putShareImage(r, env, id)],
+  // GPX nachreichen (Konzept 38): worker/track-attach.ts
+  ['PUT', /^\/api\/shares\/([A-Za-z0-9]+)\/track$/, (r, env, [id]) => attachTrack(r, env, id)],
   ['PATCH', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => updateShare(r, env, id)],
   ['DELETE', /^\/api\/shares\/([A-Za-z0-9]+)$/, (r, env, [id]) => deleteShare(r, env, id)],
   ['GET', /^\/api\/shares\/([A-Za-z0-9]+)\/crew$/, (r, env, [id]) => getCrew(r, env, id)],

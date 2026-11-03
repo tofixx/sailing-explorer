@@ -797,11 +797,11 @@ export class SessionController {
     this.refreshImage({ format, content });
   }
 
-  private imageFor(opts: { format: ImageFormat; content: ImageContent }): Promise<Blob> {
+  private imageFor(opts: { format: ImageFormat; content: ImageContent }, title = this.ui.share.defaultTitle): Promise<Blob> {
     const s = this.store.get();
     const tracks = visibleTracks(s).length ? visibleTracks(s) : s.tracks;
     return renderShareImage(tracks, {
-      title: this.ui.share.defaultTitle || tracks[0]?.name || 'Törn',
+      title: title || tracks[0]?.name || 'Törn',
       metric: s.metric,
       range: metricRange(tracks, s.metric),
       format: opts.format,
@@ -843,6 +843,16 @@ export class SessionController {
     if (f) await shareOrDownload(f, this.ui.share.defaultTitle);
   }
 
+  /**
+   * Übersichtsbild für die Link-Vorschau aus den offenen Tracks – immer im Querformat; Fehler sind nicht kritisch.
+   * Nach dem Speichern und nach „GPX nachreichen“ (Konzept 38).
+   */
+  uploadPreview(share: Pick<ShareMeta, 'id' | 'title'>): void {
+    this.imageFor({ format: 'landscape', content: this.imagePrefs().content }, share.title)
+      .then((blob) => api.putShareImage(share.id, blob))
+      .catch(() => {});
+  }
+
   async upload(d: ShareRequest): Promise<void> {
     const s = this.store.get();
     this.ui.share.busy = true;
@@ -882,10 +892,7 @@ export class SessionController {
       this.ui.saved(share);
       if (this.supportStatus) this.setSupport({ ...this.supportStatus, sharesUsed: this.supportStatus.sharesUsed + 1 });
       this.showResult(share);
-      // Übersichtsbild für die Link-Vorschau – immer im Querformat; Fehler sind nicht kritisch.
-      this.imageFor({ format: 'landscape', content: this.imagePrefs().content })
-        .then((blob) => api.putShareImage(share.id, blob))
-        .catch(() => {});
+      this.uploadPreview(share);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         this.store.set({ user: null });

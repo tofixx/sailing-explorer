@@ -61,6 +61,15 @@ export const replacePayloadStmt = (env: Env, shareId: string, newBytes: number) 
     newBytes, shareId, STORAGE_COUNTER,
   );
 
+/**
+ * GPX nachgereicht (Konzept 38): wie replacePayloadStmt, aber nur, solange der Törn noch ein Eintrag ohne GPX ist –
+ * hat ein paralleler Aufruf ihn schon umgestellt, bucht dieser nichts (Differenz 0).
+ */
+export const replaceManualPayloadStmt = (env: Env, shareId: string, newBytes: number) =>
+  env.DB.prepare(
+    "UPDATE counters SET value = MAX(0, value + ?1 - COALESCE((SELECT size_bytes FROM shares WHERE id = ?2 AND source = 'manual'), ?1)) WHERE name = ?3",
+  ).bind(newBytes, shareId, STORAGE_COUNTER);
+
 /** Vor dem Löschen aller Törns (und Fotos) eines Kontos im selben Batch. */
 export const subtractUserStmt = (env: Env, userId: string) =>
   env.DB.prepare(

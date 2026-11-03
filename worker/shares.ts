@@ -92,7 +92,7 @@ export interface ShareRow {
 const harborAt = (id: string | null | undefined, slug: string | null | undefined, name: string | null | undefined, lat: number | null | undefined, lon: number | null | undefined) =>
   id && slug ? { id, slug, name: name ?? '', lat: lat ?? null, lon: lon ?? null } : null;
 
-const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
+export const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diese Freigabe gibt es nicht (mehr).');
 
 const SHARE_COLS = `s.*, (SELECT reach FROM posts WHERE id = s.id) AS reach, b.name AS boat_name, b.visibility AS boat_visibility, b.hidden_at AS boat_hidden_at, b.locked_at AS boat_locked_at, ${EXPIRES_SQL} AS expires_at,
   hf.slug AS hf_slug, hf.name AS hf_name, hf.lat AS hf_lat, hf.lon AS hf_lon, ht.slug AS ht_slug, ht.name AS ht_name, ht.lat AS ht_lat, ht.lon AS ht_lon`;
@@ -202,7 +202,7 @@ export async function checkBoat(env: Env, userId: string, boatId: unknown): Prom
  * Vollständig geparst wird erst im Browser des Betrachters (CPU-Limit im Free-Plan);
  * dort gelten die Daten ohnehin als untrusted.
  */
-async function checkPayload(bytes: Uint8Array): Promise<void> {
+export async function checkPayload(bytes: Uint8Array): Promise<void> {
   if (!isGzip(bytes)) throw new HttpError(400, 'invalid_payload', 'Ungültiges Upload-Format.');
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
   const reader = stream.getReader();
@@ -230,7 +230,7 @@ function parseJsonHeader(v: string): unknown {
   }
 }
 
-function decodeHeader(v: string | null): string {
+export function decodeHeader(v: string | null): string {
   if (!v) return '';
   try {
     return decodeURIComponent(v);
@@ -351,7 +351,7 @@ export async function listShares(request: Request, env: Env): Promise<Response> 
  * Metadaten der Einzelansicht: dazu Eigentümer-Profil und Gruppen, soweit sichtbar (F-228); die Eigentümer:in
  * bekommt zusätzlich ihre Auswahl „In Gruppen zeigen“ (`groupIds`, F-375).
  */
-const shareDetail = async (env: Env, row: ShareRow, isOwner: boolean, viewerId: string | null) => ({
+export const shareDetail = async (env: Env, row: ShareRow, isOwner: boolean, viewerId: string | null) => ({
   ...shareShape(row, isOwner),
   ...(await shareContext(env, row, viewerId)),
   ...(isOwner ? { groupIds: await selectedGroupIds(env, row.id) } : {}),

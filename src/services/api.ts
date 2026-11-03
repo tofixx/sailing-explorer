@@ -489,6 +489,21 @@ export const api = {
       body: gz,
     }),
 
+  /** GPX nachreichen (Konzept 38, F-600): Track an einen Eintrag ohne GPX hängen – Header wie createShare */
+  attachTrack: (id: string, gz: Uint8Array<ArrayBuffer>, meta: { summary: string; trackCount: number; distNm: number; startedAt: number | null; endedAt: number | null }) =>
+    call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(id)}/track`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/gzip',
+        'X-Share-Summary': encodeURIComponent(meta.summary),
+        'X-Share-Tracks': String(meta.trackCount),
+        'X-Share-Distance': meta.distNm.toFixed(2),
+        ...(meta.startedAt ? { 'X-Share-Started': String(meta.startedAt) } : {}),
+        ...(meta.startedAt && meta.endedAt ? { 'X-Share-Ended': String(meta.endedAt) } : {}),
+      },
+      body: gz,
+    }),
+
   /** Fahrtenbuch-Eintrag ohne GPX (F-300) */
   createManualShare: (input: ManualShareInput) => call<{ share: ShareMeta }>('/api/shares/manual', jsonInit('POST', input)),
   /** Fahrtenbuch nach Jahren (F-411): eigene Törns und Crew-Törns (M1); CSV unter /api/me/logbook.csv */

@@ -8,16 +8,19 @@ import { base, emit } from './shared';
 import './sx-title-edit';
 import './sx-page-menu';
 import type { PageMenuItem } from './sx-page-menu';
+import { canAttachTrack } from '../domain/track-attach';
 
 const MODE_ICON: Record<CommentsMode, IconName> = { on: 'comment', off: 'lock', hidden: 'eyeOff' };
 
 /**
  * Zahnrad-Menü des Törns (N6, F-510): Verwaltung, die nicht ständig sichtbar sein muss – Crew bearbeiten (Eigentümer:in
  * bzw. Skipper:in, wenn es etwas zu bearbeiten gibt), Crew verlassen (Crew-Mitglied), Kommentar-Einstellung
- * (Eigentümer:in) und Melden (alle anderen). Nur, was erlaubt ist; ohne Einträge kein Zahnrad.
+ * (Eigentümer:in) und Melden (alle anderen). Nur, was erlaubt ist; ohne Einträge kein Zahnrad. „GPX nachreichen“ nur für
+ * die Eigentümer:in eines Fahrtenbuch-Eintrags ohne GPX (Konzept 38, F-605) – der einzige Einstieg dafür.
  */
-export function voyageMenuItems(share: Pick<ShareMeta, 'isOwner' | 'commentsMode'>, crew: Crew | null): PageMenuItem[] {
+export function voyageMenuItems(share: Pick<ShareMeta, 'isOwner' | 'commentsMode' | 'source'>, crew: Crew | null): PageMenuItem[] {
   const items: PageMenuItem[] = [];
+  if (canAttachTrack(share)) items.push({ id: 'track-attach', label: 'GPX nachreichen', icon: 'upload' });
   // Skipper:in aus der Crew bestätigt auch die Eigentümer:in – dann gibt es auch ohne weitere Mitglieder etwas zu tun
   const ownerToConfirm = !!crew?.isSkipper && !crew.isOwner && !!crew.ownerRole;
   if (crew && (crew.isOwner || crew.isSkipper) && (crew.members.length > 0 || ownerToConfirm)) items.push({ id: 'crew-edit', label: 'Crew bearbeiten', icon: 'pencil' });
@@ -36,7 +39,8 @@ export function voyageMenuItems(share: Pick<ShareMeta, 'isOwner' | 'commentsMode
  * Geteilter Törn: Titel (die Eigentümer:in benennt ihn hier um, F-424), Zahnrad-Menü (F-510) und
  * „von <Profil> auf <Boot> in <Verein/Team>“ mit Links und dem Icon der Objektart – nur, was der Server freigegeben hat
  * (F-228; Boot nur, wenn der Betrachter dessen Seite öffnen darf, F-533).
- * Meldet `sx-crew-edit`, `sx-crew-leave`, `sx-comments-mode` { mode } und `sx-report` { kind, id, label }.
+ * Meldet `sx-crew-edit`, `sx-crew-leave`, `sx-comments-mode` { mode }, `sx-report` { kind, id, label } und
+ * `sx-track-attach` { file } (GPX nachreichen: die Dateiauswahl öffnet direkt aus dem Klick, sonst blockt der Browser).
  */
 export class SxVoyageByline extends LitElement {
   static properties = {
@@ -92,15 +96,27 @@ export class SxVoyageByline extends LitElement {
         min-width: 0;
         overflow-wrap: anywhere;
       }
+      input[type='file'] {
+        display: none;
+      }
     `,
   ];
 
   private onMenu(s: ShareMeta, id: string) {
-    if (id === 'crew-edit') emit(this, 'sx-crew-edit');
+    if (id === 'track-attach') this.renderRoot.querySelector<HTMLInputElement>('input[type=file]')?.click();
+    else if (id === 'crew-edit') emit(this, 'sx-crew-edit');
     else if (id === 'crew-leave') emit(this, 'sx-crew-leave');
     else if (id === 'report') emit(this, 'sx-report', { kind: 'share', id: s.id, label: 'diesen Törn' });
     else if (id.startsWith('comments-')) emit(this, 'sx-comments-mode', { mode: id.slice('comments-'.length) as CommentsMode });
   }
+
+  private onFile = (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // zurücksetzen, damit dieselbe Datei nach einem Fehler erneut gewählt werden kann
+    input.value = '';
+    if (file) emit(this, 'sx-track-attach', { file });
+  };
 
   render() {
     const s = this.share;
@@ -109,6 +125,7 @@ export class SxVoyageByline extends LitElement {
       <sx-title-edit heading share-id=${s.id} .value=${s.title} ?editable=${s.isOwner}></sx-title-edit>
       <sx-page-menu label=${s.title || 'Törn'} .items=${voyageMenuItems(s, this.crew)}
         @sx-page-menu-pick=${(e: CustomEvent<{ id: string }>) => this.onMenu(s, e.detail.id)}></sx-page-menu>
+      ${canAttachTrack(s) ? html`<input type="file" accept=".gpx,application/gpx+xml" aria-hidden="true" tabindex="-1" @change=${this.onFile} />` : ''}
     </div>`;
     const boat = s.boatPage;
     if (!s.sailor && !boat && !s.groups?.length) return head;
