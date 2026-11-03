@@ -164,3 +164,49 @@ export function logo(size = 32, tile = false): SVGTemplateResult {
 export function icon(name: IconName, cls = 'i'): SVGTemplateResult {
   return svg`<svg class=${cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><style>.f{fill:currentColor;fill-opacity:.16;stroke:none}</style>${paths[name]}</svg>`;
 }
+
+/**
+ * Große Fassungen der Objekt-Icons als Kachel im Stil des Logos (F-620–F-624): Verlauf Havelblau → Türkis wie die
+ * Logo-Kachel (gleiches Eckenverhältnis 8/32), das Zeichen zweifarbig wie die Segel – weiße Linien, Flächen als heller
+ * Verlauf (weiß → Mint) oder halbdurchsichtiges Weiß. Farben über Klassen (`tileStyles`), damit `forced-colors` die
+ * Kachel auf Systemfarben umstellt. Kleine Icons (Knöpfe, Chips, Menüs) bleiben `icon()`.
+ * Klassen der Flächen (Farben in `tileStyles`, shared.ts): `lt` heller Verlauf, `wt` Weiß .8, `md` Weiß .5, `sf` Weiß .28,
+ * `sd` Weiß, `ink` weiße Linie, `dk` Linie in Kachelfarbe auf hellem Grund.
+ */
+const tileGlyphs: Partial<Record<IconName, SVGTemplateResult>> = {
+  // Verein: Wimpel am Mast, zweigeteilt wie Groß und Fock
+  pennant: svg`<path class="lt" d="M7 3.8 20 8.6H7z"/><path class="wt" d="M7 9.6h11.3L7 13.8z"/><path class="ink" d="M5.5 3.2V21M3 21h5"/><circle class="sd" cx="5.5" cy="2.6" r="1.3"/>`,
+  // Team: drei Köpfe, vorn im hellen Verlauf, dahinter halbdurchsichtig
+  team: svg`<circle class="md" cx="5.4" cy="9.4" r="2.4"/><circle class="md" cx="18.6" cy="9.4" r="2.4"/><path class="md" d="M1.8 18.6c.3-2.8 1.6-4.6 3.6-4.6 1 0 1.8.4 2.4 1.1-.8 1-1.4 2.2-1.7 3.5zM22.2 18.6c-.3-2.8-1.6-4.6-3.6-4.6-1 0-1.8.4-2.4 1.1.8 1 1.4 2.2 1.7 3.5z"/><circle class="lt" cx="12" cy="7.4" r="3.1"/><path class="lt" d="M6.9 20.2c.5-3.9 2.5-6 5.1-6s4.6 2.1 5.1 6z"/>`,
+  // Boot: Groß im Verlauf, Fock weiß, weißer Rumpf – wie das Logo
+  sail: svg`<path class="lt" d="M11.5 3 5 16h6.5z"/><path class="wt" d="M13.5 6c3 2.6 4.6 5.9 4.8 10h-4.8z"/><path class="sd" d="M3.5 18h17q-1.4 3.2-4.4 3.2H7.6Q4.5 21 3.5 18z"/>`,
+  // Hafen: Anker mit hellem Bogen
+  anchor: svg`<path class="sf" d="M4.5 13.5c0 4 3.4 6.5 7.5 6.5s7.5-2.5 7.5-6.5z"/><circle class="ink" cx="12" cy="5" r="2"/><path class="ink" d="M12 7v13M8 10.5h8M4.5 13.5c0 4 3.4 6.5 7.5 6.5s7.5-2.5 7.5-6.5M3 15l1.5-1.5L6 15M18 15l1.5-1.5L21 15"/>`,
+  // Entdecken: Kompassrose im hellen Ring
+  globe: svg`<circle class="sf" cx="12" cy="12" r="9"/><circle class="ink" cx="12" cy="12" r="9"/><path class="lt" d="m12 4.6 1.9 5.5 5.5 1.9-5.5 1.9-1.9 5.5-1.9-5.5L4.6 12l5.5-1.9z"/>`,
+  // Beitrag: helle Sprechblase mit Zeilen in Kachelfarbe
+  comment: svg`<path class="lt" d="M4 5h16a1.8 1.8 0 0 1 1.8 1.8v9.4A1.8 1.8 0 0 1 20 18h-8.8l-4.7 3.6V18H4a1.8 1.8 0 0 1-1.8-1.8V6.8A1.8 1.8 0 0 1 4 5z"/><path class="dk" d="M7 10h10M7 13.5h6"/>`,
+};
+
+let tileSeq = 0;
+
+/**
+ * Objekt-Icon als Logo-Kachel für Seitenköpfe (F-620): `name` aus dem Icon-Set; eigene Großfassung, wo es eine gibt,
+ * sonst das Linien-Icon in Weiß. `letter` zeigt statt des Zeichens einen Anfangsbuchstaben (Profil ohne Bild).
+ * Verlauf-IDs je Aufruf eindeutig – funktioniert in jedem Shadow Root und auch, wenn eine andere Kachel verborgen ist.
+ */
+export function entityTile(name: IconName, size = 72, letter = ''): SVGTemplateResult {
+  const n = ++tileSeq;
+  const [a, b] = [`sx-tile-a${n}`, `sx-tile-b${n}`];
+  const glyph = letter
+    ? svg`<text class="sd" x="16" y="16" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="750" font-family="inherit">${letter.toUpperCase()}</text>`
+    : svg`<g transform="translate(3.6 3.6) scale(1.033)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${tileGlyphs[name] ?? svg`<g class="ink">${paths[name]}</g>`}</g>`;
+  return svg`<svg class="sx-tile tile" data-icon=${letter ? 'letter' : name} width=${size} height=${size} viewBox="0 0 32 32" aria-hidden="true">
+    <defs>
+      <linearGradient id=${a} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e6bd8"/><stop offset="1" stop-color="#0b8fa6"/></linearGradient>
+      <linearGradient id=${b} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#b9f2ea"/></linearGradient>
+    </defs>
+    <rect class="bg" width="32" height="32" rx="8" fill="url(#${a})" stroke-width="1"/>
+    <g fill="url(#${b})">${glyph}</g>
+  </svg>`;
+}

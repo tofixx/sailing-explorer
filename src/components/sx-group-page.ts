@@ -9,8 +9,8 @@ import './sx-filter-select';
 import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy, type PostBy } from '../domain/posts';
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtNum, plural } from '../util/html';
-import { ENTITY_ICON, groupIcon, icon } from './icons';
-import { base, emit, offerFollow, onMapStyles, pageMenuReveal, webLink, webLinkStyles, writePostButton } from './shared';
+import { ENTITY_ICON, entityTile, groupIcon, icon } from './icons';
+import { base, emit, offerFollow, onMapStyles, pageMenuReveal, webLink, webLinkStyles, tileStyles, writePostButton } from './shared';
 import './sx-page-menu';
 import type { PageMenuItem } from './sx-page-menu';
 import { recordedNote } from '../domain/logbook';
@@ -107,6 +107,7 @@ export class SxGroupPage extends LitElement {
     base,
     pageMenuReveal,
     webLinkStyles,
+    tileStyles,
     css`
       :host {
         display: block;
@@ -131,21 +132,6 @@ export class SxGroupPage extends LitElement {
         background: linear-gradient(135deg, var(--accent-soft), var(--surface) 70%);
         border: 1px solid var(--border-soft);
         flex-wrap: wrap;
-      }
-      .mark {
-        flex: none;
-        width: 72px;
-        height: 72px;
-        border-radius: var(--radius-l);
-        display: grid;
-        place-items: center;
-        background: var(--accent);
-        color: var(--on-accent);
-        box-shadow: var(--shadow-1);
-      }
-      .mark svg {
-        width: 38px;
-        height: 38px;
       }
       .head {
         flex: 1;
@@ -483,7 +469,7 @@ export class SxGroupPage extends LitElement {
   private createForm() {
     return html`<div class="page">
       <header class="hero">
-        <div class="mark" aria-hidden="true">${icon(ENTITY_ICON.club)}</div>
+        ${entityTile(ENTITY_ICON.club)}
         <div class="head"><h1>Verein oder Team gründen</h1><div class="lead">Bring deine Leute zusammen: Mitglieder, Boote, Törns und Neuigkeiten an einem Ort.</div></div>
       </header>
       ${this.signedIn
@@ -605,7 +591,7 @@ export class SxGroupPage extends LitElement {
     const path = manager && g.link ? g.link : sharePath('g', g.slug, g.visibility, null);
     const v = g.visibility;
     return html`<header class="hero">
-      <div class="mark" aria-hidden="true">${icon(groupIcon(g.kind))}</div>
+      ${entityTile(groupIcon(g.kind))}
       <div class="head">
         <h1>${g.name}${g.verified ? html` <sx-verified-badge kind="group"></sx-verified-badge>` : ''}</h1>
         ${g.description ? html`<div class="lead">${g.description}</div>` : ''}

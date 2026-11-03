@@ -213,6 +213,75 @@ export const logbookTag = () =>
  * Seite über der Karte (F-351, Hafen- und Vereinsseite mit Ort): Hintergrund durchsichtig, der Inhalt als Tafel mit
  * Abstand oben, damit der Ort auf der Karte darüber sichtbar bleibt. Gesetzt über das Attribut `on-map`.
  */
+/**
+ * Große Objekt-Kachel im Seitenkopf (F-620, F-624): `entityTile()` aus icons.ts zeichnet Verlauf und Zeichen, hier
+ * Platz, Schatten und die Farben der Flächenklassen. Ecken wie die Logo-Kachel (8/32 = 25 %), damit der Schatten der
+ * Form folgt. Die Kachel ist ihr eigener Hintergrund (hell wie dunkel gleich); bei erzwungenen Farben Systemfarben.
+ */
+export const tileStyles = css`
+  .tile {
+    flex: none;
+    display: block;
+    border-radius: 25%;
+    box-shadow: var(--shadow-1);
+    forced-color-adjust: none;
+  }
+  .tile .ink,
+  .tile .dk {
+    fill: none;
+  }
+  .tile .ink {
+    stroke: #fff;
+  }
+  .tile .dk {
+    stroke: #0b72c6;
+  }
+  .tile .ink .f {
+    fill: #fff;
+    fill-opacity: 0.25;
+    stroke: none;
+  }
+  .tile .wt {
+    fill: #fff;
+    fill-opacity: 0.8;
+  }
+  .tile .md {
+    fill: #fff;
+    fill-opacity: 0.5;
+  }
+  .tile .sf {
+    fill: #fff;
+    fill-opacity: 0.28;
+  }
+  .tile .sd {
+    fill: #fff;
+  }
+  @media (forced-colors: active) {
+    .tile .bg {
+      fill: Canvas;
+      stroke: CanvasText;
+    }
+    .tile .ink {
+      stroke: CanvasText;
+    }
+    .tile .dk {
+      stroke: Canvas;
+    }
+    .tile .lt,
+    .tile .wt,
+    .tile .sd {
+      fill: CanvasText;
+      fill-opacity: 1;
+    }
+    .tile .md,
+    .tile .sf,
+    .tile .ink .f {
+      fill: CanvasText;
+      fill-opacity: 0.35;
+    }
+  }
+`;
+
 export const onMapStyles = css`
   :host([on-map]) {
     background: transparent;
