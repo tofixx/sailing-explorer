@@ -5,7 +5,7 @@ import { cleanComment, commentLength } from './comment-text';
 import { countsInLogbook, isTemplateId, type LogState } from './logbook';
 import { entryDays, type CsvScores, type LogbookEntry } from './logbook-year';
 import type { Visibility } from './visibility';
-import { seasonOf } from './support';
+import { shownSeason } from './support';
 
 /** Posten der Vorlage: Punkte je Einheit eines gleichnamigen Postens im Eintrag (Groß-/Kleinschreibung egal), mit Deckel. */
 export interface ScoringItemRule {
@@ -297,11 +297,8 @@ export function countsInClubList(s: {
   return s.shownInClub && s.visibility === 'public' && !s.hidden && !s.locked && !s.ownerSuspended && countsInLogbook(s.logState) && s.optedIn && s.templateInList;
 }
 
-/**
- * Saison der Vereinsliste ohne Angabe: im November und Dezember die gerade abgelaufene (die neue hat noch kaum Törns,
- * der Fahrtenpreis wird ausgewertet), sonst die laufende.
- */
-export const clubListSeason = (now: number): number => seasonOf(now - 61 * 86_400_000);
+/** Saison der Vereinsliste ohne Angabe: bis Ende Februar die abgelaufene (Fahrtenpreis), ab März die neue – wie im Fahrtenbuch. */
+export const clubListSeason = (now: number): number => shownSeason(now);
 
 /** Hinweis überall, wo Punkte stehen (Risiko „offizielle Wertung“, Konzept 32). */
 export const SCORING_NOTE = 'Vereinshilfe nach deinen Angaben – keine offizielle Wertung.';

@@ -6,9 +6,9 @@
 import '../components/sx-logbook-page';
 import { ApiError, api, type ShareMeta } from '../services/api';
 import type { SxLogbookPage } from '../components/sx-logbook-page';
-import { DEFAULT_LOG_FILTER, logbookSeasons, parseLogFilter } from '../domain/logbook-year';
+import { DEFAULT_LOG_FILTER, logbookSeasons, parseLogFilter, pickSeason } from '../domain/logbook-year';
 import type { LogState } from '../domain/logbook';
-import { seasonOf } from '../domain/support';
+import { shownSeason } from '../domain/support';
 import { errorText } from './session';
 import { scoringApi } from '../services/scoring-api';
 import { APP_NAME } from '../domain/brand';
@@ -58,7 +58,7 @@ export class LogbookPageController {
   async open(): Promise<void> {
     const q = new URLSearchParams(location.search);
     const season = Number(q.get('saison'));
-    this.page.season = Number.isInteger(season) && season > 2000 ? season : seasonOf(Date.now());
+    this.page.season = Number.isInteger(season) && season > 2000 ? season : shownSeason(Date.now());
     this.page.states = parseLogFilter(q.get('stand'));
     this.page.hidden = false;
     await this.ui.ready();
@@ -82,10 +82,10 @@ export class LogbookPageController {
       page.templates = scoring?.templates ?? [];
       // Einstieg „Wertung“ nur für Vereinsmitglieder und Admins der Vorschläge (F-507)
       page.scoringLink = (scoring?.clubs?.length ?? 0) > 0 || !!scoring?.admin;
-      // gewählte Saison ohne Einträge (z. B. im November schon die nächste): die neueste mit Einträgen
-      const seasons = logbookSeasons(page.entries, Date.now());
-      if (!seasons.includes(page.season)) {
-        page.season = seasons[0];
+      // gewählte Saison ohne Einträge: die nächstältere mit Einträgen, sonst die älteste (F-555)
+      const season = pickSeason(logbookSeasons(page.entries, Date.now()), page.season);
+      if (season !== page.season) {
+        page.season = season;
         this.syncUrl();
       }
     } catch (e) {

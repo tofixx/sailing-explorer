@@ -2,7 +2,7 @@
 // Fahrtenbuch nach Jahren in der Oberfläche (Konzept 27): Verwaltungsseite mit Saison, Filter und Summen (F-411, F-418,
 // F-455), Crew-Zeilen (F-456), Export und Druck (F-457, F-458), Adresse und Einstieg (F-459), Zusatzangaben im Formular
 // mit Revier und Vorschlägen aus dem Track (F-412, F-460, F-461), Ablauf im Controller.
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import '../../src/components/sx-logbook-page';
 import '../../src/components/sx-logbook-form';
 import '../../src/components/sx-logbook-panel';
@@ -123,7 +123,13 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
     expect(parseRoute({ pathname: '/u/anna', search: '', hash: '' })).toEqual({ kind: 'profile', handle: 'anna' });
   });
 
-  it('[F-411] Controller: lädt nach der Anmeldung, wählt die neueste Saison mit Einträgen, merkt Saison und Filter in der Adresse', async () => {
+  it('[F-411] [F-555] Controller: lädt nach der Anmeldung, wählt die vorgewählte Saison, merkt Saison und Filter in der Adresse', async () => {
+    // feste Uhr: November 2026 – vorgewählt ist die abgelaufene Saison 2026 (F-555)
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.UTC(2026, 10, 3));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     history.replaceState(null, '', '/konto/fahrtenbuch?stand=excluded');
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -145,10 +151,10 @@ describe('Verwaltungsseite „Mein Fahrtenbuch“', () => {
     signedIn = true;
     then!();
     await vi.waitFor(() => expect(page.entries).toHaveLength(5));
-    // im November wäre die laufende Saison schon die nächste – gewählt wird die neueste mit Einträgen
+    // vorgewählt bis Ende Februar die abgelaufene Saison (F-555), hier 2026 mit Einträgen
     expect(page.season).toBe(2026);
     expect(page.states).toEqual(['excluded']);
-    expect(location.search).toBe('?stand=excluded&saison=2026');
+    expect(location.search).toBe('?stand=excluded'); // Vorgabe steht nicht in der Adresse
     c.setFilter(['confirmed', 'suggested']);
     c.setSeason(2025);
     expect(location.search).toBe('?saison=2025');
