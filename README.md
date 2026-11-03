@@ -2,7 +2,9 @@
   <img src="public/favicon.svg" width="72" height="72" alt="" />
 </p>
 
-<h1 align="center">Sail Explorer</h1>
+<h1 align="center">Luv &amp; Leute</h1>
+
+<p align="center"><i>vormals Sail Explorer</i></p>
 
 <p align="center">
   Segeltörns aus GPX-Dateien auf der Seekarte – mit Fahrt, Wind, Böen und Wellen für genau diese Zeit.<br />
