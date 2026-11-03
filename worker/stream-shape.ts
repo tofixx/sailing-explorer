@@ -3,7 +3,8 @@ import { memberAlias } from '../src/domain/names';
 import { canManageGroup, canSeeMembers, canSeeMembership, isActivityKind, type GroupKind, type GroupRole, type StreamItem } from '../src/domain/groups';
 import { coverRef } from '../src/domain/cover';
 import { timingSafeEqual } from './validate';
-import { canSeePost, isChannelKind, isPostVisibility, isReach, reachCovers, type ChannelKind, type PostVisibility, type Reach } from '../src/domain/posts';
+import { kindView } from './post-kinds';
+import { canSeePost, isPostKind, isChannelKind, isPostVisibility, isReach, reachCovers, type ChannelKind, type PostVisibility, type Reach } from '../src/domain/posts';
 
 /** Eine Aktivität samt allem, was die Prüfung braucht (ein Batch, LEFT JOINs). */
 export interface ActivityRow {
@@ -60,6 +61,8 @@ export interface ActivityRow {
   p_kind?: string | null;
   p_cid?: string | null;
   p_key?: string | null;
+  /** Nutzlast des Beitrags (Umfrage `data.poll`, Konzept 29) */
+  p_data?: string | null;
   /** Hafen- bzw. Boots-Verlauf des Beitrags */
   ph_slug?: string | null;
   ph_name?: string | null;
@@ -163,6 +166,10 @@ function groupVisible(r: ActivityRow): boolean {
  */
 function shapePost(r: ActivityRow, viewer: Viewer, base: StreamItem, group: StreamItem['group'], actor: StreamItem['actor']): StreamItem | null {
   if (!r.p_id || r.p_hidden || !isPostVisibility(r.p_vis ?? 'public')) return null;
+  // Nutzlast der Art (Umfrage …, Konzept 29): für alle gleich; Stimmen u. Ä. hängt attachKindData je Betrachter an.
+  // Kaputte Nutzlast → keine Karte (fail closed)
+  const payload = kindView(r.p_kind, r.p_data, Date.now());
+  if (!payload) return null;
   const visibility = (r.p_vis ?? 'public') as PostVisibility;
   const channel: ChannelKind = isChannelKind(r.p_ck) ? r.p_ck : r.group_id ? 'group' : 'user';
   const role = (r.g_role as GroupRole | null) ?? null;
@@ -202,7 +209,10 @@ function shapePost(r: ActivityRow, viewer: Viewer, base: StreamItem, group: Stre
   return {
     ...base,
     group,
-    post: { id: r.p_id, body: r.p_body ?? '', link: r.p_link, canDelete, visibility, reach, path, ...(where ? { where } : {}), voyage: attached },
+    post: {
+      id: r.p_id, body: r.p_body ?? '', link: r.p_link, canDelete, visibility, reach, path, ...(where ? { where } : {}), voyage: attached,
+      ...(isPostKind(r.p_kind) && r.p_kind !== 'text' ? { kind: r.p_kind } : {}), ...payload,
+    },
   };
 }
 

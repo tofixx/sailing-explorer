@@ -43,7 +43,8 @@ async function seed(o: { channel: 'group' | 'harbor'; id: string; author: Person
   const cte = `WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < ?1 - 1)`;
   await db.prepare(
     `${cte} INSERT INTO posts (id, author_id, group_id, body, link, created_at, kind, channel_kind, channel_id, visibility, reach, link_key, data)
-     SELECT 'P' || ?2 || printf('%06d', i), ?3, ?4, 'Beitrag ' || i, NULL, ?5 - i * 60000, ?6, ?7, ?8, 'public', 'here', NULL, '{}' FROM n`,
+     SELECT 'P' || ?2 || printf('%06d', i), ?3, ?4, 'Beitrag ' || i, NULL, ?5 - i * 60000, ?6, ?7, ?8, 'public', 'here', NULL,
+       CASE WHEN ?6 = 'poll' THEN '{"poll":{"options":["Ja","Nein"],"max":1,"closesAt":null,"results":"voted","named":false}}' ELSE '{}' END FROM n`,
   ).bind(o.n, t, o.author.user.id, gid, t0, o.kind ?? 'text', o.channel, o.id).run();
   await db.prepare(
     `${cte} INSERT INTO activity (id, kind, actor_id, subject_kind, subject_id, group_id, data, created_at, updated_at)
@@ -138,6 +139,30 @@ describe('F-466/F-467 Tageskarten im Gruppen-Stream', () => {
       expect(p.days![0].count).toBe(16);
       expect(p.items.map((i) => i.post?.body).sort()).toEqual(['Beitrag 0', 'Beitrag 0']);
     }
+  });
+
+  it('[F-475] große Gruppe mit Tageskarten: Umfrage einzeln mit eigener Wahl und Ergebnis für das Mitglied, das abgestimmt hat – nicht für andere', async () => {
+    const [o, m, x] = [await s.person({ profile: 'public' }), await s.person({ profile: 'public' }), await s.person({ profile: 'public' })];
+    const g = await club(o, [m, x]);
+    const key = dayAgo(2);
+    await seed({ channel: 'group', id: g.id, author: m, key, n: 16 });
+    await seed({ channel: 'group', id: g.id, author: x, key, n: 1, kind: 'poll', hour: 16 });
+    const pollId = (await (await s.db()).prepare(`SELECT id FROM posts WHERE kind = 'poll' AND author_id = ?`).bind(x.user.id).first<{ id: string }>())!.id;
+    expect((await s.send('PUT', `/api/posts/${pollId}/vote`, o.cookie, { choices: [1] })).status).toBe(200);
+    type PollCard = { post?: { id: string; poll?: { mine: number[]; counts: number[] | null } } };
+    const card = (p: Page) => (p.items as PollCard[]).find((i) => i.post?.id === pollId)!.post!.poll!;
+    const mine = await page(`/api/groups/${g.id}/stream`, o);
+    expect(mine.days?.length).toBe(1);
+    expect(card(mine)).toMatchObject({ mine: [1], counts: [0, 1] });
+    // anderes Mitglied (hat nicht abgestimmt) und Gast: keine Wahl, kein Ergebnis
+    expect(card(await page(`/api/groups/${g.id}/stream`, m))).toMatchObject({ mine: [], counts: null });
+    expect(card(await page(`/api/groups/${g.id}/stream`))).toMatchObject({ mine: [], counts: null });
+    // Nicht-Mitglied liest die gecachte Seite (addMine): eigene Wahl kommt nach dem Cache dazu, auch neben Tageskarten
+    const f = await s.person({ profile: 'public' });
+    expect((await s.send('PUT', `/api/posts/${pollId}/vote`, f.cookie, { choices: [0] })).status).toBe(200);
+    const cached = await page(`/api/groups/${g.id}/stream`, f);
+    expect(cached.cache).toBe('hit');
+    expect(card(cached)).toMatchObject({ mine: [0], counts: [1, 1] });
   });
 
   it('[F-466] Hafen-Stream: Tag mit mehr als 15 Beiträgen wird zur Karte, Vertretung bleibt einzeln', async () => {

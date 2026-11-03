@@ -235,6 +235,12 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     // Reaktionen: die des Ziels gewinnen
     db.prepare(`INSERT OR IGNORE INTO reactions (subject_kind, subject_id, user_id, kind, created_at) SELECT subject_kind, subject_id, ?1, kind, created_at FROM reactions WHERE user_id = ?2`).bind(A, B),
     db.prepare('DELETE FROM reactions WHERE user_id = ?').bind(B),
+    // Umfragen (Konzept 29): Stimmen der Quelle zählen, wo das Ziel noch nicht abgestimmt hat – sonst gewinnt das Ziel
+    db.prepare(
+      `INSERT OR IGNORE INTO poll_votes (post_id, user_id, choice, created_at) SELECT v.post_id, ?1, v.choice, v.created_at FROM poll_votes v
+       WHERE v.user_id = ?2 AND NOT EXISTS (SELECT 1 FROM poll_votes a WHERE a.post_id = v.post_id AND a.user_id = ?1)`,
+    ).bind(A, B),
+    db.prepare('DELETE FROM poll_votes WHERE user_id = ?').bind(B),
     // Benachrichtigungen (Konzept 17): die der Quelle sind kurzlebig und fallen weg; als Auslöser und Push-Gerät zählt das Ziel
     db.prepare('UPDATE notifications SET actor_id = ?1 WHERE actor_id = ?2').bind(A, B),
     db.prepare('DELETE FROM notifications WHERE user_id = ?').bind(B),

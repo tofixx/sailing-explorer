@@ -64,6 +64,8 @@ const paths = {
   // Kommentare: Sprechblase
   comment: svg`<path class="f" d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-9l-4.5 3.5v-3.5H4A1.5 1.5 0 0 1 2.5 16V7A1.5 1.5 0 0 1 4 5.5z"/><path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-9l-4.5 3.5v-3.5H4A1.5 1.5 0 0 1 2.5 16V7A1.5 1.5 0 0 1 4 5.5zM7 10h10M7 13.5h6"/>`,
   // Fotos: Kamera
+  // Umfrage (Konzept 29): Balken
+  poll: svg`<rect class="f" x="4" y="11" width="4" height="9" rx="1"/><rect class="f" x="10" y="5" width="4" height="15" rx="1"/><rect class="f" x="16" y="8" width="4" height="12" rx="1"/><rect x="4" y="11" width="4" height="9" rx="1"/><rect x="10" y="5" width="4" height="15" rx="1"/><rect x="16" y="8" width="4" height="12" rx="1"/>`,
   camera: svg`<path class="f" d="M3.5 8h4l1.8-2.5h5.4L16.5 8h4v11h-17z"/><path d="M3.5 8h4l1.8-2.5h5.4L16.5 8h4v11h-17z"/><circle cx="12" cy="13.2" r="3.3"/>`,
   // Pfeile für Galerie und Lightbox
   left: svg`<path d="M14.5 5.5 8 12l6.5 6.5"/>`,

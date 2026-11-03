@@ -59,7 +59,9 @@ describe('Anleitung Aufzeichnen (F-450)', () => {
     expect(links[0].textContent).toContain('Wie zeichne ich auf?');
     // direkt hinter dem GPX-Eintrag, kein eigener Menüeintrag
     expect(links[0].previousElementSibling?.textContent).toContain('Törn (GPX)');
-    expect(el.shadowRoot.querySelectorAll('.item')).toHaveLength(3);
+    // der Hinweis ist kein Menüeintrag (unabhängig davon, wie viele Arten „+ Neu“ anbietet)
+    expect(links[0].classList.contains('item')).toBe(false);
+    expect([...el.shadowRoot.querySelectorAll('.item')].every((i) => i.localName === 'button')).toBe(true);
   });
 
   it('[F-450] Startseite ohne Track: Hinweis in der Einstiegskarte (groß und kompakt) und „Anleitung“ in der Fußzeile', async () => {

@@ -8,9 +8,9 @@ import { claimResultText, isClaimStatus } from './claims';
  * Passkey. Gegenstand (`subject_kind`) je Art: comment, expiry → share; reaction → share (auch Fotos des Törns), post,
  * activity; follow, passkey → user (ich selbst); invite → invite; request → group. Verifizierung (Konzept 20.8): neuer
  * Antrag an die Admins (`claim`), Entscheidung an die Antragsteller:in (`claim_result`), Übertragung an die verdrängte
- * Person (`claim_transfer`) – alle → claim.
+ * Person (`claim_transfer`) – alle → claim. Umfrage beendet (`poll_closed`, Konzept 29) an die Autor:in → post.
  */
-export const NOTIFICATION_KINDS = ['comment', 'reaction', 'follow', 'invite', 'request', 'expiry', 'passkey', 'claim', 'claim_result', 'claim_transfer', 'post'] as const;
+export const NOTIFICATION_KINDS = ['comment', 'reaction', 'follow', 'invite', 'request', 'expiry', 'passkey', 'claim', 'claim_result', 'claim_transfer', 'post', 'poll_closed'] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 export const NOTIFICATION_SUBJECTS = ['share', 'post', 'activity', 'user', 'invite', 'group', 'claim'] as const;
@@ -28,7 +28,7 @@ export const isNotificationSubject = oneOf(NOTIFICATION_SUBJECTS);
  * Nur zur Kenntnis: gelesen, sobald die Liste sie gezeigt hat. Alles andere (Kommentare lesen, Einladung oder Anfrage
  * entscheiden) gilt erst als gelesen, wenn man den Gegenstand öffnet – aus der Glocke, per Mail-Link oder direkt.
  */
-export const INFORMATIONAL: ReadonlySet<NotificationKind> = new Set(['reaction', 'follow', 'passkey', 'claim_result', 'claim_transfer']);
+export const INFORMATIONAL: ReadonlySet<NotificationKind> = new Set(['reaction', 'follow', 'passkey', 'claim_result', 'claim_transfer', 'poll_closed']);
 
 // ---------------------------------------------------------------- Kanäle (Konzept 17.6)
 
@@ -240,7 +240,11 @@ export function notificationText(n: Pick<NotificationItem, 'kind' | 'count' | 'a
     case 'request':
       return n.count > 1 ? `${n.count} neue Beitrittsanfragen für ${quoted(n.title)}` : `${who} möchte ${quoted(n.title)} beitreten`;
     case 'post':
-      return n.what === 'voyage' ? `${who} hat einen Törn geteilt: ${quoted(n.title)}` : `${who} hat in ${quoted(n.title)} geschrieben`;
+      if (n.what === 'voyage') return `${who} hat einen Törn geteilt: ${quoted(n.title)}`;
+      if (n.what === 'poll') return n.title.trim() ? `${who} fragt in ${quoted(n.title)}: neue Umfrage` : `${who} hat eine Umfrage gestartet`;
+      return `${who} hat in ${quoted(n.title)} geschrieben`;
+    case 'poll_closed':
+      return `Deine Umfrage ${n.title.trim() ? `in ${quoted(n.title)} ` : ''}ist beendet – das Ergebnis steht fest`;
     case 'expiry':
       return `${quoted(n.title)} wird ${n.what} gelöscht – unterstützen, um ihn zu behalten`;
     case 'passkey':

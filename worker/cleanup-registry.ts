@@ -87,6 +87,8 @@ export const TABLES: Record<string, Loeschweg> = {
   harbor_redirects: { cascade: ['harbors'], durch: ['removeHarbor', 'mergeHarbor'] },
   claims: { durch: ['claimTargetCleanup', 'userClaimCleanup'], nachts: 'Angaben nach Widerspruchsfrist, Abgelehntes nach Wartefrist, Waisen' },
   share_groups: { cascade: ['shares', 'groups'], durch: ['deleteShareGroups', 'removeGroup', 'purgeUserGroups'] },
+  // Umfragen (Konzept 29): Stimmen fallen mit dem Beitrag (jeder Löschweg von posts) und mit dem Konto der Wählenden
+  poll_votes: { cascade: ['posts', 'users'], durch: ['removePost', 'removeGroup', 'channelPostsCleanup', 'purgeUser', 'mergeUsers'] },
   channel_pins: { cascade: ['posts'], durch: ['setPin', 'channelPostsCleanup', 'groupActivityCleanup', 'userActivityCleanup'], nachts: 'Waisen' },
 };
 

@@ -1,6 +1,8 @@
 import type { LogbookEntry } from '../domain/logbook-year';
 import type { SupportTier } from '../domain/support';
 import type { SeasonStats } from '../domain/season-stats';
+import type { PollConfig, PollPeople, PollView } from '../domain/polls';
+import type { ComposePostKind } from '../domain/posts';
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { parseWeatherData, type WeatherData } from '../domain/weather';
 import type { PhotoVisibility, Visibility } from '../domain/visibility';
@@ -1221,8 +1223,12 @@ export const notificationApi = {
 
 // ================================================================ Beiträge als Grundtyp (Konzept 21)
 
-/** Neuer Text-Beitrag (Gruppe oder eigenes Profil) */
+/** Neuer Beitrag (Gruppe oder eigenes Profil): Text bzw. – mit `kind` – eine andere Art (Umfrage, Konzept 29) */
 export interface PostInput {
+  /** Art; fehlt = Text */
+  kind?: ComposePostKind;
+  /** Nutzlast einer Umfrage (`kind: 'poll'`) */
+  poll?: PollConfig;
   body: string;
   link: string;
   visibility: PostVisibility;
@@ -1286,4 +1292,15 @@ export const postApi = {
     call<{ pinned: boolean }>(`/api/posts/${encodeURIComponent(id)}/pin`, jsonInit('PUT', { channel, pinned })),
   /** Karte und Ziel von `/p/<id>` (F-406) */
   get: (id: string, key?: string | null) => call<{ item: StreamItem; link: PostLink }>(`/api/posts/${encodeURIComponent(id)}`, keyInit(key)),
+  /** Umfrage (Konzept 29): abstimmen (`[]` = zurücknehmen), Schlüssel bei „Nur mit Link“ */
+  vote: (id: string, choices: number[], key?: string | null) =>
+    call<{ poll: PollView }>(`/api/posts/${encodeURIComponent(id)}/vote`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(key ? { 'X-Share-Key': key } : {}) },
+      body: JSON.stringify({ choices }),
+    }),
+  /** Umfrage vorzeitig beenden (nur Autor:in) */
+  closePoll: (id: string) => call<{ poll: PollView }>(`/api/posts/${encodeURIComponent(id)}/close`, { method: 'POST' }),
+  /** Stand einer Umfrage mit Namen je Antwort (nur namentlich und mit sichtbarem Ergebnis) */
+  poll: (id: string, key?: string | null) => call<{ poll: PollView; people: PollPeople[] | null }>(`/api/posts/${encodeURIComponent(id)}/poll`, keyInit(key)),
 };

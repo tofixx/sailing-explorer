@@ -18,13 +18,14 @@ import { canView, newShareKey, requestKey } from './access';
 import { chainOf, composeTarget, writableChannel, writableChannels, type WritableChannel } from './post-chain';
 import { postCard } from './stream';
 import { postLogKey } from './post-sql';
+import { COMPOSE_KINDS, isComposeKind } from './post-kinds';
 import { notifyPost } from './notifications';
 import { GROUP_LIMITS } from '../src/domain/limits';
 import { cleanComment, commentLength, countLinks } from '../src/domain/comment-text';
-import { POST_MAX, POST_MAX_LINKS, STREAM_PAGE, canManageGroup, decodeCursor, encodeCursor, parsePostLink, type GroupKind, type GroupRole } from '../src/domain/groups';
+import { POST_MAX_LINKS, STREAM_PAGE, canManageGroup, decodeCursor, encodeCursor, parsePostLink, type GroupKind, type GroupRole } from '../src/domain/groups';
 import {
   canChoosePostVisibility, canManageChannel, canSeePost, defaultPostVisibility, widensAudience, canWriteInGroup, channelKey, channelPath, effectivePostBy, effectivePostVisibility, isChannelKind, isMyPostArea,
-  isPostVisibility, isReach, postVisibilityChoices, reachChoices, reachFor, reachTargets, shareKindOf,
+  COMPOSE_LIMITS, hasKindCard, isPostVisibility, isReach, postVisibilityChoices, reachChoices, reachFor, reachTargets, shareKindOf,
   type AttachableShare, type ChannelKind, type ChannelRef, type MyPost, type PostKind, type PostLink, type PostVisibility, type ProfilePost, type Reach, type ReachChain,
 } from '../src/domain/posts';
 import { sharePath, type Visibility } from '../src/domain/visibility';
@@ -36,16 +37,18 @@ const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diesen Beitrag gibt es 
 
 // ---------------------------------------------------------------- Schreiben
 
-/** Text, optionaler Link, Sichtbarkeit, „Sichtbar bis“ und angehängter Törn aus der Anfrage. */
+/** Art, Text, optionaler Link, Sichtbarkeit, „Sichtbar bis“ und Nutzlast der Art (`posts.data`) aus der Anfrage. */
 interface PostInput {
+  kind: PostKind;
   body: string;
   link: string | null;
   visibility: PostVisibility;
   reach: Reach;
-  shareId: string | null;
+  /** `posts.data`: angehängter Törn (Text, F-426) bzw. Nutzlast der Art (Umfrage, Konzept 29) */
+  data: Record<string, unknown>;
 }
 
-type RawPostInput = { body?: unknown; link?: unknown; visibility?: unknown; reach?: unknown; shareId?: unknown; channel?: unknown };
+type RawPostInput = { kind?: unknown; body?: unknown; link?: unknown; visibility?: unknown; reach?: unknown; shareId?: unknown; channel?: unknown } & Record<string, unknown>;
 
 /** Sichtbarkeit und Reichweite gegen die Stufen des Verlaufs prüfen (fail closed: Unbekanntes → 400). */
 function readAudience(raw: { visibility?: unknown; reach?: unknown }, c: WritableChannel, fallback: PostVisibility): { visibility: PostVisibility; reach: Reach } {
@@ -69,16 +72,27 @@ async function readShareId(env: Env, userId: string, raw: unknown): Promise<stri
   return raw as string;
 }
 
+/**
+ * Eingabe je Art (`COMPOSE_KINDS`, ohne Angabe Text): Text bzw. Frage mit Grenze, Link und Törn nur, wo die Art sie
+ * kennt, Nutzlast der Art geprüft (fail closed: Unbekanntes → 400).
+ */
 async function readPostInput(env: Env, userId: string, input: RawPostInput, c: WritableChannel): Promise<PostInput> {
+  const kind = input.kind === undefined ? 'text' : input.kind;
+  if (!isComposeKind(kind)) throw new HttpError(400, 'invalid_kind', 'Diese Art von Beitrag gibt es nicht.');
+  const def = { ...COMPOSE_LIMITS[kind], ...COMPOSE_KINDS[kind] };
   const body = cleanComment(input.body);
   if (!body) throw new HttpError(400, 'empty', 'Bitte einen Text schreiben.');
-  if (commentLength(body) > POST_MAX) throw new HttpError(400, 'too_long', `Höchstens ${POST_MAX} Zeichen.`);
+  if (commentLength(body) > def.bodyMax) throw new HttpError(400, 'too_long', `Höchstens ${def.bodyMax} Zeichen.`);
   if (countLinks(body) > POST_MAX_LINKS) throw new HttpError(400, 'too_many_links', `Höchstens ${POST_MAX_LINKS} Links pro Beitrag.`);
-  const link = parsePostLink(input.link);
+  const link = def.plain ? '' : parsePostLink(input.link);
   if (link === null) throw new HttpError(400, 'invalid_link', 'Der Link muss mit http:// oder https:// beginnen.');
   // ohne Angabe: in Gruppen „Nur Mitglieder“, sonst öffentlich (F-445)
   const audience = readAudience(input, c, defaultPostVisibility(c.kind));
-  return { body, link: link || null, ...audience, shareId: await readShareId(env, userId, input.shareId) };
+  const shareId = def.plain ? null : await readShareId(env, userId, input.shareId);
+  const payload = def.data ? def.data(input[kind], Date.now()) : {};
+  if ('error' in payload && typeof payload.error === 'string') throw new HttpError(400, payload.error, String(payload.message));
+  const data = { ...(shareId ? { shareId } : {}), ...payload };
+  return { kind, body, link: link || null, ...audience, data };
 }
 
 
@@ -94,7 +108,7 @@ const forActivity = (id: string, authorId: string, c: { kind: ChannelKind; id: s
     : null;
 
 /** Tagesgrenze prüfen, Beitrag samt Zähler in einem Batch schreiben, danach ins Log (Heimatverlauf + Ausbreitung). */
-async function insertTextPost(env: Env, authorId: string, c: WritableChannel, p: PostInput): Promise<{ id: string; createdAt: number; path: string }> {
+async function insertPost(env: Env, authorId: string, c: WritableChannel, p: PostInput): Promise<{ id: string; createdAt: number; path: string }> {
   const now = Date.now();
   const key = postLogKey(c, authorId);
   const today = (await env.DB.prepare('SELECT COUNT(*) AS n FROM post_log WHERE group_id = ? AND created_at > ?').bind(key, now - DAY).first<{ n: number }>())?.n ?? 0;
@@ -106,14 +120,14 @@ async function insertTextPost(env: Env, authorId: string, c: WritableChannel, p:
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO posts (id, author_id, group_id, body, link, created_at, kind, channel_kind, channel_id, visibility, reach, link_key, data)
-       VALUES (?, ?, ?, ?, ?, ?, 'text', ?, ?, ?, ?, ?, ?)`,
-    ).bind(id, authorId, c.groupId, p.body, p.link, now, c.kind, c.id, p.visibility, p.reach, linkKey, JSON.stringify(p.shareId ? { shareId: p.shareId } : {})),
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(id, authorId, c.groupId, p.body, p.link, now, p.kind, c.kind, c.id, p.visibility, p.reach, linkKey, JSON.stringify(p.data)),
     env.DB.prepare('INSERT INTO post_log (group_id, created_at) VALUES (?, ?)').bind(key, now),
   ]);
   const act = forActivity(id, authorId, c, c.chain, p.visibility, p.reach);
   if (act) await recordPost(env, act, now);
   // nur der Heimatverlauf benachrichtigt (F-416)
-  await notifyPost(env, { id, authorId, kind: 'text', channel: { kind: c.kind, id: c.kind === 'user' ? authorId : c.id }, visibility: p.visibility });
+  await notifyPost(env, { id, authorId, kind: p.kind, channel: { kind: c.kind, id: c.kind === 'user' ? authorId : c.id }, visibility: p.visibility });
   return { id, createdAt: now, path: postPath(id, p.visibility, linkKey) };
 }
 
@@ -126,8 +140,8 @@ async function writePost(request: Request, env: Env, kind: ChannelKind, channelI
   if (!c) throw new HttpError(403, 'forbidden', 'Hier darfst du keine Beiträge schreiben.');
   const p = await readPostInput(env, user.id, input, c);
   if (!canChoosePostVisibility(p.visibility, await isSupporter(env, user.id))) throw visibilityRequiresSupport(env);
-  const { id, createdAt, path } = await insertTextPost(env, user.id, c, p);
-  return json({ post: { id, body: p.body, link: p.link, visibility: p.visibility, reach: p.reach, createdAt, path, home: channelPath(c.ref, null) } }, { status: 201 });
+  const { id, createdAt, path } = await insertPost(env, user.id, c, p);
+  return json({ post: { id, kind: p.kind, body: p.body, link: p.link, visibility: p.visibility, reach: p.reach, createdAt, path, home: channelPath(c.ref, null) } }, { status: 201 });
 }
 
 /**
@@ -149,7 +163,7 @@ export async function createPost(request: Request, env: Env, groupId: string): P
 export const createProfilePost = (request: Request, env: Env): Promise<Response> => writePost(request, env, 'user', null);
 
 /**
- * POST /api/posts – `{ channel: { kind, id }, body, link?, visibility?, reach?, shareId? }` (F-405, F-425): ein Weg für
+ * POST /api/posts – `{ channel: { kind, id }, kind?, body, link?, visibility?, reach?, shareId?, poll? }` (F-405, F-425): ein Weg für
  * alle Verläufe, aus dem Plus-Knopf. Kein Schreibrecht → 403.
  */
 export async function createChannelPost(request: Request, env: Env): Promise<Response> {
@@ -219,8 +233,10 @@ export async function getPost(request: Request, env: Env, id: string): Promise<R
     item.group ? `${item.group.kind === 'team' ? 'Team' : 'Verein'} ${item.group.name}`
     : p.where ? `${p.where.kind === 'harbor' ? 'Hafen' : 'Boot'} ${p.where.name}`
     : item.actor ? `Profil von ${item.actor.displayName}` : 'Profil';
-  // im Verlauf steht, was dort für alle mit Zugang erscheint; die Autor:in findet alles in „Mein Verlauf“
-  const inStream = !!home && (!!isAuthor || p.visibility === 'public' || p.visibility === 'members');
+  // im Verlauf steht, was dort für alle mit Zugang erscheint; die Autor:in findet alles in „Mein Verlauf“. Umfragen im
+  // Profil: die Profilseite zeigt Beiträge nur als Text – Arten mit eigener Karte (Umfrage …) öffnen die einzelne Karte
+  const profileCard = hasKindCard(p.kind) && !item.group && !p.where;
+  const inStream = !!home && !profileCard && (!!isAuthor || p.visibility === 'public' || p.visibility === 'members');
   const link: PostLink = { home, inStream, where };
   return json({ item, link }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
@@ -504,6 +520,7 @@ export type ProfileReader = { userId: string | null } | { preview: { memberOf: s
 
 interface VisitorRow {
   id: string;
+  kind: string;
   body: string;
   link: string | null;
   created_at: number;
@@ -530,7 +547,7 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
   const previewGroup = 'preview' in reader ? (reader.preview.memberOf ?? '') : '';
   // Sichtbarkeit schon im SQL (neueste 20 sichtbare, keine älteren fallen weg); canSeePost prüft danach noch einmal
   const { results } = await env.DB.prepare(
-    `SELECT p.id, p.body, p.link, p.created_at, p.visibility, p.group_id,
+    `SELECT p.id, p.kind, p.body, p.link, p.created_at, p.visibility, p.group_id,
        EXISTS (SELECT 1 FROM channel_pins cp WHERE cp.channel_kind = 'user' AND cp.channel_id = ?1 AND cp.post_id = p.id) AS pinned,
        g.slug AS g_slug, g.name AS g_name, g.kind AS g_kind, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden, g.locked_at AS g_locked,
        COALESCE((SELECT m.role FROM group_members m WHERE m.group_id = g.id AND m.user_id = ?2), CASE WHEN g.id = ?3 THEN 'member' END) AS role
@@ -561,7 +578,7 @@ export async function visitorPosts(env: Env, authorId: string, reader: ProfileRe
     );
     if (!ok) continue;
     out.push({
-      id: r.id, createdAt: r.created_at, body: r.body, link: r.link,
+      id: r.id, createdAt: r.created_at, body: r.body, link: r.link, ...(hasKindCard(r.kind as PostKind) ? { kind: r.kind as PostKind } : {}),
       group: g ? { slug: g.g_slug!, name: g.g_name!, kind: g.g_kind! } : null,
       visibility: effectivePostVisibility(r.visibility, g ? g.g_vis : null),
       // im Profil angepinnt (F-403) – nur Profil-Beiträge, die Liste beginnt mit ihnen

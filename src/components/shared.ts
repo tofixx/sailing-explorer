@@ -2,7 +2,7 @@ import { css, html } from 'lit';
 import { icon, type IconName } from './icons';
 import type { CoverRef } from '../domain/cover';
 import { linkify } from '../domain/comment-text';
-import type { PostVisibility } from '../domain/posts';
+import { POST_KIND_LABEL, hasKindCard, type PostKind, type PostVisibility } from '../domain/posts';
 
 /** Gemeinsame Grundstile aller Komponenten – nutzt ausschließlich Tokens. */
 export const base = css`
@@ -428,6 +428,16 @@ export const highlightStyles = css`
 `;
 
 /** Symbol je Beitrags-Sichtbarkeit („Wer sieht es“, Konzept 21). */
+/** Symbol je Beitragsart (Stream-Karte, „Mein Verlauf“) – neue Arten: eine Zeile. */
+export const POST_KIND_ICON: Partial<Record<PostKind, IconName>> = { voyage: 'map', logbook: 'book', text: 'comment', poll: 'poll' };
+
+/**
+ * Link „Umfrage öffnen“ (bzw. zur Karte einer anderen Art mit eigener Nutzlast) aus Profil und „Mein Verlauf“, die
+ * Beiträge nur als Text zeigen (Konzept 29) – für Text und Törns nichts.
+ */
+export const kindCardLink = (kind: PostKind | undefined, path: string, cls = 'link') =>
+  hasKindCard(kind) ? html`<a class=${cls} href=${path}>${icon(POST_KIND_ICON[kind!] ?? 'open')} ${POST_KIND_LABEL[kind!] ?? 'Karte'} öffnen</a>` : '';
+
 export const POST_VISIBILITY_ICON: Record<PostVisibility, IconName> = { public: 'globe', members: 'community', unlisted: 'link', private: 'lock' };
 
 /**

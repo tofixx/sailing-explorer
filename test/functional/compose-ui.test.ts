@@ -46,7 +46,7 @@ afterEach(() => {
 const T = Date.UTC(2026, 10, 2, 10);
 
 describe('sx-compose', () => {
-  it('[F-405] „+ Neu“: Menü mit Törn (GPX), Fahrtenbuch-Eintrag, Text – keine späteren Arten; ein Event je Wahl; Escape schließt', async () => {
+  it('[F-405] „+ Neu“: Menü mit Törn (GPX), Fahrtenbuch-Eintrag, Text – noch keine späteren Arten; ein Event je Wahl; Escape schließt', async () => {
     const opens = listen('sx-compose-open');
     const el = await mount('sx-compose', {});
     const toggle = button(el.shadowRoot, /Neu anlegen/)!;
@@ -58,7 +58,8 @@ describe('sx-compose', () => {
     expect(t).toContain('Törn (GPX)');
     expect(t).toContain('Fahrtenbuch-Eintrag');
     expect(t).toContain('Text');
-    expect(t).not.toMatch(/Umfrage|Veranstaltung|Fotos/);
+    // Umfrage seit Phase 4 (Konzept 29, polls-ui.test.ts); Veranstaltung und Fotos folgen
+    expect(t).not.toMatch(/Veranstaltung|Fotos/);
     for (const label of [/Törn \(GPX\)/, /Fahrtenbuch-Eintrag/, /^\s*Text/]) {
       el.open = true;
       await el.updateComplete;
@@ -117,7 +118,7 @@ describe('sx-compose-dialog', () => {
     // Zähler erst ab 90 % ansagen
     expect(c.shadowRoot.querySelector('.counter')!.getAttribute('aria-live')).toBe('off');
     (c.shadowRoot.querySelector('form') as HTMLFormElement).requestSubmit();
-    expect(submits).toEqual([{ channel: { kind: 'group', id: 'G1' }, body: 'Training heute', link: '', visibility: 'public', reach: 'club', shareId: 'S1' }]);
+    expect(submits).toEqual([{ channel: { kind: 'group', id: 'G1' }, kind: 'text', body: 'Training heute', link: '', visibility: 'public', reach: 'club', shareId: 'S1' }]);
   });
 
   it('[F-409] nicht öffentlich: kein „Sichtbar bis“, nur der Hinweis; anderer Verlauf → seine Stufen', async () => {
@@ -134,7 +135,7 @@ describe('sx-compose-dialog', () => {
     ta.dispatchEvent(new Event('input'));
     await c.updateComplete;
     (c.shadowRoot.querySelector('form') as HTMLFormElement).requestSubmit();
-    expect(submits).toEqual([{ channel: { kind: 'group', id: 'G1' }, body: 'Intern', link: '', visibility: 'members', shareId: null }]);
+    expect(submits).toEqual([{ channel: { kind: 'group', id: 'G1' }, kind: 'text', body: 'Intern', link: '', visibility: 'members', shareId: null }]);
     const where = el.shadowRoot.querySelector('select') as HTMLSelectElement;
     where.value = 'harbor:potsdam';
     where.dispatchEvent(new Event('change'));

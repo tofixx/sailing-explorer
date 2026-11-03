@@ -1,6 +1,8 @@
 // Vereine, Teams, Folgen und Neuigkeiten (Konzept Abschnitt 11): reine Regeln ohne DOM und Netz –
 // genutzt von Worker (Prüfen, Schreiben, Lesen) und Oberfläche (Texte, Formulare).
 import type { CoverRef } from './cover';
+import type { PollView } from './polls';
+import type { PostKind } from './posts';
 import { fmtNum } from './format';
 import type { ReactionSubject, ReactionSummary } from './reactions';
 
@@ -271,6 +273,10 @@ export interface StreamItem {
     voyage?: { id: string; title: string; distNm: number } | null;
     /** Link zur Karte (F-406), mit Schlüssel nur in der Einzelansicht „Nur mit Link“ */
     path?: string;
+    /** Art des Beitrags (Text, Umfrage …); fehlt = Text */
+    kind?: PostKind;
+    /** Umfrage (Konzept 29): Einstellungen für alle gleich, Stimmen je Betrachter nach dem Cache (`attachKindData`) */
+    poll?: PollView;
   };
   boat?: { id: string; name: string };
   milestone?: { nm: number; year: number; subject: 'user' | 'boat' | 'group'; name: string; path: string };

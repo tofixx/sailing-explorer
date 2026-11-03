@@ -9,7 +9,7 @@ import { recomputeStorage, storageTotal } from './storage';
 import { deleteOrphanReports, ownsLockedSql } from './moderation';
 import { expireLocks, orphanLocksStmt, remindLocks } from './locks';
 import { sendNotificationDigests } from './notification-mail';
-import { notifyExpiry } from './notifications';
+import { nightlyPollClosedStmts, notifyExpiry } from './notifications';
 import { deleteKeys, photoKeysForShares, shareFileKeys } from './photo-keys';
 import { nightlyNotificationCleanup } from './notification-cleanup';
 import { nightlyActivityCleanup } from './activity';
@@ -230,6 +230,8 @@ export async function runRetention(env: Env, origin: string, now = Date.now()): 
   const claimsExpired = await step('claims_expire', expireClaims(env, now), 0);
   await step('claims', env.DB.batch(nightlyClaimCleanup(env, now)), []);
   await step('notifications', env.DB.batch(nightlyNotificationCleanup(env, now)), []);
+  // Umfragen (Konzept 29): beendete an ihre Autor:in melden – nach dem Aufräumen, damit die Meldung bleibt
+  await step('polls', env.DB.batch(nightlyPollClosedStmts(env, now)), []);
   // Beiträge (Konzept 21.3): Törns ohne Post-Zeile nachtragen
   await step('posts', repairSharePostsStmt(env).run(), null);
   // Datenschutz-Fristen als eigener Batch (scheitert einer, läuft der andere trotzdem)
