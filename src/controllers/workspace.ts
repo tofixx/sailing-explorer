@@ -4,13 +4,16 @@
 // liegt auf einem einzigen Platz im Browser (IndexedDB), gehört einem Konto bzw. dem Gast und wird beim Abmelden, beim
 // Kontowechsel und nach dem Speichern geleert. Andere Tabs erfahren Änderungen über einen BroadcastChannel.
 import { computeTrackStats } from '../domain/stats';
-import { routeTrack } from '../domain/logbook';
+import { plausibleGpx, routeTrack } from '../domain/logbook';
+import { shareSummary } from '../domain/summary';
+import { canAttachTrack, trackDateError } from '../domain/track-attach';
+import { fmtDate, fmtNum } from '../domain/format';
 import { GpxError, parseGpx } from '../domain/gpx';
 import type { Track } from '../domain/types';
 import { VISIBILITY_LABEL } from '../domain/visibility';
 import { attachConditions, parseWeatherData, type WeatherData } from '../domain/weather';
-import { ApiError, api, type ShareMeta } from '../services/api';
-import { inflateFromBase64Url } from '../services/compress';
+import { ApiError, api, validatePayload, type ShareMeta } from '../services/api';
+import { gzipString, inflateFromBase64Url } from '../services/compress';
 import { fetchTrackFile } from '../services/samples';
 import { initialState, visibleTracks, type State, type Store } from '../services/store';
 import { parseView } from '../services/url-state';
@@ -50,6 +53,8 @@ export interface WorkspaceUi {
   showHome: () => void;
   /** erfüllt, sobald die Anmeldung bekannt ist (Eigentümer des Entwurfs prüfen) */
   ready: () => Promise<void>;
+  /** GPX nachgereicht und der Törn neu geöffnet (Konzept 38): Übersichtsbild zeichnen und hochladen */
+  trackAttached: (share: ShareMeta) => void;
 }
 
 /** Kopfzeile (F-433): welcher Törn offen ist und in welchem Zustand. */
@@ -392,6 +397,58 @@ export class WorkspaceController {
     const tracks = this.build(raws.map((text, i) => ({ name: `Geteilter Track ${i + 1}`, text })));
     if (!tracks.length) return this.setLoading(null);
     await this.setTracks(tracks, { mode: { kind: 'link', title: 'Geteilter Track' }, fit: true });
+  }
+
+  // ---------------------------------------------------------------- GPX nachreichen (Konzept 38)
+
+  /**
+   * GPX an den offenen eigenen Fahrtenbuch-Eintrag ohne GPX hängen (F-600 … F-606): lesen, wie beim Hochladen prüfen
+   * (Plausibilität, Zeitfenster), nachfragen, Wetter laden, hochladen, Törn neu öffnen, Übersichtsbild nachziehen.
+   */
+  async attach(file: File): Promise<void> {
+    const mode = this.store.get().mode;
+    if (mode.kind !== 'share' || !canAttachTrack(mode.share)) return;
+    const share = mode.share;
+    const items = await this.readFiles([file]);
+    if (!items) return;
+    const tracks = this.build(items);
+    this.setLoading(null);
+    if (!tracks.length) return;
+    const t = tracks[0];
+    const distNm = t.stats.distNm;
+    const startedAt = t.stats.start;
+    const endedAt = startedAt === null ? null : t.stats.end;
+    // gleiche Prüfungen wie der Worker – erklären statt überraschen
+    const problem = plausibleGpx(distNm, startedAt, endedAt) ?? trackDateError({ startedAt: share.startedAt, endedAt: share.endedAt ?? null }, startedAt, endedAt);
+    if (problem) return this.ui.toast(problem, 8000);
+    const when = startedAt !== null ? ` vom ${fmtDate(startedAt)}` : ' (ohne Zeitstempel)';
+    const ok = await this.ui.ask({
+      heading: 'GPX nachreichen?',
+      text:
+        `„${t.name}“${when}, ${fmtNum(distNm, 1)} sm, an „${share.title}“ anhängen? Strecke und Zeiten kommen dann aus dem Track; ` +
+        'Crew, Angaben, Kommentare und Reaktionen bleiben. Der Eintrag zählt danach als Törn (Kontingent, Speicher) und wird ' +
+        'wie andere Törns nach seiner Saison gelöscht – eine Saison früher als ohne GPX.',
+      confirmLabel: 'Anhängen',
+    });
+    if (!ok) return;
+    this.setLoading('Lade Wetterdaten …');
+    try {
+      // Wetter wie beim Hochladen einmal laden und mitspeichern (Betrachter rufen Open-Meteo nicht erneut ab)
+      const { data } = await loadWeather(tracks);
+      this.setLoading('Speichere Track …');
+      const payload = validatePayload({ v: 1, tracks: [{ name: t.name, gpx: t.raw }], ...(data ? { weather: data } : {}) });
+      const gz = await gzipString(JSON.stringify(payload));
+      await api.attachTrack(share.id, gz, { summary: shareSummary(tracks), trackCount: 1, distNm, startedAt, endedAt });
+    } catch (e) {
+      this.setLoading(null);
+      return this.ui.toast(errorText(e), 8000);
+    }
+    await this.openShare(share.id, mode.key);
+    const now = this.store.get().mode;
+    if (now.kind === 'share' && now.share.id === share.id) {
+      this.ui.toast('Track nachgereicht');
+      this.ui.trackAttached(now.share);
+    }
   }
 
   // ---------------------------------------------------------------- Helfer
