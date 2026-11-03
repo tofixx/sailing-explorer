@@ -184,7 +184,6 @@ export class SxAccountDialog extends LitElement {
         border-bottom: 1px solid var(--border-soft);
         /* fünf Reiter: auf schmalen Bildschirmen seitlich scrollen statt umbrechen */
         overflow-x: auto;
-        scrollbar-width: none;
       }
       .tabs button {
         white-space: nowrap;
