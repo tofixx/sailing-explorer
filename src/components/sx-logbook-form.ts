@@ -7,6 +7,7 @@ import {
 import type { LogSuggestion } from '../domain/logbook-suggest';
 import { VOYAGE_ROLES, VOYAGE_ROLE_SHORT, isVoyageRole, type VoyageRole } from '../domain/crew-roles';
 import { fmtNum } from '../domain/format';
+import { SCORING_NOTE, defaultTemplateId, templateLabel, type ScoringTemplate } from '../domain/scoring';
 import type { Visibility } from '../domain/visibility';
 import type { LogbookPreset } from '../domain/events';
 import type { SxHarborPicker } from './sx-harbor-picker';
@@ -66,6 +67,8 @@ export class SxLogbookForm extends LitElement {
     area: { state: true },
     items: { state: true },
     filled: { state: true },
+    templates: { attribute: false },
+    lastTemplateId: { attribute: false },
   };
   declare open: boolean;
   /** vorhandener Eintrag (Bearbeiten) oder null (neu) */
@@ -94,6 +97,10 @@ export class SxLogbookForm extends LitElement {
   declare items: LogItem[];
   /** per „Übernehmen“ gesetzte Vorschläge */
   declare filled: Partial<Logbook>;
+  /** wählbare Wertungsvorlagen (Konzept 32, F-501) – leer, solange nicht geladen („Nur Meilen“) */
+  declare templates: ScoringTemplate[];
+  /** zuletzt genutzte Vorlage (Vorbelegung) */
+  declare lastTemplateId: string | null;
 
   constructor() {
     super();
@@ -115,6 +122,8 @@ export class SxLogbookForm extends LitElement {
     this.area = '';
     this.items = [];
     this.filled = {};
+    this.templates = [];
+    this.lastTemplateId = null;
   }
 
   /** GPX-Törn: nur Häfen und Angaben (F-461). */
@@ -252,6 +261,11 @@ export class SxLogbookForm extends LitElement {
       if (this.open && !dlg.open) dlg.showModal();
       else if (!this.open && dlg.open) dlg.close();
     }
+    // Vorbelegung der Vorlage beim Öffnen bzw. wenn die Vorlagen nachkommen (F-501) – danach gilt die Wahl im Formular
+    const sel = this.renderRoot.querySelector<HTMLSelectElement>('select[name="templateId"]');
+    if (sel && this.open && (changed.has('open') || changed.has('templates') || changed.has('lastTemplateId'))) {
+      sel.value = defaultTemplateId(this.share?.log?.templateId, this.lastTemplateId, this.templates);
+    }
   }
 
   private reset() {
@@ -328,6 +342,7 @@ export class SxLogbookForm extends LitElement {
       mast: this.field('mast'),
       regatta: regatta ? { name: regatta, place: this.field('regattaPlace'), starters: this.field('regattaStarters') } : undefined,
       items: this.items,
+      templateId: this.field('templateId'),
     });
     return 'error' in r ? r.error : r.log;
   }
@@ -517,6 +532,22 @@ export class SxLogbookForm extends LitElement {
     </details>`;
   }
 
+  /**
+   * Wertungsvorlage (Pflicht, F-501): immer genau eine gewählt – vorbelegt mit der des Eintrags, sonst der zuletzt
+   * genutzten, sonst „Nur Meilen“. Solange die Vorlagen laden, steht nur „Nur Meilen“ zur Wahl.
+   */
+  private templateSelect(log: Logbook) {
+    const list = this.templates.length ? this.templates : [{ id: 'meilen', name: 'Nur Meilen', groupName: null }];
+    const chosen = defaultTemplateId(log.templateId, this.lastTemplateId, this.templates);
+    return html`<div>
+      <label class="label" for="lf-tpl">Wertungsvorlage</label>
+      <select id="lf-tpl" name="templateId" required>
+        ${list.map((t) => html`<option value=${t.id} ?selected=${t.id === chosen}>${templateLabel(t)}</option>`)}
+      </select>
+      <p class="hint">Für Punkte im Jahresbericht und in der Vereinsliste. ${SCORING_NOTE}</p>
+    </div>`;
+  }
+
   private form() {
     const s = this.share;
     const p = s ? null : this.preset;
@@ -567,6 +598,7 @@ export class SxLogbookForm extends LitElement {
             </select>
           </div>`
         : ''}
+      ${this.templateSelect(log)}
       <details ?open=${!!s && !!(log.wind || log.sea || log.sails || log.berth || log.notes || (!gpx && s.endedAt))}>
         <summary>Mehr Angaben</summary>
         ${gpx

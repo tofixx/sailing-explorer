@@ -2908,12 +2908,12 @@ lesbaren `body` als Rückfall mitbringt.
 - **F-410** Erinnerungen und Änderungsmeldungen zu Veranstaltungen.
 - **F-411** Fahrtenbuch nach Jahren, bearbeitbar, mit Jahressummen. *Umgesetzt in Konzept 27.*
 - **F-412** Zusatzangaben mit Binnen/Küste, Vorschläge aus GPX änderbar, frei definierbare Posten. *Umgesetzt in Konzept 27 (Posten frei, Vorlagen mit Phase 9).*
-- **F-413** Wertungsvorlagen als geprüfter Baukasten: global (Admin), Verein (übernehmen/erweitern/eigene), Pflicht je Eintrag.
-- **F-414** Vereinsliste der Punktesummen nur mit Opt-in, nur dort gezeigte Einträge, Gewichtung einstellbar.
+- **F-413** Wertungsvorlagen als geprüfter Baukasten: global (Admin), Verein (übernehmen/erweitern/eigene), Pflicht je Eintrag. *Umgesetzt in Konzept 32 (F-500 … F-502).*
+- **F-414** Vereinsliste der Punktesummen nur mit Opt-in, nur dort gezeigte Einträge, Gewichtung einstellbar. *Umgesetzt in Konzept 32 (F-503, F-504).*
 - **F-415** `members`-Beiträge nie aus öffentlichen Caches, nie für Nicht-Mitglieder, nie weiter ausgebreitet.
 - **F-416** Benachrichtigungen für Beiträge, Zusagen, Erinnerungen, Umfrage-Ende; Ausbreitung benachrichtigt nicht.
 - **F-417** Publikums-Hinweis ab 100 Personen und Tageszusammenfassung großer Verläufe – ausformuliert als F-465 … F-469 (Konzept 28).
-- **F-418** Verwaltungsbereich im Konto mit Jahresbericht (CSV/Excel, druckbar). *Verwaltungsbereich und Meilennachweis (CSV, Druck) in Konzept 27; Jahresbericht für Vereine mit Phase 9.*
+- **F-418** Verwaltungsbereich im Konto mit Jahresbericht (CSV/Excel, druckbar). *Verwaltungsbereich und Meilennachweis (CSV, Druck) in Konzept 27; Jahresbericht mit Punkten in Konzept 32 (F-505).*
 - **F-419** Galerie-Kontingent: kostenlos 10 Fotos je Monat, Unterstützer mehr, Speicher gemeinsam mit Törn-Fotos. → umgesetzt als F-490 … F-495 (Konzept 31).
 
 ### 21.11 Umsetzung Phase 1 (02.11.2026)
@@ -3374,3 +3374,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 30. Veranstaltungen (F-408, F-410, F-480 … F-489) → [`docs/concept/30-veranstaltungen.md`](concept/30-veranstaltungen.md)
 
 ## 31. Galerie-Beiträge: Fotos ohne Törn (Phase 7, F-490 … F-499) → [`docs/concept/31-galerie.md`](concept/31-galerie.md)
+
+## 32. Wertung und Jahresbericht (Phase 9, F-413, F-414, F-418, F-500 … F-507) → [`docs/concept/32-wertung.md`](concept/32-wertung.md)

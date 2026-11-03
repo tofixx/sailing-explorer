@@ -11,7 +11,7 @@ import { clubTemplates, memberClub } from './scoring';
 import { notSuspendedSql, publicSql } from './visible-sql';
 import { canManageGroup } from '../src/domain/groups';
 import { seasonRange } from '../src/domain/logbook';
-import { clubListSeason, clubPoints, pointsByTemplate, templateLabel } from '../src/domain/scoring';
+import { clubListSeason, clubPoints, pointsByTemplate } from '../src/domain/scoring';
 
 /** Höchstens so viele Törns rechnet eine Vereinsliste (alle Teilnehmenden einer Saison zusammen). */
 export const CLUB_LIST_MAX_ENTRIES = 5000;
@@ -62,7 +62,7 @@ export async function getClubList(request: Request, env: Env, id: string): Promi
       me: p.user_id === user.id,
       points: clubPoints(by),
       entries: by.reduce((n, b) => n + b.count, 0),
-      byTemplate: by.map((b) => ({ template: templateLabel(b.template), points: b.points, count: b.count })),
+      byTemplate: by.map((b) => ({ template: b.template.name, points: b.points, count: b.count })),
     };
   });
   list.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name, 'de'));

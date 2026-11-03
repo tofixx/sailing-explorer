@@ -9,6 +9,7 @@ import { DEFAULT_LOG_FILTER, logbookSeasons, parseLogFilter } from '../domain/lo
 import type { LogState } from '../domain/logbook';
 import { seasonOf } from '../domain/support';
 import { errorText } from './session';
+import { scoringApi } from '../services/scoring-api';
 
 interface LogbookPageUi {
   page: SxLogbookPage;
@@ -57,7 +58,10 @@ export class LogbookPageController {
     page.error = '';
     page.loading = true;
     try {
-      page.entries = (await api.myLogbook()).entries;
+      // Wertungsvorlagen für die Punkte (F-505) nebenbei – ohne Antwort rechnet alles mit „Nur Meilen“
+      const [logbook, scoring] = await Promise.all([api.myLogbook(), scoringApi.mine().catch(() => null)]);
+      page.entries = logbook.entries;
+      page.templates = scoring?.templates ?? [];
       // gewählte Saison ohne Einträge (z. B. im November schon die nächste): die neueste mit Einträgen
       const seasons = logbookSeasons(page.entries, Date.now());
       if (!seasons.includes(page.season)) {

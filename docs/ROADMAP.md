@@ -60,7 +60,7 @@ ein.
 
 | Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
 |---|---|---|---|---|
-| **Wertung und Jahresbericht** (Phase 9) | Vereins-Fahrtenpreise ohne Excel | L | K 21.6, K 21.8 | Phase 8. Auslegung „Gewichtung nach Mitgliederzahl“. Als Vereinshilfe kennzeichnen |
+| **Wertung und Jahresbericht** (Phase 9) – gebaut auf `feature/wertung` (Konzept 32), wartet auf Review | Vereins-Fahrtenpreise ohne Excel | L | [K 32](concept/32-wertung.md), K 21.6, K 21.8 | Auslegung „Gewichtung nach Mitgliederzahl“ offen (unten) |
 | **Vereins- und Hafen-Challenges mit Opt-in-Rangliste** | Bindung über Wettbewerb zwischen Vereinen | M | N (Quick Wins) | Phase 9 (Opt-in-Muster). Widerspricht K6 („keine Ranglisten“), daher Entscheidung nötig |
 | **Segelschulen und Vereinsjugend mit Trainer-Rolle** | Eine neue Zielgruppe mit vielen Seglerinnen und Seglern | M–L | N (Quick Wins) | Rollenmodell (K 15, 12.12). Datenschutz Minderjährige |
 | **Aufzeichnen unterwegs** (PWA, später nativ) | Schließt die größte Lücke zur Konkurrenz: Man braucht keine zweite App mehr | L | N (Lücken) | Hintergrund-Ortung in PWAs (vor allem iOS) begrenzt, deshalb vorher ein Machbarkeitstest |
@@ -85,6 +85,7 @@ ein.
 | **`feature/supporter-badges`** (7 Commits, Stand 27.10.) | Empfehlung: **verwerfen** und brauchbare Ideen neu aufsetzen. Die Migration `0015_paid_support.sql` kollidiert mit `0015_approvers.sql`. Gutschein (K 18.9a) und freie Eigner (K 13.5) sind inzwischen anders gelöst |
 | **`feature/moderation-konzept`** (nur `docs/MODERATION.md`) | Empfehlung: Offene Teile (Textfilter, Vertrauensstufen, Bildprüfung) mit dem Admin-Bereich (K 18) abgleichen. Was noch fehlt, wird ein Konzept-Abschnitt mit Reservierung, der Branch wird danach gelöscht |
 | **Testkonto für Abläufe mit Anmeldung in der Vorschau** | Siehe Abwägung unten |
+| **Gewichtung „nach Mitgliederzahl“** (Wertung, K 32.7) | Gebaut ist ein Faktor je Vereinsvorlage. Normierung nach Mitgliederzahl hätte nur zwischen Vereinen Sinn (= Rangliste, K6); „je Kopf der Crew an Bord“ wäre eine Ergänzung in `clubPoints`/`scoreEntry`. Empfehlung: beim Faktor bleiben |
 | **Challenges vs. K6** | Ranglisten nur mit Opt-in und nur aus `dist_source = 'track'`? Oder bei „keine Ranglisten“ bleiben? |
 | Schwellen und Kontingente | Galerie umgesetzt mit 10/200 Fotos je Monat, 30 je Beitrag, kostenlos 25 MB (K 31). Tageszusammenfassung 150/15 und Hinweis 100 umgesetzt in `GROUP_LIMITS` (K 28) – nach dem Pilot mit echten Vereinen prüfen |
 | **Ablauffrist für Galerie-Beiträge** | K 21.3.3 schlug „wie Fotos am Törn“ vor; umgesetzt ist vorerst keine Frist (wie Text-Beiträge), weil ein Ablauf Warn-Mails wie bei Törns bräuchte. Empfehlung: erst entscheiden, wenn der Speicher der Galerien messbar wächst (K 31.4) |

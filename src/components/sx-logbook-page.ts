@@ -1,8 +1,10 @@
 import { LitElement, css, html, nothing } from 'lit';
-import { DIST_SOURCE_LABEL, LOG_AREA_LABEL, LOG_STATES, LOG_STATE_LABEL, type LogState } from '../domain/logbook';
+import { DIST_SOURCE_LABEL, LOG_STATES, LOG_STATE_LABEL, type LogState } from '../domain/logbook';
 import {
-  LOG_FILTER_LABEL, entrySeason, filterEntries, logbookSeasons, logbookTotals, roleText, type LogbookEntry, type LogbookTotals,
+  LOG_FILTER_LABEL, areaText, entrySeason, filterEntries, logbookSeasons, logbookTotals, roleText, type LogbookEntry, type LogbookTotals,
 } from '../domain/logbook-year';
+import { SCORING_NOTE, pointsByTemplate, scoreEntry, templateFor, templateLabel, type ScoringTemplate } from '../domain/scoring';
+import { SCORING_PATH } from '../services/url-state';
 import { fmtDate, fmtNum } from '../domain/format';
 import { icon } from './icons';
 import { base, emit, logbookTag } from './shared';
@@ -10,7 +12,8 @@ import { base, emit, logbookTag } from './shared';
 /**
  * Verwaltungsbereich „Mein Fahrtenbuch“ (`/konto/fahrtenbuch`, Konzept 27, F-411, F-418, F-455 … F-458): Reiter je
  * Saison, Filter nach Stand (Mehrfachauswahl, B14), Summen der gefilterten Einträge, Liste mit eigenen Törns und
- * Crew-Törns anderer (M1, nur Eckdaten), Meilennachweis als CSV und Druck. Rein präsentational – Daten setzt der
+ * Crew-Törns anderer (M1, nur Eckdaten), Punkte je Eintrag und je Vorlage (Konzept 32, F-505), Meilennachweis und
+ * Jahresbericht als CSV und Druck. Rein präsentational – Daten setzt der
  * LogbookPageController. Events: `sx-logbook-season` { season }, `sx-logbook-filter` { states },
  * `sx-logbook-state` { id, logState }, `sx-logbook-edit-entry` { id }, `sx-logbook-print`, `sx-logbook-start`, `sx-login`.
  */
@@ -24,6 +27,8 @@ export class SxLogbookPage extends LitElement {
     error: { type: String },
     /** false = nicht angemeldet (Hinweis mit „Anmelden“) */
     signedIn: { type: Boolean },
+    /** wählbare Wertungsvorlagen (F-501) – leer: alles „Nur Meilen“ */
+    templates: { attribute: false },
   };
   /** null = noch nicht geladen */
   declare entries: LogbookEntry[] | null;
@@ -33,6 +38,7 @@ export class SxLogbookPage extends LitElement {
   declare busy: boolean;
   declare error: string;
   declare signedIn: boolean;
+  declare templates: ScoringTemplate[];
 
   constructor() {
     super();
@@ -43,6 +49,7 @@ export class SxLogbookPage extends LitElement {
     this.busy = false;
     this.error = '';
     this.signedIn = true;
+    this.templates = [];
   }
 
   static styles = [
@@ -152,6 +159,14 @@ export class SxLogbookPage extends LitElement {
       h2 {
         margin: 0;
         font-size: var(--fs-l);
+      }
+      h3 {
+        margin: var(--s-3) 0 var(--s-2);
+        font-size: var(--fs-m);
+      }
+      .points {
+        font-weight: 600;
+        color: var(--text);
       }
       ol {
         list-style: none;
@@ -279,6 +294,17 @@ export class SxLogbookPage extends LitElement {
     </dl>`;
   }
 
+  /** Punkte je Vorlage (Jahresbericht, F-505) – mit dem Hinweis „Vereinshilfe“ und dem Weg zur Wertung. */
+  private points(shown: LogbookEntry[]) {
+    const by = pointsByTemplate(shown, this.templates);
+    if (!by.length) return nothing;
+    return html`<h3>Punkte</h3>
+      <dl class="totals" aria-label="Punkte je Vorlage">
+        ${by.map((b) => html`<div><dt>${templateLabel(b.template)}</dt><dd>${fmtNum(b.points, 1)}<small>${b.count} ${b.count === 1 ? 'Eintrag' : 'Einträge'}</small></dd></div>`)}
+      </dl>
+      <p class="note">${SCORING_NOTE} Vorlagen und Vereinsliste: <a href=${SCORING_PATH}>Wertung</a>.</p>`;
+  }
+
   private route(e: LogbookEntry): string {
     const from = e.from?.name ?? '–';
     if (!e.to || e.to.slug === e.from?.slug) return e.from ? `Rundtörn ab ${from}` : '–';
@@ -288,8 +314,9 @@ export class SxLogbookPage extends LitElement {
   private entry(e: LogbookEntry) {
     const title = e.title ?? this.route(e);
     const log = e.log;
+    const t = templateFor(log.templateId, this.templates);
     const extras = [
-      log.area ? `${LOG_AREA_LABEL[log.area]}${log.tidal ? ' (Tide)' : ''}` : '',
+      areaText(log),
       ...(log.items ?? []).map((it) => `${it.name}${it.n !== 1 ? ` × ${fmtNum(it.n, it.n % 1 ? 1 : 0)}` : ''}`),
       log.regatta ? `Regatta ${log.regatta.name}${log.regatta.place ? ` (Platz ${log.regatta.place}${log.regatta.starters ? `/${log.regatta.starters}` : ''})` : ''}` : '',
     ].filter(Boolean);
@@ -307,6 +334,7 @@ export class SxLogbookPage extends LitElement {
         ${e.role ? html`<span>${roleText(e)}</span>` : ''}
         ${e.boat ? html`<span>${icon('sail')} ${e.boat}</span>` : ''}
         ${extras.length ? html`<span>${extras.join(' · ')}</span>` : ''}
+        ${e.logState === 'excluded' ? '' : html`<span class="points">${fmtNum(scoreEntry(e, t.rules), 1)} Punkte · ${templateLabel(t)}</span>`}
       </div>
       ${e.own ? this.tools(e) : nothing}
     </li>`;
@@ -346,11 +374,12 @@ export class SxLogbookPage extends LitElement {
         ${LOG_STATES.map((s) => html`<button aria-pressed=${this.states.includes(s) ? 'true' : 'false'} @click=${() => this.toggle(s)}>
           ${this.states.includes(s) ? icon('check') : ''} ${LOG_FILTER_LABEL[s]}</button>`)}
       </div>
-      <p class="print-only">Saison ${season} · ${this.filterLabel()} · Stand ${fmtDate(Date.now())}</p>
+      <p class="print-only">Jahresbericht Saison ${season} · ${this.filterLabel()} · Stand ${fmtDate(Date.now())}</p>
       <section aria-labelledby="sum-h">
         <h2 id="sum-h">Saison ${season}</h2>
         <p class="note">Summen der gezeigten Einträge (${this.filterLabel()}); ausgeschlossene zählen nie.</p>
         ${this.totals(logbookTotals(shown))}
+        ${this.points(shown)}
       </section>
       <section aria-label="Einträge ${season}">
         ${shown.length
@@ -365,11 +394,11 @@ export class SxLogbookPage extends LitElement {
       <header>
         <div>
           <h1>Mein Fahrtenbuch</h1>
-          <p class="lead">Deine Törns nach Saison – mit und ohne GPX, dazu Törns, auf denen du als Crew mitgesegelt bist. Als Meilennachweis exportieren oder drucken.</p>
+          <p class="lead">Deine Törns nach Saison – mit und ohne GPX, dazu Törns, auf denen du als Crew mitgesegelt bist. Als Meilennachweis und Jahresbericht exportieren oder drucken.</p>
         </div>
         ${ready
           ? html`<div class="tools">
-              <a class="btn" href=${this.csvHref()} download>${icon('download')} CSV</a>
+              <a class="btn" href=${this.csvHref()} download title="Meilennachweis und Jahresbericht mit Punkten">${icon('download')} CSV</a>
               <button class="btn" @click=${() => emit(this, 'sx-logbook-print')}>${icon('print')} Drucken</button>
             </div>`
           : ''}

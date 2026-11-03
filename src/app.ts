@@ -67,6 +67,7 @@ import type { SxLegalPage } from './components/sx-legal-page';
 import { RECORDING_GUIDE } from './content/recording-guide';
 import type { SxAdminPage } from './components/sx-admin-page';
 import type { SxLogbookPage } from './components/sx-logbook-page';
+import type { SxScoringPage } from './components/sx-scoring-page';
 import { suggestFromTracks } from './domain/logbook-suggest';
 import type { ReactDetail, SxReactions } from './components/sx-reactions';
 import type { HarborChoice, SxHarborPicker } from './components/sx-harbor-picker';
@@ -378,6 +379,8 @@ export class App {
           return await this.openAdmin();
         case 'logbook':
           return await this.openLogbookPage(!!route.legacy);
+        case 'scoring':
+          return await this.openScoringPage();
         case 'login':
           history.replaceState(null, '', '/');
           await this.ws.restore();
@@ -1174,6 +1177,23 @@ export class App {
     await c.open();
   }
 
+  /** Verwaltungsbereich „Wertung“ (Konzept 32): Seite und Controller erst hier nachgeladen. */
+  private async openScoringPage() {
+    this.ui.app.setAttribute('data-page', '');
+    const { ScoringPageController } = await import('./controllers/scoring-page');
+    const page = document.querySelector<SxScoringPage>('sx-scoring-page');
+    if (!page) return;
+    document.title = 'Wertung · Sail Explorer';
+    await new ScoringPageController({
+      page,
+      toast: (msg, ms) => this.toast(msg, ms),
+      ready: () => this.session.backendReady,
+      signedIn: () => !!this.store.get().user,
+      requireLogin: (reason, then) => this.session.requireLogin(reason, then),
+      ask: (req) => this.ui.confirm.ask(req),
+    }).open();
+  }
+
   /**
    * Hafen- und Vereinsseite mit Ort (F-351): Karte als Hintergrund, auf den Ort gezoomt; ohne Ort wie bisher die
    * Seite allein.
@@ -1218,7 +1238,7 @@ export class App {
     this.ui.groupPage.hidden = true;
     this.ui.legalPage.hidden = true;
     this.ui.guidePage.hidden = true;
-    for (const el of document.querySelectorAll<HTMLElement>('sx-admin-page, sx-logbook-page')) el.hidden = true;
+    for (const el of document.querySelectorAll<HTMLElement>('sx-admin-page, sx-logbook-page, sx-scoring-page')) el.hidden = true;
     document.title = 'Sail Explorer';
   }
 

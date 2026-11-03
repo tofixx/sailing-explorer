@@ -24,6 +24,7 @@ export type Route =
   | { kind: 'admin' }
   /** Verwaltungsbereich: Fahrtenbuch nach Jahren (Konzept 27); `legacy` = alte Adresse `/u/<handle>?bereich=fahrtenbuch` */
   | { kind: 'logbook'; legacy?: boolean }
+  | { kind: 'scoring' }
   | { kind: 'login'; token: string | null }
   | { kind: 'invite'; token: string | null }
   | { kind: 'files'; names: string[] }
@@ -49,9 +50,12 @@ export function absoluteLink(kind: 's' | 'b' | 'u' | 'g', idOrHandle: string, ob
 
 /** Adresse des Fahrtenbuchs im Verwaltungsbereich (Konzept 27.2, F-459). */
 export const LOGBOOK_PATH = '/konto/fahrtenbuch';
+/** Verwaltungsbereich „Wertung“ (Konzept 32): Vorlagen, Teilnahme und Vereinsliste */
+export const SCORING_PATH = '/konto/wertung';
 
 export function parseRoute(loc: Pick<Location, 'pathname' | 'search' | 'hash'>): Route {
   if (/^\/konto\/fahrtenbuch\/?$/.test(loc.pathname)) return { kind: 'logbook' };
+  if (/^\/konto\/wertung\/?$/.test(loc.pathname)) return { kind: 'scoring' };
   const share = new RegExp(`^/s/([A-Za-z0-9]{12,32})${KEY}/?$`).exec(loc.pathname);
   if (share) return withKey({ kind: 'share', id: share[1] }, share[2]);
   const post = new RegExp(`^/p/([A-Za-z0-9]{12,32})${KEY}/?$`).exec(loc.pathname);

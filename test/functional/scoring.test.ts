@@ -95,7 +95,7 @@ describe('F-500 Wertungsvorlagen als geprüfter Baukasten', () => {
     await bad({ name: 'x'.repeat(61), rules: {} }, 'invalid_name');
   });
 
-  it('[F-500] Vereine übernehmen, erweitern oder legen eigene an; nur Eigner:in und Admins; höchstens 10', async () => {
+  it('[F-413] [F-500] Vereine übernehmen, erweitern oder legen eigene an; nur Eigner:in und Admins; höchstens 10', async () => {
     const { owner, member, g } = await club();
     const outsider = await s.person();
     expect((await createTemplate(member, { groupId: g.id, name: 'X' })).status).toBe(403);
@@ -169,7 +169,7 @@ describe('F-503 Vereinsliste mit Opt-in, nur dort gezeigte Einträge', () => {
     expect((await clubList(undefined, g.id)).status).toBe(401);
   });
 
-  it('[F-503] zählt nur Einträge mit Vereinsvorlage mit Faktor, im Verein gezeigt, öffentlich, von Teilnehmenden', async () => {
+  it('[F-414] [F-503] zählt nur Einträge mit Vereinsvorlage mit Faktor, im Verein gezeigt, öffentlich, von Teilnehmenden', async () => {
     const { owner, member, g } = await club();
     const quiet = await s.person({ profile: 'private' });
     await s.join(owner, g, quiet);
@@ -248,7 +248,7 @@ describe('F-504 Gewichtung je Vorlage', () => {
 });
 
 describe('F-505 Jahresbericht als CSV', () => {
-  it('[F-505] Spalten Revier, Posten, Vorlage, Punkte, Summen je Vorlage und Hinweis „Vereinshilfe“', async () => {
+  it('[F-418] [F-505] Spalten Revier, Posten, Vorlage, Punkte, Summen je Vorlage und Hinweis „Vereinshilfe“', async () => {
     const p = await s.person();
     await entry(p, { templateId: 'binnen', distNm: 10, log: { area: 'inland', locks: 2, items: [{ name: 'Training', n: 1 }] } });
     await entry(p, { distNm: 5 });
@@ -303,6 +303,20 @@ describe('F-506 Löschwege', () => {
     await template(owner, { groupId: g.id, name: 'Weg' });
     expect((await s.send('DELETE', '/api/account', owner.cookie)).status).toBeLessThan(300);
     expect((await (await h.db()).prepare('SELECT COUNT(*) AS n FROM scoring_templates WHERE group_id = ?').bind(g.id).first<{ n: number }>())!.n).toBe(0);
+  });
+
+  it('[F-506] Konten zusammengeführt: Mitgliedschaft samt Opt-in wandert, bei doppelter gilt die des Zielkontos', async () => {
+    const both = await club(); // `member` und (unten) `into` sind Mitglied
+    const only = await club(); // nur `member`
+    const into = await s.person();
+    await s.join(both.owner, both.g, into);
+    await optIn(both.member, both.g.id);
+    await s.join(only.owner, only.g, both.member);
+    await optIn(both.member, only.g.id);
+    const res = await s.send('POST', `/api/admin/users/${both.member.user.id}/merge`, admin.cookie, { into: into.user.id, confirm: both.member.user.id });
+    expect(res.status, await res.clone().text()).toBe(200);
+    const { results } = await (await h.db()).prepare('SELECT group_id FROM group_members WHERE user_id = ? AND scoring_opt_in_at IS NOT NULL').bind(into.user.id).all<{ group_id: string }>();
+    expect(results.map((r) => r.group_id)).toEqual([only.g.id]);
   });
 
   it('[F-506] Altbestand: Einträge ohne Vorlage rechnen mit „Nur Meilen“', async () => {

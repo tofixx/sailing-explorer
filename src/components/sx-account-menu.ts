@@ -3,12 +3,12 @@ import type { User } from '../services/api';
 import { icon } from './icons';
 import { base, emit, menuStyles } from './shared';
 import { MenuController } from './menu-controller';
-import { LOGBOOK_PATH } from '../services/url-state';
+import { LOGBOOK_PATH, SCORING_PATH } from '../services/url-state';
 
 
 /**
  * Konto-Menü am Avatar oben rechts (F-428): der eine Weg zu „Meine Seite“, „Mein Fahrtenbuch“ (Verwaltungsbereich
- * `/konto/fahrtenbuch`, F-459) und „Konto & Einstellungen“ (Menü-Muster wie sx-page-menu, mobil als Sheet). Ohne Profil
+ * `/konto/fahrtenbuch`, F-459), „Wertung“ (`/konto/wertung`, F-507) und „Konto & Einstellungen“ (Menü-Muster wie sx-page-menu, mobil als Sheet). Ohne Profil
  * führt „Meine Seite“ zum Anlegen des Profils im Konto; das Fahrtenbuch braucht kein Profil. Meldet `sx-account` { tab? }.
  */
 export class SxAccountMenu extends LitElement {
@@ -58,7 +58,7 @@ export class SxAccountMenu extends LitElement {
   }
 
   /** Eintrag als Link (mit Profil) bzw. Knopf zum Anlegen des Profils (ohne). */
-  private item(label: string, ic: 'user' | 'book', href: string | null) {
+  private item(label: string, ic: 'user' | 'book' | 'scale', href: string | null) {
     const body = html`<span class="mark">${icon(ic)}</span><span>${label}${href ? '' : html`<small>erst Profil anlegen</small>`}</span>`;
     return href
       ? html`<a class="item" href=${href} @click=${() => (this.open = false)}>${body}</a>`
@@ -79,6 +79,7 @@ export class SxAccountMenu extends LitElement {
         <p class="title" id="am-h">${u.displayName || u.email}</p>
         ${this.item('Meine Seite', 'user', handle ? `/u/${handle}` : null)}
         ${this.item('Mein Fahrtenbuch', 'book', LOGBOOK_PATH)}
+        ${this.item('Wertung', 'scale', SCORING_PATH)}
         <hr />
         <button class="item" type="button" @click=${() => this.account()}><span class="mark">${icon('gear')}</span><span>Konto &amp; Einstellungen</span></button>
       </div>

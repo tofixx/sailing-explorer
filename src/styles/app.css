@@ -338,6 +338,7 @@ body {
 .app[data-page] sx-guide-page,
 .app[data-page] sx-admin-page,
 .app[data-page] sx-logbook-page,
+.app[data-page] sx-scoring-page,
 .app[data-page] #discover-page {
   min-height: 0;
 }

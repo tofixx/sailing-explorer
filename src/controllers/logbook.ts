@@ -6,6 +6,7 @@ import { SxLogbookPanel } from '../components/sx-logbook-panel';
 import type { LogSuggestion } from '../domain/logbook-suggest';
 import { errorText } from './session';
 import type { LogbookPreset } from '../domain/events';
+import { scoringApi } from '../services/scoring-api';
 
 /** Wie das Formular aufgeht: mit Vorschlägen aus dem Track (GPX-Törn) und was nach dem Speichern passiert. */
 export interface LogbookStart {
@@ -42,9 +43,16 @@ export class LogbookController {
     Object.assign(f, { share, suggestion, preset, error: '', busy: false, used: -1 });
     // Boote und Kontingent nebenbei – das Formular geht sofort auf
     f.open = true;
-    const [boats, support] = await Promise.all([api.myBoats().catch(() => ({ boats: [] })), api.support().catch(() => null)]);
+    const [boats, support, scoring] = await Promise.all([
+      api.myBoats().catch(() => ({ boats: [] })),
+      api.support().catch(() => null),
+      // Wertungsvorlagen (F-501): ohne Antwort bleibt „Nur Meilen“
+      scoringApi.mine().catch(() => null),
+    ]);
     Object.assign(f, {
       boats: boats.boats,
+      templates: scoring?.templates ?? [],
+      lastTemplateId: scoring?.lastTemplateId ?? null,
       supporter: !!support?.supporter,
       used: support?.logEntriesUsed ?? -1,
       max: support?.logEntriesMax ?? f.max,
