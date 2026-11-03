@@ -1,6 +1,6 @@
 // Abfragen des persönlichen Streams (Konzept 12.4, F-177) – reine Zeichenketten ohne Worker-APIs, damit Tests den
 // Abfrageplan prüfen können.
-import { MEMBER_CONTENT_KINDS } from '../src/domain/groups';
+import { MEMBER_CONTENT_KINDS, STREAM_POST_KINDS } from '../src/domain/groups';
 
 /** Höchstens so viele Ziele (Folgen 1000 + Gruppen + Teammitglieder 500 + Rest). */
 export const STREAM_TARGETS_MAX = 1600;
@@ -34,16 +34,36 @@ export const TARGET_SQL = {
 const TEXT_ONLY_SQL = `(COALESCE(json_extract(k.value, '$[2]'), 0) = 0 OR (SELECT a.kind FROM activity a WHERE a.id = t.activity_id) NOT IN (${MEMBER_CONTENT_KINDS.map((x) => `'${x}'`).join(', ')}))`;
 
 /**
- * Die eine Stream-Abfrage: Schlüsselliste (JSON) als äußere Schleife (CROSS JOIN), je Schlüssel ein Bereich im Index
- * activity_target(target_kind, target_id, created_at), gruppiert nach Aktivität, neueste zuerst, ab dem Cursor.
+ * Nur Beiträge, keine automatischen Einträge (F-550) – Bedingung auf die Art der Aktivität `kindExpr`, als Positivliste
+ * (`STREAM_POST_KINDS`): unbekannte Arten fallen heraus. Im SQL statt nach dem Formen, damit Seiten nicht kürzer werden.
  */
-export const PERSONAL_SQL = `SELECT t.activity_id AS id, MAX(t.created_at) AS at
+export const postKindsSql = (kindExpr: string) => `${kindExpr} IN (${STREAM_POST_KINDS.map((x) => `'${x}'`).join(', ')})`;
+
+/** Kandidaten über die Schlüsselliste ab dem Cursor; `extra`: weitere Bedingung je Zeile `t` von activity_target. */
+const targetsSql = (extra = '') => `SELECT t.activity_id AS id, MAX(t.created_at) AS at
   FROM json_each(?1) AS k CROSS JOIN activity_target t
     ON t.target_kind = json_extract(k.value, '$[0]') AND t.target_id = json_extract(k.value, '$[1]')
-  WHERE (t.created_at < ?2 OR (t.created_at = ?2 AND t.activity_id < ?3)) AND ${TEXT_ONLY_SQL}
+  WHERE (t.created_at < ?2 OR (t.created_at = ?2 AND t.activity_id < ?3)) AND ${TEXT_ONLY_SQL}${extra}
   GROUP BY t.activity_id
   ORDER BY at DESC, id DESC
   LIMIT ?4`;
+
+/**
+ * Die eine Stream-Abfrage: Schlüsselliste (JSON) als äußere Schleife (CROSS JOIN), je Schlüssel ein Bereich im Index
+ * activity_target(target_kind, target_id, created_at), gruppiert nach Aktivität, neueste zuerst, ab dem Cursor.
+ */
+export const PERSONAL_SQL = targetsSql();
+
+/**
+ * Neueste Beiträge der ganzen Plattform ab dem Cursor (`?1` Zeit, `?2` ID, `?3` Grenze) für „Alles“ im öffentlichen
+ * Community-Stream (F-178) – Index activity_recent, ohne automatische Einträge (F-550).
+ */
+export const RECENT_POSTS_SQL = `SELECT id, created_at AS at FROM activity
+  WHERE (created_at < ?1 OR (created_at = ?1 AND id < ?2)) AND ${postKindsSql('kind')}
+  ORDER BY created_at DESC, id DESC LIMIT ?3`;
+
+/** Dieselbe Abfrage für die öffentliche Umgebung (F-340): nur Beiträge, keine automatischen Einträge (F-550). */
+export const PUBLIC_TARGETS_SQL = targetsSql(` AND ${postKindsSql('(SELECT a.kind FROM activity a WHERE a.id = t.activity_id)')}`);
 
 /** Kandidaten für das Community-Badge (F-221): dieselbe Schlüsselliste, alles nach dem Gelesen-Zeitpunkt. */
 export const UNREAD_SQL = `SELECT t.activity_id AS id, MAX(t.created_at) AS at

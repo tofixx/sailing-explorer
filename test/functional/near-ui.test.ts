@@ -160,11 +160,22 @@ describe('F-349/F-350 Beitrittsmeldungen', () => {
 
   it('[F-350] [F-447] Schalter „Automatische Einträge“ blendet Beitritte (und andere automatische Einträge) aus und meldet sx-stream-joins', async () => {
     const joins = listen('sx-stream-joins');
-    const el = await mount({ signedIn: false, mode: 'all', shown: 'all', joins: false, stream: { items: [join, voyage], cursor: null } });
+    const el = await mount({ signedIn: true, mode: 'mine', shown: 'mine', joins: false, stream: { items: [join, voyage], cursor: null } });
     const stream = el.shadowRoot.querySelector('sx-stream') as unknown as { items: Array<{ kind: string }> };
     expect(stream.items.map((i) => i.kind)).toEqual(['voyage']);
     button(el, /Automatische Einträge/)!.click();
     expect(joins).toEqual([{ show: true }]);
+  });
+
+  it('[F-551] [F-350] Schalter „Automatische Einträge“ nur unter „Meine“ – nicht unter „Alles“ und „Umgebung“, auch nicht für Gäste', async () => {
+    for (const [signedIn, mode] of [[false, 'all'], [false, 'near'], [true, 'all'], [true, 'near']] as const) {
+      const el = await mount({ signedIn, mode, shown: mode, joins: true, stream: { items: [voyage], cursor: null } });
+      expect(button(el, /Automatische Einträge/), `${signedIn} ${mode}`).toBeUndefined();
+      expect(el.shadowRoot.querySelector('sx-stream')?.getAttribute('scope')).toBe('public');
+    }
+    const mine = await mount({ signedIn: true, mode: 'mine', shown: 'mine', joins: true, stream: { items: [voyage], cursor: null } });
+    expect(button(mine, /Automatische Einträge/)?.getAttribute('aria-pressed')).toBe('true');
+    expect(mine.shadowRoot.querySelector('sx-stream')?.getAttribute('scope')).toBe('home');
   });
 
   it('[F-350] ganz weggefilterte Seite: „Mehr laden“ bleibt', async () => {

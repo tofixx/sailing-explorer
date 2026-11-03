@@ -18,7 +18,7 @@ import type { Reach } from '../src/domain/posts';
 import { attachPolls } from './polls';
 import { attachEvents } from './events';
 import { logbookIds, shapeItem, type ActivityRow, type LogShare, type ReadAt, type Viewer } from './stream-shape';
-import { PERSONAL_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL } from './stream-sql';
+import { PERSONAL_SQL, PUBLIC_TARGETS_SQL, RECENT_POSTS_SQL, STREAM_TARGETS_MAX, TARGET_SQL, UNREAD_SQL, postKindsSql } from './stream-sql';
 import { pageByDays, type Candidate, type DayPageOut } from './stream-days';
 import { DAY_CURSOR_ID, dayOfKey, isLargeChannel, staysSingle, type DayCard } from '../src/domain/large-groups';
 import {
@@ -344,11 +344,15 @@ export async function markStreamSeen(request: Request, env: Env): Promise<Respon
 
 // ---------------------------------------------------------------- Streams einzelner Ziele (Gruppe, Hafen)
 
-/** Kandidaten eines Ziels ab dem Cursor; `since`: nur ab diesem Zeitpunkt (ein Tag, F-468). */
-async function targetCandidates(env: Env, kind: 'group' | 'harbor' | 'boat', id: string, c: StreamCursor, since = 0, limit = STREAM_SCAN): Promise<Candidate[]> {
+/**
+ * Kandidaten eines Ziels ab dem Cursor; `since`: nur ab diesem Zeitpunkt (ein Tag, F-468); `postsOnly`: ohne automatische
+ * Einträge (öffentlicher Community-Stream, F-550).
+ */
+async function targetCandidates(env: Env, kind: 'group' | 'harbor' | 'boat', id: string, c: StreamCursor, since = 0, limit = STREAM_SCAN, postsOnly = false): Promise<Candidate[]> {
+  const posts = postsOnly ? ` AND ${postKindsSql('(SELECT a.kind FROM activity a WHERE a.id = activity_target.activity_id)')}` : '';
   const { results } = await env.DB.prepare(
     `SELECT activity_id AS id, created_at AS at FROM activity_target
-     WHERE target_kind = ?1 AND target_id = ?2 AND (created_at < ?3 OR (created_at = ?3 AND activity_id < ?4)) AND created_at >= ?6
+     WHERE target_kind = ?1 AND target_id = ?2 AND (created_at < ?3 OR (created_at = ?3 AND activity_id < ?4)) AND created_at >= ?6${posts}
      ORDER BY created_at DESC, activity_id DESC LIMIT ?5`,
   )
     .bind(kind, id, c.at, c.id, limit, since)
@@ -368,18 +372,21 @@ const groupAt = (group: { id: string; parent_id?: string | null; members_visible
  * Einträge einer Gruppe (Ziel `group`) – auch für RSS (worker/feed.ts). Ausgebreitete Beiträge (Teams → Verein) nur,
  * solange „Sichtbar bis“ den Verein abdeckt (F-409); `parentId`: Verein eines Teams (dessen Beiträge kommen herunter).
  */
-export async function groupItems(env: Env, group: { id: string; parent_id?: string | null; members_visible?: string | null }, viewer: Viewer, c: StreamCursor, role: GroupRole | null = null) {
+export async function groupItems(env: Env, group: { id: string; parent_id?: string | null; members_visible?: string | null }, viewer: Viewer, c: StreamCursor, role: GroupRole | null = null, postsOnly = false) {
   // Törns der Mitglieder nur, wenn der Lesende die Mitglieder sehen darf (F-442, Konzept 24.7) – ohne Betrachter
   // (öffentlicher Cache, RSS, Community-Filter) bei Liste „nur Mitglieder“ also nie
-  return resolve(env, { ...viewer, at: groupAt(group, role) }, await targetCandidates(env, 'group', group.id, c), STREAM_SCAN, undefined, group.id);
+  return resolve(env, { ...viewer, at: groupAt(group, role) }, await targetCandidates(env, 'group', group.id, c, 0, STREAM_SCAN, postsOnly), STREAM_SCAN, undefined, group.id);
 }
 
 /** Hafen-Stream: Törns und Fotos nur mit (jetzt) öffentlichem Boot – sonst verriete er den Hafen eines privaten Boots. */
 const harborKeep = (i: StreamItem) => (i.kind === 'voyage' || i.kind === 'photos' ? !!i.voyage?.boat : true);
 
-/** Hafen-Stream (F-425): eigene Beiträge und Ausbreitung bis „Sichtbar bis: Hafen“ (F-409). */
-export async function harborItems(env: Env, harborId: string, viewer: Viewer, c: StreamCursor) {
-  return resolve(env, { ...viewer, at: { kind: 'harbor', id: harborId } }, await targetCandidates(env, 'harbor', harborId, c), STREAM_SCAN, harborKeep);
+/**
+ * Hafen-Filter des öffentlichen Community-Streams (F-178): eigene Beiträge und Ausbreitung bis „Sichtbar bis: Hafen“
+ * (F-409), nur Beiträge (F-550). Die Hafenseite selbst liest über `channelPage` – dort bleiben automatische Einträge.
+ */
+async function harborPosts(env: Env, harborId: string, viewer: Viewer, c: StreamCursor) {
+  return resolve(env, { ...viewer, at: { kind: 'harbor', id: harborId } }, await targetCandidates(env, 'harbor', harborId, c, 0, STREAM_SCAN, true), STREAM_SCAN, harborKeep);
 }
 
 /** Boots-Stream (F-425): Beiträge am Boot, seine Törns (ab „Sichtbar bis: Hafen“), neue Gruppen und Häfen. */
@@ -552,11 +559,9 @@ async function publicFilters(env: Env) {
   };
 }
 
-/** Neueste Aktivitäten der ganzen Plattform (Index activity_recent). */
+/** Neueste Beiträge der ganzen Plattform (Index activity_recent) – ohne automatische Einträge (F-550). */
 async function recentCandidates(env: Env, c: StreamCursor): Promise<Candidate[]> {
-  const { results } = await env.DB.prepare(
-    `SELECT id, created_at AS at FROM activity WHERE created_at < ?1 OR (created_at = ?1 AND id < ?2) ORDER BY created_at DESC, id DESC LIMIT ?3`,
-  )
+  const { results } = await env.DB.prepare(RECENT_POSTS_SQL)
     .bind(c.at, c.id, STREAM_SCAN)
     .all<Candidate>();
   return results;
@@ -565,7 +570,8 @@ async function recentCandidates(env: Env, c: StreamCursor): Promise<Candidate[]>
 /**
  * GET /api/stream/public?cursor=&harbor=<slug>&club=<slug> – für alle, ohne Betrachter geprüft (nur Öffentliches),
  * 60 s gecacht. Ohne Angabe alles Öffentliche, sonst eingegrenzt auf einen Hafen oder einen öffentlichen Verein bzw. ein
- * öffentliches Team (`club`). Unbekannter oder ausgeblendeter Hafen bzw. nicht öffentliche Gruppe: 404.
+ * öffentliches Team (`club`). Unbekannter oder ausgeblendeter Hafen bzw. nicht öffentliche Gruppe: 404. Nur Beiträge –
+ * automatische Einträge (Beitritte, Boote, Meilensteine, F-447) nie, schon in der Abfrage (F-550).
  */
 export async function publicStream(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -580,12 +586,12 @@ export async function publicStream(request: Request, env: Env): Promise<Response
     const h = await loadHarborBySlug(env, harborSlug);
     if (!harborVisible(h)) throw HARBOR_NOT_FOUND();
     filterKey = `harbor=${h.id}`;
-    compute = () => harborItems(env, h.id, { id: null }, c);
+    compute = () => harborPosts(env, h.id, { id: null }, c);
   } else if (clubSlug) {
     const g = await loadGroupBySlug(env, clubSlug);
     if (!g || g.visibility !== 'public' || g.hidden_at) throw new HttpError(404, 'not_found', 'Diese Gruppe gibt es nicht oder sie ist nicht öffentlich.');
     filterKey = `club=${g.id}`;
-    compute = () => groupItems(env, g, { id: null }, c);
+    compute = () => groupItems(env, g, { id: null }, c, null, true);
   } else {
     compute = async () => resolve(env, { id: null, at: { kind: 'community' } }, await recentCandidates(env, c), STREAM_SCAN);
   }
@@ -628,7 +634,7 @@ export async function placesNear(env: Env, center: LatLon, km: number) {
  * `r` km (10, 25, 50, 100; Standard 25) und aus öffentlichen Vereinen und Teams mit Heimathafen dort. Mittelpunkt ist
  * ein auf 0,1° gerundeter Standort oder ein Hafen mit Position (sonst 422 `no_position`). Ohne Betrachter geprüft wie
  * der öffentliche Stream, 60 s gecacht; der Schlüssel enthält nur gerundeten Mittelpunkt, Umkreis und Cursor. Die
- * erste Seite nennt Zahl der Orte und den Mittelpunkt-Hafen.
+ * erste Seite nennt Zahl der Orte und den Mittelpunkt-Hafen. Nur Beiträge, keine automatischen Einträge (F-550).
  */
 export async function nearStream(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -656,7 +662,7 @@ export async function nearStream(request: Request, env: Env): Promise<Response> 
     const { harbors, groups } = await placesNear(env, center, km);
     const keys = [...harbors.map((h) => ['harbor', h.id]), ...groups.map((g) => ['group', g.id])];
     const page = keys.length
-      ? await resolve(env, { id: null, at: { kind: 'community' } }, (await env.DB.prepare(PERSONAL_SQL).bind(JSON.stringify(keys), c.at, c.id, STREAM_SCAN).all<Candidate>()).results, STREAM_SCAN, harborKeep)
+      ? await resolve(env, { id: null, at: { kind: 'community' } }, (await env.DB.prepare(PUBLIC_TARGETS_SQL).bind(JSON.stringify(keys), c.at, c.id, STREAM_SCAN).all<Candidate>()).results, STREAM_SCAN, harborKeep)
       : { items: [], cursor: null };
     return first ? { ...page, near: { places: harbors.length + groups.length, center: place } } : page;
   };

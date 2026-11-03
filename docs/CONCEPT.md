@@ -3276,7 +3276,9 @@ Push) bleibt; sein „Aus“ entfällt – ob überhaupt benachrichtigt wird, en
 
 Austritt, Team angelegt und Rollenwechsel erzeugen keine Stream-Einträge (Austritt löscht den Beitritt); kämen sie
 dazu, wären sie „automatisch“ (Typprüfung über `STREAM_KIND_CLASS`). Der Schalter „Automatische Einträge“ (vorher
-„Beitritte“, F-350) wirkt auf dem Gerät in allen Streams und im Badge (`?joins=0`).
+„Beitritte“, F-350) wirkt auf dem Gerät in „Meine“, in Gruppen-, Hafen- und Boots-Streams und im Badge (`?joins=0`) und
+steht nur unter „Meine“ (F-551): der öffentliche Community-Stream („Alles“, Filter, „Umgebung“) enthält keine
+automatischen Einträge, schon in der Abfrage (F-550).
 
 `shouldNotify(level, event, isDirect)`: Stumm nie; automatisch nie; Direktes ab „Nur Direktes“; Wichtiges ab
 „Wichtiges“; jeder Beitrag nur bei „Alle Beiträge“. Die Glocke (`sx-notify-bell` mit `MenuController`/`menuStyles`,
