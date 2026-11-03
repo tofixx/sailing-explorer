@@ -112,11 +112,18 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 
 ### Reservierungen
 
-Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
+Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-509**, **Konzept 32**, **Migration 0040** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
 sind F-451, Konzept 27 (`docs/concept/27-….md`; Konzept 26 = Diagramm-Zoom, F-430) und Migration 0034. Neue Aufträge bekommen ihren Bereich hier, bevor
 sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
 | Branch / Auftrag | F-IDs | Konzept | Migration | Berührt | Stand |
 |---|---|---|---|---|---|
 | `docs/roadmap` (diese Roadmap, Prozess-Fixes) | – | – | – | `CLAUDE.md`, `vite.config.ts`, `worker-harness.ts`, `data-scroll-x` in 8 Komponenten | lokal committet |
-| `feature/mitglieder-sichtbarkeit` (Mitgliedschaften, Folgen, Glocke) | F-440 … F-449 | 24 | 0032, **0033** (`follows_cleanup`, Altbestand der Vorschau) | Streams, Benachrichtigungen, Gruppen, Profil, Konto | Review-Runde 3 |
+| `feature/mitglieder-sichtbarkeit` (Mitgliedschaften, Folgen, Glocke) | F-440 … F-449 | 24 | 0032, **0033** (`follows_cleanup`, Altbestand der Vorschau) | Streams, Benachrichtigungen, Gruppen, Profil, Konto | gemergt |
+| `feature/loesch-register` (Lösch-Register, Sichtbarkeits-Bausteine, R 1/R 3) – Welle 1 | F-451 … F-454 | – | – | | gestartet 03.11. |
+| `feature/fahrtenbuch-jahre` (Phase 8: Verwaltungsbereich, Fahrtenbuch nach Jahren, F-411/F-412/F-418) – Welle 1 | F-455 … F-464 | 27 | 0034 | | gestartet 03.11. |
+| `feature/grosse-gruppen` (Phase 6: Publikums-Hinweis, Tageszusammenfassung, F-417) – Welle 1 | F-465 … F-469 | 28 | 0035 | | gestartet 03.11. |
+| `feature/umfragen` (Phase 4, F-407) – Welle 2 nach dem Register | F-470 … F-479 | 29 | 0036 | | reserviert |
+| `feature/veranstaltungen` (Phase 5, F-408/F-410) – Welle 2 nach dem Register | F-480 … F-489 | 30 | 0037 | | reserviert |
+| `feature/galerie` (Phase 7, Neubau `photos`) – Welle 2 nach dem Register | F-490 … F-499 | 31 | 0038, 0039 | | reserviert |
+| `feature/wertung` (Phase 9, F-413/F-414) – Welle 3 nach Phase 8 | F-500 … F-509 | 32 | 0040 | | reserviert |
