@@ -31,6 +31,7 @@ import { coverRef } from '../src/domain/cover';
 import { notifyRequest } from './notifications';
 import { claimTargetCleanup, displacedSql } from './claim-cleanup';
 import { notSuspendedSql, publicSql } from './visible-sql';
+import { membersVisibleSql } from './member-sql';
 
 const DAY = 86_400_000;
 
@@ -798,7 +799,12 @@ export async function removeGroupBoat(request: Request, env: Env, id: string, bo
  * Bedingung mit Platzhalter ?2 (Suche auf /entdecken, F-331). `near`: Hafen-IDs (JSON, nächste zuerst) – nur Gruppen
  * mit Heimathafen dort, nach Nähe sortiert (F-344).
  */
-export async function publicGroups(env: Env, limit: number, search?: { where: string; like: string }, near?: string | null) {
+/**
+ * Öffentliche Gruppen für /entdecken. `classes` (JSON, F-537): nur Gruppen mit einem öffentlichen Boot dieser Klassen –
+ * und nur, wenn ihre Boote für alle sichtbar sind (`membersVisibleSql` ohne Betrachter), damit die Antwort für alle
+ * gleich bleibt und keine nur für Mitglieder sichtbare Bootsliste verrät.
+ */
+export async function publicGroups(env: Env, limit: number, search?: { where: string; like: string }, near?: string | null, classes?: string | null) {
   const stmt = env.DB.prepare(
     `SELECT g.id, g.slug, g.name, g.kind, g.home_port, g.description, g.join_mode, g.created_at, g.verified_at, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members,
        c.ver AS cover_ver, c.focus_y AS cover_y
@@ -806,9 +812,11 @@ export async function publicGroups(env: Env, limit: number, search?: { where: st
      WHERE ${publicSql('g')}
        AND ${notSuspendedSql('g.owner_id')} ${search?.where ?? ''}
        ${near ? `AND g.harbor_id IN (SELECT value FROM json_each(?3))` : ''}
+       ${classes ? `AND ${membersVisibleSql('g', "''")} AND EXISTS (SELECT 1 FROM group_boats gb JOIN boats cb ON cb.id = gb.boat_id WHERE gb.group_id = g.id AND ${publicSql('cb')} AND ${notSuspendedSql('cb.owner_id')} AND cb.boat_class IN (SELECT value FROM json_each(?4)))` : ''}
      ORDER BY ${near ? `${nearRank('g.harbor_id')}, ` : ''}g.created_at DESC, g.id LIMIT ?1`,
   );
-  const { results } = await (near ? stmt.bind(limit, search?.like ?? '', near) : search ? stmt.bind(limit, search.like) : stmt.bind(limit))
+  const args = classes ? [limit, search?.like ?? '', near ?? '[]', classes] : near ? [limit, search?.like ?? '', near] : search ? [limit, search.like] : [limit];
+  const { results } = await stmt.bind(...args)
     .all<{ id: string; slug: string; name: string; kind: GroupKind; home_port: string; description: string; join_mode: JoinMode; created_at: number; verified_at: number | null; members: number; cover_ver: string | null; cover_y: number | null }>();
   return results.map((g) => ({
     id: g.id, slug: g.slug, name: g.name, kind: g.kind, homePort: g.home_port, description: g.description, joinMode: g.join_mode, createdAt: g.created_at, members: g.members, verified: g.kind === 'club' && !!g.verified_at,

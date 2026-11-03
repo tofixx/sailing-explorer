@@ -18,12 +18,15 @@ import { checkBoatQuota, checkVisibilityChoice } from './supporter';
 import { BOAT_ID_RE, LIMITS, cleanText, parseVisibility } from './validate';
 import { DEFAULT_VISIBILITY, sharePath, type Visibility } from '../src/domain/visibility';
 import { publicSql } from './visible-sql';
+import { classifyBoatType, isBoatClass } from '../src/domain/boat-class';
 
 interface BoatRow {
   id: string;
   owner_id: string;
   name: string;
   boat_type: string;
+  /** Bootsklasse aus BOAT_CLASSES (0042, Konzept 34), leer = nicht zugeordnet */
+  boat_class?: string;
   length_m: number | null;
   sail_number: string;
   /** Anzeige-Kopie des Hafennamens (Konzept 12.2) */
@@ -94,6 +97,7 @@ export function boatShape(b: BoatRow, role: Role) {
     id: b.id,
     name: b.name,
     boatType: b.boat_type,
+    boatClass: b.boat_class ?? '',
     lengthM: b.length_m,
     sailNumber: b.sail_number,
     // Name des Hafens (ausgeblendeter Hafen: leer)
@@ -119,6 +123,8 @@ export function boatShape(b: BoatRow, role: Role) {
 interface BoatInput {
   name?: unknown;
   boatType?: unknown;
+  /** Klasse aus BOAT_CLASSES, '' = keine (F-536) */
+  boatClass?: unknown;
   lengthM?: unknown;
   sailNumber?: unknown;
   homePort?: unknown;
@@ -141,6 +147,13 @@ function applyInput(b: BoatRow, input: BoatInput): Visibility | null {
     b.name = name;
   }
   if (input.boatType !== undefined) b.boat_type = cleanText(input.boatType, LIMITS.nameLength);
+  // Klasse (F-536): gespeichert wird, was der Eigner schickt; abgeleitet aus dem Typ nur, solange das Boot keine hat
+  // (neues Boot, Altbestand ohne Treffer, Clients ohne das Feld).
+  const cls = input.boatClass;
+  if (cls !== undefined) {
+    if (!(cls === '' || isBoatClass(cls))) throw new HttpError(400, 'invalid_boat_class', 'Unbekannte Bootsklasse.');
+    b.boat_class = cls;
+  } else if (input.boatType !== undefined && !b.boat_class) b.boat_class = classifyBoatType(b.boat_type);
   if (input.sailNumber !== undefined) b.sail_number = cleanText(input.sailNumber, 20);
   if (input.description !== undefined) b.description = cleanText(input.description, LIMITS.bioLength);
   if (input.ownerLabel !== undefined) b.owner_label = cleanText(input.ownerLabel, LIMITS.nameLength);
@@ -194,7 +207,7 @@ export async function createBoat(request: Request, env: Env): Promise<Response> 
   await checkBoatQuota(env, user.id);
   const now = Date.now();
   const b: BoatRow = {
-    id: randomId(), owner_id: user.id, name: '', boat_type: '', length_m: null, sail_number: '', home_port: '',
+    id: randomId(), owner_id: user.id, name: '', boat_type: '', boat_class: '', length_m: null, sail_number: '', home_port: '',
     description: '', owner_label: '', visibility: DEFAULT_VISIBILITY, share_key: null, created_at: now, updated_at: now,
   };
   const input = await readJson<BoatInput>(request);
@@ -203,10 +216,10 @@ export async function createBoat(request: Request, env: Env): Promise<Response> 
   const harbor = await harborFromBoatInput(env, user, input);
   setHarbor(b, harbor);
   await env.DB.prepare(
-    `INSERT INTO boats (id, owner_id, name, boat_type, length_m, sail_number, home_port, harbor_id, description, owner_label, visibility, share_key, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO boats (id, owner_id, name, boat_type, boat_class, length_m, sail_number, home_port, harbor_id, description, owner_label, visibility, share_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(b.id, b.owner_id, b.name, b.boat_type, b.length_m, b.sail_number, b.home_port, b.harbor_id ?? null, b.description, b.owner_label ?? '', b.visibility, b.share_key, now, now)
+    .bind(b.id, b.owner_id, b.name, b.boat_type, b.boat_class ?? '', b.length_m, b.sail_number, b.home_port, b.harbor_id ?? null, b.description, b.owner_label ?? '', b.visibility, b.share_key, now, now)
     .run();
   if (harbor) await recordHarborBoat(env, harbor.id, b.id, user.id, now);
   return json({ boat: boatShape(b, 'owner') }, { status: 201 });
@@ -262,9 +275,9 @@ export async function updateBoat(request: Request, env: Env, id: string): Promis
   setHarbor(b, harbor);
   b.updated_at = Date.now();
   await env.DB.prepare(
-    `UPDATE boats SET name = ?, boat_type = ?, length_m = ?, sail_number = ?, home_port = ?, harbor_id = ?, description = ?, owner_label = ?, visibility = ?, share_key = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE boats SET name = ?, boat_type = ?, boat_class = ?, length_m = ?, sail_number = ?, home_port = ?, harbor_id = ?, description = ?, owner_label = ?, visibility = ?, share_key = ?, updated_at = ? WHERE id = ?`,
   )
-    .bind(b.name, b.boat_type, b.length_m, b.sail_number, b.home_port, b.harbor_id ?? null, b.description, b.owner_label ?? '', b.visibility, b.share_key, b.updated_at, id)
+    .bind(b.name, b.boat_type, b.boat_class ?? '', b.length_m, b.sail_number, b.home_port, b.harbor_id ?? null, b.description, b.owner_label ?? '', b.visibility, b.share_key, b.updated_at, id)
     .run();
   if (harbor && harbor.id !== before) await recordHarborBoat(env, harbor.id, b.id, user.id, b.updated_at);
   return json({ boat: boatShape(b, role) });

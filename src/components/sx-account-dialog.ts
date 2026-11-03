@@ -21,6 +21,9 @@ import './sx-support';
 import './sx-admin-reports';
 import './sx-filter-select';
 import { shownInText } from '../domain/groups';
+import { classifyBoatType } from '../domain/boat-class';
+import { ifDefined } from 'lit/directives/if-defined.js';
+import { boatClassOptions } from './boat-class-options';
 
 export type AccountTab = 'profile' | 'boats' | 'groups' | 'shares' | 'settings' | 'reports';
 
@@ -679,6 +682,8 @@ export class SxAccountDialog extends LitElement {
     const input: BoatInput = {
       name: String(d.get('name') || ''),
       boatType: String(d.get('boatType') || ''),
+      // gespeichert wie gewählt, '' = keine (F-536)
+      boatClass: String(d.get('boatClass') || ''),
       lengthM: len ? Number(len) : null,
       sailNumber: String(d.get('sailNumber') || ''),
       ...('name' in harbor ? { homePort: harbor.name, homePortPos: harbor.pos } : { harborId: harbor.harborId }),
@@ -690,6 +695,19 @@ export class SxAccountDialog extends LitElement {
     this.editBoat = null;
   }
 
+  /**
+   * Klasse vorschlagen (F-536): solange die Auswahl nicht von Hand gesetzt ist (bzw. das Boot noch keine Klasse hat),
+   * folgt sie dem eingegebenen Typ.
+   */
+  private suggestClass(e: Event) {
+    const select = this.shadowRoot?.querySelector<HTMLSelectElement>('#bk');
+    if (select && !select.dataset.touched) select.value = classifyBoatType((e.target as HTMLInputElement).value);
+  }
+
+  private classPicked(e: Event) {
+    (e.target as HTMLSelectElement).dataset.touched = '1';
+  }
+
   private openBoatForm(id: string) {
     this.boatVis = this.boats.find((b) => b.id === id)?.visibility ?? DEFAULT_VISIBILITY;
     this.offer = null;
@@ -698,6 +716,8 @@ export class SxAccountDialog extends LitElement {
 
   private boatForm(b: Boat | null) {
     const id = b?.id ?? 'new';
+    // Klasse (F-536): gespeicherte, sonst aus dem Typ vorgeschlagen
+    const cls = b?.boatClass || classifyBoatType(b?.boatType ?? '');
     return html`<form class="grid" @submit=${(e: Event) => this.saveBoat(e, id)}>
       <div>
         <label class="label" for="bn">Name</label>
@@ -705,7 +725,14 @@ export class SxAccountDialog extends LitElement {
       </div>
       <div>
         <label class="label" for="bt">Typ</label>
-        <input id="bt" name="boatType" type="text" maxlength="80" .value=${b?.boatType ?? ''} placeholder="z. B. Bavaria 34" />
+        <input id="bt" name="boatType" type="text" maxlength="80" .value=${b?.boatType ?? ''} placeholder="z. B. Bavaria 34" @input=${this.suggestClass} />
+      </div>
+      <div>
+        <label class="label" for="bk">Bootsklasse <span class="faint">(für den Filter in Entdecken)</span></label>
+        <select id="bk" name="boatClass" data-touched=${ifDefined(b?.boatClass ? '1' : undefined)} @change=${this.classPicked}>
+          <option value="" ?selected=${!cls}>Keine Angabe</option>
+          ${boatClassOptions(cls)}
+        </select>
       </div>
       <div>
         <label class="label" for="bl">Länge (m)</label>

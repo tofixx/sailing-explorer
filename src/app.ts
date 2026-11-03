@@ -810,6 +810,7 @@ export class App {
     // Gruppenseite und Vereinskarten auf /entdecken (F-333) – derselbe Ablauf, dort danach Mitgliedschaften neu
     on<{ id: string }>('sx-group-join', (d) => (this.ui.discoverPage.hidden ? g.join(d.id) : this.discover.join(d.id, () => g.join(d.id))));
     on<{ query: string }>('sx-discover-search', (d) => this.discover.search(d.query));
+    on<{ boatClass: string }>('sx-discover-class', (d) => this.discover.setBoatClass(d.boatClass));
     on<{ on: boolean }>('sx-discover-near', (d) => this.discover.setNear(d.on));
     on<{ radius: NearRadius }>('sx-discover-radius', (d) => this.discover.setRadius(d.radius));
     on('sx-discover-locate', () => this.discover.useLocation());

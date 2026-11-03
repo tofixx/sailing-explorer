@@ -5,6 +5,7 @@ import type { Store } from '../services/store';
 import type { SxDiscover } from '../components/sx-discover';
 import { SEARCH_LIMITS, searchKey } from '../domain/search';
 import { errorText } from './session';
+import { isBoatClassFilter } from '../domain/boat-class';
 import { APP_NAME } from '../domain/brand';
 
 /** Einträge je Liste auf /entdecken (F-74) */
@@ -39,8 +40,11 @@ export class DiscoverController {
     const page = this.page;
     page.hidden = false;
     document.title = `Entdecken · ${APP_NAME}`;
-    const query = new URLSearchParams(location.search).get('q') ?? '';
-    Object.assign(page, { query, data: null, error: '' });
+    const params = new URLSearchParams(location.search);
+    const query = params.get('q') ?? '';
+    // Bootsklasse aus ?klasse= (F-537); Unbekanntes filtert nicht
+    const klasse = params.get('klasse');
+    Object.assign(page, { query, boatClass: isBoatClassFilter(klasse) ? klasse : '', data: null, error: '' });
     this.loadedKey = null;
     await this.loadHome();
     await Promise.all([this.load(query), this.loadMembership()]);
@@ -60,6 +64,16 @@ export class DiscoverController {
       history.replaceState(history.state, '', url);
       void this.load(query);
     }, SEARCH_DELAY_MS);
+  }
+
+  /** Bootsklasse gewählt (F-537): Adresse ohne neuen Verlaufseintrag anpassen, sofort laden. */
+  setBoatClass(boatClass: string): Promise<void> {
+    this.page.boatClass = isBoatClassFilter(boatClass) ? boatClass : '';
+    const url = new URL(location.href);
+    if (this.page.boatClass) url.searchParams.set('klasse', this.page.boatClass);
+    else url.searchParams.delete('klasse');
+    history.replaceState(history.state, '', url);
+    return this.load(this.page.query);
   }
 
   // ---------------------------------------------------------------- Umgebung (F-344)
@@ -126,13 +140,14 @@ export class DiscoverController {
     const key = norm.length >= SEARCH_LIMITS.min ? query.trim() : '';
     const c = this.nearOn ? this.center() : null;
     const near = c ? { center: c.center, r: readNearPrefs().radius } : null;
-    const loaded = `${key ? norm : ''}|${JSON.stringify(near)}`;
+    const boatClass = this.page.boatClass;
+    const loaded = `${key ? norm : ''}|${JSON.stringify(near)}|${boatClass}`;
     if (this.page.data && this.loadedKey === loaded) return;
     const seq = ++this.seq;
     const page = this.page;
     page.loading = true;
     try {
-      const data = await api.discover(PAGE_LIMIT, key, near);
+      const data = await api.discover(PAGE_LIMIT, key, near, boatClass);
       if (seq !== this.seq) return;
       page.data = data;
       page.error = '';

@@ -163,6 +163,8 @@ export interface Boat extends Linkable {
   id: string;
   name: string;
   boatType: string;
+  /** Bootsklasse (Konzept 34): ID aus BOAT_CLASSES, '' = nicht zugeordnet – fehlt bei älteren Servern */
+  boatClass?: string;
   lengthM: number | null;
   sailNumber: string;
   homePort: string;
@@ -177,7 +179,7 @@ export interface Boat extends Linkable {
   role: 'owner' | 'admin' | null;
 }
 
-export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'lengthM' | 'sailNumber' | 'homePort' | 'description' | 'ownerLabel' | 'visibility'>> & {
+export type BoatInput = Partial<Pick<Boat, 'name' | 'boatType' | 'boatClass' | 'lengthM' | 'sailNumber' | 'homePort' | 'description' | 'ownerLabel' | 'visibility'>> & {
   /** Hafen (Konzept 12.2): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
   /** Lage eines neuen Hafens zu homePort (Pflicht beim Anlegen, F-353) */
@@ -339,6 +341,8 @@ export interface DiscoverBoat {
   id: string;
   name: string;
   boatType: string;
+  /** Bootsklasse (Konzept 34) – fehlt bei älteren Servern */
+  boatClass?: string;
   lengthM: number | null;
   homePort: string;
   createdAt: number;
@@ -535,11 +539,12 @@ export const api = {
   /** Saison-Zahlen der Community für die Startseite der Gäste (F-431), gecacht 10 Minuten */
   discoverStats: () => call<SeasonStats>('/api/discover/stats'),
   /** `near`: nur aus der Umgebung, nächste zuerst (F-344) */
-  discover: (limit: number, query = '', near?: { center: NearCenter; r: number } | null) =>
+  /** `boatClass`: Klasse oder Gruppe (F-537) */
+  discover: (limit: number, query = '', near?: { center: NearCenter; r: number } | null, boatClass = '') =>
     call<DiscoverData>(
       `/api/discover?limit=${limit}${query ? `&q=${encodeURIComponent(query)}` : ''}${
         near ? `&r=${near.r}&${'harbor' in near.center ? `harbor=${encodeURIComponent(near.center.harbor)}` : `lat=${near.center.lat}&lon=${near.center.lon}`}` : ''
-      }`,
+      }${boatClass ? `&klasse=${encodeURIComponent(boatClass)}` : ''}`,
     ),
 
   /** Lädt den Payload; der Browser entpackt gzip, wir begrenzen die Größe. */
@@ -942,6 +947,8 @@ export interface DiscoverData {
   query?: string;
   /** Antwort gilt für die Umgebung (F-344) */
   near?: boolean;
+  /** wirksamer Filter nach Bootsklasse (F-537), null = keiner */
+  boatClass?: string | null;
 }
 
 /** Mitgliedschaften für die Beitreten-Knöpfe auf /entdecken (F-333): Slugs der Gruppen. */

@@ -3378,5 +3378,6 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 32. Wertung und Jahresbericht (Phase 9, F-413, F-414, F-418, F-500 … F-507) → [`docs/concept/32-wertung.md`](concept/32-wertung.md)
 
 ## 33. Saisonrückblick: „Meine Saison“-Bild und Abzeichen-Reihe (F-520 … F-524) → [`docs/concept/33-saisonrueckblick.md`](concept/33-saisonrueckblick.md)
+## 34. Bootsklasse und Filter in Entdecken (F-535 … F-539) → [`docs/concept/34-bootsklasse.md`](concept/34-bootsklasse.md)
 
 ## 35. Moderation: Abgleich des Entwurfs mit dem Gebauten (Textfilter, Vertrauensstufen, Bildprüfung, Melden, Sperren) → [`docs/concept/35-moderation.md`](concept/35-moderation.md)

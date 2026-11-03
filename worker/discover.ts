@@ -11,6 +11,7 @@ import { placesNear } from './stream';
 import type { SeasonStats } from '../src/domain/season-stats';
 import { seasonOf, seasonStart } from '../src/domain/groups';
 import { notSuspendedSql, publicSql } from './visible-sql';
+import { boatClassesOf } from '../src/domain/boat-class';
 
 /**
  * Entdecken (F-70 … F-74): zuletzt gesegelte Törns, neue Boote und Segler.
@@ -47,6 +48,18 @@ const NEAR = {
   harbor: `AND h.id IN (SELECT value FROM json_each(?3))`,
 };
 
+/**
+ * Bootsklasse (F-537): Klassen-IDs als ?4 (JSON). Nur über öffentliche Boote – ein Törn zählt über sein öffentliches
+ * Boot, ein Segler über ein eigenes öffentliches Boot, ein Hafen über ein öffentliches Boot dort (Eigner nicht gesperrt).
+ */
+const IN_CLASS = (col: string) => `${col} IN (SELECT value FROM json_each(?4))`;
+const CLASS = {
+  voyage: `AND ${publicSql('b')} AND ${IN_CLASS('b.boat_class')}`,
+  boat: `AND ${IN_CLASS('b.boat_class')}`,
+  person: `AND EXISTS (SELECT 1 FROM boats cb WHERE cb.owner_id = p.user_id AND ${publicSql('cb')} AND ${IN_CLASS('cb.boat_class')})`,
+  harbor: `AND EXISTS (SELECT 1 FROM boats cb WHERE cb.harbor_id = h.id AND ${publicSql('cb')} AND ${notSuspendedSql('cb.owner_id')} AND ${IN_CLASS('cb.boat_class')})`,
+};
+
 const VOYAGES = (m: string) => `SELECT s.id, s.title, s.summary, s.dist_nm, s.source, s.started_at, s.created_at, s.has_image, s.track_count,
     b.id AS boat_id, b.name AS boat_name, b.visibility AS boat_visibility,
     p.handle, p.display_name
@@ -57,7 +70,7 @@ const VOYAGES = (m: string) => `SELECT s.id, s.title, s.summary, s.dist_nm, s.so
   ORDER BY COALESCE(s.started_at, s.created_at) DESC, s.id
   LIMIT ?1`;
 
-const BOATS = (m: string) => `SELECT b.id, b.name, b.boat_type, b.length_m, b.home_port, b.created_at, p.handle, p.display_name, c.ver AS cover_ver, c.focus_y AS cover_y,
+const BOATS = (m: string) => `SELECT b.id, b.name, b.boat_type, b.boat_class, b.length_m, b.home_port, b.created_at, p.handle, p.display_name, c.ver AS cover_ver, c.focus_y AS cover_y,
     (SELECT COUNT(*) FROM shares s WHERE s.boat_id = b.id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS voyages,
     (SELECT COALESCE(SUM(s.dist_nm), 0) FROM shares s WHERE s.boat_id = b.id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_nm,
     (SELECT ${RECORDED_NM_SQL} FROM shares s WHERE s.boat_id = b.id AND ${LISTED} AND ${IN_LOGBOOK_SQL}) AS dist_rec
@@ -86,9 +99,9 @@ const PEOPLE = (m: string) => `SELECT * FROM (
  * Häfen (F-332): nicht ausgeblendet, mit Zahl der öffentlichen Boote und Vereine/Teams. Ohne Suche nur Häfen, in
  * denen etwas los ist (meiste zuerst); mit Suche jeder passende – Häfen sind immer öffentlich (Konzept 12.2).
  */
-const HARBORS = (m: string) => `SELECT * FROM (
+const HARBORS = (m: string, cls: boolean) => `SELECT * FROM (
     SELECT h.id, h.slug, h.name,
-      (SELECT COUNT(*) FROM boats b WHERE b.harbor_id = h.id AND ${publicSql('b')} AND ${notSuspendedSql('b.owner_id')}) AS boats,
+      (SELECT COUNT(*) FROM boats b WHERE b.harbor_id = h.id AND ${publicSql('b')} AND ${notSuspendedSql('b.owner_id')}${cls ? ` AND ${IN_CLASS('b.boat_class')}` : ''}) AS boats,
       (SELECT COUNT(*) FROM groups g WHERE g.harbor_id = h.id AND ${publicSql('g')} AND ${notSuspendedSql('g.owner_id')}) AS clubs
     FROM harbors h
     WHERE h.hidden_at IS NULL ${m}
@@ -127,6 +140,7 @@ interface BoatRow {
   id: string;
   name: string;
   boat_type: string;
+  boat_class: string;
   length_m: number | null;
   home_port: string;
   created_at: number;
@@ -178,6 +192,7 @@ const boatShape = (r: BoatRow) => ({
   id: r.id,
   name: r.name,
   boatType: r.boat_type,
+  boatClass: r.boat_class,
   lengthM: r.length_m,
   homePort: r.home_port,
   createdAt: r.created_at,
@@ -219,8 +234,9 @@ async function nearOf(env: Env, params: URLSearchParams): Promise<{ ids: string;
 }
 
 /**
- * GET /api/discover?limit=…&q=…&lat=&lon=&r= bzw. &harbor= – öffentliche Inhalte, neueste zuerst; mit `q` nur passende
- * (F-331); mit Mittelpunkt nur aus Häfen im Umkreis, nächste zuerst, Häfen mit Entfernung (F-344).
+ * GET /api/discover?limit=…&q=…&lat=&lon=&r= bzw. &harbor=…&klasse=… – öffentliche Inhalte, neueste zuerst; mit `q` nur
+ * passende (F-331); mit Mittelpunkt nur aus Häfen im Umkreis, nächste zuerst, Häfen mit Entfernung (F-344); mit
+ * `klasse` (Klasse oder Gruppe, F-537) nur, was an einem öffentlichen Boot dieser Klasse hängt.
  */
 export async function getDiscover(request: Request, env: Env): Promise<Response> {
   const params = new URL(request.url).searchParams;
@@ -229,15 +245,19 @@ export async function getDiscover(request: Request, env: Env): Promise<Response>
   const search = !!query;
   const near = params.has('lat') || params.has('harbor') ? await nearOf(env, params) : null;
   const like = search ? searchLike(query) : '';
-  const bind = (sql: string) =>
-    near ? env.DB.prepare(sql).bind(limit, like, near.ids) : search ? env.DB.prepare(sql).bind(limit, like) : env.DB.prepare(sql).bind(limit);
-  const n = (k: keyof typeof NEAR) => (near ? NEAR[k] : '');
+  const classes = boatClassesOf(params.get('klasse'));
+  const cls = classes ? JSON.stringify(classes) : null;
+  // ?1 Grenze, ?2 Suche, ?3 Häfen der Umgebung, ?4 Klassen – gebunden bis zum höchsten genutzten Platz
+  const args = cls ? [limit, like, near?.ids ?? '[]', cls] : near ? [limit, like, near.ids] : search ? [limit, like] : [limit];
+  const bind = (sql: string) => env.DB.prepare(sql).bind(...args);
+  const n = (k: keyof typeof NEAR & keyof typeof CLASS) => `${near ? NEAR[k] : ''} ${cls ? CLASS[k] : ''}`;
   const [voyages, boats, people, harbors] = await env.DB.batch([
     // nur der Titel – ein privates Boot darf über die Suche nicht zu seinen Törns führen
     bind(VOYAGES(`${matching(search, 's.title')} ${n('voyage')}`)),
     bind(BOATS(`${matching(search, 'b.name', 'b.boat_type', 'b.home_port')} ${n('boat')}`)),
     bind(PEOPLE(`${matching(search, 'p.display_name', 'p.handle')} ${n('person')}`)),
-    bind(HARBORS(`${matching(search, 'h.name')} ${n('harbor')}`)),
+    // mit Klassen-Filter zählt der Hafen nur Boote dieser Klassen (F-537)
+    bind(HARBORS(`${matching(search, 'h.name')} ${n('harbor')}`, !!cls)),
   ]);
   return json(
     {
@@ -246,12 +266,14 @@ export async function getDiscover(request: Request, env: Env): Promise<Response>
       boats: (boats.results as unknown as BoatRow[]).map(boatShape),
       people: (people.results as unknown as PersonRow[]).map(personShape),
       // Vereine und Teams (Konzept 11.5): öffentlich, nicht ausgeblendet, Eigner nicht gesperrt
-      groups: await publicGroups(env, limit, search ? { where: matching(true, 'g.name', 'g.home_port'), like } : undefined, near?.ids),
+      groups: await publicGroups(env, limit, search ? { where: matching(true, 'g.name', 'g.home_port'), like } : undefined, near?.ids, cls),
       harbors: (harbors.results as unknown as HarborRow[]).map((r) => ({
         slug: r.slug, name: r.name, boats: r.boats, groups: r.clubs,
         ...(near ? { km: Math.round(near.km.get(r.id) ?? 0) } : {}),
       })),
       near: !!near,
+      // wirksamer Klassen-Filter (unbekannte Werte filtern nicht)
+      boatClass: classes ? params.get('klasse') : null,
     },
     // Nur öffentliche Daten, für alle gleich – darf kurz geteilt gecacht werden.
     { headers: { 'Cache-Control': 'public, max-age=60' } },
