@@ -3367,3 +3367,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 27. Verwaltungsbereich und Fahrtenbuch nach Jahren (Phase 8, F-411, F-412, F-418) → [`docs/concept/27-fahrtenbuch-jahre.md`](concept/27-fahrtenbuch-jahre.md)
 
 ## 28. Große Gruppen: Publikums-Hinweis und Tageszusammenfassung (F-465 … F-469) → [`docs/concept/28-grosse-gruppen.md`](concept/28-grosse-gruppen.md)
+
+## 29. Umfragen (F-407, F-470 … F-478) → [`docs/concept/29-umfragen.md`](concept/29-umfragen.md)
