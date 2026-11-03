@@ -209,6 +209,10 @@ export class SxProfilePage extends LitElement {
         min-width: 0;
         overflow-wrap: anywhere;
       }
+      /* Tippziel ≥ 44 px (CLAUDE.md Selbstprüfung 5) – ohne negativen Rand, damit es die Zeile darüber nicht überdeckt */
+      .facts .web a {
+        padding-block: 13px;
+      }
       .facts .vis {
         display: inline-flex;
         align-items: center;

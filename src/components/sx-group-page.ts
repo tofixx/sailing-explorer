@@ -177,6 +177,10 @@ export class SxGroupPage extends LitElement {
         min-width: 0;
         overflow-wrap: anywhere;
       }
+      /* Tippziel ≥ 44 px (CLAUDE.md Selbstprüfung 5) – ohne negativen Rand, damit es die Zeile darüber nicht überdeckt */
+      .facts .web a {
+        padding-block: 13px;
+      }
       .facts .vis {
         display: inline-flex;
         gap: 3px;
