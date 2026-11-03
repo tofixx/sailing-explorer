@@ -204,6 +204,13 @@ export function templateFor(templateId: string | undefined, templates: readonly 
 }
 
 /**
+ * Zeigen Fahrtenbuch und CSV Punkte (F-505)? Nur, wenn ein gezeigter Eintrag eine andere (noch vorhandene) Vorlage als
+ * „Nur Meilen“ hat – sonst wären Punkte nur die Seemeilen noch einmal.
+ */
+export const usesTemplates = (entries: ReadonlyArray<{ log: { templateId?: string } }>, templates: readonly ScoringTemplate[]): boolean =>
+  entries.some((e) => templateFor(e.log.templateId, templates).id !== BASE_TEMPLATE_ID);
+
+/**
  * Vorbelegung im Formular (F-501): die Vorlage des Eintrags, sonst die zuletzt genutzte, sonst „Nur Meilen“ – jeweils
  * nur, wenn sie noch wählbar ist.
  */

@@ -202,7 +202,7 @@ describe('sx-account-menu', () => {
     button(el.shadowRoot, /Mein Bereich/)!.click();
     await el.updateComplete;
     const links = [...el.shadowRoot.querySelectorAll('a.item')].map((a) => [a.textContent!.trim(), a.getAttribute('href')]);
-    expect(links).toEqual([['Meine Seite', '/u/anna'], ['Mein Fahrtenbuch', '/konto/fahrtenbuch'], ['Wertung', '/konto/wertung']]);
+    expect(links).toEqual([['Meine Seite', '/u/anna'], ['Mein Fahrtenbuch', '/konto/fahrtenbuch']]);
     button(el.shadowRoot, /Konto & Einstellungen/)!.click();
     expect(accounts).toEqual([null]);
   });
@@ -211,7 +211,7 @@ describe('sx-account-menu', () => {
     const accounts = listen('sx-account');
     const el = await mount('sx-account-menu', { user: { id: 'U1', email: 'bo@example.org', handle: null, displayName: null }, open: true });
     expect(el.shadowRoot.querySelector('.avatar')!.textContent).toBe('b');
-    expect([...el.shadowRoot.querySelectorAll('a.item')].map((a) => a.getAttribute('href'))).toEqual(['/konto/fahrtenbuch', '/konto/wertung']);
+    expect([...el.shadowRoot.querySelectorAll('a.item')].map((a) => a.getAttribute('href'))).toEqual(['/konto/fahrtenbuch']);
     button(el.shadowRoot, /Meine Seite/)!.click();
     expect(accounts).toEqual(['profile']);
   });

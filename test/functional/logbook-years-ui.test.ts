@@ -186,7 +186,7 @@ describe('Zusatzangaben im Fahrtenbuch-Formular', () => {
     expect(el.shadowRoot.querySelector<HTMLInputElement>('[name="engineH"]')!.value).toBe('1,1');
     const saves = events(el, 'sx-logbook-save');
     el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
-    expect(saves).toEqual([{ id: 'GpxShareId23456789', patch: { log: { sailH: 4.2, engineH: 1.1, daysAboard: 1, templateId: 'meilen' }, fromHarbor: null, toHarbor: null } }]);
+    expect(saves).toEqual([{ id: 'GpxShareId23456789', patch: { log: { sailH: 4.2, engineH: 1.1, daysAboard: 1 }, fromHarbor: null, toHarbor: null } }]);
   });
 
   it('[F-412] Revier schaltet die Felder um; Regatta und Posten (höchstens zehn) werden mitgespeichert', async () => {
@@ -215,8 +215,6 @@ describe('Zusatzangaben im Fahrtenbuch-Formular', () => {
     el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
     expect((saves[0] as { patch: { log: unknown } }).patch.log).toEqual({
       area: 'coastal', tidal: true, nightH: 2, regatta: { name: 'Kieler Woche' }, items: [{ name: 'Überführung', n: 1 }],
-      // Vorlage ist Pflicht (F-501): ohne geladene Vorlagen „Nur Meilen“
-      templateId: 'meilen',
     });
     for (let i = 1; i < 10; i++) button(el.shadowRoot, /Posten$/)!.click();
     await el.updateComplete;

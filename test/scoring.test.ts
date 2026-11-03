@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BASE_RULES, BASE_TEMPLATE, BASE_TEMPLATE_ID, RULE_FIELDS, clubListSeason, clubPoints, defaultTemplateId, listWeight, parseRules, pointsByTemplate,
-  readRules, reportScores, rulesSummary, scoreEntry, templateFor, templateName, type ScoringRules, type ScoringTemplate,
+  readRules, reportScores, rulesSummary, scoreEntry, templateFor, templateName, usesTemplates, type ScoringRules, type ScoringTemplate,
 } from '../src/domain/scoring';
 import { logbookCsv, type LogbookEntry } from '../src/domain/logbook-year';
 import { parseLog } from '../src/domain/logbook';
@@ -62,6 +62,9 @@ describe('Vorlage je Eintrag (F-501)', () => {
     expect(templateFor('preis', list).id).toBe('preis');
     expect(templateFor('weg', list)).toBe(BASE_TEMPLATE);
     expect(templateFor(undefined, list)).toBe(BASE_TEMPLATE);
+    // Punkte zeigen nur, wenn eine vorhandene Vorlage mehr als „Nur Meilen“ zählt (F-505)
+    expect(usesTemplates([{ log: {} }, { log: { templateId: BASE_TEMPLATE_ID } }, { log: { templateId: 'weg' } }], list)).toBe(false);
+    expect(usesTemplates([{ log: { templateId: 'preis' } }], list)).toBe(true);
   });
 
   it('[F-501] Vorbelegung: eigene Vorlage, sonst zuletzt genutzte, sonst „Nur Meilen“ – nur, wenn noch wählbar', () => {

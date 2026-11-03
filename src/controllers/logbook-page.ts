@@ -62,6 +62,8 @@ export class LogbookPageController {
       const [logbook, scoring] = await Promise.all([api.myLogbook(), scoringApi.mine().catch(() => null)]);
       page.entries = logbook.entries;
       page.templates = scoring?.templates ?? [];
+      // Einstieg „Wertung“ nur für Vereinsmitglieder und Admins der Vorschläge (F-507)
+      page.scoringLink = (scoring?.clubs?.length ?? 0) > 0 || !!scoring?.admin;
       // gewählte Saison ohne Einträge (z. B. im November schon die nächste): die neueste mit Einträgen
       const seasons = logbookSeasons(page.entries, Date.now());
       if (!seasons.includes(page.season)) {

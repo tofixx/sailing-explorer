@@ -10,7 +10,7 @@ import type { SxScoringEditor } from './sx-scoring-editor';
 
 /**
  * Verwaltungsbereich „Wertung“ (`/konto/wertung`, Konzept 32, F-500 … F-507): je eigenem Verein die Teilnahme an der
- * Vereinsliste (Opt-in) und die Liste selbst, für Eigner/Admins die Vorlagen des Vereins (übernehmen, bearbeiten,
+ * Vereinsliste (Opt-in) mit der eigenen Summe, für Eigner/Admins die ganze Liste, für Eigner/Admins die Vorlagen des Vereins (übernehmen, bearbeiten,
  * eigene, löschen), dazu die Vorschläge der Plattform (pflegen nur Plattform-Admins). Rein präsentational – Daten setzt
  * der ScoringPageController. Events: `sx-scoring-optin` { groupId, optIn }, `sx-scoring-list` { groupId, season },
  * `sx-scoring-edit` { template, groupId }, `sx-scoring-adopt` { groupId, sourceId }, `sx-scoring-delete` { template },
@@ -207,8 +207,8 @@ export class SxScoringPage extends LitElement {
       <h3><a href="/g/${c.slug}">${c.name}</a></h3>
       <label class="check">
         <input type="checkbox" .checked=${c.optIn} ?disabled=${this.busy} @change=${(e: Event) => emit(this, 'sx-scoring-optin', { groupId: c.id, optIn: (e.target as HTMLInputElement).checked })} />
-        <span>An der Vereinsliste teilnehmen
-          <span class="faint">– dann sehen die Admins von ${c.name} und alle, die dort teilnehmen, deinen Namen und deine Punktesumme. Es zählen nur Törns, die du in ${c.name} zeigst und mit einer Vorlage des Vereins wertest. Jederzeit abschaltbar.</span></span>
+        <span>An der Vereinsliste teilnehmen: Eigner:in und Admins von ${c.name} dürfen meine Punktesumme sehen
+          <span class="faint">– mit deinem Namen, ohne Einzelangaben. Es zählen nur öffentliche Törns, die du in ${c.name} zeigst und mit einer Vorlage des Vereins wertest. Andere Mitglieder sehen deine Summe nicht. Jederzeit abschaltbar.</span></span>
       </label>
       ${c.optIn || c.manage
         ? html`<div class="row">
@@ -216,7 +216,7 @@ export class SxScoringPage extends LitElement {
             <select id="season-${c.id}" @change=${(e: Event) => emit(this, 'sx-scoring-list', { groupId: c.id, season: Number((e.target as HTMLSelectElement).value) })}>
               ${this.seasons.map((s) => html`<option value=${s} ?selected=${(list?.season ?? this.season) === s}>${s}</option>`)}
             </select>
-            ${list ? '' : html`<button class="btn" ?disabled=${this.busy} @click=${() => emit(this, 'sx-scoring-list', { groupId: c.id, season: Number(this.renderRoot.querySelector<HTMLSelectElement>(`#season-${c.id}`)?.value ?? this.season) })}>${icon('community')} Vereinsliste zeigen</button>`}
+            ${list ? '' : html`<button class="btn" ?disabled=${this.busy} @click=${() => emit(this, 'sx-scoring-list', { groupId: c.id, season: Number(this.renderRoot.querySelector<HTMLSelectElement>(`#season-${c.id}`)?.value ?? this.season) })}>${icon('community')} ${c.manage ? 'Vereinsliste zeigen' : 'Meine Summe zeigen'}</button>`}
           </div>
           ${list ? this.clubList(list) : nothing}`
         : nothing}
@@ -235,7 +235,7 @@ export class SxScoringPage extends LitElement {
   }
 
   private clubList(l: ClubList) {
-    return html`<p class="note">${SCORING_NOTE} Reihenfolge nach Punkten – ohne Platzziffern, nur in diesem Verein.
+    return html`<p class="note">${SCORING_NOTE} ${l.full ? 'Reihenfolge nach Punkten – ohne Platzziffern, nur für Eigner:in und Admins.' : 'Nur deine Summe – die Liste sehen Eigner:in und Admins.'}
         ${l.templates.length ? `Es zählen: ${l.templates.map((t) => `${t.name} (× ${fmtNum(t.listWeight, t.listWeight % 1 ? 1 : 0)})`).join(', ')}.` : 'Noch zählt keine Vorlage – Admins legen das an der Vorlage fest.'}</p>
       ${l.members.length
         ? html`<ul aria-label="Vereinsliste ${l.season}">
@@ -249,7 +249,7 @@ export class SxScoringPage extends LitElement {
               </li>`,
             )}
           </ul>`
-        : html`<p class="faint">Noch nimmt niemand teil.</p>`}
+        : html`<p class="faint">${l.full ? 'Noch nimmt niemand teil.' : 'Noch keine Punkte.'}</p>`}
       ${l.truncated ? html`<p class="faint">Nur die ersten 5.000 Törns sind gerechnet.</p>` : ''}`;
   }
 

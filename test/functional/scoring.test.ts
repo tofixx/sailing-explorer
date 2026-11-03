@@ -144,13 +144,18 @@ describe('F-501 Vorlage je Eintrag', () => {
     expect((await mine(member)).lastTemplateId).toBe(t.id);
     // ändern prüft ebenso
     expect((await s.send('PATCH', `/api/shares/${e.id}`, outsider.cookie, { log: { templateId: t.id } })).status).toBe(404);
+    // unverändert mitgesendet bleibt die Vorlage erlaubt, auch nach dem Austritt; wechseln zu ihr nicht mehr
+    expect((await s.send('DELETE', `/api/groups/${g.id}/members/me`, member.cookie)).status).toBe(204);
+    const kept = await s.send('PATCH', `/api/shares/${e.id}`, member.cookie, { log: { templateId: t.id, sailH: 2 } });
+    expect(kept.status, await kept.clone().text()).toBe(200);
     const patch = await s.send('PATCH', `/api/shares/${e.id}`, member.cookie, { log: { templateId: 'binnen' } });
     expect(patch.status, await patch.clone().text()).toBe(200);
+    expect(await s.errorOf(await s.send('PATCH', `/api/shares/${e.id}`, member.cookie, { log: { templateId: t.id } }))).toBe('invalid_template');
   });
 });
 
 describe('F-503 Vereinsliste mit Opt-in, nur dort gezeigte Einträge', () => {
-  it('[F-503] Zugriff: Gäste 401, Fremde 404, Mitglieder ohne Opt-in 403, Admins und Teilnehmende 200 (nie gecacht)', async () => {
+  it('[F-503] Zugriff: Gäste 401, Fremde 404, Mitglieder ohne Opt-in 403; ganze Liste nur Eigner:in/Admins, Teilnehmende nur die eigene Summe (nie gecacht)', async () => {
     const { owner, member, g } = await club();
     const outsider = await s.person();
     expect((await clubList(undefined, g.id)).status).toBe(401);
@@ -160,13 +165,33 @@ describe('F-503 Vereinsliste mit Opt-in, nur dort gezeigte Einträge', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     expect((await json<{ optIn: boolean }>(await optIn(member, g.id))).optIn).toBe(true);
-    expect((await clubList(member, g.id)).status).toBe(200);
+    await optIn(owner, g.id);
+    const own = await json<ClubList>(await clubList(member, g.id));
+    expect(own).toMatchObject({ full: false, members: [expect.objectContaining({ me: true })] });
+    expect((await json<ClubList>(await clubList(owner, g.id))).members).toHaveLength(2);
     expect((await mine(member)).clubs).toEqual([expect.objectContaining({ id: g.id, optIn: true, manage: false })]);
     // Opt-in nur als Mitglied, nur Vereine
     expect((await optIn(outsider, g.id)).status).toBe(404);
     expect(await s.errorOf(await s.send('PUT', `/api/groups/${g.id}/scoring`, member.cookie, { optIn: 'ja' }))).toBe('invalid_opt_in');
     // Gast sieht nichts, auch nicht nach dem Abruf eines Mitglieds
     expect((await clubList(undefined, g.id)).status).toBe(401);
+    // Opt-out wirkt sofort: keine eigene Summe mehr, nicht mehr in der Liste
+    expect((await json<{ optIn: boolean }>(await optIn(member, g.id, false))).optIn).toBe(false);
+    expect(await s.errorOf(await clubList(member, g.id))).toBe('opt_in_required');
+    expect((await json<ClubList>(await clubList(owner, g.id))).members.map((m) => m.me)).toEqual([true]);
+  });
+
+  it('[F-503] gesperrter bzw. ausgeblendeter Verein: Liste, Opt-in und Vorlagen → 404', async () => {
+    const { owner, member, g } = await club();
+    await optIn(member, g.id);
+    await run('UPDATE groups SET locked_at = ? WHERE id = ?', Date.now(), g.id);
+    expect((await clubList(owner, g.id)).status).toBe(404);
+    expect((await clubList(member, g.id)).status).toBe(404);
+    expect((await optIn(member, g.id)).status).toBe(404);
+    expect((await createTemplate(owner, { groupId: g.id, name: 'X' })).status).toBe(404);
+    expect((await mine(member)).clubs).toEqual([]);
+    await run('UPDATE groups SET locked_at = NULL, hidden_at = ? WHERE id = ?', Date.now(), g.id);
+    expect((await clubList(owner, g.id)).status).toBe(404);
   });
 
   it('[F-414] [F-503] zählt nur Einträge mit Vereinsvorlage mit Faktor, im Verein gezeigt, öffentlich, von Teilnehmenden', async () => {
@@ -218,8 +243,8 @@ describe('F-503 Vereinsliste mit Opt-in, nur dort gezeigte Einträge', () => {
       await run('UPDATE group_members SET scoring_opt_in_at = ? WHERE group_id = ? AND user_id = ?', c.optedIn ? 1 : null, g.id, member.user.id);
       await run('DELETE FROM share_groups WHERE share_id = ?', e.id);
       if (c.shownInClub) await run('INSERT INTO share_groups (share_id, group_id, created_at) VALUES (?, ?, ?)', e.id, g.id, 1);
-      const { clubListSql } = await import('../../worker/scoring-sql');
-      const row = await (await h.db()).prepare(`SELECT 1 AS x FROM shares s WHERE s.id = ?2 AND ${clubListSql('?1')}`).bind(g.id, e.id).first();
+      const { CLUB_LIST_FROM, clubListSql } = await import('../../worker/scoring-sql');
+      const row = await (await h.db()).prepare(`SELECT 1 AS x FROM ${CLUB_LIST_FROM} WHERE s.id = ?2 AND ${clubListSql('?1')}`).bind(g.id, e.id).first();
       expect(!!row, JSON.stringify(c)).toBe(countsInClubList(c));
     }
     await run('UPDATE users SET suspended_at = NULL WHERE id = ?', member.user.id);
@@ -236,14 +261,16 @@ describe('F-504 Gewichtung je Vorlage', () => {
     await entry(member, { templateId: a.id, groups: [g.id], distNm: 10 });
     await entry(member, { templateId: b.id, groups: [g.id], log: { items: [{ name: 'training', n: 3 }] } });
     await entry(owner, { templateId: a.id, groups: [g.id], distNm: 12 });
-    const list = await json<ClubList>(await clubList(member, g.id));
+    const list = await json<ClubList>(await clubList(owner, g.id));
     // Mitglied: 10 × 1 + (3 × 5) × 2 = 40; Eigner:in 12
     expect(list.members.map((m) => m.points)).toEqual([40, 12]);
-    expect(list.members[0]).toMatchObject({ me: true, entries: 2 });
+    expect(list.members[0]).toMatchObject({ me: false, entries: 2 });
     expect(list.members[0]).not.toHaveProperty('rank');
+    // das Mitglied sieht nur die eigene Summe
+    expect((await json<ClubList>(await clubList(member, g.id))).members.map((m) => m.points)).toEqual([40]);
     // Faktor ändern wirkt beim nächsten Abruf
     await s.send('PATCH', `/api/scoring/templates/${b.id}`, owner.cookie, { listWeight: null });
-    expect((await json<ClubList>(await clubList(member, g.id))).members[0].points).toBe(12);
+    expect((await json<ClubList>(await clubList(member, g.id))).members[0].points).toBe(10);
   });
 });
 
@@ -262,6 +289,12 @@ describe('F-505 Jahresbericht als CSV', () => {
     expect(lines).toContain('Summe;;;10,0;;;;;;;Binnen-Wanderfahrt;22,0');
     expect(lines).toContain('Summe;;;5,0;;;;;;;Nur Meilen;5,0');
     expect(lines.at(-1)).toMatch(/Vereinshilfe/);
+    // nur „Nur Meilen“: der Meilennachweis wie bisher, ohne Punkte
+    const plain = await s.person();
+    await entry(plain, { distNm: 5, templateId: BASE_TEMPLATE_ID });
+    const text = await (await h.fetch('/api/me/logbook.csv', { cookie: plain.cookie })).text();
+    expect(text.replace(/^﻿/, '').split('\r\n')[0]).toBe('Datum;Von;Nach;sm;Quelle;Rolle;Boot;Dauer');
+    expect(text).not.toMatch(/Vereinshilfe/);
   });
 });
 
@@ -272,6 +305,8 @@ describe('F-506 Löschwege', () => {
     const copy = await template(owner, { groupId: g.id, sourceId: global.id });
     const t = await template(owner, { groupId: g.id, name: 'Weg damit', rules: { nmSail: 2, nmMotor: 2 } });
     await entry(member, { templateId: t.id, distNm: 6 });
+    // ein Eintrag mit „Binnen-Wanderfahrt“, damit der Bericht Punkte hat (F-505)
+    await entry(member, { templateId: 'binnen', distNm: 7 });
     expect((await s.send('DELETE', `/api/scoring/templates/${t.id}`, owner.cookie)).status).toBe(204);
     const csv = await (await h.fetch('/api/me/logbook.csv', { cookie: member.cookie })).text();
     expect(csv).toMatch(/;Nur Meilen;6,0\r\n/);
@@ -323,6 +358,7 @@ describe('F-506 Löschwege', () => {
     const p = await s.person();
     const e = await entry(p, { distNm: 6 });
     await run(`UPDATE shares SET log = '{}' WHERE id = ?`, e.id);
+    await entry(p, { templateId: 'binnen', distNm: 7 });
     const csv = await (await h.fetch('/api/me/logbook.csv', { cookie: p.cookie })).text();
     expect(csv).toMatch(/;Nur Meilen;6,0\r\n/);
   });

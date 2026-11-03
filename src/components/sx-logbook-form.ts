@@ -97,7 +97,7 @@ export class SxLogbookForm extends LitElement {
   declare items: LogItem[];
   /** per „Übernehmen“ gesetzte Vorschläge */
   declare filled: Partial<Logbook>;
-  /** wählbare Wertungsvorlagen (Konzept 32, F-501) – leer, solange nicht geladen („Nur Meilen“) */
+  /** wählbare Wertungsvorlagen (Konzept 32, F-501) – leer ohne Verein bzw. solange nicht geladen: kein Feld */
   declare templates: ScoringTemplate[];
   /** zuletzt genutzte Vorlage (Vorbelegung) */
   declare lastTemplateId: string | null;
@@ -342,7 +342,8 @@ export class SxLogbookForm extends LitElement {
       mast: this.field('mast'),
       regatta: regatta ? { name: regatta, place: this.field('regattaPlace'), starters: this.field('regattaStarters') } : undefined,
       items: this.items,
-      templateId: this.field('templateId'),
+      // ohne Feld (kein Verein, Vorlagen nicht geladen) bleibt die Vorlage des Eintrags unverändert (F-501)
+      templateId: this.templates.length ? this.field('templateId') : this.share?.log?.templateId,
     });
     return 'error' in r ? r.error : r.log;
   }
@@ -533,16 +534,16 @@ export class SxLogbookForm extends LitElement {
   }
 
   /**
-   * Wertungsvorlage (Pflicht, F-501): immer genau eine gewählt – vorbelegt mit der des Eintrags, sonst der zuletzt
-   * genutzten, sonst „Nur Meilen“. Solange die Vorlagen laden, steht nur „Nur Meilen“ zur Wahl.
+   * Wertungsvorlage (Pflicht, F-501) – nur für Mitglieder eines Vereins (dann sind Vorlagen geladen): immer genau eine
+   * gewählt, vorbelegt mit der des Eintrags, sonst der zuletzt genutzten, sonst „Nur Meilen“.
    */
   private templateSelect(log: Logbook) {
-    const list = this.templates.length ? this.templates : [{ id: 'meilen', name: 'Nur Meilen', groupName: null }];
+    if (!this.templates.length) return '';
     const chosen = defaultTemplateId(log.templateId, this.lastTemplateId, this.templates);
     return html`<div>
       <label class="label" for="lf-tpl">Wertungsvorlage</label>
       <select id="lf-tpl" name="templateId" required>
-        ${list.map((t) => html`<option value=${t.id} ?selected=${t.id === chosen}>${templateLabel(t)}</option>`)}
+        ${this.templates.map((t) => html`<option value=${t.id} ?selected=${t.id === chosen}>${templateLabel(t)}</option>`)}
       </select>
       <p class="hint">Für Punkte im Jahresbericht und in der Vereinsliste. ${SCORING_NOTE}</p>
     </div>`;

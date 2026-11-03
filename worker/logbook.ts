@@ -111,11 +111,14 @@ function parseDistance(v: unknown): number | null {
   return Math.round(n * 10) / 10;
 }
 
-/** Angaben prüfen (`parseLog`) und die gewählte Wertungsvorlage (F-501): nur wählbare Vorlagen des Kontos. */
-async function logOrThrow(env: Env, userId: string, input: unknown): Promise<Logbook> {
+/**
+ * Angaben prüfen (`parseLog`) und die gewählte Wertungsvorlage (F-501): nur wählbare Vorlagen des Kontos – eine
+ * unverändert mitgesendete bleibt erlaubt (`kept`, z. B. nach dem Austritt aus dem Verein, F-501).
+ */
+async function logOrThrow(env: Env, userId: string, input: unknown, kept?: string): Promise<Logbook> {
   const r = parseLog(input);
   if ('error' in r) throw new HttpError(400, 'invalid_log', r.error);
-  await assertTemplateUsable(env, userId, r.log.templateId);
+  if (r.log.templateId !== kept) await assertTemplateUsable(env, userId, r.log.templateId);
   return r.log;
 }
 
@@ -282,7 +285,7 @@ export async function applyLogPatch(env: Env, user: Pick<User, 'id'>, row: Share
   if (!manual && touchesTrack) throw new HttpError(409, 'not_manual', 'Datum und Strecke kommen bei aufgezeichneten Törns aus dem Track.');
   const previous = readLog(row.log);
   if (body.log !== undefined) {
-    const log = await logOrThrow(env, user.id, body.log);
+    const log = await logOrThrow(env, user.id, body.log, previous.templateId);
     // `timed` gehört zu Datum/Uhrzeit (nur über `body.timed` samt Prüfung), nicht zu den Angaben
     delete log.timed;
     if (previous.timed) log.timed = true;

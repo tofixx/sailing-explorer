@@ -3,7 +3,7 @@ import { DIST_SOURCE_LABEL, LOG_STATES, LOG_STATE_LABEL, type LogState } from '.
 import {
   LOG_FILTER_LABEL, areaText, entrySeason, filterEntries, logbookSeasons, logbookTotals, roleText, type LogbookEntry, type LogbookTotals,
 } from '../domain/logbook-year';
-import { SCORING_NOTE, pointsByTemplate, scoreEntry, templateFor, templateLabel, type ScoringTemplate } from '../domain/scoring';
+import { SCORING_NOTE, pointsByTemplate, scoreEntry, templateFor, templateLabel, usesTemplates, type ScoringTemplate } from '../domain/scoring';
 import { SCORING_PATH } from '../services/url-state';
 import { fmtDate, fmtNum } from '../domain/format';
 import { icon } from './icons';
@@ -29,6 +29,8 @@ export class SxLogbookPage extends LitElement {
     signedIn: { type: Boolean },
     /** wählbare Wertungsvorlagen (F-501) – leer: alles „Nur Meilen“ */
     templates: { attribute: false },
+    /** Link „Wertung“ (F-507): nur für Vereinsmitglieder (und Admins der Vorschläge) */
+    scoringLink: { type: Boolean },
   };
   /** null = noch nicht geladen */
   declare entries: LogbookEntry[] | null;
@@ -39,6 +41,7 @@ export class SxLogbookPage extends LitElement {
   declare error: string;
   declare signedIn: boolean;
   declare templates: ScoringTemplate[];
+  declare scoringLink: boolean;
 
   constructor() {
     super();
@@ -50,6 +53,7 @@ export class SxLogbookPage extends LitElement {
     this.error = '';
     this.signedIn = true;
     this.templates = [];
+    this.scoringLink = false;
   }
 
   static styles = [
@@ -253,6 +257,9 @@ export class SxLogbookPage extends LitElement {
     `,
   ];
 
+  /** Punkte zeigen? (in `body()` je Ansicht gesetzt) */
+  private scored = false;
+
   private seasons(): number[] {
     return logbookSeasons(this.entries ?? [], Date.now());
   }
@@ -296,13 +303,13 @@ export class SxLogbookPage extends LitElement {
 
   /** Punkte je Vorlage (Jahresbericht, F-505) – mit dem Hinweis „Vereinshilfe“ und dem Weg zur Wertung. */
   private points(shown: LogbookEntry[]) {
-    const by = pointsByTemplate(shown, this.templates);
+    const by = this.scored ? pointsByTemplate(shown, this.templates) : [];
     if (!by.length) return nothing;
     return html`<h3>Punkte</h3>
       <dl class="totals" aria-label="Punkte je Vorlage">
         ${by.map((b) => html`<div><dt>${templateLabel(b.template)}</dt><dd>${fmtNum(b.points, 1)}<small>${b.count} ${b.count === 1 ? 'Eintrag' : 'Einträge'}</small></dd></div>`)}
       </dl>
-      <p class="note">${SCORING_NOTE} Vorlagen und Vereinsliste: <a href=${SCORING_PATH}>Wertung</a>.</p>`;
+      <p class="note">${SCORING_NOTE}</p>`;
   }
 
   private route(e: LogbookEntry): string {
@@ -334,7 +341,7 @@ export class SxLogbookPage extends LitElement {
         ${e.role ? html`<span>${roleText(e)}</span>` : ''}
         ${e.boat ? html`<span>${icon('sail')} ${e.boat}</span>` : ''}
         ${extras.length ? html`<span>${extras.join(' · ')}</span>` : ''}
-        ${e.logState === 'excluded' ? '' : html`<span class="points">${fmtNum(scoreEntry(e, t.rules), 1)} Punkte · ${templateLabel(t)}</span>`}
+        ${e.logState === 'excluded' || !this.scored ? '' : html`<span class="points">${fmtNum(scoreEntry(e, t.rules), 1)} Punkte · ${templateLabel(t)}</span>`}
       </div>
       ${e.own ? this.tools(e) : nothing}
     </li>`;
@@ -365,6 +372,8 @@ export class SxLogbookPage extends LitElement {
     const seasons = this.seasons();
     const season = seasons.includes(this.season) ? this.season : seasons[0];
     const shown = filterEntries(this.entries, this.states, season);
+    // Punkte nur, wenn ein gezeigter Eintrag mehr als „Nur Meilen“ zählt (F-505)
+    this.scored = usesTemplates(shown, this.templates);
     const inSeason = this.entries.filter((e) => entrySeason(e) === season).length;
     return html`
       <div class="seasons" role="tablist" aria-label="Saison" data-scroll-x>
@@ -396,10 +405,13 @@ export class SxLogbookPage extends LitElement {
           <h1>Mein Fahrtenbuch</h1>
           <p class="lead">Deine Törns nach Saison – mit und ohne GPX, dazu Törns, auf denen du als Crew mitgesegelt bist. Als Meilennachweis und Jahresbericht exportieren oder drucken.</p>
         </div>
-        ${ready
+        ${ready || this.scoringLink
           ? html`<div class="tools">
-              <a class="btn" href=${this.csvHref()} download title="Meilennachweis und Jahresbericht mit Punkten">${icon('download')} CSV</a>
-              <button class="btn" @click=${() => emit(this, 'sx-logbook-print')}>${icon('print')} Drucken</button>
+              ${ready
+                ? html`<a class="btn" href=${this.csvHref()} download title="Meilennachweis und Jahresbericht mit Punkten">${icon('download')} CSV</a>
+                    <button class="btn" @click=${() => emit(this, 'sx-logbook-print')}>${icon('print')} Drucken</button>`
+                : ''}
+              ${this.scoringLink ? html`<a class="btn" href=${SCORING_PATH}>${icon('scale')} Wertung</a>` : ''}
             </div>`
           : ''}
       </header>

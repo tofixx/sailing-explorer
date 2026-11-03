@@ -51,7 +51,8 @@ export class LogbookController {
     ]);
     Object.assign(f, {
       boats: boats.boats,
-      templates: scoring?.templates ?? [],
+      // Vorlagen nur für Vereinsmitglieder (F-501) – sonst kein Feld, die Vorlage des Eintrags bleibt
+      templates: scoring?.clubs?.length ? scoring.templates : [],
       lastTemplateId: scoring?.lastTemplateId ?? null,
       supporter: !!support?.supporter,
       used: support?.logEntriesUsed ?? -1,

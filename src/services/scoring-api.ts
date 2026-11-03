@@ -32,6 +32,8 @@ export interface ClubListMember {
 
 export interface ClubList {
   season: number;
+  /** true: ganze Liste (Eigner:in/Admins); false: nur die eigene Summe */
+  full: boolean;
   templates: Array<{ id: string; name: string; listWeight: number }>;
   members: ClubListMember[];
   truncated: boolean;

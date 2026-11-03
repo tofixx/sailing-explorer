@@ -50,6 +50,7 @@ const data = (o: Partial<MyScoring> = {}): MyScoring => ({
 });
 const list: ClubList = {
   season: 2026,
+  full: true,
   templates: [{ id: 'preis', name: 'Fahrtenpreis', listWeight: 1 }],
   members: [
     { name: 'Anna', handle: 'anna', me: false, points: 40, entries: 2, byTemplate: [{ template: 'Fahrtenpreis', points: 40, count: 2 }] },
@@ -59,18 +60,21 @@ const list: ClubList = {
 };
 
 describe('Seite „Wertung“', () => {
-  it('[F-507] Adresse /konto/wertung; ein Einstieg im Konto-Menü', async () => {
+  it('[F-507] Adresse /konto/wertung; Einstieg nur als Link „Wertung“ im Fahrtenbuch (Vereinsmitglieder), nicht im Konto-Menü', async () => {
     expect(parseRoute({ pathname: '/konto/wertung', search: '', hash: '' })).toEqual({ kind: 'scoring' });
     const menu = await mount('sx-account-menu', { user: { id: 'u', email: 'a@b.de', handle: 'anna', displayName: 'Anna' } });
-    const links = [...menu.shadowRoot.querySelectorAll('a')].map((a) => [a.textContent!.trim(), a.getAttribute('href')]);
-    expect(links).toContainEqual(['Wertung', '/konto/wertung']);
-    expect(links.filter(([, href]) => href === '/konto/wertung')).toHaveLength(1);
+    expect(menu.shadowRoot.querySelector('a[href="/konto/wertung"]')).toBeNull();
+    const without = await mount('sx-logbook-page', { entries: [], scoringLink: false });
+    expect(without.shadowRoot.querySelector('a[href="/konto/wertung"]')).toBeNull();
+    const withLink = await mount('sx-logbook-page', { entries: [], scoringLink: true });
+    expect(withLink.shadowRoot.querySelectorAll('a[href="/konto/wertung"]')).toHaveLength(1);
   });
 
   it('[F-503] Teilnahme mit Hinweis, wer was sieht; Liste nur mit Opt-in oder als Admin; ohne Platzziffern', async () => {
     const el = await mount('sx-scoring-page', { data: data(), seasons: [2027, 2026, 2025], season: 2026 });
     expect(text(el.shadowRoot)).toContain('keine offizielle Wertung');
-    expect(text(el.shadowRoot)).toContain('deinen Namen und deine Punktesumme');
+    expect(text(el.shadowRoot)).toContain('Eigner:in und Admins von SC Möwe dürfen meine Punktesumme sehen');
+    expect(text(el.shadowRoot)).toContain('Andere Mitglieder sehen deine Summe nicht');
     expect(button(el.shadowRoot, /Vereinsliste zeigen/)).toBeUndefined();
     const optins = events(el, 'sx-scoring-optin');
     const box = el.shadowRoot.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
@@ -80,8 +84,15 @@ describe('Seite „Wertung“', () => {
     el.data = data({ clubs: [{ id: 'C1', slug: 'moewe', name: 'SC Möwe', optIn: true, manage: false }] });
     await el.updateComplete;
     const lists = events(el, 'sx-scoring-list');
-    button(el.shadowRoot, /Vereinsliste zeigen/)!.click();
+    expect(button(el.shadowRoot, /Vereinsliste zeigen/)).toBeUndefined();
+    button(el.shadowRoot, /Meine Summe zeigen/)!.click();
     expect(lists).toEqual([{ groupId: 'C1', season: 2026 }]);
+    el.lists = { C1: { ...list, full: false, members: [list.members[1]] } };
+    await el.updateComplete;
+    expect(text(el.shadowRoot)).toContain('Nur deine Summe');
+    expect(el.shadowRoot.querySelectorAll('ul[aria-label^="Vereinsliste"] li')).toHaveLength(1);
+    // Eigner:in/Admin: ganze Liste
+    el.data = data({ clubs: [{ id: 'C1', slug: 'moewe', name: 'SC Möwe', optIn: true, manage: true }] });
     el.lists = { C1: list };
     await el.updateComplete;
     const rows = [...el.shadowRoot.querySelectorAll('ul[aria-label^="Vereinsliste"] li')];
@@ -90,8 +101,6 @@ describe('Seite „Wertung“', () => {
     expect(rows[1].querySelector('a')).toBeNull();
     expect(rows[1].classList.contains('me')).toBe(true);
     expect(el.shadowRoot.querySelector('ol')).toBeNull();
-    // Vorlagen pflegen nur Eigner/Admins
-    expect(button(el.shadowRoot, /Eigene Vorlage/)).toBeUndefined();
   });
 
   it('[F-500] Eigner/Admins: Vorschlag übernehmen, eigene anlegen, bearbeiten, löschen; Vorschläge der Plattform nur Admins', async () => {
@@ -176,6 +185,25 @@ describe('Vorlage im Fahrtenbuch (F-501, F-505)', () => {
     expect(el.shadowRoot.querySelector<HTMLSelectElement>('select[name="templateId"]')!.value).toBe('meilen');
   });
 
+  it('[F-501] ohne Verein kein Feld; die Vorlage des Eintrags bleibt beim Speichern unverändert', async () => {
+    const share = { id: 'GpxShareId23456789', title: 'Ostsee', visibility: 'public', isOwner: true, distNm: 14, startedAt: Date.UTC(2026, 5, 13), endedAt: null, source: 'gpx', distSource: 'track', boat: null, from: null, to: null, log: { templateId: 'altevorlage' } };
+    const el = await mount('sx-logbook-form', { share, open: true, templates: [] });
+    await el.updateComplete;
+    expect(el.shadowRoot.querySelector('select[name="templateId"]')).toBeNull();
+    const saves = events(el, 'sx-logbook-save');
+    el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect((saves[0] as { patch: { log: { templateId?: string } } }).patch.log.templateId).toBe('altevorlage');
+  });
+
+  it('[F-505] ohne andere Vorlage als „Nur Meilen“ keine Punkte im Fahrtenbuch', async () => {
+    const el = await mount('sx-logbook-page', {
+      entries: [{ id: 'A', own: true, path: '/s/A', title: 'Havel', startedAt: Date.UTC(2026, 5, 13, 10), endedAt: null, timed: false, source: 'manual', distNm: 10, distSource: 'stated', from: null, to: null, role: null, roleConfirmed: false, boat: null, logState: 'confirmed', log: { templateId: 'meilen' } }],
+      season: 2026, states: ['confirmed', 'suggested'], templates: data().templates,
+    });
+    expect(text(el.shadowRoot)).not.toContain('Punkte');
+    expect(el.shadowRoot.querySelector('[aria-label="Punkte je Vorlage"]')).toBeNull();
+  });
+
   it('[F-505] Fahrtenbuch: Punkte je Eintrag und je Vorlage, Hinweis „Vereinshilfe“, Druckzeile „Jahresbericht“', async () => {
     const e = (o: Partial<LogbookEntry>): LogbookEntry => ({
       id: 'A', own: true, path: '/s/A', title: 'Havel', startedAt: Date.UTC(2026, 5, 13, 10), endedAt: null, timed: false, source: 'manual',
@@ -193,7 +221,6 @@ describe('Vorlage im Fahrtenbuch (F-501, F-505)', () => {
     expect(pts).toContain('Fahrtenpreis (SC Möwe)15,0');
     expect(pts).toContain('Nur Meilen4,0');
     expect(text(el.shadowRoot)).toContain('keine offizielle Wertung');
-    expect(el.shadowRoot.querySelector('a[href="/konto/wertung"]')).not.toBeNull();
     expect(text(el.shadowRoot.querySelector('.print-only')!)).toContain('Jahresbericht Saison 2026');
   });
 });
