@@ -598,6 +598,13 @@ Ein Endpunkt `PUT /api/shares/:id/track`, ein Menüeintrag, keine Migration. Ent
   Törn neu öffnen, Hinweis „Track nachgereicht“, Übersichtsbild im Querformat nachziehen (`SessionController.uploadPreview`,
   wie nach dem Speichern). Abbrechen sendet nichts.
 
+## Segellebenslauf (Konzept 27.5, Roadmap „Export / Segellebenslauf“)
+
+- **F-610** Segellebenslauf als CSV: `GET /api/me/logbook.csv?saison=alle&stand=` liefert alle Saisons in einer Datei `segellebenslauf.csv` – wie F-457 (gleiche Spalten, Filter, Crew-Regeln, Formelschutz, Jahresbericht-Spalten bei Vorlagen), zusätzlich als erste Spalte „Saison“ (auch in den Summenzeilen); ohne `saison` bleibt die Datei ohne Saison-Spalte.
+- **F-611** Übersicht „Segellebenslauf“: Der Reiter „Alle Saisons“ auf `/konto/fahrtenbuch` zeigt die Summen über alle Saisons (wie die Saison-Summen, nach Stand-Filter, ausgeschlossene nie) und je Saison mit Einträgen eine Zeile Törns, sm, Stunden, Tage an Bord (Regeln von `seasonReview`) samt Gesamtzeile; keine Einzelliste (die steht in der CSV).
+- **F-612** Ein Einstieg: kein zweiter Knopf – der Reiter „Alle Saisons“ schaltet die Seite um, „CSV“ und „Drucken“ gelten dann für den Segellebenslauf (CSV mit `saison=alle`). Die Adresse trägt `?saison=alle` (Groß-/Kleinschreibung egal); die zuletzt gewählte Saison bleibt innerhalb der Sitzung dahinter erhalten, nach einem Neuladen gilt die Vorgabe. Sind es mehr als 1.000 Einträge, nennt die Übersicht, dass nur die neuesten geladen sind.
+- **F-613** Drucken des Segellebenslaufs: gedruckt werden Kopfzeile „Segellebenslauf · Filter · Stand“, Summen und Saison-Tabelle ohne Reiter, Filter und Knöpfe (Druckstil von F-458); bei 375 px passt die Tabelle ohne seitliches Scrollen.
+
 ## Betrieb
 
 - **F-50** Lokale Entwicklung mit `npm run dev`, erreichbar im LAN (Handy) inkl. Login.

@@ -3,8 +3,8 @@
 import { fmtDate, fmtNum } from './format';
 import { MILESTONES_NM } from './groups';
 import { calendarDaysBerlin } from './logbook-suggest';
-import { countsInLogbook } from './logbook';
-import { entryHours, logbookTotals, recordedNote, type LogbookEntry } from './logbook-year';
+import { countsInLogbook, type LogState } from './logbook';
+import { entryHours, filterEntries, logbookSeasons, logbookTotals, recordedNote, type LogbookEntry } from './logbook-year';
 
 /** Ein Abzeichen der Reihe (F-521). */
 export interface SeasonBadge {
@@ -84,6 +84,21 @@ export function seasonReview(entries: LogbookEntry[], season: number): SeasonRev
     longest,
     badges: seasonBadges(t.nm),
   };
+}
+
+/** Segellebenslauf (F-611): je Saison mit Einträgen (neueste zuerst) der Rückblick, dazu die Summen über alle. */
+export interface Lifetime {
+  rows: SeasonReview[];
+  total: { voyages: number; nm: number; hours: number; days: number };
+}
+
+/** Rückblick je Saison über alle Einträge mit den gewählten Ständen – gleiche Regeln wie die Saison-Summen (`seasonReview`). */
+export function lifetimeReview(entries: LogbookEntry[], states: readonly LogState[]): Lifetime {
+  const rows = logbookSeasons(entries, 0)
+    .map((s) => seasonReview(filterEntries(entries, states, s), s))
+    .filter((r) => r.voyages > 0);
+  const sum = (f: (r: SeasonReview) => number) => rows.reduce((a, r) => a + f(r), 0);
+  return { rows, total: { voyages: sum((r) => r.voyages), nm: sum((r) => r.nm), hours: sum((r) => r.hours), days: sum((r) => r.days) } };
 }
 
 /** Dateiname des Bildes: `meine-saison-2026.jpg`. */
