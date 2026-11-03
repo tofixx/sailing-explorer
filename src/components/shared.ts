@@ -558,6 +558,21 @@ export const menuStyles = css`
   }
 `;
 
+/** Roter Zähler (Community-Reiter, Glocke, Konto-Knopf mit offenen Meldungen – F-571). */
+export const badgeStyles = css`
+  .badge {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--err);
+    color: #fff;
+    font: 700 var(--fs-xs) / 18px var(--font);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+`;
+
 /**
  * Nach dem Austreten (F-446): „Weiter folgen?“ – nur bei öffentlichen Gruppen (nur denen kann man folgen). Ja → Folgen
  * mit „Nur Direktes“, Nein → nichts.

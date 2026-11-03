@@ -35,6 +35,8 @@ export interface User {
   displayName?: string | null;
   /** Plattform-Admin (Konzept 18.1) – nur aus /api/auth/me */
   admin?: boolean;
+  /** nur Admins: Ziele mit offenen Meldungen (Zähler am Konto-Knopf, F-571) */
+  openReports?: number;
 }
 
 /** Sichtbarkeit samt Schlüssel und Teilen-Pfad – Schlüssel und Link nur für Eigentümer (bzw. Boots-Admins), sonst null. */
@@ -713,8 +715,9 @@ export const communityApi = {
       headers: { 'Content-Type': 'application/json', ...(key ? { 'X-Share-Key': key } : {}) },
     }),
   reportInfo: () => call<{ contact: string | null; reasons: ReportReason[] }>('/api/reports/info'),
-  adminReports: () => call<{ reports: AdminReport[] }>('/api/admin/reports'),
-  decideReport: (id: string, action: AdminAction) => call<{ ok: true }>(`/api/admin/reports/${encodeURIComponent(id)}`, jsonInit('POST', { action })),
+  adminReports: () => call<{ reports: AdminReport[]; total: number }>('/api/admin/reports'),
+  adminReportCount: () => call<{ open: number }>('/api/admin/reports/count'),
+  decideReport: (id: string, action: AdminAction) => call<{ ok: true; notified: boolean; withheld?: 'limit' }>(`/api/admin/reports/${encodeURIComponent(id)}`, jsonInit('POST', { action })),
   suspendUser: (userId: string, suspended: boolean) =>
     call<{ suspended: boolean }>(`/api/admin/users/${encodeURIComponent(userId)}/suspend`, jsonInit('POST', { suspended })),
 };

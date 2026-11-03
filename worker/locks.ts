@@ -4,7 +4,7 @@
 import type { Env } from './env';
 import { purgeUser } from './auth';
 import { HttpError } from './http';
-import { adminIds, adminLogStmt, ownsLockedSql } from './moderation';
+import { adminEmails, adminIds, adminLogStmt, ownsLockedSql } from './moderation';
 import { lockNoticeMail, lockReminderMail, sendMail } from './mail';
 import { removeShare } from './shares';
 import { removeBoat } from './boats';
@@ -231,17 +231,14 @@ export async function sendLockNotice(env: Env, adminId: string, kind: LockKind, 
  * Ohne Admin-Adresse oder wenn kein Versand gelingt, bleibt es unmarkiert (nächste Nacht erneut).
  */
 export async function remindLocks(env: Env, origin: string, now: number): Promise<number> {
-  const ids = [...adminIds(env)];
-  if (!ids.length) return 0;
+  if (!adminIds(env).size) return 0;
   const { results } = await env.DB.prepare(
     'SELECT target_kind, target_id, until, reason FROM locks WHERE via_user IS NULL AND reminded_at IS NULL AND until <= ? ORDER BY until LIMIT 100',
   )
     .bind(now + LOCK_WARN_MS)
     .all<{ target_kind: LockKind; target_id: string; until: number; reason: string }>();
   if (!results.length) return 0;
-  const { results: admins } = await env.DB.prepare(`SELECT email FROM users WHERE id IN (${ids.map(() => '?').join(',')}) AND email <> ''`)
-    .bind(...ids)
-    .all<{ email: string }>();
+  const admins = await adminEmails(env);
   const items = [];
   for (const l of results) {
     const row = await env.DB.prepare(NOTICE[l.target_kind].sql).bind(l.target_id).first<{ name: string | null }>();
@@ -250,7 +247,7 @@ export async function remindLocks(env: Env, origin: string, now: number): Promis
   let sent = 0;
   for (const a of admins) {
     try {
-      await sendMail(env, lockReminderMail(env, a.email, origin, items));
+      await sendMail(env, lockReminderMail(env, a, origin, items));
       sent++;
     } catch (err) {
       console.error('lock reminder failed', err);

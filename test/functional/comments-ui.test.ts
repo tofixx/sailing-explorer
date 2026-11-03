@@ -238,10 +238,52 @@ describe('sx-account-dialog – Einstellungen und Meldungen', () => {
     await admin.updateComplete;
     button(admin, /Endgültig löschen/)!.click();
     expect(decided).toEqual([{ id: 'R1', action: 'keep' }, { id: 'R1', action: 'hide' }, { id: 'R1', action: 'delete' }]);
-    button(admin, /Konto sperren/)!.click();
     await admin.updateComplete;
-    button(admin, /Ja, Konto sperren/)!.click();
+    button(admin, /Konto suspendieren/)!.click();
+    await admin.updateComplete;
+    button(admin, /Ja, suspendieren/)!.click();
     expect(suspended).toEqual([{ userId: 'U9', suspended: true }]);
+  });
+
+  it('[F-574] „Löschen“ zeigt den Hinweis zur Beweissicherung und schlägt „Sperren“ als erste Entscheidung vor', async () => {
+    const locked = listen('sx-admin-lock');
+    const decided = listen('sx-admin-decide');
+    const owner = { id: 'U7', displayName: 'Täter', suspended: false };
+    const base = { count: 1, reporters: 1, firstAt: Date.now(), lastAt: Date.now(), notes: [] };
+    const share = { ...base, id: 'R2', kind: 'share', targetId: 'S2', reasons: { illegal: 1 }, target: { title: 'Törn', text: '', path: '/s/S2', visibility: 'public', hiddenAt: null, owner } };
+    const comment = { ...base, id: 'R3', kind: 'comment', targetId: 'C3', reasons: { spam: 1 }, target: { title: 'Kommentar', text: 'x', path: '/s/S2', visibility: 'public', hiddenAt: null, owner } };
+    const el = (await mount('sx-admin-reports', { reports: [share, comment] })) as LitEl;
+    const items = () => [...el.shadowRoot.querySelectorAll<HTMLElement>('ul[aria-label="Offene Meldungen"] > li')];
+    // Törn mit Grund „rechtswidrig“: Hinweis hervorgehoben, „Sperren“ ist der erste (primäre) Knopf
+    (items()[0].querySelector<HTMLButtonElement>('button.danger')!).click();
+    await el.updateComplete;
+    const panel = items()[0].querySelector<HTMLElement>('.evidence')!;
+    expect(panel.classList.contains('warn')).toBe(true);
+    expect(panel.textContent).toMatch(/Strafbares sperren statt löschen/);
+    expect(panel.textContent).toMatch(/nicht herunterladen, kopieren oder weiterleiten/);
+    const first = panel.querySelector<HTMLButtonElement>('.actions button')!;
+    expect(first.classList.contains('primary')).toBe(true);
+    expect(first.textContent).toMatch(/Sperren/);
+    expect(panel.querySelector<HTMLInputElement>('input')!.value).toBe('Gemeldet: rechtswidriger Inhalt');
+    first.click();
+    expect(locked).toEqual([{ kind: 'shares', id: 'S2', reason: 'Gemeldet: rechtswidriger Inhalt' }]);
+    // Kommentar (Spam): nicht einzeln sperrbar → „Konto sperren“ trifft die Autor:in; Hinweis ohne Hervorhebung
+    await el.updateComplete;
+    (items()[1].querySelector<HTMLButtonElement>('button.danger')!).click();
+    await el.updateComplete;
+    const p2 = items()[1].querySelector<HTMLElement>('.evidence')!;
+    expect(p2.classList.contains('warn')).toBe(false);
+    const buttons = [...p2.querySelectorAll<HTMLButtonElement>('.actions button')];
+    expect(buttons[0].textContent).toMatch(/Konto sperren/);
+    // Ohne Begründung kein Sperren
+    const input = p2.querySelector<HTMLInputElement>('input')!;
+    input.value = '  ';
+    input.dispatchEvent(new Event('input'));
+    await el.updateComplete;
+    expect(buttons[0].disabled).toBe(true);
+    buttons[1].click();
+    expect(decided).toEqual([{ id: 'R3', action: 'delete' }]);
+    expect(locked).toHaveLength(1);
   });
 
   it('[F-114] eigene gemeldete Freigabe zeigt den Hinweis', async () => {

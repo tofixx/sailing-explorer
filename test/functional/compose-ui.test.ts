@@ -215,4 +215,23 @@ describe('sx-account-menu', () => {
     button(el.shadowRoot, /Meine Seite/)!.click();
     expect(accounts).toEqual(['profile']);
   });
+
+  it('[F-571] Admins: Zähler offener Meldungen am Konto-Knopf; „Konto & Einstellungen“ öffnet dann den Reiter „Meldungen“', async () => {
+    const accounts = listen('sx-account');
+    const admin = { id: 'A1', email: 'a@example.org', handle: null, displayName: 'Admin', admin: true };
+    const el = await mount('sx-account-menu', { user: { ...admin, openReports: 3 }, open: true });
+    expect(el.shadowRoot.querySelector('.toggle .badge')!.textContent).toBe('3');
+    expect(button(el.shadowRoot, /Mein Bereich/)!.getAttribute('aria-label')).toBe('Mein Bereich, 3 offene Meldungen');
+    button(el.shadowRoot, /Konto & Einstellungen/)!.click();
+    expect(accounts).toEqual(['reports']);
+    // keine offenen Meldungen bzw. kein Admin: kein Zähler, Einstellungen wie immer
+    for (const user of [{ ...admin, openReports: 0 }, { ...admin, admin: false, openReports: 5 }]) {
+      const plain = await mount('sx-account-menu', { user, open: true });
+      expect(plain.shadowRoot.querySelector('.badge')).toBeNull();
+      button(plain.shadowRoot, /Konto & Einstellungen/)!.click();
+    }
+    expect(accounts).toEqual(['reports', null, null]);
+    const many = await mount('sx-account-menu', { user: { ...admin, openReports: 120 } });
+    expect(many.shadowRoot.querySelector('.badge')!.textContent).toBe('99+');
+  });
 });

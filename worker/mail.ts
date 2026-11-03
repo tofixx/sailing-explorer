@@ -182,6 +182,96 @@ export function lockReminderMail(env: Env, to: string, origin: string, items: Lo
   return { to, subject, text, html };
 }
 
+/**
+ * Sammelmail an die Admins über offene Meldungen (Moderation 3, F-570): nur Anzahlen und das Datum der ältesten –
+ * keine Inhalte, keine Namen, keine Meldenden. Kein Nutzertext. Ohne konfigurierte Adresse (`origin` null) kein Link.
+ */
+export function reportDigestMail(env: Env, to: string, origin: string | null, m: { open: number; fresh: number; oldest: number }): Mail {
+  const app = env.APP_NAME;
+  const link = origin ? `${origin}/?konto=meldungen` : null;
+  const open = m.open === 1 ? 'eine offene Meldung' : `${m.open} offene Meldungen`;
+  const fresh = m.fresh === m.open ? '' : ` (davon ${m.fresh} neu seit der letzten Mail)`;
+  const head = `bei ${app} ${m.open === 1 ? 'wartet' : 'warten'} ${open}${fresh} auf eine Entscheidung; die älteste ist vom ${berlinDate(m.oldest)}.`;
+  const foot = 'Diese Mail kommt höchstens einmal pro Nacht und nur, wenn neue Meldungen dazugekommen sind. Inhalte und Namen stehen nur in der App (Konto → Meldungen).';
+  const text = `Hallo,\n\n${head}\n\n${link ? `${link}\n\n` : ''}${foot}\n`;
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
+<p>Hallo,</p><p>${escapeHtml(head)}</p>
+${link ? `<p><a href="${link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Meldungen prüfen</a></p>` : ''}
+<p style="color:#5b6b7b;font-size:13px">${escapeHtml(foot)}</p>
+</body></html>`;
+  return { to, subject: `${app}: ${open.charAt(0).toUpperCase()}${open.slice(1)}`, text, html };
+}
+
+export interface ReportDecisionMailInput {
+  decision: 'keep' | 'hide' | 'delete' | 'cover';
+  /** fester Text, z. B. „dein Törn“ */
+  what: string;
+  /** Substantiv für den Betreff, z. B. „Hafen“ */
+  noun: string;
+  /** Name bzw. Titel (Nutzertext) */
+  name: string;
+  /** Grundlage: Recht (rechtswidrig, Rechte Dritter) oder Regeln der Plattform (DSA Art. 17 Abs. 3 lit. d/e) */
+  ground: 'law' | 'rules';
+  /** Eigentümer:in sieht Ausgeblendetes weiter (nicht bei Profil und Hafen) */
+  ownerSees: boolean;
+  /** „Behalten“, als nur das Titelbild zurückgehalten war: Text und Betreff nennen das Bild */
+  coverOnly?: boolean;
+  /** Gründe der Meldungen (feste Texte) */
+  reasons: string[];
+  contact?: string;
+}
+
+/**
+ * Begründung einer Meldungs-Entscheidung an die Eigentümer:in (Moderation 6, F-572, DSA Art. 17 Abs. 3): was, die
+ * Maßnahme und ihre Dauer, die Grundlage (Recht oder Regeln), die Gründe der Meldungen, dass ein Mensch entschieden hat,
+ * Widerspruch und Rechtsweg. `what`/`noun` sind feste Texte, `name` Nutzertext → escaped.
+ */
+export function reportDecisionMail(env: Env, to: string, m: ReportDecisionMailInput): Mail {
+  const app = env.APP_NAME;
+  const name = m.name.trim();
+  const target = name ? `${m.what} „${name}“` : m.what;
+  const targetHtml = name ? `${m.what} <b>„${escapeHtml(name)}“</b>` : m.what;
+  const head = {
+    hide: 'wurde gemeldet und von der Moderation ausgeblendet',
+    delete: 'wurde gemeldet und von der Moderation gelöscht',
+    keep: m.coverOnly
+      ? 'wurde gemeldet; das Titelbild war bis zur Prüfung zurückgehalten. Die Moderation hat nichts beanstandet – das Titelbild ist wieder sichtbar'
+      : 'wurde gemeldet und bis zur Prüfung ausgeblendet. Die Moderation hat nichts beanstandet – der Inhalt ist wieder sichtbar',
+    cover: 'wurde gemeldet. Die Moderation hat das Titelbild entfernt',
+  }[m.decision];
+  const after = {
+    hide: `Der Inhalt ist bis auf Weiteres ${m.ownerSees ? 'für alle außer dir' : 'für alle'} nicht mehr sichtbar, aber nicht gelöscht.`,
+    delete: 'Der Inhalt ist samt zugehöriger Dateien endgültig entfernt und lässt sich nicht wiederherstellen.',
+    keep: '',
+    cover: 'Das Titelbild ist endgültig gelöscht; der Inhalt selbst ist wieder sichtbar. Ein neues Titelbild kannst du jederzeit hochladen.',
+  }[m.decision];
+  const ground =
+    m.decision === 'keep'
+      ? ''
+      : m.ground === 'law'
+        ? 'Grundlage der Entscheidung: rechtswidriger Inhalt bzw. Verletzung von Rechten Dritter (Gesetz).'
+        : `Grundlage der Entscheidung: Verstoß gegen die Regeln von ${app} (nicht als rechtswidrig eingestuft).`;
+  const reasons = m.reasons.length ? m.reasons.join('; ') : 'sonstiger Grund';
+  const how = 'Entschieden hat ein Mensch aus der Moderation, nicht ein automatisches Verfahren.';
+  const contact = m.contact?.trim() ? ` oder schreib an ${m.contact.trim()}` : '';
+  const object =
+    m.decision === 'keep'
+      ? `Fragen dazu? Antworte einfach auf diese Mail${contact}.`
+      : `Du bist nicht einverstanden? Antworte einfach auf diese Mail${contact} – wir prüfen die Entscheidung dann erneut. Unabhängig davon kannst du dich jederzeit an ein Gericht wenden.`;
+  const lines = [ground, `Grund der Meldung: ${reasons}`, after].filter(Boolean);
+  const text = `Hallo,\n\n${target} bei ${app} ${head}.\n\n${lines.join('\n\n')}\n\n${how}\n\n${object}\n`;
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
+<p>Hallo,</p><p>${targetHtml} bei <b>${escapeHtml(app)}</b> ${head}.</p>
+${ground ? `<p><b>${escapeHtml(ground)}</b></p>` : ''}
+<p><b>Grund der Meldung:</b> ${escapeHtml(reasons)}</p>
+${after ? `<p>${after}</p>` : ''}
+<p style="color:#5b6b7b;font-size:13px">${how}</p>
+<p>${escapeHtml(object)}</p>
+</body></html>`;
+  const label = { hide: `${m.noun} ausgeblendet`, delete: `${m.noun} gelöscht`, keep: m.coverOnly ? 'Titelbild wieder sichtbar' : `${m.noun} wieder sichtbar`, cover: `Titelbild entfernt, ${m.noun} wieder sichtbar` }[m.decision];
+  return { to, subject: `${app}: Moderation – ${label}`, text, html };
+}
+
 /** Neuer Passkey am Konto (Konzept 14.7) – damit ein unbemerkt hinterlegter Zugang auffällt. Name ist Nutzertext. */
 export function passkeyAddedMail(env: Env, to: string, origin: string, name: string): Mail {
   const app = env.APP_NAME;

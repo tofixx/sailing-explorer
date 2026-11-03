@@ -1655,7 +1655,7 @@ normalen Löschwegen ausgenommen:
 | inaktive leere Konten (12 Monate) | übersprungen (Konto gesperrt oder besitzt Gesperrtes) |
 | Konto selbst löschen | 409 `locked_content`, solange das Konto gesperrte Törns, Boote oder Gruppen besitzt (Art. 17 Abs. 3 lit. e DSGVO: Verteidigung von Rechtsansprüchen) – ein gesperrtes Konto kann sich ohnehin nicht anmelden |
 | Eigner löscht Törn, Boot, Gruppe, Fotos, Kommentare, Crew, Beiträge | unmöglich (für ihn 404) |
-| offene Meldungen nach 180 Tagen anonymisieren | übersprungen, solange das Ziel gesperrt ist (Anmerkungen bleiben als Beleg) |
+| offene Meldungen nach 180 Tagen anonymisieren | übersprungen, solange das Ziel gesperrt ist – bei Kommentar, Foto und Beitrag das Konto der Autor:in (F-575) (Anmerkungen bleiben als Beleg) |
 
 Gesichert wird das gesperrte Objekt samt dem, was daran hängt. Beiträge **Dritter** (z. B. der Kommentar einer anderen
 Person auf einem gesperrten Törn) folgen weiter dem Konto ihrer Autor:innen: Löscht diese Person ihr Konto, geht ihr
@@ -1679,6 +1679,9 @@ Beitrag mit – ihr Recht auf Löschung wiegt hier schwerer; wer ihn als Beleg b
   der Frist endgültig gelöscht wird (Datum), wenn es nicht entsperrt wird, und dass man per Antwort (bzw. an
   `REPORT_CONTACT`) widersprechen kann. Ohne Konto oder Mail-Adresse keine Mail; ein gescheiterter Versand hält die
   Sperre nicht auf. Der Versand steht im Protokoll (`lock_notice`, ohne Adresse).
+- **Meldungen nach dem Ende der Sperre (F-575):** Wird entsperrt, sind die Meldungen zum Objekt (bei Kommentar, Foto,
+  Beitrag: zu Inhalten des Kontos) wieder offen und werden, wenn älter als 180 Tage, in der nächsten Nacht anonymisiert;
+  läuft die Sperre ab, gehen sie mit dem endgültig gelöschten Objekt bzw. Konto (`purgeUserReports`, `deleteOrphanReports`).
 - **Aufräumen:** `locks`-Zeilen, deren Ziel es nicht mehr gibt, löscht der nächtliche Lauf; jeder Admin-Löschweg
   entfernt die Zeile seines Objekts.
 
@@ -1782,8 +1785,9 @@ Aufbewahrung) und werden **2 Jahre nach ihrem Ablauf** gelöscht; Konto löschen
 Tabelle `admin_log (id, admin_id, action, target_kind, target_id, detail, created_at)`; `admin_id` NULL = nächtlicher
 Lauf. Aktionen: `list`, `view`, `lock`, `extend`, `unlock`, `lock_expired`, `rename`, `owner`, `merge_harbor`,
 `merge_user`, `delete`, `grant_support`, `revoke_support`, `delete_comment`, `harbor_edit`, `lock_notice`,
-`view_content` (Einblick in Gesperrtes, 18.5), dazu die Meldungs-Entscheidungen (`report_keep`, `report_hide`, `report_delete`) und
-`suspend`/`unsuspend`. `detail` ist ein kurzer Text (höchstens 500 Zeichen: Begründung, alter → neuer Name,
+`view_content` (Einblick in Gesperrtes, 18.5), dazu die Meldungs-Entscheidungen (`report_keep`, `report_hide`, `report_delete`), die Begründung an Betroffene
+(`report_notice`, am Konto der Eigentümer:in, F-572), die nächtliche Sammelmail über offene Meldungen (`report_digest`,
+F-570) und `suspend`/`unsuspend`. `detail` ist ein kurzer Text (höchstens 500 Zeichen: Begründung, alter → neuer Name,
 Zahlen) – **keine Mail-Adressen**. Lesen: `GET /api/admin/log?q=&page=` (Suche nach Ziel-ID, Admin oder Aktion).
 
 Fristen: Einblicke (`list`, `view`) **180 Tage**, alle übrigen Einträge **2 Jahre** (auch `view_content`: Zugriff auf
@@ -1809,7 +1813,8 @@ Sperr-Fristen), `worker/admin.ts` (Listen, Details, Umbenennen, Eigner, Löschen
 Filter-Chips, seitenweise blättern; je Zeile Status-Abzeichen (gesperrt bis …, ausgeblendet, suspendiert, privat) und
 Aktionen: Details, Umbenennen, Eigner, Sperren/Verlängern/Entsperren, Zusammenführen (Häfen, Konten), Endgültig
 löschen. Zerstörerische Aktionen fragen nach (Löschen und Konten verbinden mit Eingabe der ID). Meldungen bleiben im
-Konto-Dialog (Reiter „Meldungen“).
+Konto-Dialog (Reiter „Meldungen“); Admins sehen am Konto-Knopf die Zahl offener Meldungen (F-571), „Löschen“ einer
+Meldung schlägt „Sperren“ vor (F-574).
 
 ### 18.13 Fragen an den Betreiber – entschieden (28.10.2026)
 

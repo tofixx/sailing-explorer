@@ -4,7 +4,7 @@ import type { Env } from './env';
 import { currentUser, requireUser, type User } from './auth';
 import { randomId } from './crypto';
 import { HttpError } from './http';
-import { isAdmin } from './validate';
+import { adminIds, isAdmin } from './validate';
 import { ADMIN_LIMITS } from '../src/domain/admin';
 import { isNewAccount, newAccountEnd } from '../src/domain/moderation';
 import { isSupporter } from './supporter';
@@ -20,6 +20,16 @@ export async function requireAdmin(request: Request, env: Env): Promise<User> {
   const user = await currentUser(request, env);
   if (!user || !isAdmin(env, user.id)) throw new HttpError(404, 'not_found');
   return user;
+}
+
+/** Mail-Adressen der Admin-Konten (`ADMIN_USER_IDS`) für Sammelmails des Nachtlaufs (F-294, F-570); leer = niemand. */
+export async function adminEmails(env: Env): Promise<string[]> {
+  const ids = [...adminIds(env)];
+  if (!ids.length) return [];
+  const { results } = await env.DB.prepare(`SELECT email FROM users WHERE id IN (${ids.map(() => '?').join(',')}) AND email <> ''`)
+    .bind(...ids)
+    .all<{ email: string }>();
+  return results.map((r) => r.email);
 }
 
 /**

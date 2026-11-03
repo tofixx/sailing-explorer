@@ -17,6 +17,7 @@ import { removeShare, visibleShare } from './shares';
 import { removePhotoById, visiblePhoto } from './photos';
 import { canViewGroup, loadGroup, removeGroup, roleIn } from './groups';
 import { removePost, visiblePost } from './posts';
+import { UNLOCKED_REPORT_TARGET, openReportStats, prepareDecisionNotice, reportTargetLocked, sendDecisionNotice } from './report-notices';
 import { harborVisible, loadHarbor, removeHarbor } from './harbors';
 import { canManageGroup } from '../src/domain/groups';
 import { BOAT_ID_RE, LIMITS, SHARE_ID_RE, cleanText, normalizeHandle, parseReportKind, parseReportReason } from './validate';
@@ -321,7 +322,7 @@ export async function listReports(request: Request, env: Env): Promise<Response>
   const { results: groups } = await env.DB.prepare(
     `SELECT target_kind, target_id, MIN(id) AS id, COUNT(*) AS n, COUNT(DISTINCT reporter_id) AS reporters,
        MIN(created_at) AS first_at, MAX(created_at) AS last_at, GROUP_CONCAT(reason) AS reasons, SUM(weight = 0) AS fresh
-     FROM reports WHERE resolved_at IS NULL GROUP BY target_kind, target_id ORDER BY first_at LIMIT ?`,
+     FROM reports r WHERE resolved_at IS NULL AND ${UNLOCKED_REPORT_TARGET('r')} GROUP BY target_kind, target_id ORDER BY first_at LIMIT ?`,
   )
     .bind(REPORT_LIMITS.adminList)
     .all<Group>();
@@ -350,7 +351,8 @@ export async function listReports(request: Request, env: Env): Promise<Response>
       target: await preview(env, kind, g.target_id),
     });
   }
-  return json({ reports: out });
+  // total: alle offenen Ziele (die Liste zeigt höchstens 50) – für den Zähler am Konto-Knopf (F-571)
+  return json({ reports: out, total: (await openReportStats(env)).open });
 }
 
 /** Löscht ein gemeldetes Ziel (wie die jeweiligen Lösch-Wege der Eigentümer). */
@@ -390,7 +392,10 @@ export async function decideReport(request: Request, env: Env, reportId: string)
   const coverKind = coverKindOf(kind);
   if (action === 'cover' && !coverKind) throw new HttpError(400, 'invalid_action', 'Nur Profile, Boote und Gruppen haben ein Titelbild.');
   // Gesperrtes (Konzept 18.2) entscheidet der Admin-Bereich – sonst höbe „wieder einblenden“ die Sperre unbemerkt auf.
-  if (await isLockedTarget(env, kind, r.target_id)) throw LOCKED();
+  // … auch Kommentar, Foto oder Beitrag eines gesperrten Kontos (F-575): der Beleg bleibt
+  if (await reportTargetLocked(env, kind, r.target_id)) throw LOCKED();
+  // Begründung an Betroffene (F-572): vorher lesen – nach „Löschen“ gibt es das Ziel nicht mehr
+  const notice = await prepareDecisionNotice(env, kind, r.target_id);
   const now = Date.now();
   const log = adminLogStmt(env, admin.id, `report_${action}`, kind, r.target_id, '', now);
   const { table, idCol } = TABLE[kind];
@@ -419,7 +424,7 @@ export async function decideReport(request: Request, env: Env, reportId: string)
       log,
     ]);
   }
-  return json({ ok: true });
+  return json({ ok: true, ...(await sendDecisionNotice(env, admin.id, notice, action, now)) });
 }
 
 /**

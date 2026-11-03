@@ -2,6 +2,7 @@
 import type { Env } from './env';
 import { createComment, deleteComment, getSettings, listComments, patchSettings } from './comments';
 import { createReport, decideReport, listReports, reportInfo, suspendUser } from './reports';
+import { reportCount } from './report-notices';
 
 type Handler = (request: Request, env: Env, params: string[]) => Promise<Response>;
 
@@ -14,6 +15,7 @@ export const communityRoutes: Array<[method: string, pattern: RegExp, handler: H
   ['POST', /^\/api\/reports$/, (r, env) => createReport(r, env)],
   ['GET', /^\/api\/reports\/info$/, (r, env) => reportInfo(r, env)],
   ['GET', /^\/api\/admin\/reports$/, (r, env) => listReports(r, env)],
+  ['GET', /^\/api\/admin\/reports\/count$/, (r, env) => reportCount(r, env)],
   ['POST', /^\/api\/admin\/reports\/([A-Za-z0-9]+)$/, (r, env, [id]) => decideReport(r, env, id)],
   ['POST', /^\/api\/admin\/users\/([A-Za-z0-9]+)\/suspend$/, (r, env, [id]) => suspendUser(r, env, id)],
 ];
