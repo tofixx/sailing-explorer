@@ -90,7 +90,7 @@ ein.
 | Frage | Optionen / Empfehlung |
 |---|---|
 | **Neuer Name** | **Entschieden 03.11.: „Luv & Leute“** (Betreiber). Umstellung in der App: `feature/name-luv-leute`. Marke (DPMA/EUIPO) und Domain prüft der Betreiber; `segeln-potsdam.de` bleibt bis dahin |
-| **`feature/supporter-badges`** (7 Commits, Stand 27.10.) | **Entschieden 03.11.: verworfen** (Stand gesichert als Tag `archiv/supporter-badges`). Begründung: und brauchbare Ideen neu aufsetzen. Die Migration `0015_paid_support.sql` kollidiert mit `0015_approvers.sql`. Gutschein (K 18.9a) und freie Eigner (K 13.5) sind inzwischen anders gelöst |
+| **`feature/supporter-badges`** (7 Commits, Stand 27.10.) | **Entschieden 03.11.: verworfen** (Stand gesichert als Tag `archiv/supporter-badges`). Brauchbare Ideen werden bei Bedarf neu aufgesetzt. Die Migration `0015_paid_support.sql` kollidiert mit `0015_approvers.sql`. Gutschein (K 18.9a) und freie Eigner (K 13.5) sind inzwischen anders gelöst |
 | **`feature/moderation-konzept`** (nur `docs/MODERATION.md`) | **Erledigt 03.11.: abgeglichen in K 35** ([`concept/35-moderation.md`](concept/35-moderation.md)); der Rest steht unter „Später“ (Moderation 1–8), der Branch kann gelöscht werden. Ursprünglicher Auftrag: Offene Teile (Textfilter, Vertrauensstufen, Bildprüfung) mit dem Admin-Bereich (K 18) abgleichen. Was noch fehlt, wird ein Konzept-Abschnitt mit Reservierung, der Branch wird danach gelöscht |
 | **Testkonto für Abläufe mit Anmeldung in der Vorschau** | **Entschieden 03.11.: nein**, siehe Abwägung unten |
 | **Challenges vs. K6** | **Entschieden 03.11.: bei K6 bleiben** (keine Ranglisten zwischen Personen). Vereinswertung (Phase 9) zeigt die Liste nur Eignern/Admins; Challenges höchstens als persönliche Ziele bzw. Vereinssummen ohne Personen-Rangfolge. Der Eintrag unter „Später“ bleibt zurückgestellt |
@@ -142,4 +142,4 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
 | `feature/kleinkram-navigation` (Jetzt: doppelter Discover-Abruf, Zahnrad am Kartenstil; Als Nächstes #7: `ENTITY_ICON`, Byline mit Boot) | F-530 … F-534 | – | – | `app.ts` (`loadDiscoverStrip`), `GuestSliderController`, `sx-map-style`, `sx-voyage-byline`, `icons.ts`/`shared.ts` (`ENTITY_ICON`) | in Arbeit 03.11. |
 | `feature/bootsklasse` (Als Nächstes #8: Filter nach Bootsklasse in Entdecken) | F-535 … F-539 | 34 | 0042 | `boats.boat_type`/Klassenliste (`src/domain`), `worker/discover.ts`, Entdecken-Leiste | in Arbeit 03.11. |
 | `feature/web-url` (Web-URL für Vereine und Häfen) und Auffindbarkeit (Sitemap öffentlicher Seiten, SEO-Prüfung) | F-540 … F-549 | – | 0043 | `groups`, `harbors` (Spalte `web_url`), Gruppen-/Hafenseite, neue `/sitemap.xml`, `robots.txt` | in Arbeit 03.11. |
-| `docs/moderation-abgleich` (Moderations-Konzept gegen K 18 abgleichen) | – | 35 | – | nur `docs/` | in Arbeit 03.11. |
+| `docs/moderation-abgleich` (Moderations-Konzept gegen K 18 abgleichen) | – | 35 | – | nur `docs/` | gemergt 03.11. |
