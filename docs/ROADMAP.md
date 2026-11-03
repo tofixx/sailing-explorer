@@ -107,8 +107,8 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 
 ### Reservierungen
 
-Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-614**, **Konzept 38**, **Migration 0046** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
-sind F-615, Konzept 39 und Migration 0047. Neue Aufträge bekommen ihren Bereich hier, bevor
+Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-619**, **Konzept 38**, **Migration 0046** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
+sind F-620, Konzept 39 und Migration 0047. Neue Aufträge bekommen ihren Bereich hier, bevor
 sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
 | Branch / Auftrag | F-IDs | Konzept | Migration | Berührt | Stand |
@@ -155,3 +155,4 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
 | `feature/invite-box` (`sx-invite-box`, „Freunde einladen“ auf der eigenen Seite) | F-590 … F-599 | – | – | Einladungs-Komponenten, `sx-profile-page`, `sx-group-page`, `sx-crew`, `invite-text.ts` | in Arbeit 03.11. |
 | `feature/gpx-nachreichen` (GPX zu gespeicherten Törns) | F-600 … F-609 | 38 | 0046 (falls nötig) | `worker/shares.ts`, Upload, Speicherzähler, Wetter, Vorschaubild, Fotos | in Arbeit 03.11. |
 | `feature/segellebenslauf` (Export über alle Saisons) | F-610 … F-614 | – | – | `worker/logbook-list.ts` (CSV), `sx-logbook-page` | in Arbeit 03.11. |
+| `fix/mobil-ueberlauf` (Bugs aus der Prüfung angemeldet: Anmelde-Dialog, Startseite mit langem Bootsnamen, Status-Chip über dem Kartenwechsler) | F-615 … F-619 | – | – | `shared.ts` (Dialog-`.body`), `sx-empty-state.ts`, `sx-discover.ts`, Törn-Karte (Status-Chip, Leaflet-Ebenen) | in Arbeit 03.11. |
