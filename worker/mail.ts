@@ -15,7 +15,7 @@ export function magicLinkMail(env: Env, to: string, link: string, code: string):
   const text = `Hallo,\n\nmit diesem Link meldest du dich bei ${app} an:\n\n${link}\n\nOder gib diesen Code ein (z. B. in der App auf dem Home-Bildschirm oder auf einem anderen Gerät): ${spaced}\n\nLink und Code sind 15 Minuten gültig und funktionieren nur einmal. Wenn du das nicht angefordert hast, ignoriere diese Mail einfach.\n`;
   // Link stammt aus unserer eigenen Origin + base64url-Token, enthält also keine HTML-Sonderzeichen.
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>mit diesem Link meldest du dich bei <b>${app}</b> an:</p>
+<p>Hallo,</p><p>mit diesem Link meldest du dich bei <b>${escapeHtml(app)}</b> an:</p>
 <p><a href="${link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Anmelden</a></p>
 <p>Oder gib diesen Code ein – z. B. in der App auf dem Home-Bildschirm oder auf einem anderen Gerät:</p>
 <p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,monospace">${spaced}</p>
@@ -38,7 +38,7 @@ export function expiryWarningMail(env: Env, to: string, origin: string, shares: 
   // Titel stammen von Nutzern → escapen.
   const items = shares.map((s) => `<li><b>${escapeHtml(name(s.title))}</b> – gelöscht am ${date(s.expiresAt)}</li>`).join('');
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>folgende geteilte Törns bei <b>${app}</b> werden bald automatisch gelöscht:</p><ul>${items}</ul>
+<p>Hallo,</p><p>folgende geteilte Törns bei <b>${escapeHtml(app)}</b> werden bald automatisch gelöscht:</p><ul>${items}</ul>
 <p>Kostenlose Törns bleiben für ihre Saison gespeichert (bis Ende Januar danach). Mit einer Unterstützung (ab einem Kaffee) nimmst du sie in die nächste Saison mit.</p>
 <p><a href="${link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Unterstützen</a></p>
 <p style="color:#5b6b7b;font-size:13px">Wenn du nichts tust, werden sie zum genannten Datum entfernt.</p>
@@ -71,8 +71,8 @@ Kein Muss: Wenn du nichts tust, werden die Törns am ${date} entfernt, dein Kont
 Frohe Weihnachten und immer eine Handbreit Wasser unterm Kiel!
 `;
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>die Saison ${m.season} geht zu Ende – danke, dass du ${what} bei <b>${app}</b> geteilt hast!</p>
-<p>${app} ist ein privates Projekt aus Potsdam: ohne Werbung, ohne Tracking, gebaut in der Freizeit. Server, Speicher und Karten kosten trotzdem Geld. Deshalb bleiben kostenlose Törns eine Saison lang gespeichert – ${what} also bis zum <b>${date}</b>.</p>
+<p>Hallo,</p><p>die Saison ${m.season} geht zu Ende – danke, dass du ${what} bei <b>${escapeHtml(app)}</b> geteilt hast!</p>
+<p>${escapeHtml(app)} ist ein privates Projekt aus Potsdam: ohne Werbung, ohne Tracking, gebaut in der Freizeit. Server, Speicher und Karten kosten trotzdem Geld. Deshalb bleiben kostenlose Törns eine Saison lang gespeichert – ${what} also bis zum <b>${date}</b>.</p>
 <p>Wenn du sie in die Saison ${next} mitnehmen möchtest, freue ich mich über eine kleine Unterstützung – schon ein Kaffee reicht, und für die ganze Saison ${next} kannst du dann auch Fotos hochladen und die Sichtbarkeit selbst wählen.</p>
 <p><a href="${link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Saison ${next} unterstützen</a></p>
 <p style="color:#5b6b7b;font-size:13px">Kein Muss: Wenn du nichts tust, werden die Törns am ${date} entfernt, dein Konto bleibt.</p>
@@ -98,7 +98,7 @@ export function lockNoticeMail(env: Env, to: string, m: { what: string; name: st
   const object = `Du bist nicht einverstanden? Antworte einfach auf diese Mail${contact} – wir prüfen die Entscheidung dann erneut.`;
   const text = `Hallo,\n\n${target} bei ${app} wurde von der Moderation gesperrt.\n\nBegründung:\n${m.reason}\n\n${after}\n\n${object}\n`;
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>${targetHtml} bei <b>${app}</b> wurde von der Moderation gesperrt.</p>
+<p>Hallo,</p><p>${targetHtml} bei <b>${escapeHtml(app)}</b> wurde von der Moderation gesperrt.</p>
 <p><b>Begründung:</b><br>${escapeHtml(m.reason).replace(/\n/g, '<br>')}</p>
 <p>${after}</p>
 <p>${escapeHtml(object)}</p>
@@ -124,7 +124,7 @@ export function claimResultMail(env: Env, to: string, m: { status: 'accepted' | 
   const note = m.status === 'rejected' && m.note.trim() ? m.note.trim() : '';
   const text = `Hallo,\n\ndein Antrag, ${the} „${m.name}“ bei ${app} zu vertreten, ${head}.\n\n${note ? `Begründung:\n${note}\n\n` : ''}${after}\n\n${m.url}\n\n${ask}\n`;
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>dein Antrag, ${the} <b>„${escapeHtml(m.name)}“</b> bei <b>${app}</b> zu vertreten, ${head}.</p>
+<p>Hallo,</p><p>dein Antrag, ${the} <b>„${escapeHtml(m.name)}“</b> bei <b>${escapeHtml(app)}</b> zu vertreten, ${head}.</p>
 ${note ? `<p><b>Begründung:</b><br>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
 <p>${after}</p>
 <p><a href="${escapeHtml(m.url)}">${escapeHtml(m.url)}</a></p>
@@ -145,7 +145,7 @@ export function claimTransferMail(env: Env, to: string, m: { kind: 'Verein' | 'H
   const object = `Du bist nicht einverstanden? Antworte einfach auf diese Mail${contact} – wir prüfen die Entscheidung dann erneut.`;
   const text = `Hallo,\n\n${the} „${m.name}“ bei ${app} wird jetzt von seiner verifizierten Vertretung verwaltet.\n\n${why}\n\n${object}\n`;
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>${the} <b>„${escapeHtml(m.name)}“</b> bei <b>${app}</b> wird jetzt von seiner verifizierten Vertretung verwaltet.</p>
+<p>Hallo,</p><p>${the} <b>„${escapeHtml(m.name)}“</b> bei <b>${escapeHtml(app)}</b> wird jetzt von seiner verifizierten Vertretung verwaltet.</p>
 <p>${escapeHtml(why)}</p>
 <p>${escapeHtml(object)}</p>
 </body></html>`;
@@ -174,7 +174,7 @@ export function lockReminderMail(env: Env, to: string, origin: string, items: Lo
     .map((i) => `<li><b>${escapeHtml(label(i))}</b> – Ablauf ${berlinDate(i.until)}${i.reason ? ` – ${escapeHtml(i.reason)}` : ''}</li>`)
     .join('');
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>folgende Sperren bei <b>${app}</b> laufen bald ab:</p><ul>${list}</ul>
+<p>Hallo,</p><p>folgende Sperren bei <b>${escapeHtml(app)}</b> laufen bald ab:</p><ul>${list}</ul>
 <p style="color:#5b6b7b;font-size:13px">${foot}</p>
 <p><a href="${link}" style="color:#0e6bd8">Zum Admin-Bereich</a></p>
 </body></html>`;
@@ -188,7 +188,7 @@ export function passkeyAddedMail(env: Env, to: string, origin: string, name: str
   const link = `${origin}/?konto=einstellungen`;
   const text = `Hallo,\n\nan deinem Konto bei ${app} wurde ein neuer Passkey angelegt: „${name}“. Damit kann man sich ohne Mail anmelden.\n\nWarst du das nicht? Entferne den Passkey im Konto unter „Einstellungen“ und melde dich auf allen Geräten neu an:\n${link}\n`;
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>an deinem Konto bei <b>${app}</b> wurde ein neuer Passkey angelegt: <b>„${escapeHtml(name)}“</b>. Damit kann man sich ohne Mail anmelden.</p>
+<p>Hallo,</p><p>an deinem Konto bei <b>${escapeHtml(app)}</b> wurde ein neuer Passkey angelegt: <b>„${escapeHtml(name)}“</b>. Damit kann man sich ohne Mail anmelden.</p>
 <p style="color:#5b6b7b;font-size:13px">Warst du das nicht? Entferne den Passkey im Konto unter „Einstellungen“.</p>
 <p><a href="${link}" style="display:inline-block;background:#0e6bd8;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Zu den Einstellungen</a></p>
 </body></html>`;
@@ -224,12 +224,12 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
       : m.kind === 'boat_admin' ? `das Boot „${target}“ bei ${app} mitzuverwalten` : m.kind === 'group' ? `in ${group} „${target}“ bei ${app}` : `${asRole}in die Crew des Törns „${target}“ bei ${app}`;
   const whatHtml =
     m.kind === 'friend'
-      ? `zu <b>${app}</b> ein – Törns teilen, Boote, Vereine und Teams rund ums Segeln`
+      ? `zu <b>${escapeHtml(app)}</b> ein – Törns teilen, Boote, Vereine und Teams rund ums Segeln`
       : m.kind === 'boat_admin'
-      ? `das Boot <b>„${escapeHtml(target)}“</b> bei <b>${app}</b> mitzuverwalten`
+      ? `das Boot <b>„${escapeHtml(target)}“</b> bei <b>${escapeHtml(app)}</b> mitzuverwalten`
       : m.kind === 'group'
-        ? `in ${group} <b>„${escapeHtml(target)}“</b> bei <b>${app}</b>`
-        : `${asRole}in die Crew des Törns <b>„${escapeHtml(target)}“</b> bei <b>${app}</b>`;
+        ? `in ${group} <b>„${escapeHtml(target)}“</b> bei <b>${escapeHtml(app)}</b>`
+        : `${asRole}in die Crew des Törns <b>„${escapeHtml(target)}“</b> bei <b>${escapeHtml(app)}</b>`;
   const verb = m.kind === 'boat_admin' ? 'lädt dich ein,' : m.kind === 'friend' ? 'lädt dich' : 'lädt dich ein';
   const after =
     m.kind === 'friend'
@@ -270,7 +270,7 @@ export function notificationDigestMail(env: Env, to: string, origin: string, ite
   const text = `Hallo,\n\nbei ${app} gibt es ${n} für dich:\n\n${lines}\n\n${foot}\n`;
   const list = items.map((i) => `<li><a href="${origin}${i.path}" style="color:#0e6bd8">${escapeHtml(i.line)}</a></li>`).join('');
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>bei <b>${app}</b> gibt es ${n} für dich:</p><ul>${list}</ul>
+<p>Hallo,</p><p>bei <b>${escapeHtml(app)}</b> gibt es ${n} für dich:</p><ul>${list}</ul>
 <p style="color:#5b6b7b;font-size:13px">${escapeHtml(foot)}</p>
 </body></html>`;
   return { to, subject: `${app}: ${n.charAt(0).toUpperCase()}${n.slice(1)}`, text, html };
@@ -308,7 +308,7 @@ export function groupDigestMail(env: Env, to: string, origin: string, groups: Gr
   const text = `Hallo,\n\ndas war los in deinen Vereinen und Teams bei ${app} in den letzten 7 Tagen:\n\n${lines}\n\n${foot}\n`;
   const list = groups.map((g) => `<li><a href="${origin}${g.path}" style="color:#0e6bd8">${escapeHtml(short(g.name))}</a>: ${counts(g)}</li>`).join('');
   const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#0f1d2b;line-height:1.5">
-<p>Hallo,</p><p>das war los in deinen Vereinen und Teams bei <b>${app}</b> in den letzten 7 Tagen:</p><ul>${list}</ul>
+<p>Hallo,</p><p>das war los in deinen Vereinen und Teams bei <b>${escapeHtml(app)}</b> in den letzten 7 Tagen:</p><ul>${list}</ul>
 <p style="color:#5b6b7b;font-size:13px">${foot}</p>
 </body></html>`;
   return { to, subject: `${app}: Was war los in deinem Verein`, text, html };

@@ -19,6 +19,7 @@ import { workspace } from '../services/workspace';
 import type { ConfirmRequest } from '../components/sx-confirm';
 import type { ToernLabel } from '../components/sx-topbar';
 import { errorText } from './session';
+import { APP_NAME } from '../domain/brand';
 
 /** Identitätsfarben der Tracks als Token-Namen (aufgelöst in Karte und Liste). */
 const TRACK_COLORS = ['--c-track-1', '--c-track-2', '--c-track-3', '--c-track-4', '--c-track-5', '--c-track-6'];
@@ -272,7 +273,7 @@ export class WorkspaceController {
   private toWorkspace() {
     if (this.store.get().mode.kind !== 'local' || this.ui.onPage() || location.pathname !== '/') history.pushState(null, '', '/');
     this.ui.leavePage();
-    document.title = 'Sail Explorer';
+    document.title = APP_NAME;
   }
 
   // ---------------------------------------------------------------- Tracks im offenen Törn
@@ -302,7 +303,7 @@ export class WorkspaceController {
     const s = this.store.get();
     this.reset();
     if (s.mode.kind !== 'local' || location.pathname !== '/' || location.search) history.pushState(null, '', '/');
-    document.title = 'Sail Explorer';
+    document.title = APP_NAME;
     this.ui.showHome();
   }
 
@@ -317,7 +318,7 @@ export class WorkspaceController {
     this.clearDraft();
     if (s.mode.kind !== 'local' && !this.ui.onPage()) {
       history.replaceState(null, '', '/');
-      document.title = 'Sail Explorer';
+      document.title = APP_NAME;
     }
   }
 
@@ -331,7 +332,7 @@ export class WorkspaceController {
     this.store.set({ mode: { kind: 'share', share }, saved: true });
     if (mode.kind === 'local') this.clearDraft();
     history.replaceState(null, '', share.link || `/s/${share.id}`);
-    document.title = `${share.title} · Sail Explorer`;
+    document.title = `${share.title} · ${APP_NAME}`;
   }
 
   private reset() {
@@ -350,7 +351,7 @@ export class WorkspaceController {
         : this.build(payload.tracks.map((t) => ({ name: t.name, text: t.gpx })));
       const view = { ...parseView(share.view), ...parseView(location.search.slice(1)) };
       this.store.set({ metric: view.metric ?? this.store.get().metric, layers: view.layers ?? this.store.get().layers });
-      document.title = `${share.title} · Sail Explorer`;
+      document.title = `${share.title} · ${APP_NAME}`;
       await this.setTracks(tracks, { mode: key ? { kind: 'share', share, key } : { kind: 'share', share }, fit: true, weather: payload.weather });
     } catch (e) {
       this.setLoading(null);

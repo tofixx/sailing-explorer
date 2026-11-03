@@ -445,7 +445,7 @@ export async function inviteGroup(request: Request, env: Env, id: string): Promi
 // ---------------------------------------------------------------- Freunde einladen (ohne Ziel)
 
 /**
- * POST /api/invites – Einladung zu Sail Explorer ohne Boot, Törn oder Gruppe (Konzept 14.2): `{ email }`, `{ handle }`
+ * POST /api/invites – Einladung zu Luv & Leute ohne Boot, Törn oder Gruppe (Konzept 14.2): `{ email }`, `{ handle }`
  * oder ohne beides ein Einladungslink (bis 20 Nutzungen). Wer annimmt, folgt der einladenden Person und umgekehrt.
  */
 export async function inviteFriend(request: Request, env: Env): Promise<Response> {

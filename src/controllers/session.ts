@@ -36,6 +36,7 @@ import type { ConfirmRequest } from '../components/sx-confirm';
 import type { SxInviteDialog } from '../components/sx-invite-dialog';
 import type { SxLoginDialog } from '../components/sx-login-dialog';
 import type { SxShareDialog } from '../components/sx-share-dialog';
+import { APP_NAME } from '../domain/brand';
 
 /** Größte URL, die wir für Links mit eingebetteten Daten noch erzeugen. */
 const MAX_INLINE_URL = 32_000;
@@ -724,7 +725,7 @@ export class SessionController {
       return this.openLogin(
         kind === 'success'
           ? 'Danke für deine Unterstützung! Melde dich an, um deinen Unterstützer-Status zu sehen.'
-          : 'Melde dich an, um Sail Explorer zu unterstützen und deine Törns länger zu behalten.',
+          : `Melde dich an, um ${APP_NAME} zu unterstützen und deine Törns länger zu behalten.`,
       );
     }
     if (kind === 'open') return this.openAccount('shares');
@@ -941,7 +942,7 @@ export class SessionController {
     const url = location.origin + path;
     if (navigator.share) {
       try {
-        await navigator.share({ title: `${title} · Sail Explorer`, url });
+        await navigator.share({ title: `${title} · ${APP_NAME}`, url });
         return;
       } catch (e) {
         if ((e as Error).name === 'AbortError') return; // abgebrochen – nichts tun
@@ -1053,7 +1054,7 @@ export class SessionController {
     // Teilen-Dialog und Fenstertitel folgen (z. B. nach dem Umbenennen, F-424)
     const r = this.ui.share.result;
     if (r?.share.id === id) this.ui.share.result = { ...r, share };
-    if (mode.kind === 'share' && mode.share.id === id) document.title = `${share.title} · Sail Explorer`;
+    if (mode.kind === 'share' && mode.share.id === id) document.title = `${share.title} · ${APP_NAME}`;
   }
 
   private groupsSeq = 0;

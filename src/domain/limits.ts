@@ -2,6 +2,7 @@
 // genutzt von Worker (Prüfung) und Oberfläche (Anzeige „x von y“). Technische Obergrenzen einzelner Anfragen
 // (Titel-Länge, Upload pro Törn, …) bleiben in worker/validate.ts (LIMITS).
 import { fmtMB } from './format';
+import { APP_NAME } from './brand';
 
 export type Tier = 'free' | 'supporter';
 
@@ -69,7 +70,7 @@ export const photoVerdict = (supporter: boolean, inShare: number): QuotaVerdict 
 /** Meldung, wenn kein weiteres Foto hochgeladen werden kann – gleicher Wortlaut wie der Server. */
 export function photoLimitMessage(v: Exclude<QuotaVerdict, 'ok'>, supportOffered: boolean): string {
   if (v === 'quota') return `Maximal ${limitsFor('supporter').photosPerShare} Fotos pro Törn.`;
-  return 'Fotos gibt es nur für Unterstützer.' + (supportOffered ? ' Unterstütze Sail Explorer mit einem Kaffee oder Bier, um Fotos zu deinen Törns hochzuladen.' : '');
+  return 'Fotos gibt es nur für Unterstützer.' + (supportOffered ? ` Unterstütze ${APP_NAME} mit einem Kaffee oder Bier, um Fotos zu deinen Törns hochzuladen.` : '');
 }
 
 // ---------------------------------------------------------------- Galerie-Beiträge (Konzept 31, B5)
