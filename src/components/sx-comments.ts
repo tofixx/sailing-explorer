@@ -1,4 +1,4 @@
-import { LitElement, html, css, nothing, type PropertyValues } from 'lit';
+import { LitElement, html, css, type PropertyValues } from 'lit';
 import type { CommentItem, CommentList } from '../services/api';
 import { cleanComment, commentLength, countLinks, linkify } from '../domain/comment-text';
 import { fmtDateTime } from '../util/html';
@@ -21,7 +21,7 @@ export class SxComments extends LitElement {
     error: { type: String },
     draft: { type: String },
     confirm: { state: true },
-    writing: { state: true },
+    writing: { type: Boolean },
   };
   declare data: CommentList | null;
   /** Törn, zu dem die Kommentare gehören */
@@ -32,7 +32,7 @@ export class SxComments extends LitElement {
   declare draft: string;
   /** Löschen eines Kommentars wartet auf Bestätigung */
   declare confirm: string | null;
-  /** Formular aufgeklappt („Kommentieren“ geklickt) */
+  /** Formular aufgeklappt („Kommentieren“ geklickt); der Controller klappt es nach dem Absenden zu (F-514) */
   declare writing: boolean;
 
   constructor() {
@@ -208,14 +208,27 @@ export class SxComments extends LitElement {
     `,
   ];
 
+  /** Formular schließt, während der Fokus darin steht (Abbrechen, abgesendet): danach zurück auf „Kommentieren“ */
+  private restoreFocus = false;
+
   willUpdate(changed: PropertyValues<this>) {
-    // Nach dem Absenden leert der Controller den Text: dann klappt das Formular wieder zu. Ein anderer Törn auch.
-    if (changed.has('busy') && changed.get('busy') && !this.busy && !this.draft && !this.error) this.writing = false;
+    // anderer Törn: Formular zu
     if (changed.has('shareId')) this.writing = false;
+    // vor dem Neuzeichnen prüfen – danach ist das fokussierte Element schon weg
+    if (changed.get('writing') && !this.writing) this.restoreFocus = !!this.shadowRoot?.activeElement;
   }
 
   updated(changed: PropertyValues<this>) {
     if (changed.has('writing') && this.writing) this.renderRoot.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+    if (this.restoreFocus) {
+      this.restoreFocus = false;
+      this.renderRoot.querySelector<HTMLButtonElement>('button.start')?.focus();
+    }
+  }
+
+  private cancel() {
+    this.draft = '';
+    this.writing = false;
   }
 
   private submit(e: Event) {
@@ -274,7 +287,7 @@ export class SxComments extends LitElement {
 
   /** „Kommentieren“ – der eine Einstieg; ohne Anmeldung öffnet er gleich die Anmeldung. */
   private startButton(d: CommentList) {
-    return html`<div><button class="btn small" type="button" aria-expanded=${d.block === 'login' ? nothing : 'false'}
+    return html`<div><button class="btn small start" type="button"
       @click=${() => (d.block === 'login' ? emit(this, 'sx-login') : (this.writing = true))}>${icon('comment')} Kommentieren</button></div>`;
   }
 
@@ -304,7 +317,7 @@ export class SxComments extends LitElement {
             aria-invalid=${problem ? 'true' : 'false'} @input=${(e: Event) => (this.draft = (e.target as HTMLTextAreaElement).value)}></textarea>
           <div class="row">
             <span id="c-count" class="count ${len > d.limits.maxLength ? 'over' : ''}" aria-live="polite">${problem || `${len} / ${d.limits.maxLength}`}</span>
-            <button class="btn small ghost" type="button" @click=${() => Object.assign(this, { writing: false, draft: '' })}>Abbrechen</button>
+            <button class="btn small ghost" type="button" @click=${this.cancel}>Abbrechen</button>
             <button class="btn small primary" type="submit" ?disabled=${this.busy || !body || !!problem}>${icon('comment')} Kommentieren</button>
           </div>
           <p id="c-rules" class="sub">Reiner Text, höchstens ${d.limits.maxLinks} Links. Sichtbar für alle, die den Törn sehen.</p>

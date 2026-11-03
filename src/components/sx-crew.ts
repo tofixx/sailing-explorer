@@ -23,8 +23,8 @@ export class SxCrew extends LitElement {
     editing: { type: Boolean },
     confirm: { state: true },
     info: { state: true },
-    inviting: { state: true },
-    roleOpen: { state: true },
+    inviting: { type: Boolean },
+    roleOpen: { type: Boolean },
   };
   declare crew: Crew | null;
   declare isOwner: boolean;
@@ -224,10 +224,32 @@ export class SxCrew extends LitElement {
   /** Rolle, als die eingeladen wird (Auswahl im aufgeklappten „Einladen“; gilt auch für den Einladungslink) */
   private inviteRole: VoyageRole = 'crew';
 
-  updated(changed: PropertyValues<this>) {
-    // Ändern der eigenen Rolle: die Auswahl bekommt gleich den Fokus
-    if (changed.has('roleOpen') && this.roleOpen) this.renderRoot.querySelector<HTMLSelectElement>('select.own-select')?.focus();
+  /** Rollenwahl schließt, während der Fokus in ihr steht (Wahl, Escape): danach zurück auf den Rollen-Knopf */
+  private restoreFocus = false;
+
+  willUpdate(changed: PropertyValues<this>) {
+    // vor dem Neuzeichnen prüfen – danach ist das fokussierte Element schon weg
+    if (changed.has('roleOpen') && changed.get('roleOpen') && !this.roleOpen) this.restoreFocus = !!this.shadowRoot?.activeElement;
   }
+
+  updated(changed: PropertyValues<this>) {
+    // Ändern der eigenen Rolle: die Auswahl bekommt gleich den Fokus, beim Schließen der Rollen-Knopf wieder (F-511)
+    if (changed.has('roleOpen') && this.roleOpen) this.renderRoot.querySelector<HTMLSelectElement>('select.own-select')?.focus();
+    if (this.restoreFocus) {
+      this.restoreFocus = false;
+      this.renderRoot.querySelector<HTMLButtonElement>('button.own')?.focus();
+    }
+    // „Crew bearbeiten“ (F-512): Fokus auf das erste Bearbeiten-Element, sonst „Fertig“
+    if (changed.has('editing') && this.editing) this.renderRoot.querySelector<HTMLElement>('li select, li button.btn, .tools button')?.focus();
+  }
+
+  /** Rollen-Auswahl schließt, wenn der Fokus sie verlässt – nicht, solange die Skipper-Rückfrage offen ist. */
+  private onRoleFocusOut = (e: FocusEvent) => {
+    if (this.confirm === 'skipper') return;
+    const next = e.relatedTarget as Node | null;
+    if (next && this.shadowRoot!.contains(next)) return;
+    this.roleOpen = false;
+  };
 
   private invite(e: Event) {
     e.preventDefault();
@@ -341,7 +363,7 @@ export class SxCrew extends LitElement {
     const value = fixed
       ? html`<span class="chip">${VOYAGE_ROLE_SHORT.skipper}</span>`
       : this.roleOpen
-        ? html`<span @keydown=${(e: KeyboardEvent) => e.key === 'Escape' && (this.roleOpen = false)}>${this.roleSelect(
+        ? html`<span @keydown=${(e: KeyboardEvent) => e.key === 'Escape' && (this.roleOpen = false)} @focusout=${this.onRoleFocusOut}>${this.roleSelect(
             role, this.isOwner ? VOYAGE_ROLES : SELF_ROLES, 'Deine Rolle an Bord', pick, this.isOwner, 'own-select')}</span>`
         : html`<button class="linkish own" type="button" aria-label="Deine Rolle ändern: ${role ? VOYAGE_ROLE_LABEL[role] : 'keine'}" ?disabled=${this.busy}
             @click=${() => (this.roleOpen = true)}>${role ? VOYAGE_ROLE_SHORT[role] : 'Rolle wählen'}${icon('pencil')}</button>`;

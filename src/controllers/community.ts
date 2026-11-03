@@ -91,7 +91,8 @@ export class CommunityController {
   postComment(body: string) {
     return this.act(async (cur) => {
       await communityApi.postComment(cur.share.id, body, cur.key);
-      this.ui.comments.draft = '';
+      // abgesendet: Text leeren und Formular zuklappen (F-514); bei einem Fehler bleibt beides
+      Object.assign(this.ui.comments, { draft: '', writing: false });
     });
   }
 

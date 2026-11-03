@@ -21,7 +21,7 @@ export function voyageMenuItems(share: Pick<ShareMeta, 'isOwner' | 'commentsMode
   // Skipper:in aus der Crew bestätigt auch die Eigentümer:in – dann gibt es auch ohne weitere Mitglieder etwas zu tun
   const ownerToConfirm = !!crew?.isSkipper && !crew.isOwner && !!crew.ownerRole;
   if (crew && (crew.isOwner || crew.isSkipper) && (crew.members.length > 0 || ownerToConfirm)) items.push({ id: 'crew-edit', label: 'Crew bearbeiten', icon: 'pencil' });
-  if (crew && !crew.isOwner && crew.isCrew) items.push({ id: 'crew-leave', label: 'Crew verlassen', icon: 'logout' });
+  if (crew && !crew.isOwner && crew.isCrew) items.push({ id: 'crew-leave', label: 'Crew verlassen', icon: 'logout', danger: true });
   const commentsMode = share.commentsMode;
   if (share.isOwner && commentsMode) {
     COMMENTS_MODES.forEach((m, i) =>

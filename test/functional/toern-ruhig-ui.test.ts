@@ -99,6 +99,13 @@ describe('F-511 eigene Rolle kompakt', () => {
     await el.updateComplete;
     expect(roles).toEqual([{ userId: 'me', role: 'guest' }]);
     expect(el.shadowRoot.querySelector('select')).toBeNull();
+    expect(el.shadowRoot.activeElement).toBe(button(el, /Deine Rolle ändern/)); // Fokus zurück auf die Rolle
+    // Fokus verlässt die Auswahl: zu – außer während der Skipper-Rückfrage
+    button(el, /Deine Rolle ändern/)!.click();
+    await el.updateComplete;
+    el.shadowRoot.querySelector('select')!.dispatchEvent(new FocusEvent('focusout', { bubbles: true, composed: true, relatedTarget: document.body }));
+    await el.updateComplete;
+    expect(el.shadowRoot.querySelector('select')).toBeNull();
     // eingetragene Skipper:in aus der Crew: nur Anzeige, kein Ändern
     const skipper = await mount('sx-crew', { crew: crew({ isCrew: true, isSkipper: true, me: { role: 'skipper', confirmed: null } }) });
     expect(button(skipper, /Deine Rolle ändern/)).toBeUndefined();
@@ -117,6 +124,7 @@ describe('F-512 Crew-Verwaltung im Bearbeiten-Modus', () => {
     expect(text(el)).toContain('bestätigt von Lisa');
     el.editing = true;
     await el.updateComplete;
+    expect(el.shadowRoot.activeElement?.getAttribute('aria-label')).toBe('Rolle von Tom'); // Fokus aufs erste Bearbeiten-Element
     expect([...el.shadowRoot.querySelectorAll('select')].map((s) => s.getAttribute('aria-label'))).toEqual(['Rolle von Tom', 'Rolle von Mara']);
     expect(button(el, /Aus der Crew entfernen: Mara/)).toBeDefined();
     expect(button(el, /bestätigen: Mara/)).toBeDefined();
@@ -168,14 +176,16 @@ describe('F-514 Kommentarfeld nach Klick', () => {
     button(el, /Abbrechen/)!.click();
     await el.updateComplete;
     expect(el.shadowRoot.querySelector('textarea')).toBeNull();
-    // Absenden: Controller setzt busy, leert den Text und nimmt busy zurück
+    expect(el.shadowRoot.activeElement).toBe(button(el, /Kommentieren/)); // Fokus zurück auf „Kommentieren“
+    // Absenden: der Controller leert den Text und klappt das Formular zu (CommunityController.postComment)
     button(el, /Kommentieren/)!.click();
     await el.updateComplete;
     Object.assign(el, { draft: 'Ahoi', busy: true });
     await el.updateComplete;
-    Object.assign(el, { draft: '', busy: false });
+    Object.assign(el, { draft: '', busy: false, writing: false });
     await el.updateComplete;
     expect(el.shadowRoot.querySelector('textarea')).toBeNull();
+    expect(el.shadowRoot.activeElement).toBe(button(el, /Kommentieren/));
     // Fehler beim Absenden: Text und Feld bleiben
     button(el, /Kommentieren/)!.click();
     await el.updateComplete;

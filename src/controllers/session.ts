@@ -464,8 +464,11 @@ export class SessionController {
   /** Crew des geöffneten Törns laden; das Panel erscheint nur, wenn es etwas zu zeigen oder zu verwalten gibt. */
   async loadCrew(share: ShareMeta, key?: string): Promise<void> {
     const crewEl = this.ui.crew;
-    // anderer Törn: Bearbeiten-Modus (F-512) endet
-    if (this.crewShare?.share.id !== share.id) crewEl.editing = false;
+    // anderer Törn: Bearbeiten-Modus (F-512), offenes Einladen und Rollenwahl enden; das Menü vergisst die alte Crew
+    if (this.crewShare?.share.id !== share.id) {
+      Object.assign(crewEl, { editing: false, inviting: false, roleOpen: false });
+      this.ui.crewChanged(null);
+    }
     this.crewShare = { share, key };
     Object.assign(crewEl, { visibility: share.visibility, error: '', busy: false });
     try {
@@ -476,6 +479,7 @@ export class SessionController {
       this.ui.crewPanel.hidden = !(crew.isOwner || crew.isCrew || crew.members.length || crew.others);
       this.ui.crewChanged(crew);
     } catch {
+      if (this.crewShare?.share.id !== share.id) return;
       this.ui.crewPanel.hidden = true; // ohne Backend oder ohne Zugriff: kein Panel
       this.ui.crewChanged(null);
     }
@@ -484,7 +488,7 @@ export class SessionController {
   hideCrew(): void {
     this.crewShare = null;
     this.ui.crewPanel.hidden = true;
-    Object.assign(this.ui.crew, { crew: null, newLink: '', editing: false });
+    Object.assign(this.ui.crew, { crew: null, newLink: '', editing: false, inviting: false, roleOpen: false });
     this.ui.crewChanged(null);
   }
 
