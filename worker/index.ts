@@ -34,6 +34,7 @@ import { postCard } from './stream';
 import { harborVisible, loadHarborByRedirect, loadHarborBySlug } from './harbors';
 // ---- Admin-Bereich (Konzept 18) ----
 import { adminRoutes } from './admin-routes';
+import { scoringRoutes } from './scoring-routes';
 import { createClaim, getClaimState, withdrawClaim } from './claims';
 import { currentUser } from './auth';
 import { isAdmin } from './moderation';
@@ -146,6 +147,8 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/claims\/([A-Za-z0-9]+)$/, (r, env, [id]) => withdrawClaim(r, env, id)],
   // ---- Admin-Bereich (Konzept 18): worker/admin-routes.ts ----
   ...adminRoutes,
+  // ---- Wertung (Konzept 32): worker/scoring-routes.ts ----
+  ...scoringRoutes,
 ];
 
 async function handleApi(request: Request, env: Env, path: string): Promise<Response> {

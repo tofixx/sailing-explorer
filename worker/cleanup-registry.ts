@@ -96,6 +96,9 @@ export const TABLES: Record<string, Loeschweg> = {
   // dem Konto; Frist 12 Monate nach Ende über removePost
   post_events: { cascade: ['posts'], durch: ['removePost', 'removeGroup', 'channelPostsCleanup', 'purgeUserGroups'], nachts: '12 Monate nach Ende (expireEvents)' },
   event_rsvps: { cascade: ['post_events', 'users'], durch: ['removePost', 'purgeUser', 'mergeUsers'] },
+  // Wertung (Konzept 32): Vorschläge der Plattform bleiben, bis Admins sie löschen; Vereinsvorlagen fallen mit dem Verein
+  // (removeGroup, auch über purgeUserGroups). Keine Konto-ID. Opt-in steht in group_members und fällt mit der Mitgliedschaft.
+  scoring_templates: { cascade: ['groups'], durch: ['deleteTemplate', 'removeGroup'] },
 };
 
 /** Je Art eines Bezugs ohne Fremdschlüssel: wer räumt beim Löschen des Gegenstands auf, gibt es ein nächtliches Netz? */

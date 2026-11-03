@@ -24,6 +24,7 @@ import { mayPlaceHarbor, parseHarborPosition } from '../src/domain/harbors';
 import { mayAdoptHarbor } from './claim-cleanup';
 import { fmtDate, fmtNum } from '../src/domain/format';
 import { seasonOf } from '../src/domain/support';
+import { assertTemplateUsable } from './scoring';
 import {
   LOG_LIMITS, departureError, isBackfill, logQuotaMessage, logTitle, parseLog, plausibleDistance, readLog, routeNm, seasonRange,
   type DistSource, type LatLon, type Logbook,
@@ -110,9 +111,11 @@ function parseDistance(v: unknown): number | null {
   return Math.round(n * 10) / 10;
 }
 
-function logOrThrow(input: unknown): Logbook {
+/** Angaben prüfen (`parseLog`) und die gewählte Wertungsvorlage (F-501): nur wählbare Vorlagen des Kontos. */
+async function logOrThrow(env: Env, userId: string, input: unknown): Promise<Logbook> {
   const r = parseLog(input);
   if ('error' in r) throw new HttpError(400, 'invalid_log', r.error);
+  await assertTemplateUsable(env, userId, r.log.templateId);
   return r.log;
 }
 
@@ -176,7 +179,7 @@ export async function createManualShare(request: Request, env: Env): Promise<Res
   const endedAt = optionalTime(body.endedAt);
   if (endedAt !== null && !Number.isFinite(endedAt)) throw new HttpError(400, 'invalid_date', 'Ungültige Ankunft.');
   const stated = parseDistance(body.distNm);
-  const log: Logbook = { ...logOrThrow(body.log), ...(body.timed === true ? { timed: true } : {}) };
+  const log: Logbook = { ...(await logOrThrow(env, user.id, body.log)), ...(body.timed === true ? { timed: true } : {}) };
   if (body.ownerRole !== undefined && body.ownerRole !== null && !isVoyageRole(body.ownerRole)) throw new HttpError(400, 'invalid_role', 'Unbekannte Rolle.');
 
   // Speicher und Notbremse wie ein Törn (die Payload zählt mit); das Törn-Kontingent zählt hier nicht (L1).
@@ -279,7 +282,7 @@ export async function applyLogPatch(env: Env, user: Pick<User, 'id'>, row: Share
   if (!manual && touchesTrack) throw new HttpError(409, 'not_manual', 'Datum und Strecke kommen bei aufgezeichneten Törns aus dem Track.');
   const previous = readLog(row.log);
   if (body.log !== undefined) {
-    const log = logOrThrow(body.log);
+    const log = await logOrThrow(env, user.id, body.log);
     // `timed` gehört zu Datum/Uhrzeit (nur über `body.timed` samt Prüfung), nicht zu den Angaben
     delete log.timed;
     if (previous.timed) log.timed = true;

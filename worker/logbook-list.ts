@@ -12,8 +12,10 @@ import {
   LOGBOOK_MAX_ENTRIES, csvFileName, filterEntries, logbookCsv, parseLogFilter, type LogbookEntry,
 } from '../src/domain/logbook-year';
 import { sharePath, type Visibility } from '../src/domain/visibility';
+import { reportScores } from '../src/domain/scoring';
+import { templatesFor } from './scoring';
 
-interface Row {
+export interface LogbookRow {
   id: string;
   title: string;
   visibility: Visibility;
@@ -38,25 +40,27 @@ interface Row {
   ht_name: string | null;
 }
 
-/** Häfen (ausgeblendete nicht) und Boot (ausgeblendete und gesperrte nicht) – gemeinsam für eigene und Crew-Törns. */
-const JOINS = `LEFT JOIN boats b ON b.id = s.boat_id AND ${liveSql('b')}
+/** Häfen (ausgeblendete nicht) und Boot (ausgeblendete und gesperrte nicht) – gemeinsam für eigene und Crew-Törns und die Vereinsliste (worker/scoring-list.ts). */
+export const LOGBOOK_JOINS = `LEFT JOIN boats b ON b.id = s.boat_id AND ${liveSql('b')}
   LEFT JOIN harbors hf ON hf.id = s.from_harbor_id AND hf.hidden_at IS NULL
   LEFT JOIN harbors ht ON ht.id = s.to_harbor_id AND ht.hidden_at IS NULL`;
-const COLS = `s.id, s.title, s.visibility, s.share_key, COALESCE(s.started_at, s.created_at) AS t, s.ended_at,
+export const LOGBOOK_COLS = `s.id, s.title, s.visibility, s.share_key, COALESCE(s.started_at, s.created_at) AS t, s.ended_at,
   (s.started_at IS NOT NULL) AS has_time, s.source, s.dist_nm, s.dist_source, b.name AS boat, b.visibility AS boat_vis,
   json_extract(s.log, '$.timed') AS log_timed,
   hf.slug AS hf_slug, hf.name AS hf_name, ht.slug AS ht_slug, ht.name AS ht_name`;
 
 /** Eigene Törns – jede Sichtbarkeit, auch ausgeschlossene (Filter „Ausgeschlossen“); gesperrte nicht (wie „Mein Verlauf“). */
-const OWN_SQL = `SELECT ${COLS}, s.log, s.log_state, s.owner_role AS role, (s.role_confirmed_at IS NOT NULL) AS confirmed
-  FROM shares s ${JOINS}
+/** Spalten eines eigenen Törns (alle Angaben, eigener Stand und Rolle). */
+export const OWN_COLS = `${LOGBOOK_COLS}, s.log, s.log_state, s.owner_role AS role, (s.role_confirmed_at IS NOT NULL) AS confirmed`;
+const OWN_SQL = `SELECT ${OWN_COLS}
+  FROM shares s ${LOGBOOK_JOINS}
   WHERE s.user_id = ?1 AND s.locked_at IS NULL
   ORDER BY t DESC LIMIT ?2`;
 
 /** Crew-Törns anderer nach M1: Stand aus der Bestätigung, nie die Angaben der Eigentümer:in. */
-const CREW_SQL = `SELECT ${COLS}, '{}' AS log, CASE WHEN c.confirmed_at IS NOT NULL THEN 'confirmed' ELSE 'suggested' END AS log_state,
+const CREW_SQL = `SELECT ${LOGBOOK_COLS}, '{}' AS log, CASE WHEN c.confirmed_at IS NOT NULL THEN 'confirmed' ELSE 'suggested' END AS log_state,
     c.role AS role, (c.confirmed_at IS NOT NULL) AS confirmed
-  FROM share_crew c JOIN shares s ON s.id = c.share_id ${JOINS}
+  FROM share_crew c JOIN shares s ON s.id = c.share_id ${LOGBOOK_JOINS}
   WHERE c.user_id = ?1 AND s.user_id <> ?1 AND ${CREW_LOGBOOK_SQL}
   ORDER BY t DESC LIMIT ?2`;
 
@@ -66,7 +70,7 @@ function listLog(raw: string): Logbook {
   return items ? { ...rest, items: items.map(({ name, n }) => ({ name, n })) } : rest;
 }
 
-function shape(r: Row, own: boolean): LogbookEntry {
+export function logbookShape(r: LogbookRow, own: boolean): LogbookEntry {
   const log = own ? listLog(r.log) : {};
   const manual = r.source === 'manual';
   // Crew-Törns nur mit Link und Titel, wenn sie öffentlich sind – sonst Eckdaten (M1)
@@ -96,11 +100,11 @@ function shape(r: Row, own: boolean): LogbookEntry {
 
 /** Alle Einträge des Kontos (eigene und Crew), neueste zuerst; `truncated`: mehr als LOGBOOK_MAX_ENTRIES. */
 async function entriesOf(env: Env, userId: string): Promise<{ entries: LogbookEntry[]; truncated: boolean }> {
-  const [own, crew] = await env.DB.batch<Row>([
+  const [own, crew] = await env.DB.batch<LogbookRow>([
     env.DB.prepare(OWN_SQL).bind(userId, LOGBOOK_MAX_ENTRIES),
     env.DB.prepare(CREW_SQL).bind(userId, LOGBOOK_MAX_ENTRIES),
   ]);
-  const all = [...own.results.map((r) => shape(r, true)), ...crew.results.map((r) => shape(r, false))].sort((a, b) => b.startedAt - a.startedAt);
+  const all = [...own.results.map((r) => logbookShape(r, true)), ...crew.results.map((r) => logbookShape(r, false))].sort((a, b) => b.startedAt - a.startedAt);
   return { entries: all.slice(0, LOGBOOK_MAX_ENTRIES), truncated: all.length > LOGBOOK_MAX_ENTRIES || own.results.length >= LOGBOOK_MAX_ENTRIES || crew.results.length >= LOGBOOK_MAX_ENTRIES };
 }
 
@@ -111,16 +115,18 @@ export async function getMyLogbook(request: Request, env: Env): Promise<Response
 }
 
 /**
- * GET /api/me/logbook.csv?saison=2026&stand=confirmed,suggested – Meilennachweis (F-457). Ohne `saison` alle Jahre
- * (Segellebenslauf); ohne `stand` Bestätigte und Vorschläge.
+ * GET /api/me/logbook.csv?saison=2026&stand=confirmed,suggested – Meilennachweis (F-457) und Jahresbericht mit Punkten
+ * (F-505). Ohne `saison` alle Jahre (Segellebenslauf); ohne `stand` Bestätigte und Vorschläge.
  */
 export async function getMyLogbookCsv(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const url = new URL(request.url);
   const raw = url.searchParams.get('saison');
   const season = raw && /^\d{4}$/.test(raw) ? Number(raw) : null;
-  const { entries, truncated } = await entriesOf(env, user.id);
-  const csv = logbookCsv(filterEntries(entries, parseLogFilter(url.searchParams.get('stand')), season), truncated);
+  const [{ entries, truncated }, templates] = await Promise.all([entriesOf(env, user.id), templatesFor(env, user.id)]);
+  const shown = filterEntries(entries, parseLogFilter(url.searchParams.get('stand')), season);
+  // Jahresbericht (F-505): mit Vorlage und Punkten je Eintrag und Summen je Vorlage
+  const csv = logbookCsv(shown, truncated, reportScores(shown, templates));
   return withApiHeaders(
     new Response(csv, {
       headers: {

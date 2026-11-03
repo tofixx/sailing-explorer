@@ -2,7 +2,7 @@
 // `log_state`, Summen, Crew-Ausnahme M1 und Meilennachweis als CSV. Genutzt von der Seite `/konto/fahrtenbuch` (Summen im
 // Browser) und vom Worker (`GET /api/me/logbook`, `GET /api/me/logbook.csv`).
 import { VOYAGE_ROLE_SHORT, type VoyageRole } from './crew-roles';
-import { DIST_SOURCE_LABEL, LOG_STATES, countsInLogbook, isLogState, type DistSource, type LogState, type Logbook, type ShareSource } from './logbook';
+import { DIST_SOURCE_LABEL, LOG_AREA_LABEL, LOG_STATES, countsInLogbook, isLogState, type DistSource, type LogState, type Logbook, type ShareSource } from './logbook';
 import { calendarDaysBerlin } from './logbook-suggest';
 import { seasonOf } from './support';
 import type { Visibility } from './visibility';
@@ -173,27 +173,58 @@ export function durationText(e: Pick<LogbookEntry, 'startedAt' | 'endedAt' | 'ti
 export const roleText = (e: Pick<LogbookEntry, 'role' | 'roleConfirmed'>): string =>
   e.role ? `${VOYAGE_ROLE_SHORT[e.role]}${e.roleConfirmed ? ' (bestätigt)' : ''}` : '';
 
+/** Revier für Liste und Jahresbericht: „Küste (Tide)“, ohne Angabe leer. */
+export const areaText = (log: Logbook): string => (log.area ? `${LOG_AREA_LABEL[log.area]}${log.tidal ? ' (Tide)' : ''}` : '');
+
+/** Posten für den Jahresbericht: „Training × 2, Arbeitsdienst“. */
+const itemsText = (log: Logbook): string => (log.items ?? []).map((it) => `${it.name}${it.n !== 1 ? ` × ${comma(it.n, it.n % 1 ? 1 : 0)}` : ''}`).join(', ');
+
+/**
+ * Punkte für den Jahresbericht (Konzept 32, F-505) – gerechnet in src/domain/scoring.ts, hier nur geschrieben, damit dieses
+ * Modul ohne die Wertung auskommt.
+ */
+export interface CsvScores {
+  of(e: LogbookEntry): { template: string; points: number };
+  /** Summen je Vorlage (Seemeilen und Punkte) */
+  totals: Array<{ template: string; nm: number; points: number }>;
+  /** letzte Zeile, z. B. „Vereinshilfe – keine offizielle Wertung“ */
+  note: string;
+}
+
 /**
  * Meilennachweis als CSV: Datum; Von; Nach; sm; Quelle; Rolle; Boot; Dauer – Semikolon, UTF-8 mit BOM (öffnet in Excel),
- * Zeilenende CRLF, älteste zuerst. Rundtörns nennen bei „Nach“ den Starthafen. `truncated`: Hinweiszeile am Ende.
+ * Zeilenende CRLF, älteste zuerst. Rundtörns nennen bei „Nach“ den Starthafen. `truncated`: Hinweiszeile am Ende. Mit
+ * `scores` wird daraus der Jahresbericht (F-505): zusätzlich Revier; Posten; Vorlage; Punkte und Summen je Vorlage.
  */
-export function logbookCsv(entries: LogbookEntry[], truncated = false): string {
+export function logbookCsv(entries: LogbookEntry[], truncated = false, scores?: CsvScores): string {
   const rows = [...entries]
     .sort((a, b) => a.startedAt - b.startedAt)
-    .map((e) => [
-      berlinDate(e.startedAt),
-      e.from?.name ?? '',
-      e.to?.name ?? e.from?.name ?? '',
-      comma(e.distNm),
-      DIST_SOURCE_LABEL[e.distSource],
-      roleText(e),
-      e.boat ?? '',
-      durationText(e),
-    ]);
+    .map((e) => {
+      const row = [
+        berlinDate(e.startedAt),
+        e.from?.name ?? '',
+        e.to?.name ?? e.from?.name ?? '',
+        comma(e.distNm),
+        DIST_SOURCE_LABEL[e.distSource],
+        roleText(e),
+        e.boat ?? '',
+        durationText(e),
+      ];
+      if (!scores) return row;
+      const p = scores.of(e);
+      return [...row, areaText(e.log), itemsText(e.log), p.template, comma(p.points)];
+    });
+  const header: readonly string[] = scores ? [...CSV_HEADER, ...REPORT_HEADER] : CSV_HEADER;
+  const sums: string[][] = scores
+    ? [[], ...scores.totals.map((t) => ['Summe', '', '', comma(t.nm), '', '', '', '', '', '', t.template, comma(t.points)]), [scores.note]]
+    : [];
   // gekappt (mehr als LOGBOOK_MAX_ENTRIES): Hinweis als letzte Zeile, damit der Nachweis nicht unbemerkt unvollständig ist
   const note = truncated ? [[`Hinweis: nur die neuesten ${LOGBOOK_MAX_ENTRIES} Einträge – ältere fehlen in dieser Datei.`]] : [];
-  return '\uFEFF' + [CSV_HEADER as readonly string[], ...rows, ...note].map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';
+  return '﻿' + [header, ...rows, ...sums, ...note].map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';
 }
+
+/** Zusätzliche Spalten des Jahresberichts (F-505). */
+export const REPORT_HEADER = ['Revier', 'Posten', 'Vorlage', 'Punkte'] as const;
 
 /** Dateiname des Exports: `meilennachweis-2026.csv` bzw. `meilennachweis.csv` (alle Jahre). */
 export const csvFileName = (season: number | null) => `meilennachweis${season ? `-${season}` : ''}.csv`;

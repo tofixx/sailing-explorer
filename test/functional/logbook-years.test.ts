@@ -174,17 +174,19 @@ describe('F-457 Meilennachweis als CSV', () => {
     const body = new TextDecoder('utf-8', { ignoreBOM: true }).decode(await res.arrayBuffer());
     expect(body.charCodeAt(0)).toBe(0xfeff);
     const lines = body.slice(1).trimEnd().split('\r\n');
-    expect(lines[0]).toBe('Datum;Von;Nach;sm;Quelle;Rolle;Boot;Dauer');
-    expect(lines).toHaveLength(2);
+    // seit F-505 mit Revier, Posten, Vorlage und Punkten (Jahresbericht); Einträge, Leerzeile, Summen, Hinweis
+    expect(lines[0]).toBe('Datum;Von;Nach;sm;Quelle;Rolle;Boot;Dauer;Revier;Posten;Vorlage;Punkte');
+    const rows = (text: string) => text.trimEnd().split('\r\n').filter((l) => /^\d\d\.\d\d\.\d{4};/.test(l));
+    expect(rows(body)).toHaveLength(1);
     expect(lines[1]).toContain(';12,5;Angabe;');
     // nur Ausgeschlossene, andere Saison
     const ex = new TextDecoder().decode(await (await h.fetch('/api/me/logbook.csv?stand=excluded', { cookie: p.cookie })).arrayBuffer());
-    expect(ex.trimEnd().split('\r\n')).toHaveLength(2);
+    expect(rows(ex)).toHaveLength(1);
     expect(ex).toContain(';4,0;aufgezeichnet;');
     const season = new Date().getUTCFullYear() + (new Date().getUTCMonth() >= 10 ? 1 : 0);
     const old = await h.fetch(`/api/me/logbook.csv?saison=${season - 3}`, { cookie: p.cookie });
     expect(old.headers.get('Content-Disposition')).toContain(`meilennachweis-${season - 3}.csv`);
-    expect(new TextDecoder().decode(await old.arrayBuffer()).trimEnd().split('\r\n')).toHaveLength(1);
+    expect(rows(new TextDecoder().decode(await old.arrayBuffer()))).toHaveLength(0);
     expect(a.id).toBeTruthy();
   });
 });

@@ -114,7 +114,12 @@ export interface Logbook {
   items?: LogItem[];
   /** aus einer Veranstaltung übernommen (Konzept 30, F-487) – nur ein Verweis, die Veranstaltung darf verschwinden */
   eventId?: string;
+  /** Wertungsvorlage des Eintrags (Konzept 32, F-500) – ohne bzw. unbekannt gilt „Nur Meilen“ */
+  templateId?: string;
 }
+
+/** Form einer Vorlagen-ID (Zufalls-ID bzw. feste ID wie `meilen`) – ob es sie gibt und wer sie nutzen darf, prüft der Worker. */
+export const isTemplateId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9]{1,40}$/.test(v);
 
 const line = (v: unknown): string => cleanComment(v).replace(/\s*\n\s*/g, ' ');
 
@@ -228,6 +233,10 @@ function parseExtra(o: Record<string, unknown>, log: Logbook): string | null {
     }
     if (items.length) log.items = items;
   }
+  if (!empty(o.templateId)) {
+    if (!isTemplateId(o.templateId)) return 'Unbekannte Wertungsvorlage.';
+    log.templateId = o.templateId;
+  }
   return null;
 }
 
@@ -242,8 +251,8 @@ export function readLog(raw: unknown): Logbook {
   }
 }
 
-/** Gibt es Angaben, die das Fahrtenbuch-Panel zeigt? (`timed` ist nur ein Merker) */
-export const hasLog = (log: Logbook): boolean => Object.keys(log).some((k) => k !== 'timed' && k !== 'eventId');
+/** Gibt es Angaben, die das Fahrtenbuch-Panel zeigt? (`timed` ist nur ein Merker; Veranstaltung und Vorlage zeigt das Fahrtenbuch) */
+export const hasLog = (log: Logbook): boolean => Object.keys(log).some((k) => k !== 'timed' && k !== 'eventId' && k !== 'templateId');
 
 // ---------------------------------------------------------------- Route und Distanz
 
