@@ -10,7 +10,7 @@ import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtDate, fmtNum, plural } from '../util/html';
 import { ENTITY_ICON, groupIcon, icon } from './icons';
-import { base, emit, offerFollow, onMapStyles, pageMenuReveal, writePostButton } from './shared';
+import { base, emit, offerFollow, onMapStyles, pageMenuReveal, webLink, webLinkStyles, writePostButton } from './shared';
 import './sx-page-menu';
 import type { PageMenuItem } from './sx-page-menu';
 import { recordedNote } from '../domain/logbook';
@@ -103,6 +103,7 @@ export class SxGroupPage extends LitElement {
   static styles = [
     base,
     pageMenuReveal,
+    webLinkStyles,
     css`
       :host {
         display: block;
@@ -416,6 +417,10 @@ export class SxGroupPage extends LitElement {
         <sx-harbor-picker input-id="gh" label="Heimathafen" .value=${g?.harbor ?? null}></sx-harbor-picker></div>
       <label><span class="label">Beschreibung (optional)</span>
         <textarea maxlength="1000" .value=${d.description ?? ''} @input=${(e: Event) => this.set({ description: (e.target as HTMLTextAreaElement).value })}></textarea></label>
+      <label><span class="label">Webseite (optional)</span>
+        <input type="url" inputmode="url" maxlength="500" placeholder="https://" .value=${d.webUrl ?? ''} aria-describedby="web-hint"
+          @input=${(e: Event) => this.set({ webUrl: (e.target as HTMLInputElement).value.trim() })} />
+        <span class="hint" id="web-hint">Erscheint als Link auf der Seite – nur Adressen mit http:// oder https://.</span></label>
       ${create && d.kind === 'team' && this.clubs.length
         ? html`<label><span class="label">Gehört zum Verein (optional)</span>
             <sx-filter-select label="Vereine filtern"><select .value=${d.parentId ?? ''} @change=${(e: Event) => this.set({ parentId: (e.target as HTMLSelectElement).value || null })}>
@@ -516,7 +521,7 @@ export class SxGroupPage extends LitElement {
 
   /** Bearbeiten öffnen: Entwurf aus der aktuellen Gruppe. */
   private startEdit(g: GroupInfo) {
-    this.draft = { name: g.name, slug: g.slug, description: g.description, visibility: g.visibility, joinMode: g.joinMode, approveBy: g.approveBy ?? 'admins', postBy: effectivePostBy(g.kind, g.postBy), membersVisible: g.membersVisible ?? DEFAULT_MEMBERS_VISIBLE, ...(g.daySummary !== undefined ? { daySummary: g.daySummary } : {}) };
+    this.draft = { name: g.name, slug: g.slug, description: g.description, webUrl: g.webUrl ?? '', visibility: g.visibility, joinMode: g.joinMode, approveBy: g.approveBy ?? 'admins', postBy: effectivePostBy(g.kind, g.postBy), membersVisible: g.membersVisible ?? DEFAULT_MEMBERS_VISIBLE, ...(g.daySummary !== undefined ? { daySummary: g.daySummary } : {}) };
     this.editing = true;
   }
 
@@ -614,6 +619,7 @@ export class SxGroupPage extends LitElement {
           <span>${JOIN_MODE_SHORT[g.joinMode] ?? ''}</span>
           ${g.harbor ? html`<span>Heimathafen <a href="/h/${g.harbor.slug}">${g.harbor.name}</a></span>` : g.homePort ? html`<span>Heimathafen ${g.homePort}</span>` : ''}
           ${d.parent ? html`<span>im Verein <a href="/g/${d.parent.slug}">${d.parent.name}</a></span>` : ''}
+          ${webLink(g.webUrl)}
           ${manager ? html`<span class="vis">${icon(VISIBILITY_ICON[v] ?? 'lock')} ${GROUP_VISIBILITY_LABEL[v]}</span>` : ''}
           ${g.role ? html`<span>Du: ${GROUP_ROLE_LABEL[g.role]}</span>` : ''}
         </div>

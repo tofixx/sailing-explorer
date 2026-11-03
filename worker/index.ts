@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { canonicalRedirect } from './canonical';
+import { canonicalRedirect, indexableHost } from './canonical';
 import { deleteAccount, logout, me, peekLink, requestLink, verifyCode, verifyLink } from './auth';
 import { HttpError, errorResponse, json } from './http';
 import { listShareGroupChoices } from './share-groups';
@@ -8,7 +8,7 @@ import { getMyLogbook, getMyLogbookCsv } from './logbook-list';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
-import { getDiscover, getDiscoverStats } from './discover';
+import { LISTED, getDiscover, getDiscoverStats } from './discover';
 import { confirmCrew, setCrewRole, setOwnerRole, unconfirmCrew } from './crew-roles';
 import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteCrew, inviteFriend, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
 import { withPageHeaders } from './security';
@@ -42,6 +42,8 @@ import { isAdmin } from './moderation';
 import { getUnread, listNotifications, markRead } from './notifications';
 import { liveSocket } from './live';
 import { deletePush, getPushKey, putPush } from './push';
+// ---- Auffindbarkeit (F-544 … F-546) ----
+import { robotsTxt, sitemap } from './sitemap';
 
 /** Durable Object für Live-Benachrichtigungen (wrangler.jsonc: durable_objects). */
 export { NotificationHub } from './live';
@@ -198,10 +200,12 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
     if (!row || !canViewShare(row, false, viewer.key)) return fallback;
     // Das Bild eines „Nur mit Link“-Törns braucht den Schlüssel als ?k= (Bilder können keine Header setzen).
     const k = row.visibility === 'unlisted' && row.share_key && key ? `?k=${key}` : '';
+    // Indexierbar wie in Entdecken und der Sitemap (F-544): öffentlich, „Sichtbar bis: überall“, Konto nicht gesperrt
+    const listed = index(row.visibility) && !!(await env.DB.prepare(`SELECT 1 AS x FROM shares s WHERE s.id = ? AND ${LISTED}`).bind(row.id).first());
     return {
       title: `${row.title} · ${env.APP_NAME}`,
       description: row.summary || 'Segeltörn mit Wind- und Wellendaten',
-      index: index(row.visibility),
+      index: listed,
       image: row.has_image ? `${origin}/api/shares/${row.id}/image${k}` : undefined,
     };
   }
@@ -251,7 +255,9 @@ async function pageMeta(env: Env, kind: string, id: string, origin: string, key:
 /** /s/:id(/:key), /p/:id(/:key), /u/:handle(/:key), /b/:id(/:key), /g/:slug(/:key), /entdecken – liefert die App mit passenden Vorschau-Metadaten. */
 async function metaPage(request: Request, env: Env, kind: string, id: string, key: string | null | undefined): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL('/', request.url), { headers: request.headers }));
-  const meta: PageMeta = await pageMeta(env, kind, id, new URL(request.url).origin, key).catch(() => ({ title: env.APP_NAME, description: DEFAULT_DESCRIPTION, index: false }));
+  const url = new URL(request.url);
+  const origin = url.origin;
+  const meta: PageMeta = await pageMeta(env, kind, id, origin, key).catch(() => ({ title: env.APP_NAME, description: DEFAULT_DESCRIPTION, index: false }));
   const rewritten = new HTMLRewriter()
     .on('title', { element: (el) => void el.setInnerContent(meta.title) })
     .on('meta[property="og:title"]', { element: (el) => void el.setAttribute('content', meta.title) })
@@ -259,6 +265,11 @@ async function metaPage(request: Request, env: Env, kind: string, id: string, ke
     .on('head', {
       element: (el) => {
         if (!meta.index) el.append('<meta name="robots" content="noindex">', { html: true });
+        // Kanonische Adresse (F-546): nur indexierbare Seiten, ohne Schlüssel und Query – Pfad aus validierten Teilen
+        if (meta.index && indexableHost(url, env)) {
+          const href = `${origin}${kind === 'entdecken' ? '/entdecken' : `/${kind}/${id}`}`;
+          el.append(`<link rel="canonical" href="${href}"><meta property="og:url" content="${href}">`, { html: true });
+        }
         if (meta.image) {
           // URL aus eigener Origin, validierter ID und validiertem Schlüssel gebaut – kein Fremdtext im HTML.
           el.append(
@@ -295,37 +306,9 @@ export default {
     // www., Subdomains und die alte Domain → Hauptdomain (301, mit Pfad)
     const redirect = canonicalRedirect(url, env);
     if (redirect) return redirect;
-    try {
-      if (url.pathname.startsWith('/api/')) return noindex(await handleApi(request, env, url.pathname));
-      // Optionales letztes Segment = Teilen-Schlüssel („Nur mit Link“, Konzept 2.1).
-      // Atom-Feed öffentlicher Gruppen (F-162)
-      const feed = /^\/g\/([a-z0-9-]{3,30})\/feed\.xml$/i.exec(url.pathname);
-      if (feed && (request.method === 'GET' || request.method === 'HEAD')) return await groupFeed(request, env, feed[1].toLowerCase());
-      const page =
-        /^\/(s|b|p)\/([A-Za-z0-9]{12,32})(?:\/([^/]+))?\/?$/.exec(url.pathname) ??
-        /^\/(u|g)\/([a-z0-9-]{3,30})(?:\/([^/]+))?\/?$/i.exec(url.pathname) ??
-        /^\/(h)\/([a-z0-9-]{1,100})\/?$/.exec(url.pathname) ??
-        /^\/(entdecken)()\/?$/.exec(url.pathname);
-      // Alte Adresse eines zusammengeführten Hafens (Konzept 18.7): dauerhaft auf die neue
-      if (page?.[1] === 'h' && !(await loadHarborBySlug(env, page[2]))) {
-        const target = await loadHarborByRedirect(env, page[2]);
-        if (harborVisible(target)) return Response.redirect(new URL(`/h/${target.slug}`, url).toString(), 301);
-      }
-      if (page && (request.method === 'GET' || request.method === 'HEAD')) {
-        const key = page[3] === undefined ? undefined : isShareKey(page[3]) ? page[3] : null;
-        return await metaPage(request, env, page[1], page[1] === 'u' || page[1] === 'g' ? page[2].toLowerCase() : page[2], key);
-      }
-      // Übrige Seiten (Startseite, /impressum, /datenschutz, SPA-Routen) aus den Assets – HTML mit den Seiten-Headern,
-      // weil _headers für Antworten über den Worker nicht greift.
-      const asset = await env.ASSETS.fetch(request);
-      // Admin-Seite (Konzept 18.1): für alle außer Admins 404 – die App zeigt dann nichts Verwertbares.
-      if (/^\/admin\/?$/.test(url.pathname) && !isAdmin(env, (await currentUser(request, env))?.id)) {
-        return withPageHeaders(new Response(asset.body, { status: 404, headers: asset.headers }));
-      }
-      return (asset.headers.get('Content-Type') ?? '').startsWith('text/html') ? withPageHeaders(new Response(asset.body, asset)) : asset;
-    } catch (err) {
-      return url.pathname.startsWith('/api/') ? noindex(errorResponse(err)) : errorResponse(err);
-    }
+    const res = await route(request, env, url);
+    // Vorschauen dev-* und lokale Entwicklung (F-545): alles noindex, nur die Hauptdomain darf in Suchmaschinen
+    return indexableHost(url, env) ? res : noindex(res);
   },
 
   // Nächtliches Aufräumen (Cron-Trigger in wrangler.jsonc).
@@ -334,3 +317,41 @@ export default {
     ctx.waitUntil(runRetention(env, env.APP_ORIGIN || 'https://segeln-potsdam.de', controller.scheduledTime || Date.now()).then((r) => console.log('retention', JSON.stringify(r))));
   },
 } satisfies ExportedHandler<Env>;
+
+async function route(request: Request, env: Env, url: URL): Promise<Response> {
+  try {
+    if (url.pathname.startsWith('/api/')) return noindex(await handleApi(request, env, url.pathname));
+    const get = request.method === 'GET' || request.method === 'HEAD';
+    // Auffindbarkeit ohne App-Store (F-544, F-545)
+    if (get && url.pathname === '/robots.txt') return robotsTxt(request, env);
+    if (get && url.pathname === '/sitemap.xml') return await sitemap(request, env);
+    // Optionales letztes Segment = Teilen-Schlüssel („Nur mit Link“, Konzept 2.1).
+    // Atom-Feed öffentlicher Gruppen (F-162)
+    const feed = /^\/g\/([a-z0-9-]{3,30})\/feed\.xml$/i.exec(url.pathname);
+    if (feed && (request.method === 'GET' || request.method === 'HEAD')) return await groupFeed(request, env, feed[1].toLowerCase());
+    const page =
+      /^\/(s|b|p)\/([A-Za-z0-9]{12,32})(?:\/([^/]+))?\/?$/.exec(url.pathname) ??
+      /^\/(u|g)\/([a-z0-9-]{3,30})(?:\/([^/]+))?\/?$/i.exec(url.pathname) ??
+      /^\/(h)\/([a-z0-9-]{1,100})\/?$/.exec(url.pathname) ??
+      /^\/(entdecken)()\/?$/.exec(url.pathname);
+    // Alte Adresse eines zusammengeführten Hafens (Konzept 18.7): dauerhaft auf die neue
+    if (page?.[1] === 'h' && !(await loadHarborBySlug(env, page[2]))) {
+      const target = await loadHarborByRedirect(env, page[2]);
+      if (harborVisible(target)) return Response.redirect(new URL(`/h/${target.slug}`, url).toString(), 301);
+    }
+    if (page && (request.method === 'GET' || request.method === 'HEAD')) {
+      const key = page[3] === undefined ? undefined : isShareKey(page[3]) ? page[3] : null;
+      return await metaPage(request, env, page[1], page[1] === 'u' || page[1] === 'g' ? page[2].toLowerCase() : page[2], key);
+    }
+    // Übrige Seiten (Startseite, /impressum, /datenschutz, SPA-Routen) aus den Assets – HTML mit den Seiten-Headern,
+    // weil _headers für Antworten über den Worker nicht greift.
+    const asset = await env.ASSETS.fetch(request);
+    // Admin-Seite (Konzept 18.1): für alle außer Admins 404 – die App zeigt dann nichts Verwertbares.
+    if (/^\/admin\/?$/.test(url.pathname) && !isAdmin(env, (await currentUser(request, env))?.id)) {
+      return withPageHeaders(new Response(asset.body, { status: 404, headers: asset.headers }));
+    }
+    return (asset.headers.get('Content-Type') ?? '').startsWith('text/html') ? withPageHeaders(new Response(asset.body, asset)) : asset;
+  } catch (err) {
+    return url.pathname.startsWith('/api/') ? noindex(errorResponse(err)) : errorResponse(err);
+  }
+}

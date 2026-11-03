@@ -12,7 +12,7 @@ import { harborActivityCleanup } from './activity';
 import { channelGalleryCleanup } from './photo-keys';
 import { reachAtLeastSql } from './reach-sql';
 import { writableChannel } from './post-chain';
-import { LIMITS, SHARE_ID_RE, cleanText } from './validate';
+import { LIMITS, SHARE_ID_RE, cleanText, readWebUrl } from './validate';
 import { HARBOR_LIMITS, harborKey, harborSlugBase, isHarborSlug, mayPlaceHarbor, parseHarborPosition, type HarborRef } from '../src/domain/harbors';
 import { canManageGroup, seasonStart } from '../src/domain/groups';
 import { claimTargetCleanup, mayAdoptHarbor } from './claim-cleanup';
@@ -32,6 +32,8 @@ export interface HarborRow {
   hidden_at: number | null;
   /** verifizierte Vertretung (0026, Konzept 20) */
   verified_at?: number | null;
+  /** Webseite (0043, F-541): geprüfte http(s)-URL, NULL = keine */
+  web_url?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -176,6 +178,8 @@ function harborShape(env: Env, h: HarborRow, viewerId: string | null) {
     ...harborRef(h),
     lat: h.lat,
     lon: h.lon,
+    // Webseite (F-541) – öffentlich wie der Hafen; Link mit rel="noopener nofollow ugc"
+    webUrl: h.web_url || null,
     canEdit: canEditHarbor(env, h, viewerId),
     // Abzeichen „Verifiziert“ (Konzept 20.4, F-366)
     verified: !!h.verified_at,
@@ -259,14 +263,14 @@ export async function getHarbor(request: Request, env: Env, slug: string): Promi
   });
 }
 
-/** PATCH /api/harbors/:id – Name/Position (Anleger:in, Moderation), Verein (Eigner/Admins des Vereins). */
+/** PATCH /api/harbors/:id – Name/Position/Webseite (Anleger:in, Moderation), Verein (Eigner/Admins des Vereins). */
 export async function updateHarbor(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   await assertActive(env, user);
   const h = await loadHarbor(env, id);
   const admin = isAdmin(env, user.id);
   if (!harborVisible(h, admin)) throw HARBOR_NOT_FOUND();
-  const input = await readJson<{ name?: unknown; lat?: unknown; lon?: unknown; clubId?: unknown }>(request);
+  const input = await readJson<{ name?: unknown; lat?: unknown; lon?: unknown; webUrl?: unknown; clubId?: unknown }>(request);
   const editsBasics = input.name !== undefined || input.lat !== undefined || input.lon !== undefined;
   // Altbestand ohne Anleger:in und ohne Position (L3, F-307): wer als Erste:r die Position setzt, wird Anleger:in.
   // Je verifizierte Häfen übernimmt so niemand (Konzept 20.5, F-367).
@@ -291,6 +295,12 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
     h.lon = pos.lon;
     if (adopts && pos.lat !== null) h.created_by = user.id;
   }
+  // Webseite (F-541): wie Name und Position – Anleger:in (auch, wer gerade per Erst-Position übernimmt), Moderation
+  const beforeUrl = h.web_url ?? null;
+  if (input.webUrl !== undefined) {
+    if (!canEditHarbor(env, h, user.id)) throw new HttpError(403, 'forbidden', 'Die Webseite ändert, wer den Hafen angelegt hat.');
+    h.web_url = readWebUrl(input.webUrl);
+  }
   // Verifizierter Hafen (Konzept 20.5, F-371): den Verein ordnen nur Hafen-Vertretung und Moderation zu
   if (input.clubId !== undefined && h.verified_at && h.created_by !== user.id && !admin) {
     throw new HttpError(403, 'verified_harbor', 'Den Verein dieses verifizierten Hafens ordnet die Hafen-Vertretung zu.');
@@ -313,12 +323,12 @@ export async function updateHarbor(request: Request, env: Env, id: string): Prom
   }
   h.updated_at = Date.now();
   await env.DB.batch([
-    env.DB.prepare('UPDATE harbors SET name = ?, name_key = ?, lat = ?, lon = ?, club_id = ?, created_by = ?, updated_at = ? WHERE id = ?').bind(h.name, h.name_key, h.lat, h.lon, h.club_id, h.created_by, h.updated_at, h.id),
+    env.DB.prepare('UPDATE harbors SET name = ?, name_key = ?, lat = ?, lon = ?, web_url = ?, club_id = ?, created_by = ?, updated_at = ? WHERE id = ?').bind(h.name, h.name_key, h.lat, h.lon, h.web_url ?? null, h.club_id, h.created_by, h.updated_at, h.id),
     // Anzeige-Kopie an den Booten nachführen
     env.DB.prepare('UPDATE boats SET home_port = ? WHERE harbor_id = ?').bind(h.name, h.id),
     env.DB.prepare('UPDATE groups SET home_port = ? WHERE harbor_id = ?').bind(h.name, h.id),
     // Ändert die Moderation einen fremden Hafen, steht das im Admin-Protokoll (Konzept 18.10)
-    ...(admin && h.created_by !== user.id ? [adminLogStmt(env, user.id, 'harbor_edit', 'harbor', h.id, before === h.name ? '' : `${before} → ${h.name}`, h.updated_at)] : []),
+    ...(admin && h.created_by !== user.id ? [adminLogStmt(env, user.id, 'harbor_edit', 'harbor', h.id, [before === h.name ? '' : `${before} → ${h.name}`, beforeUrl === (h.web_url ?? null) ? '' : `Webseite ${beforeUrl ?? '–'} → ${h.web_url ?? '–'}`].filter(Boolean).join('; '), h.updated_at)] : []),
   ]);
   return json({ harbor: harborShape(env, h, user.id) });
 }

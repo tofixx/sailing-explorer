@@ -22,3 +22,12 @@ export function canonicalRedirect(url: URL, env: CanonicalConfig): Response | nu
     headers: { Location: `https://${canonical}${url.pathname}${url.search}`, 'Cache-Control': 'public, max-age=3600' },
   });
 }
+
+/**
+ * Darf dieser Host in Suchmaschinen (F-545)? Nur die Hauptdomain (CANONICAL_HOST). Vorschauen `dev-*` (CANONICAL_HOST leer),
+ * lokale Entwicklung und unbekannte Hosts nie – fail closed.
+ */
+export function indexableHost(url: URL, env: Pick<CanonicalConfig, 'CANONICAL_HOST'>): boolean {
+  const canonical = env.CANONICAL_HOST?.trim().toLowerCase();
+  return !!canonical && url.hostname.toLowerCase() === canonical;
+}

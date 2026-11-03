@@ -798,6 +798,8 @@ export interface GroupInfo extends Linkable {
   slug: string;
   name: string;
   description: string;
+  /** Webseite (F-540) – fehlt bei älteren Servern */
+  webUrl?: string | null;
   homePort: string;
   /** Hafen (Konzept 13.3) – fehlt bei älteren Servern */
   harbor?: HarborRef | null;
@@ -957,7 +959,7 @@ export interface DiscoverMembership {
   requested: string[];
 }
 
-export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy' | 'membersVisible' | 'daySummary'>> & {
+export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'webUrl' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy' | 'membersVisible' | 'daySummary'>> & {
   kind?: GroupKind;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;
@@ -1074,7 +1076,7 @@ export interface HarborSearchHit extends HarborRef {
 }
 
 export interface HarborPageData {
-  harbor: HarborRef & { lat: number | null; lon: number | null; canEdit: boolean; hiddenAt?: number | null; createdAt: number; verified?: boolean };
+  harbor: HarborRef & { lat: number | null; lon: number | null; webUrl?: string | null; canEdit: boolean; hiddenAt?: number | null; createdAt: number; verified?: boolean };
   club: GroupRef | null;
   /** Vereine und Teams mit diesem Heimathafen (Konzept 13.3) – fehlt bei älteren Servern */
   groups?: GroupRef[];
@@ -1092,6 +1094,8 @@ export interface HarborPatch {
   name?: string;
   lat?: number | null;
   lon?: number | null;
+  /** Webseite (F-541): '' = entfernen */
+  webUrl?: string;
   clubId?: string | null;
 }
 

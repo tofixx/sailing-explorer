@@ -30,7 +30,7 @@ export const DISCOVER_LIMIT = { default: 12, max: 24 };
  * Inhalte gesperrter Konten aus den Listen (Konzept 4.4). /entdecken gehört zur Community: nur Törns mit „Sichtbar bis:
  * überall“ (F-427), auch in den Zahlen der Boots- und Segler-Karten.
  */
-const LISTED = `${publicSql('s')} AND ${notSuspendedSql('s.user_id')}
+export const LISTED = `${publicSql('s')} AND ${notSuspendedSql('s.user_id')}
   AND ${reachAtLeastSql('s.id', 'all')}`;
 
 /**

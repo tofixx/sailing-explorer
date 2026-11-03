@@ -304,7 +304,7 @@ describe('Häfen in der Oberfläche (F-171 … F-174)', () => {
     const form = el.shadowRoot.querySelector('form.edit') as HTMLFormElement;
     (form.querySelector('#hlat') as HTMLInputElement).value = '52,5';
     form.dispatchEvent(new Event('submit', { cancelable: true }));
-    expect(save).toEqual([{ id: 'H1', patch: { name: 'Potsdam', lat: 52.5, lon: 13.05, clubId: 'G1' } }]);
+    expect(save).toEqual([{ id: 'H1', patch: { name: 'Potsdam', lat: 52.5, lon: 13.05, webUrl: '', clubId: 'G1' } }]);
   });
 
   it('[F-170/F-174] Profil zeigt Verein und Heimathafen verlinkt; Bootsseite Hafen und Vereine', async () => {

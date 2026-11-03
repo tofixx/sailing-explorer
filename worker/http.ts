@@ -1,12 +1,7 @@
-export class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message = code,
-  ) {
-    super(message);
-  }
-}
+// HttpError steht ohne Worker-Typen in http-error.ts, damit auch reine Module (validate.ts) es werfen können.
+import { HttpError } from './http-error';
+
+export { HttpError };
 
 /** Header für API-Antworten: nie als Dokument interpretierbar, nie einbettbar. */
 const API_HEADERS: Record<string, string> = {

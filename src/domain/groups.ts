@@ -362,17 +362,34 @@ export const POST_MAX = 2000;
 export const POST_MAX_LINKS = 5;
 export const POST_LINK_MAX = 500;
 
-/** Optionaler Link eines Beitrags: http(s) mit Host, höchstens 500 Zeichen; leer = keiner; ungültig = null. */
+/**
+ * Optionaler Link eines Beitrags: http(s) mit Host, ohne Zugangsdaten (`user:pass@`), höchstens 500 Zeichen – vor und
+ * nach dem Normalisieren; leer = keiner; ungültig = null.
+ */
 export function parsePostLink(input: unknown): string | '' | null {
   if (input === undefined || input === null || input === '') return '';
   if (typeof input !== 'string' || input.length > POST_LINK_MAX) return null;
   try {
     const u = new URL(input.trim());
     if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !u.hostname.includes('.')) return null;
+    if (u.username || u.password || u.href.length > POST_LINK_MAX) return null;
     return u.href;
   } catch {
     return null;
   }
+}
+
+/**
+ * Webseite eines Vereins, Teams oder Hafens (F-540, F-541): dieselbe Prüfung wie der Link eines Beitrags – nur http(s)
+ * mit Host, höchstens 500 Zeichen. '' = keine (Feld geleert), null = ungültig.
+ */
+export const parseWebUrl = parsePostLink;
+
+/** Anzeige einer Webseite: Host ohne „www.“ (z. B. „svp-potsdam.de“); ungültig = ''. */
+export function webUrlLabel(url: string | null | undefined): string {
+  const href = parseWebUrl(url);
+  if (!href) return '';
+  return new URL(href).hostname.replace(/^www\./, '');
 }
 
 // ---------------------------------------------------------------- Vorschläge
