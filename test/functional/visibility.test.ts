@@ -473,6 +473,8 @@ describe('F-84/F-85 Link-Vorschau mit Schlüssel und robots', () => {
     ];
     for (const r of responses) expect(r.headers.get('X-Robots-Tag'), r.url).toBe('noindex');
     expect(responses.at(-1)!.status).toBe(204);
-    expect((await h.fetch(`/s/${UNKNOWN_SHARE}`)).headers.get('X-Robots-Tag')).toBeNull();
+    // Seiten steuern das über <meta name="robots"> (F-84); X-Robots-Tag tragen sie nur außerhalb der Hauptdomain – der
+    // Test-Worker hat keine (wie eine Vorschau, F-545). Hauptdomain ohne Header: web-url.test.ts.
+    expect((await h.fetch(`/s/${UNKNOWN_SHARE}`)).headers.get('X-Robots-Tag')).toBe('noindex');
   });
 });

@@ -476,6 +476,29 @@ Reaktionen, Melden und Löschen wie bei Text-Beiträgen. Regeln in `src/domain/e
 - **F-506** Löschwege: Vereinsvorlagen einzeln (Eigner/Admins) und mit dem Verein (auch über das Konto der Eigner:in ohne Nachfolge); Vorschläge der Plattform nur durch Admins, Kopien in Vereinen bleiben (ohne Herkunft); Opt-in fällt mit der Mitgliedschaft (Austritt, Entfernen, Konto, Verein), ein neuer Beitritt beginnt ohne; beim Zusammenführen von Konten wandert er mit der Mitgliedschaft (bei doppelter gilt die des Zielkontos); `templateId` geht mit dem Törn. Register-Eintrag `scoring_templates`.
 - **F-507** Seite „Wertung“ (`/konto/wertung`, Verwaltungsbereich, erst dort nachgeladen; einziger Einstieg ist der Link „Wertung“ auf der Seite „Mein Fahrtenbuch“, nur für Mitglieder eines Vereins und Plattform-Admins; kein Eintrag im Konto-Menü): je eigenem Verein der Schalter „An der Vereinsliste teilnehmen: Eigner:in und Admins dürfen meine Punktesumme sehen“ mit dem Hinweis, welche Törns zählen, je Saison die eigene Summe (mit Opt-in) bzw. die Vereinsliste (Eigner/Admins), für Eigner/Admins die Vorlagen des Vereins (Vorschlag übernehmen, eigene, bearbeiten, löschen mit Rückfrage) im einen Formular `sx-scoring-editor`; darunter die Vorschläge der Plattform mit Kurzbeschreibung (Werkzeuge nur für Admins). Gäste sehen „Anmelden“.
 
+## Web-URL für Vereine und Häfen, Auffindbarkeit ohne App-Store (Roadmap „Danach“)
+
+Skizze (kein eigener Konzept-Abschnitt): Erweiterung bestehender Objekte, keine neue Art von `posts`.
+
+| Punkt | Entscheidung |
+|---|---|
+| Datenmodell | Migration 0043: `groups.web_url`, `harbors.web_url` (TEXT, NULL = keine), rein additiv |
+| Prüfung | `parseWebUrl` = `parsePostLink` (Link eines Beitrags): nur http(s) mit Host, ≤ 500 Zeichen; Worker `readWebUrl` (400 `invalid_web_url`), Anzeige `webLink` prüft erneut (fail closed) |
+| Wer setzt | Gruppe (Verein **und** Team – gleiche Regel, kein Sonderweg): Eigner:in und Admins wie Name/Beschreibung; Hafen: wer Name und Position ändert (Anleger:in bzw. verifizierte Vertretung, Moderation), nicht über die Erst-Position (F-307) |
+| Wer sieht | alle, die die Seite sehen (Gruppe nach ihrer Sichtbarkeit, Hafen öffentlich); Link `target="_blank" rel="noopener nofollow ugc"` – ohne `noreferrer`, damit der Verein sieht, dass Besuch von hier kommt (Referrer-Policy schickt nur die Domain) |
+| Löschwege | Spalte fällt mit der Zeile (`removeGroup`, `removeHarbor`, Konto über `purgeUserGroups`); kein eigener Register-Eintrag nötig (keine Tabelle, kein `*_kind`); Zusammenführen von Häfen: Ziel übernimmt sie nur, wenn es keine hat; Moderation ändert/entfernt sie im Admin-Bereich |
+| Caches | keine: Gruppen- und Hafenseite sind nicht öffentlich gecacht; die Sitemap ist betrachterunabhängig (1 h) |
+| Sitemap | `/sitemap.xml` nur auf der Hauptdomain, je Art wie Entdecken (`visible-sql.ts`, `LISTED`), höchstens 5.000 je Art; `/robots.txt`; Vorschauen und lokal überall `noindex` |
+| Oberfläche | eine Angabe mit Globus-Symbol im Seitenkopf (`.facts`, `webLink` in `shared.ts`), ein Feld im vorhandenen Bearbeiten-Formular – kein neuer Einstieg; bricht bei 375 px um |
+
+- **F-540** Webseite einer Gruppe (Verein oder Team): Eigner:in und Admins setzen sie beim Anlegen und Bearbeiten (`webUrl`, leer = entfernen), Mitglieder nicht (403). Nur http(s) mit Host, höchstens 500 Zeichen, alles andere 400 `invalid_web_url`. Die Gruppenseite zeigt sie allen, die die Gruppe sehen dürfen, als Link mit dem Host ohne „www.“ (neuer Tab, `rel="noopener nofollow ugc"`); ungültige Werte zeigen nichts. Bestand (vor 0043) hat keine.
+- **F-541** Webseite eines Hafens: setzen und entfernen nur, wer Name und Position ändert (Anleger:in bzw. Vertretung, Moderation – mit Eintrag im Protokoll), sonst 403; wer bei einem Altbestand-Hafen als Erste:r die Position setzt (F-307), setzt damit keine Webseite. Anzeige wie F-540 auf der Hafenseite.
+- **F-542** Löschwege: die Webseite fällt mit ihrer Gruppe bzw. ihrem Hafen; beim Zusammenführen von Häfen (F-239) übernimmt das Ziel die Webseite der Dublette nur, wenn es selbst keine hat.
+- **F-543** Moderation: im Admin-Bereich („Umbenennen“) ändern bzw. leeren Admins die Webseite von Gruppen und Häfen (gleiche Prüfung, Eintrag „Webseite alt → neu“ im Protokoll); die Detailansicht zeigt sie.
+- **F-544** `/sitemap.xml` (nur Hauptdomain, sonst 404): `/`, `/entdecken` und je höchstens 5.000 öffentliche, nicht ausgeblendete oder gesperrte Vereine und Teams (Eigner nicht gesperrt), Häfen mit öffentlichem Boot oder öffentlicher Gruppe, Törns mit „Sichtbar bis: überall“ (`LISTED`), öffentliche Boote mit öffentlichem Eigner-Profil und öffentliche Profile mit gelistetem Törn oder öffentlichem Boot – nie mit Schlüssel. Unabhängig vom Betrachter (Cookie wird nicht gelesen), `Cache-Control: public, max-age=3600`, eine Stunde im Edge-Cache.
+- **F-545** `/robots.txt`: auf der Hauptdomain `Allow: /` und der Verweis auf die Sitemap; auf jedem anderen Host (Vorschauen `dev-*`, lokal) `Disallow: /`, und jede Antwort trägt dort `X-Robots-Tag: noindex`.
+- **F-546** Indexierbare Seiten (F-84: öffentliche Törns, Boote, Profile, Gruppen, Häfen und `/entdecken` ohne Schlüssel) tragen `<link rel="canonical">` und `og:url` mit der Adresse ohne Schlüssel und Query (Gruppen- und Profiladresse klein geschrieben); Seiten mit `noindex` keine.
+
 ## Betrieb
 
 - **F-50** Lokale Entwicklung mit `npm run dev`, erreichbar im LAN (Handy) inkl. Login.
