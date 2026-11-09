@@ -106,8 +106,8 @@ den Funktionstests (`worker-harness.ts`, `login()`). Wird das zu eng, dann nur �
 
 ### Reservierungen
 
-Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-624**, **Konzept 38**, **Migration 0046** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
-sind F-625, Konzept 39 und Migration 0047. Neue Aufträge bekommen ihren Bereich hier, bevor
+Vergeben bis einschließlich **F-450**, **Konzept 26**, **Migration 0033**, reserviert bis **F-634**, **Konzept 39**, **Migration 0047** (Stand 9316c24, 0033 = `follows_cleanup`). Die nächsten freien Nummern
+sind F-635, Konzept 40 und Migration 0048. Neue Aufträge bekommen ihren Bereich hier, bevor
 sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze (Querschnitte, geteilte Dateien).
 
 | Branch / Auftrag | F-IDs | Konzept | Migration | Berührt | Stand |
@@ -174,3 +174,4 @@ sie starten. „Berührt“ füllt der bauende Agent zu Beginn aus seiner Skizze
   E-Mail und Profilname); ein Hinweis nennt die Rolle des gezeigten Links. Die Rate-Grenze zählt jetzt auch erfolglose
   Profilnamen (F-593) – wer in einer Minute mehr als fünf Einladungen versucht, wartet kurz.
 | `feature/logo-icons` (große Objekt-Icons im Seitenkopf im Stil des Logos: Verlauf Havelblau → Türkis, zweifarbige Flächen) | F-620 … F-624 | – | – | `icons.ts` (Kachel-Variante), `shared.ts` (gemeinsamer Kachel-Stil), `sx-group-page`, `sx-profile-page`, `sx-discover` | gemergt 03.11.: `entityTile` + `tileStyles` + `LOGO_TILE`, Köpfe von Gruppe/Profil/Boot/Hafen/Beitrag/Entdecken, F-620–F-624 mit Tests |
+| `feature/wertung-bsv` (Vorschlag „Fahrtensegeln – Brandenburger Seglerverband e. V.“: Kilometer, Optimist-Faktor, gegen den Strom, Langtörn-Zuschlag, Posten) | F-625 … F-634 | 39 | 0047 (Vorschlag als Datensatz, falls nötig) | `src/domain/scoring.ts` (neue Bausteine), `shares.log` (`parseLog`: km gegen den Strom), `sx-logbook-form`, `sx-scoring-editor`, `worker/scoring*.ts`, Boot-Klasse (`boat_class`) | in Arbeit 09.11. |
