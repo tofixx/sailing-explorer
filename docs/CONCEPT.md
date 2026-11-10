@@ -1882,7 +1882,7 @@ Beiträge der Gruppen), bleibt der Stream (12.4); ein Ungelesen-Badge dafür ist
 
 | Art (`kind`) | Anlass | Empfänger | Gegenstand (`subject_kind`) |
 |---|---|---|---|
-| `comment` | Kommentar auf einem Törn | Eigentümer:in des Törns und alle, die dort schon kommentiert haben (nur öffentliche Törns, ohne ausgeblendete Kommentare und gesperrte Konten; höchstens 50, Eigentümer:in zuerst, dann die zuletzt Aktiven – 17.9.1) | `share` |
+| `comment` | Kommentar auf einem Törn bzw. (seit Konzept 40) einem Beitrag | Abonnent:innen des Verlaufs: Eigentümer:in bzw. Autor:in und alle mit Glocke „an“ – an mit dem ersten eigenen Kommentar, stumm bleibt stumm (Konzept 40; andere als die Eigentümer:in nur bei öffentlichen Törns bzw. Beiträgen „Öffentlich“/„Nur Mitglieder“, ohne gesperrte Konten; höchstens 50, Eigentümer:in zuerst, dann die zuletzt Aktiven – 17.9.1) | `share`, `post` |
 | `reaction` | Reaktion auf Törn, Foto, Beitrag, Neuigkeit | Eigentümer:in bzw. Autor:in bzw. handelnde Person der Neuigkeit | `share` (auch bei Fotos), `post`, `activity` |
 | `follow` | jemand folgt dem Profil | die Person | `user` (sie selbst) |
 | `invite` | Einladung per Profilname oder an die Adresse eines bestehenden Kontos | eingeladenes Konto | `invite` |

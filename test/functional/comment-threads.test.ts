@@ -5,6 +5,7 @@ import { login, startWorker, type Harness } from './worker-harness';
 import { social, type GroupOut, type Person } from './social-helpers';
 import { isSubscribed } from '../../src/domain/comment-thread';
 import { subscribedSql } from '../../worker/comment-thread-sql';
+import { mailLine, notificationText } from '../../src/domain/notifications';
 
 const DAY = 86_400_000;
 const ADMIN_ID = 'ThreadAdmin0000001';
@@ -335,6 +336,13 @@ describe('F-642 Melden und Moderation von Kommentaren an Beiträgen', () => {
 // ---------------------------------------------------------------- F-644 Gelesen und Sammelmail
 
 describe('F-644 Gelesen beim Öffnen der Kommentare', () => {
+  it('[F-644] Sammelmail und Glocke: bei Beiträgen nur der Verlauf, nie der Beitragstext; Törns wie bisher', () => {
+    expect(mailLine({ kind: 'comment', count: 2, title: 'Segelclub Möwe', what: 'einen Beitrag' })).toBe('Ein Beitrag in „Segelclub Möwe“: 2 neue Kommentare');
+    expect(mailLine({ kind: 'comment', count: 1, title: '', what: 'deinen Beitrag' })).toBe('Dein Beitrag: 1 neuer Kommentar');
+    expect(mailLine({ kind: 'comment', count: 1, title: 'Ostsee', what: 'den Törn' })).toBe('„Ostsee“: 1 neuer Kommentar');
+    expect(notificationText({ kind: 'comment', count: 1, actor: { name: 'Anna', handle: 'anna' }, title: '', what: 'deinen Beitrag' })).toBe('Anna hat deinen Beitrag kommentiert');
+  });
+
   it('[F-644] Öffnen der Kommentare eines Beitrags liest seine Kommentar-Benachrichtigungen', async () => {
     const { owner, member, g } = await club();
     const p = await newPost(owner, { kind: 'group', id: g.id });
