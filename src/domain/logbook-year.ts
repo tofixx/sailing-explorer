@@ -1,6 +1,7 @@
 // Fahrtenbuch nach Jahren (Konzept 27, F-411, F-455 … F-457): reine Regeln ohne DOM und Netz – Saisons, Filter nach
 // `log_state`, Summen, Crew-Ausnahme M1 und Meilennachweis als CSV. Genutzt von der Seite `/konto/fahrtenbuch` (Summen im
 // Browser) und vom Worker (`GET /api/me/logbook`, `GET /api/me/logbook.csv`).
+import type { BoatClass } from './boat-class';
 import { VOYAGE_ROLE_SHORT, type VoyageRole } from './crew-roles';
 import { DIST_SOURCE_LABEL, LOG_AREA_LABEL, LOG_STATES, countsInLogbook, isLogState, type DistSource, type LogState, type Logbook, type ShareSource } from './logbook';
 import { fmtNum } from './format';
@@ -33,6 +34,8 @@ export interface LogbookEntry {
   /** Rolle von der Skipper:in bestätigt (Konzept 15) */
   roleConfirmed: boolean;
   boat: string | null;
+  /** Klasse des Boots (nur eigene Törns, für den Faktor der Bootsklasse einer Vorlage, Konzept 39) */
+  boatClass?: BoatClass | null;
   logState: LogState;
   /** Zusatzangaben für Summen und Liste (ohne Notizen, Liegeplatz, Segelführung); Crew-Törns: leer */
   log: Logbook;
@@ -182,8 +185,9 @@ export function durationText(e: Pick<LogbookEntry, 'startedAt' | 'endedAt' | 'ti
 export const roleText = (e: Pick<LogbookEntry, 'role' | 'roleConfirmed'>): string =>
   e.role ? `${VOYAGE_ROLE_SHORT[e.role]}${e.roleConfirmed ? ' (bestätigt)' : ''}` : '';
 
-/** Revier für Liste und Jahresbericht: „Küste (Tide)“, ohne Angabe leer. */
-export const areaText = (log: Logbook): string => (log.area ? `${LOG_AREA_LABEL[log.area]}${log.tidal ? ' (Tide)' : ''}` : '');
+/** Revier für Liste und Jahresbericht: „Küste (Tide)“ bzw. „Binnen (5,4 sm gegen den Strom)“, ohne Angabe leer. */
+export const areaText = (log: Logbook): string =>
+  log.area ? `${LOG_AREA_LABEL[log.area]}${log.tidal ? ' (Tide)' : ''}${log.upstreamNm ? ` (${comma(log.upstreamNm)} sm gegen den Strom)` : ''}` : '';
 
 /** Posten für den Jahresbericht: „Training × 2, Arbeitsdienst“. */
 const itemsText = (log: Logbook): string => (log.items ?? []).map((it) => `${it.name}${it.n !== 1 ? ` × ${comma(it.n, it.n % 1 ? 1 : 0)}` : ''}`).join(', ');

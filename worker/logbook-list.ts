@@ -7,6 +7,7 @@ import { json, withApiHeaders } from './http';
 import { CREW_LOGBOOK_SQL } from './logbook-sql';
 import { liveSql } from './visible-sql';
 import { voyageRole } from '../src/domain/crew-roles';
+import { isBoatClass } from '../src/domain/boat-class';
 import { isDistSource, isLogState, readLog, type Logbook } from '../src/domain/logbook';
 import {
   LOGBOOK_MAX_ENTRIES, csvFileName, filterEntries, logbookCsv, parseLogFilter, type LogbookEntry,
@@ -32,6 +33,7 @@ interface LogbookRow {
   confirmed: number;
   boat: string | null;
   boat_vis: Visibility | null;
+  boat_class: string | null;
   /** `log.timed` – auch für Crew-Törns, deren Angaben sie sonst nicht sehen */
   log_timed: number | null;
   hf_slug: string | null;
@@ -45,7 +47,7 @@ const LOGBOOK_JOINS = `LEFT JOIN boats b ON b.id = s.boat_id AND ${liveSql('b')}
   LEFT JOIN harbors hf ON hf.id = s.from_harbor_id AND hf.hidden_at IS NULL
   LEFT JOIN harbors ht ON ht.id = s.to_harbor_id AND ht.hidden_at IS NULL`;
 const LOGBOOK_COLS = `s.id, s.title, s.visibility, s.share_key, COALESCE(s.started_at, s.created_at) AS t, s.ended_at,
-  (s.started_at IS NOT NULL) AS has_time, s.source, s.dist_nm, s.dist_source, b.name AS boat, b.visibility AS boat_vis,
+  (s.started_at IS NOT NULL) AS has_time, s.source, s.dist_nm, s.dist_source, b.name AS boat, b.visibility AS boat_vis, b.boat_class,
   json_extract(s.log, '$.timed') AS log_timed,
   hf.slug AS hf_slug, hf.name AS hf_name, ht.slug AS ht_slug, ht.name AS ht_name`;
 
@@ -93,6 +95,8 @@ function logbookShape(r: LogbookRow, own: boolean): LogbookEntry {
     role: r.role ? voyageRole(r.role) : null,
     roleConfirmed: !!r.confirmed,
     boat,
+    // Klasse nur an eigenen Törns: Crew-Törns rechnen ohnehin mit „Nur Meilen“ (M1)
+    boatClass: own && isBoatClass(r.boat_class) ? r.boat_class : null,
     logState: isLogState(r.log_state) ? r.log_state : 'suggested',
     log,
   };

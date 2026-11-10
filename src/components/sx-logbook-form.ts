@@ -7,7 +7,7 @@ import {
 import type { LogSuggestion } from '../domain/logbook-suggest';
 import { VOYAGE_ROLES, VOYAGE_ROLE_SHORT, isVoyageRole, type VoyageRole } from '../domain/crew-roles';
 import { fmtNum } from '../domain/format';
-import { SCORING_NOTE, defaultTemplateId, templateLabel, type ScoringTemplate } from '../domain/scoring';
+import { SCORING_NOTE, defaultTemplateId, templateItemNames, templateLabel, type ScoringTemplate } from '../domain/scoring';
 import type { Visibility } from '../domain/visibility';
 import type { LogbookPreset } from '../domain/events';
 import type { SxHarborPicker } from './sx-harbor-picker';
@@ -340,6 +340,7 @@ export class SxLogbookForm extends LitElement {
       locks: this.field('locks'),
       bridges: this.field('bridges'),
       mast: this.field('mast'),
+      upstreamNm: this.field('upstreamNm'),
       regatta: regatta ? { name: regatta, place: this.field('regattaPlace'), starters: this.field('regattaStarters') } : undefined,
       items: this.items,
       // ohne Feld (kein Verein, Vorlagen nicht geladen) bleibt die Vorlage des Eintrags unverändert (F-501)
@@ -453,7 +454,7 @@ export class SxLogbookForm extends LitElement {
   }
 
   /** Zahlfeld der Zusatzangaben – Wert aus „Übernehmen“ geht dem gespeicherten vor. */
-  private numField(name: 'sailH' | 'engineH' | 'nightH' | 'daysAboard' | 'locks' | 'bridges' | 'mast', label: string, log: Logbook, placeholder = '') {
+  private numField(name: 'sailH' | 'engineH' | 'nightH' | 'daysAboard' | 'locks' | 'bridges' | 'mast' | 'upstreamNm', label: string, log: Logbook, placeholder = '') {
     const v = (this.filled[name] ?? log[name]) as number | undefined;
     return html`<div>
       <label class="label" for="lf-${name}">${label}</label>
@@ -473,7 +474,7 @@ export class SxLogbookForm extends LitElement {
         (it, i) => html`<div class="item">
           <div class="name">
             <label class="label" for="lf-in-${i}">Posten ${i + 1}</label>
-            <input id="lf-in-${i}" maxlength=${LOG_LIMITS.itemNameMax} .value=${it.name} @input=${(e: Event) => this.setItem(i, { name: (e.target as HTMLInputElement).value })} />
+            <input id="lf-in-${i}" list="lf-item-names" maxlength=${LOG_LIMITS.itemNameMax} .value=${it.name} @input=${(e: Event) => this.setItem(i, { name: (e.target as HTMLInputElement).value })} />
           </div>
           <div>
             <label class="label" for="lf-ic-${i}">Anzahl</label>
@@ -490,6 +491,7 @@ export class SxLogbookForm extends LitElement {
       ${this.items.length < LOG_LIMITS.itemsMax
         ? html`<button class="btn small" type="button" @click=${() => (this.items = [...this.items, { name: '', n: 1 }])}>${icon('plus')} Posten</button>`
         : ''}
+      <datalist id="lf-item-names">${templateItemNames(this.templates).map((n) => html`<option value=${n}></option>`)}</datalist>
     </div>`;
   }
 
@@ -516,7 +518,8 @@ export class SxLogbookForm extends LitElement {
         : ''}
       ${fieldInArea('locks', area)
         ? html`<div class="row">${this.numField('locks', 'Schleusen', log)} ${this.numField('bridges', 'Brücken', log)}</div>
-            ${this.numField('mast', 'Mast gelegt/gestellt', log)}`
+            <div class="row">${this.numField('mast', 'Mast gelegt/gestellt (legen + stellen = 1)', log)} ${this.numField('upstreamNm', 'Gegen den Strom (sm)', log)}</div>
+            <p class="hint">Gegen den Strom: davon unter Segel/gepaddelt gegen den Strom (ab 5 km/h), 1 km ≈ 0,54 sm.</p>`
         : ''}
       <div>
         <label class="label" for="lf-regattaName">Regatta <span class="faint">(optional)</span></label>

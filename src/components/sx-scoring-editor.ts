@@ -1,8 +1,9 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
 import {
-  BASE_RULES, RULE_FIELDS, RULE_GROUPS, SCORING_LIMITS, SCORING_NOTE, parseRules, templateName, listWeight,
-  type ScoringItemRule, type ScoringRules, type ScoringTemplate,
+  BASE_RULES, RULE_FIELDS, RULE_GROUPS, SCORING_LIMITS, SCORING_NOTE, UNIT_LABEL, fieldLabel, parseRules, templateName, listWeight,
+  type RuleField, type ScoringItemRule, type ScoringRules, type ScoringTemplate, type ScoringUnit,
 } from '../domain/scoring';
+import { boatClassOptions } from './boat-class-options';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 
@@ -35,6 +36,7 @@ export class SxScoringEditor extends LitElement {
     items: { state: true },
     inList: { state: true },
     local: { state: true },
+    unit: { state: true },
   };
   declare open: boolean;
   /** vorhandene Vorlage (Bearbeiten) oder null (neu) */
@@ -45,6 +47,8 @@ export class SxScoringEditor extends LitElement {
   declare items: ScoringItemRule[];
   declare inList: boolean;
   declare local: string;
+  /** Einheit der Strecke – schaltet die Beschriftungen um (sm/km, Konzept 39) */
+  declare unit: ScoringUnit;
 
   constructor() {
     super();
@@ -56,6 +60,7 @@ export class SxScoringEditor extends LitElement {
     this.items = [];
     this.inList = false;
     this.local = '';
+    this.unit = 'nm';
   }
 
   static styles = [
@@ -90,7 +95,8 @@ export class SxScoringEditor extends LitElement {
         color: var(--text-2);
         min-width: 0;
       }
-      input {
+      input,
+      select {
         width: 100%;
         box-sizing: border-box;
         min-height: 44px;
@@ -149,6 +155,7 @@ export class SxScoringEditor extends LitElement {
       this.items = (this.template?.rules.items ?? []).map((it) => ({ ...it }));
       this.inList = this.template?.listWeight != null;
       this.local = '';
+      this.unit = this.template?.rules.unit ?? 'nm';
     }
   }
 
@@ -164,7 +171,7 @@ export class SxScoringEditor extends LitElement {
 
   private submit(e: Event) {
     e.preventDefault();
-    const raw: Record<string, unknown> = { items: this.items };
+    const raw: Record<string, unknown> = { items: this.items, unit: this.unit, boatClass: this.field('boatClass') };
     for (const f of RULE_FIELDS) raw[f.key] = this.field(f.key);
     const r = parseRules(raw);
     const name = templateName(this.field('name'));
@@ -201,6 +208,18 @@ export class SxScoringEditor extends LitElement {
     </fieldset>`;
   }
 
+  /** Auswahl am Anfang einer Gruppe: Einheit der Strecke bzw. Bootsklasse mit eigenem Faktor (Konzept 39). */
+  private groupLead(g: RuleField['group'], rules: ScoringRules) {
+    if (g === 'Strecke')
+      return html`<label>Einheit<select name="unit" @change=${(e: Event) => (this.unit = (e.target as HTMLSelectElement).value as ScoringUnit)}>
+        ${(['nm', 'km'] as const).map((u) => html`<option value=${u} ?selected=${this.unit === u}>${u === 'nm' ? 'Seemeilen (sm)' : 'Kilometer (km)'}</option>`)}
+      </select></label>`;
+    if (g === 'Bootsklasse')
+      return html`<label>Bootsklasse<select name="boatClass"><option value="">keine</option>${boatClassOptions(rules.boatClass)}</select></label>`;
+    if (g === 'Langtörn') return html`<p class="hint full">Einmal je Eintrag über die ganze Strecke – mehrtägige Törns als ein Eintrag.</p>`;
+    return '';
+  }
+
   private form() {
     const t = this.template;
     const rules = t?.rules ?? BASE_RULES;
@@ -210,8 +229,9 @@ export class SxScoringEditor extends LitElement {
       ${RULE_GROUPS.map(
         (g) => html`<fieldset>
           <legend>${g}</legend>
+          ${this.groupLead(g, rules)}
           ${RULE_FIELDS.filter((f) => f.group === g).map(
-            (f) => html`<label>${f.label}<input name=${f.key} inputmode="decimal" .value=${num(rules[f.key])} /></label>`,
+            (f) => html`<label>${fieldLabel(f, this.unit)}<input name=${f.key} inputmode="decimal" .value=${num(rules[f.key])} /></label>`,
           )}
         </fieldset>`,
       )}
@@ -223,7 +243,7 @@ export class SxScoringEditor extends LitElement {
             ${this.inList ? html`<label>Faktor (Gewichtung)<input name="weight" inputmode="decimal" .value=${num(t?.listWeight ?? 1)} /></label>` : ''}
           </fieldset>`
         : ''}
-      <p class="hint">Revier und Rolle wirken auf die Seemeilen, ohne Angabe mit Faktor 1. ${SCORING_NOTE}</p>
+      <p class="hint">Einträge stehen in Seemeilen${this.unit === 'km' ? ' und werden umgerechnet (1 sm = 1,852 km)' : ''}. Revier, Bootsklasse und Rolle wirken auf die Strecke (${UNIT_LABEL[this.unit]}), ohne Angabe mit Faktor 1. ${SCORING_NOTE}</p>
       ${this.local || this.error ? html`<p class="error" role="alert">${this.local || this.error}</p>` : ''}
       <div class="actions">
         <button class="btn" type="button" @click=${this.close}>Abbrechen</button>

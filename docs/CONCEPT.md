@@ -3396,4 +3396,6 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 
 ## 38. GPX nachreichen: Track zu einem gespeicherten Fahrtenbuch-Eintrag (F-600 … F-607) → [`docs/concept/38-gpx-nachreichen.md`](concept/38-gpx-nachreichen.md)
 
+## 39. Wertung „Fahrtensegeln – Brandenburger Seglerverband e. V.“: km, gegen den Strom, Bootsklasse, Langtörn (F-625 … F-632) → [`docs/concept/39-wertung-bsv.md`](concept/39-wertung-bsv.md)
+
 ## 40. Kommentare an allen Beiträgen, Benachrichtigung je Verlauf mit Glocke (F-635 … F-644) → [`docs/concept/40-kommentare-ueberall.md`](concept/40-kommentare-ueberall.md)

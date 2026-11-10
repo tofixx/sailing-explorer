@@ -69,9 +69,10 @@ export const LOG_AREAS = ['inland', 'coastal', 'offshore'] as const;
 export type LogArea = (typeof LOG_AREAS)[number];
 export const LOG_AREA_LABEL: Record<LogArea, string> = { inland: 'Binnen', coastal: 'Küste', offshore: 'Offshore' };
 /** Felder nur für Binnenreviere bzw. nur für Küste/offshore – ohne Revier gibt es nur die gemeinsamen. */
-export const INLAND_FIELDS = ['locks', 'bridges', 'mast'] as const;
+export const INLAND_FIELDS = ['locks', 'bridges', 'mast', 'upstreamNm'] as const;
 export const COASTAL_FIELDS = ['nightH', 'tidal'] as const;
 export type AreaField = (typeof INLAND_FIELDS)[number] | (typeof COASTAL_FIELDS)[number];
+const isAreaField = (k: string): k is AreaField => (INLAND_FIELDS as readonly string[]).includes(k) || (COASTAL_FIELDS as readonly string[]).includes(k);
 /** Gibt es das Feld im Revier? */
 export const fieldInArea = (field: AreaField, area: LogArea | undefined): boolean =>
   (INLAND_FIELDS as readonly string[]).includes(field) ? area === 'inland' : area === 'coastal' || area === 'offshore';
@@ -110,6 +111,8 @@ export interface Logbook {
   locks?: number;
   bridges?: number;
   mast?: number;
+  /** davon gegen den Strom auf stark strömenden Gewässern (≥ 5 km/h), sm – nur binnen (Konzept 39, F-626) */
+  upstreamNm?: number;
   regatta?: { name: string; place?: number; starters?: number };
   items?: LogItem[];
   /** aus einer Veranstaltung übernommen (Konzept 30, F-487) – nur ein Verweis, die Veranstaltung darf verschwinden */
@@ -195,12 +198,13 @@ function parseExtra(o: Record<string, unknown>, log: Logbook): string | null {
     ['locks', 0, L.countMax, true, `Schleusen: 0 bis ${L.countMax}.`],
     ['bridges', 0, L.countMax, true, `Brücken: 0 bis ${L.countMax}.`],
     ['mast', 0, L.mastMax, true, `Mast legen/stellen: 0 bis ${L.mastMax}.`],
+    ['upstreamNm', 0, L.maxNm, false, `Gegen den Strom: 0 bis ${L.maxNm} sm.`],
   ];
   for (const [key, min, max, int, msg] of numbers) {
     if (empty(o[key])) continue;
     const n = num(o[key], min, max, int);
     if (n === null) return msg;
-    if ((key === 'nightH' || key === 'locks' || key === 'bridges' || key === 'mast') && !fieldInArea(key, log.area)) continue;
+    if (isAreaField(key) && !fieldInArea(key, log.area)) continue;
     (log as Record<string, unknown>)[key] = n;
   }
   if (o.tidal === true && fieldInArea('tidal', log.area)) log.tidal = true;
