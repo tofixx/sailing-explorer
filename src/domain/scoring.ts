@@ -21,7 +21,7 @@ export interface ScoringNumbers {
   /** Punkte je Einheit (`unit`: sm bzw. km) unter Segel bzw. unter Motor (Anteil aus den Stunden, ohne Stunden alles unter Segel) */
   nmSail: number;
   nmMotor: number;
-  /** Zuschlag je Einheit gegen den Strom (`log.upstreamNm`, Konzept 39) – zusätzlich zu den Punkten der Strecke, ohne Faktoren */
+  /** Zuschlag je Einheit gegen den Strom (`log.upstreamNm`, Konzept 39) – zusätzlich, nur auf den Anteil unter Segel, ohne Faktoren */
   upstream: number;
   /** Faktor je Revier (ohne Angabe 1) und Zuschlag Tidengewässer */
   inland: number;
@@ -309,8 +309,9 @@ export function scoreEntry(e: ScoredEntry, r: ScoringRules): number {
   const role = e.role ? r[e.role] : 1;
   const cls = r.boatClass && e.boatClass === r.boatClass ? r.classFactor : 1;
   let pts = base * area * role * cls;
-  // gegen den Strom: Zuschlag auf höchstens die ganze Strecke, ohne Faktoren; Langtörn auf die ganze Strecke
-  pts += Math.min(log.upstreamNm ?? 0, e.distNm) * k * r.upstream + longBonus(dist, r);
+  // gegen den Strom: Zuschlag nur auf den gesegelten Anteil (nicht unter Motor), auf höchstens die ganze Strecke, ohne
+  // Faktoren; Langtörn auf die ganze Strecke
+  pts += Math.min(log.upstreamNm ?? 0, e.distNm) * k * (1 - motorShare) * r.upstream + longBonus(dist, r);
   pts += (log.nightH ?? 0) * r.nightH + entryDays(e) * r.day + (log.locks ?? 0) * r.lock + (log.bridges ?? 0) * r.bridge + (log.mast ?? 0) * r.mast;
   const reg = log.regatta;
   if (reg) pts += r.regatta + (reg.place && reg.starters ? (reg.starters - reg.place + 1) * r.regattaPlace : 0);

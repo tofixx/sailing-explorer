@@ -1,4 +1,4 @@
--- Vorschlag der Plattform „Fahrtensegeln – Brandenburger Seglerverband e. V.“ (Konzept 39, F-625 … F-634): nach der
+-- Vorschlag der Plattform „Fahrtensegeln – Brandenburger Seglerverband e. V.“ (Konzept 39, F-625 … F-632): nach der
 -- Ausschreibung des BSV, keine offizielle Wertung (`SCORING_NOTE`). Rechnet in km (`unit`), Optimist doppelt
 -- (`boatClass`, `classFactor`), gegen den Strom 3 statt 1 je km (`upstream` = Zuschlag 2), unter Motor 0,2 je km,
 -- Langtörn über 200 km 20 Punkte und je weitere 100 km 10, Schleuse 4, Mast legen und stellen 2; Trailertransport,

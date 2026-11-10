@@ -518,8 +518,8 @@ export class SxLogbookForm extends LitElement {
         : ''}
       ${fieldInArea('locks', area)
         ? html`<div class="row">${this.numField('locks', 'Schleusen', log)} ${this.numField('bridges', 'Brücken', log)}</div>
-            <div class="row">${this.numField('mast', 'Mast gelegt/gestellt', log)} ${this.numField('upstreamNm', 'Gegen den Strom (sm)', log)}</div>
-            <p class="hint">Gegen den Strom: davon auf stark strömenden Gewässern (ab 5 km/h).</p>`
+            <div class="row">${this.numField('mast', 'Mast gelegt/gestellt (legen + stellen = 1)', log)} ${this.numField('upstreamNm', 'Gegen den Strom (sm)', log)}</div>
+            <p class="hint">Gegen den Strom: davon unter Segel/gepaddelt gegen den Strom (ab 5 km/h), 1 km ≈ 0,54 sm.</p>`
         : ''}
       <div>
         <label class="label" for="lf-regattaName">Regatta <span class="faint">(optional)</span></label>

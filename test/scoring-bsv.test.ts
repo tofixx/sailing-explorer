@@ -83,6 +83,14 @@ describe('Strecke gegen den Strom (F-626)', () => {
     // mehr als die Strecke: gedeckelt auf 10 sm
     expect(scoreEntry(e({ log: { area: 'inland', upstreamNm: 50 } }), rules({ upstream: 2 }))).toBe(30);
   });
+
+  it('[F-626] Zuschlag nur auf den Anteil unter Segel: unter Motor gegen den Strom gibt es nur die Motor-Punkte', () => {
+    const r = bsvRules();
+    // binnen, 0 h Segel, 5 h Motor, 20 km, alle gegen den Strom → 20 × 0,2 = 4
+    expect(scoreEntry(e({ distNm: km(20), log: { area: 'inland', sailH: 0, engineH: 5, upstreamNm: km(20) } }), r)).toBe(4);
+    // halb Segel, halb Motor: 20 × (0,5 + 0,1) + 20 × 0,5 × 2 = 32
+    expect(scoreEntry(e({ distNm: km(20), log: { area: 'inland', sailH: 2, engineH: 2, upstreamNm: km(20) } }), r)).toBe(32);
+  });
 });
 
 describe('Strecke in km (F-627)', () => {
