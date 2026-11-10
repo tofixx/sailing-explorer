@@ -35,6 +35,7 @@ Meldung ab; fehlende Bausteine bekommen den Standard von „Nur Meilen“.
 | Regatta: je Teilnahme, je Platzierung | 0–1.000 | 0 | Teilnahme + (Starter − Platz + 1) × Gewicht, ohne Platz nur Teilnahme |
 | Posten (Name, Punkte je Einheit, Deckel) | ≤ 10, 0–1.000, 0–100.000 | – | zählt gleichnamige Posten des Eintrags (Groß-/Kleinschreibung egal) |
 | Deckel je Eintrag | 0–100.000 | 0 (ohne) | |
+| Einheit (sm/km), Zuschlag gegen den Strom, Bootsklasse mit Faktor, Langtörn | Konzept 39 | sm, 0, keine, 0 | Konzept 39 (F-626 … F-630) |
 
 `scoreEntry(entry, rules)` rechnet einen Eintrag (eine Nachkommastelle), ausgeschlossene zählen nie; Summen je Vorlage
 (`pointsByTemplate`) sind die Summe der Einträge. Eine Regel für Browser (Fahrtenbuch, Jahresbericht) und Worker
