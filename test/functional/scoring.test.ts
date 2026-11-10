@@ -251,6 +251,35 @@ describe('F-503 Vereinsliste mit Opt-in, nur dort gezeigte Einträge', () => {
   });
 });
 
+describe('F-625 … F-631 Vorschlag „Fahrtensegeln – BSV“', () => {
+  it('[F-625] [F-630] [F-626] Vorschlag kommt mit Migration 0047; Verein übernimmt ihn; Optimist zählt im Fahrtenbuch und in der Vereinsliste doppelt', async () => {
+    const { owner, member, g } = await club();
+    const bsv = (await mine(member)).templates.find((t) => t.id === 'bsvfahrten');
+    expect(bsv).toMatchObject({ groupId: null, name: 'Fahrtensegeln – Brandenburger Seglerverband e. V.', rules: { unit: 'km', boatClass: 'optimist', classFactor: 2, upstream: 2, longFrom: 200 } });
+    const copy = await template(owner, { groupId: g.id, sourceId: 'bsvfahrten', listWeight: 1 });
+    expect(copy.rules).toEqual(bsv!.rules);
+    await optIn(member, g.id);
+    const opti = await s.boat(member, { name: 'Opti', boatClass: 'optimist' });
+    // 10 sm binnen im Optimist, davon 2 sm gegen den Strom: 18,52 km × 2 + 3,704 km × 2 = 44,4
+    const sh = await entry(member, { templateId: copy.id, groups: [g.id], distNm: 10, log: { area: 'inland', upstreamNm: 2 } });
+    expect((await s.send('PATCH', `/api/shares/${sh.id}`, member.cookie, { boatId: opti.id })).status).toBe(200);
+    const list = await json<ClubList>(await clubList(owner, g.id));
+    expect(list.members[0]).toMatchObject({ points: 44.4, entries: 1 });
+    const book = await json<{ entries: Array<{ id: string; boatClass: string | null; log: { upstreamNm?: number } }> }>(await s.send('GET', '/api/me/logbook', member.cookie));
+    expect(book.entries.find((x) => x.id === sh.id)).toMatchObject({ boatClass: 'optimist', log: { upstreamNm: 2 } });
+    // Jahresbericht: Revier mit Strecke gegen den Strom, Punkte wie in der Liste
+    const csv = await (await s.send('GET', `/api/me/logbook.csv?saison=${SEASON}`, member.cookie)).text();
+    expect(csv).toContain(';Binnen (2,0 sm gegen den Strom);;');
+    expect(csv).toMatch(/;44,4\r\n/);
+  });
+
+  it('[F-631] Vorschlag wie jeder andere: nur Admins ändern oder löschen ihn', async () => {
+    const p = await s.person();
+    expect((await s.send('PATCH', '/api/scoring/templates/bsvfahrten', p.cookie, { name: 'X' })).status).toBe(403);
+    expect((await s.send('DELETE', '/api/scoring/templates/bsvfahrten', p.cookie)).status).toBe(403);
+  });
+});
+
 describe('F-504 Gewichtung je Vorlage', () => {
   it('[F-504] Punkte je Vorlage × Faktor des Vereins; Reihenfolge nach Punkten, ohne Platzziffern', async () => {
     const { owner, member, g } = await club();
