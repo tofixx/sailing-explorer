@@ -2,6 +2,7 @@
 // Gewichten, kein Formeltext, kein `eval`. Reine Regeln ohne DOM und Netz: im Browser für das eigene Fahrtenbuch
 // (Punkte, Jahresbericht), im Worker für Prüfung und Vereinsliste. Eine Vereinshilfe, keine offizielle Wertung.
 import { cleanComment, commentLength } from './comment-text';
+import { boatClassLabel, isBoatClass, type BoatClass } from './boat-class';
 import { countsInLogbook, isTemplateId, type LogState } from './logbook';
 import { entryDays, type CsvScores, type LogbookEntry } from './logbook-year';
 import type { Visibility } from './visibility';
@@ -17,14 +18,18 @@ export interface ScoringItemRule {
 
 /** Zahl-Bausteine einer Vorlage (alle Pflicht nach `parseRules`; fehlende ergänzt der Standard). */
 export interface ScoringNumbers {
-  /** Punkte je sm unter Segel bzw. unter Motor (Anteil aus den Stunden, ohne Stunden alles unter Segel) */
+  /** Punkte je Einheit (`unit`: sm bzw. km) unter Segel bzw. unter Motor (Anteil aus den Stunden, ohne Stunden alles unter Segel) */
   nmSail: number;
   nmMotor: number;
+  /** Zuschlag je Einheit gegen den Strom (`log.upstreamNm`, Konzept 39) – zusätzlich zu den Punkten der Strecke, ohne Faktoren */
+  upstream: number;
   /** Faktor je Revier (ohne Angabe 1) und Zuschlag Tidengewässer */
   inland: number;
   coastal: number;
   offshore: number;
   tidal: number;
+  /** Faktor für Boote der Klasse `boatClass` (Konzept 39), sonst 1 */
+  classFactor: number;
   /** Faktor je Rolle an Bord (ohne Angabe 1) */
   skipper: number;
   co: number;
@@ -39,11 +44,28 @@ export interface ScoringNumbers {
   /** Regatta: Punkte je Teilnahme + (Starter − Platz + 1) × Gewicht */
   regatta: number;
   regattaPlace: number;
+  /**
+   * Langtörn (Konzept 39): ein Eintrag über mehr als `longFrom` Einheiten bekommt einmal `longBonus`, dazu je volle
+   * weitere `longStep` Einheiten `longStepBonus`. `longFrom` 0 = ohne.
+   */
+  longFrom: number;
+  longBonus: number;
+  longStep: number;
+  longStepBonus: number;
   /** Deckel je Eintrag, 0 = ohne */
   cap: number;
 }
 
+/** Einheit der Strecke einer Vorlage (Konzept 39): die Einträge stehen in sm, eine km-Vorlage rechnet sie um. */
+export type ScoringUnit = 'nm' | 'km';
+export const KM_PER_NM = 1.852;
+export const UNIT_LABEL: Record<ScoringUnit, string> = { nm: 'sm', km: 'km' };
+
 export interface ScoringRules extends ScoringNumbers {
+  /** Einheit für Punkte je Strecke, Zuschlag gegen den Strom und Langtörn – Standard sm */
+  unit: ScoringUnit;
+  /** Bootsklasse mit eigenem Faktor (`classFactor`), '' = ohne */
+  boatClass: BoatClass | '';
   items: ScoringItemRule[];
 }
 
@@ -52,7 +74,8 @@ type NumberKey = keyof ScoringNumbers;
 /** Baustein für Prüfung und Formular: Gruppe, Beschriftung, Art (Punkte oder Faktor), Grenze, Standard. */
 export interface RuleField {
   key: NumberKey;
-  group: 'Seemeilen' | 'Revier' | 'Rolle an Bord' | 'Zusätze' | 'Regatta' | 'Deckel';
+  group: 'Strecke' | 'Revier' | 'Bootsklasse' | 'Rolle an Bord' | 'Zusätze' | 'Regatta' | 'Langtörn' | 'Deckel';
+  /** Beschriftung mit „sm“ – in einer km-Vorlage steht dort „km“ (`fieldLabel`) */
   label: string;
   kind: 'points' | 'factor';
   max: number;
@@ -65,12 +88,14 @@ const F = (key: NumberKey, group: RuleField['group'], label: string, fallback = 
 
 /** Alle Zahl-Bausteine in Anzeigereihenfolge – eine Liste für `parseRules`, Formular und Anzeige. */
 export const RULE_FIELDS: readonly RuleField[] = [
-  P('nmSail', 'Seemeilen', 'Punkte je sm unter Segel', 100, 1),
-  P('nmMotor', 'Seemeilen', 'Punkte je sm unter Motor', 100, 1),
+  P('nmSail', 'Strecke', 'Punkte je sm unter Segel', 100, 1),
+  P('nmMotor', 'Strecke', 'Punkte je sm unter Motor', 100, 1),
+  P('upstream', 'Strecke', 'Zuschlag je sm gegen den Strom', 100),
   F('inland', 'Revier', 'Faktor Binnen'),
   F('coastal', 'Revier', 'Faktor Küste'),
   F('offshore', 'Revier', 'Faktor Offshore'),
   F('tidal', 'Revier', 'Zuschlag Tidengewässer', 0),
+  F('classFactor', 'Bootsklasse', 'Faktor der Bootsklasse'),
   F('skipper', 'Rolle an Bord', 'Faktor Skipper:in'),
   F('co', 'Rolle an Bord', 'Faktor Co-Skipper:in'),
   F('crew', 'Rolle an Bord', 'Faktor Crew'),
@@ -82,6 +107,10 @@ export const RULE_FIELDS: readonly RuleField[] = [
   P('mast', 'Zusätze', 'Punkte je Mast legen/stellen'),
   P('regatta', 'Regatta', 'Punkte je Teilnahme'),
   P('regattaPlace', 'Regatta', 'Punkte je Platzierung (Starter − Platz + 1)'),
+  P('longFrom', 'Langtörn', 'Langtörn über sm (0 = ohne)', 10_000),
+  P('longBonus', 'Langtörn', 'Punkte einmal je Langtörn'),
+  P('longStep', 'Langtörn', 'je weitere sm'),
+  P('longStepBonus', 'Langtörn', 'Punkte je weitere Strecke'),
   P('cap', 'Deckel', 'Höchstens Punkte je Eintrag (0 = ohne)', 100_000),
 ];
 
@@ -99,6 +128,9 @@ export const SCORING_LIMITS = {
   weightMax: 10,
 } as const;
 
+/** Beschriftung eines Bausteins in der Einheit der Vorlage („Punkte je km unter Segel“). */
+export const fieldLabel = (f: Pick<RuleField, 'label'>, unit: ScoringUnit): string => (unit === 'km' ? f.label.replace(/\bsm\b/g, 'km') : f.label);
+
 /** Zahl in [0, max] (Text mit Komma erlaubt), auf 0,01 gerundet; null = ungültig. */
 function ruleNumber(v: unknown, max: number): number | null {
   if (typeof v !== 'number' && typeof v !== 'string') return null;
@@ -110,6 +142,8 @@ function ruleNumber(v: unknown, max: number): number | null {
 /** Standard-Regeln („Nur Meilen“): 1 Punkt je Seemeile, alle Faktoren 1, keine Zusätze. */
 export const BASE_RULES: ScoringRules = {
   ...(Object.fromEntries(RULE_FIELDS.map((f) => [f.key, f.fallback])) as unknown as ScoringNumbers),
+  unit: 'nm',
+  boatClass: '',
   items: [],
 };
 
@@ -120,14 +154,23 @@ export const BASE_RULES: ScoringRules = {
 export function parseRules(input: unknown): { rules: ScoringRules } | { error: string } {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { error: 'Ungültige Regeln.' };
   const o = input as Record<string, unknown>;
-  const known = new Set<string>([...RULE_FIELDS.map((f) => f.key), 'items']);
+  const known = new Set<string>([...RULE_FIELDS.map((f) => f.key), 'unit', 'boatClass', 'items']);
   const unknown = Object.keys(o).find((k) => !known.has(k));
   if (unknown) return { error: `Unbekannter Baustein „${unknown.slice(0, 40)}“.` };
   const rules = { ...BASE_RULES, items: [] as ScoringItemRule[] };
+  const blank = (v: unknown) => v === undefined || v === null || v === '';
+  if (!blank(o.unit)) {
+    if (o.unit !== 'nm' && o.unit !== 'km') return { error: 'Einheit: sm oder km.' };
+    rules.unit = o.unit;
+  }
+  if (!blank(o.boatClass)) {
+    if (!isBoatClass(o.boatClass)) return { error: 'Unbekannte Bootsklasse.' };
+    rules.boatClass = o.boatClass;
+  }
   for (const f of RULE_FIELDS) {
-    if (o[f.key] === undefined || o[f.key] === null || o[f.key] === '') continue;
+    if (blank(o[f.key])) continue;
     const n = ruleNumber(o[f.key], f.max);
-    if (n === null) return { error: `${f.label}: 0 bis ${f.max.toLocaleString('de-DE')}.` };
+    if (n === null) return { error: `${fieldLabel(f, rules.unit)}: 0 bis ${f.max.toLocaleString('de-DE')}.` };
     rules[f.key] = n;
   }
   if (o.items !== undefined && o.items !== null) {
@@ -219,32 +262,55 @@ export function defaultTemplateId(own: string | undefined, last: string | null |
   return BASE_TEMPLATE_ID;
 }
 
+/** Namen der Posten aller wählbaren Vorlagen (einmal, Groß-/Kleinschreibung egal) – Vorschläge im Fahrtenbuch-Formular (F-629). */
+export function templateItemNames(templates: readonly Pick<ScoringTemplate, 'rules'>[]): string[] {
+  const seen = new Map<string, string>();
+  for (const t of templates) for (const it of t.rules.items) if (!seen.has(it.name.toLocaleLowerCase('de-DE'))) seen.set(it.name.toLocaleLowerCase('de-DE'), it.name);
+  return [...seen.values()];
+}
+
 /** Beschriftung in Auswahl und Listen: „Fahrtenpreis (SV Potsdam)“. */
 export const templateLabel = (t: Pick<ScoringTemplate, 'name' | 'groupName'>): string => (t.groupName ? `${t.name} (${t.groupName})` : t.name);
 
 // ---------------------------------------------------------------- Rechnen
 
 /** Was ein Eintrag für die Wertung braucht – eigene Einträge der Liste bzw. Zeilen der Vereinsliste. */
-export type ScoredEntry = Pick<LogbookEntry, 'distNm' | 'role' | 'log' | 'startedAt' | 'endedAt' | 'logState'>;
+export type ScoredEntry = Pick<LogbookEntry, 'distNm' | 'role' | 'log' | 'startedAt' | 'endedAt' | 'logState' | 'boatClass'>;
 
 const one = (n: number) => Math.round(n * 10) / 10;
 
 /**
- * Punkte eines Eintrags nach einer Vorlage (F-502): Seemeilen (Anteil unter Motor aus den Stunden) × Revier-Faktor
- * (+ Tide) × Rollen-Faktor, dazu Nachtstunden, Tage an Bord, Schleusen, Brücken, Mast, Regatta und Posten; Deckel je
- * Posten und je Eintrag. Revier und Rolle wirken nur auf die Seemeilen; ohne Angabe Faktor 1. Ausgeschlossene Einträge
- * zählen nie (0). Eine Nachkommastelle.
+ * Langtörn-Zuschlag (F-628) für eine Strecke in der Einheit der Vorlage. Verglichen wird auf 0,1 gerundet, damit die
+ * Umrechnung sm → km an der Schwelle nicht knapp darunter landet.
+ */
+export function longBonus(dist: number, r: Pick<ScoringRules, 'longFrom' | 'longBonus' | 'longStep' | 'longStepBonus'>): number {
+  const d = Math.round(dist * 10) / 10;
+  if (!(r.longFrom > 0) || d <= r.longFrom) return 0;
+  return r.longBonus + (r.longStep > 0 ? Math.floor((d - r.longFrom) / r.longStep + 1e-9) * r.longStepBonus : 0);
+}
+
+/**
+ * Punkte eines Eintrags nach einer Vorlage (F-502, Konzept 39): Strecke in der Einheit der Vorlage (sm bzw. km; Anteil
+ * unter Motor aus den Stunden) × Revier-Faktor (+ Tide) × Rollen-Faktor × Faktor der Bootsklasse, dazu der Zuschlag
+ * gegen den Strom, Langtörn, Nachtstunden, Tage an Bord, Schleusen, Brücken, Mast, Regatta und Posten; Deckel je Posten
+ * und je Eintrag. Die Faktoren wirken nur auf die Strecke; ohne Angabe Faktor 1. Ausgeschlossene Einträge zählen nie
+ * (0). Eine Nachkommastelle.
  */
 export function scoreEntry(e: ScoredEntry, r: ScoringRules): number {
   if (!countsInLogbook(e.logState)) return 0;
   const log = e.log;
+  const k = r.unit === 'km' ? KM_PER_NM : 1;
+  const dist = e.distNm * k;
   const sailH = log.sailH ?? 0;
   const engineH = log.engineH ?? 0;
   const motorShare = sailH + engineH > 0 ? engineH / (sailH + engineH) : 0;
-  const nm = e.distNm * ((1 - motorShare) * r.nmSail + motorShare * r.nmMotor);
+  const base = dist * ((1 - motorShare) * r.nmSail + motorShare * r.nmMotor);
   const area = log.area ? r[log.area] + (log.tidal ? r.tidal : 0) : 1;
   const role = e.role ? r[e.role] : 1;
-  let pts = nm * area * role;
+  const cls = r.boatClass && e.boatClass === r.boatClass ? r.classFactor : 1;
+  let pts = base * area * role * cls;
+  // gegen den Strom: Zuschlag auf höchstens die ganze Strecke, ohne Faktoren; Langtörn auf die ganze Strecke
+  pts += Math.min(log.upstreamNm ?? 0, e.distNm) * k * r.upstream + longBonus(dist, r);
   pts += (log.nightH ?? 0) * r.nightH + entryDays(e) * r.day + (log.locks ?? 0) * r.lock + (log.bridges ?? 0) * r.bridge + (log.mast ?? 0) * r.mast;
   const reg = log.regatta;
   if (reg) pts += r.regatta + (reg.place && reg.starters ? (reg.starters - reg.place + 1) * r.regattaPlace : 0);
@@ -309,7 +375,9 @@ export const RULE_GROUPS = [...new Set(RULE_FIELDS.map((f) => f.group))];
 /** Kurzbeschreibung der Vorlage für Listen: nur Bausteine, die vom Standard abweichen. */
 export function rulesSummary(r: ScoringRules): string {
   const fmt = (n: number) => n.toLocaleString('de-DE', { maximumFractionDigits: 2 });
-  const parts = RULE_FIELDS.filter((f) => r[f.key] !== f.fallback).map((f) => `${f.label} ${fmt(r[f.key])}`);
+  const parts = RULE_FIELDS.filter((f) => r[f.key] !== f.fallback && (f.key !== 'classFactor' || r.boatClass)).map((f) =>
+    f.key === 'classFactor' ? `Faktor ${boatClassLabel(r.boatClass)} ${fmt(r[f.key])}` : `${fieldLabel(f, r.unit)} ${fmt(r[f.key])}`);
+  if (r.unit === 'km') parts.unshift('Strecke in km');
   for (const it of r.items) parts.push(`${it.name} ${fmt(it.points)}${it.cap ? ` (höchstens ${fmt(it.cap)})` : ''}`);
   return parts.length ? parts.join(' · ') : '1 Punkt je Seemeile';
 }

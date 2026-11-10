@@ -7,9 +7,10 @@ import { requireUser } from './auth';
 import { HttpError, json } from './http';
 import { CLUB_LIST_FROM, clubListSql } from './scoring-sql';
 import { clubTemplates, memberClub } from './scoring';
-import { notSuspendedSql, publicSql } from './visible-sql';
+import { liveSql, notSuspendedSql, publicSql } from './visible-sql';
 import { canManageGroup } from '../src/domain/groups';
 import { voyageRole } from '../src/domain/crew-roles';
+import { isBoatClass } from '../src/domain/boat-class';
 import { isLogState, readLog, seasonRange } from '../src/domain/logbook';
 import { clubListSeason, clubPoints, pointsByTemplate, type ScoredEntry } from '../src/domain/scoring';
 
@@ -31,6 +32,7 @@ interface Row {
   role: string | null;
   t: number;
   ended_at: number | null;
+  boat_class: string | null;
 }
 
 const entryOf = (r: Row): ScoredEntry => ({
@@ -40,6 +42,7 @@ const entryOf = (r: Row): ScoredEntry => ({
   startedAt: r.t,
   endedAt: r.ended_at,
   logState: isLogState(r.log_state) ? r.log_state : 'suggested',
+  boatClass: isBoatClass(r.boat_class) ? r.boat_class : null,
 });
 
 /**
@@ -71,8 +74,8 @@ export async function getClubList(request: Request, env: Env, id: string): Promi
        WHERE m.group_id = ?1 AND m.scoring_opt_in_at IS NOT NULL AND ${notSuspendedSql('m.user_id')} AND (?2 IS NULL OR m.user_id = ?2)`,
     ).bind(club.id, only),
     env.DB.prepare(
-      `SELECT s.user_id AS uid, s.dist_nm, s.log, s.log_state, s.owner_role AS role, COALESCE(s.started_at, s.created_at) AS t, s.ended_at
-       FROM ${CLUB_LIST_FROM}
+      `SELECT s.user_id AS uid, s.dist_nm, s.log, s.log_state, s.owner_role AS role, COALESCE(s.started_at, s.created_at) AS t, s.ended_at, b.boat_class
+       FROM ${CLUB_LIST_FROM} LEFT JOIN boats b ON b.id = s.boat_id AND ${liveSql('b')}
        WHERE ${clubListSql('?1')} AND (?5 IS NULL OR s.user_id = ?5) AND COALESCE(s.started_at, s.created_at) >= ?2 AND COALESCE(s.started_at, s.created_at) < ?3
        ORDER BY t DESC LIMIT ?4`,
     ).bind(club.id, from, to, CLUB_LIST_MAX_ENTRIES, only),
