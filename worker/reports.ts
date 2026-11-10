@@ -135,8 +135,21 @@ async function resolveTarget(request: Request, env: Env, kind: ReportKind, rawId
   return { kind, id: b.id, ownerId: role ? (user?.id ?? b.owner_id) : b.owner_id };
 }
 
-const hideTarget = (env: Env, kind: ReportKind, id: string, now: number) =>
-  env.DB.prepare(`UPDATE ${TABLE[kind].table} SET hidden_at = COALESCE(hidden_at, ?) WHERE ${TABLE[kind].idCol} = ?`).bind(now, id);
+/**
+ * Ausblenden (Meldung bzw. Moderation). Kommentar (Konzept 40): die Glocke seiner Autor:in im Verlauf geht auf stumm –
+ * wie früher, als ausgeblendete Kommentare nicht benachrichtigt wurden; Einblenden schaltet sie nicht wieder an.
+ */
+const hideTarget = (env: Env, kind: ReportKind, id: string, now: number): D1PreparedStatement[] => [
+  env.DB.prepare(`UPDATE ${TABLE[kind].table} SET hidden_at = COALESCE(hidden_at, ?) WHERE ${TABLE[kind].idCol} = ?`).bind(now, id),
+  ...(kind === 'comment'
+    ? [
+        env.DB.prepare(
+          `UPDATE comment_subscriptions SET state = 'off' WHERE (user_id, COALESCE(share_id, ''), COALESCE(post_id, '')) =
+             (SELECT user_id, COALESCE(share_id, ''), COALESCE(post_id, '') FROM comments WHERE id = ?)`,
+        ).bind(id),
+      ]
+    : []),
+];
 
 /**
  * POST /api/reports – `{ kind, id, reason, note }`; angemeldet und nicht gesperrt. `id` ist bei Profilen der
@@ -198,7 +211,7 @@ export async function createReport(request: Request, env: Env): Promise<Response
     )
       .bind(kind, target.id)
       .first<{ n: number }>();
-    if ((open?.n ?? 0) >= REPORT_LIMITS.autoHideReporters) await hideTarget(env, kind, target.id, now).run();
+    if ((open?.n ?? 0) >= REPORT_LIMITS.autoHideReporters) await env.DB.batch(hideTarget(env, kind, target.id, now));
   }
   return json({ ok: true, already }, { status: already ? 200 : 201 });
 }
@@ -249,11 +262,22 @@ async function preview(env: Env, kind: ReportKind, id: string) {
   }
   if (kind === 'comment') {
     const c = await env.DB.prepare(
-      'SELECT c.id, c.user_id, c.body, c.hidden_at, s.id AS share_id, s.title, s.visibility, s.share_key FROM comments c JOIN shares s ON s.id = c.share_id WHERE c.id = ?',
+      `SELECT c.id, c.user_id, c.body, c.hidden_at, c.post_id, s.id AS share_id, s.title, COALESCE(s.visibility, po.visibility) AS visibility, s.share_key
+       FROM comments c LEFT JOIN shares s ON s.id = c.share_id LEFT JOIN posts po ON po.id = c.post_id WHERE c.id = ?`,
     )
       .bind(id)
-      .first<{ id: string; user_id: string; body: string; hidden_at: number | null; share_id: string; title: string; visibility: Visibility; share_key: string | null }>();
-    return c && { title: `Kommentar zu „${c.title}“`, text: c.body, path: sharePath('s', c.share_id, c.visibility, c.share_key), visibility: c.visibility, hiddenAt: c.hidden_at, owner: await owner(c.user_id) };
+      .first<{ id: string; user_id: string; body: string; hidden_at: number | null; post_id: string | null; share_id: string | null; title: string | null; visibility: Visibility; share_key: string | null }>();
+    // Kommentar an einem Beitrag (Konzept 40): führt zur Karte
+    return (
+      c && {
+        title: c.share_id ? `Kommentar zu „${c.title}“` : 'Kommentar zu einem Beitrag',
+        text: c.body,
+        path: c.share_id ? sharePath('s', c.share_id, c.visibility, c.share_key) : `/p/${c.post_id}`,
+        visibility: c.visibility,
+        hiddenAt: c.hidden_at,
+        owner: await owner(c.user_id),
+      }
+    );
   }
   if (kind === 'photo') {
     const f = await env.DB.prepare(
@@ -414,9 +438,7 @@ export async function decideReport(request: Request, env: Env, reportId: string)
     await env.DB.prepare('DELETE FROM reports WHERE target_kind = ? AND target_id = ?').bind(kind, r.target_id).run();
   } else {
     await env.DB.batch([
-      action === 'keep'
-        ? env.DB.prepare(`UPDATE ${table} SET hidden_at = NULL WHERE ${idCol} = ?`).bind(r.target_id)
-        : hideTarget(env, kind, r.target_id, now),
+      ...(action === 'keep' ? [env.DB.prepare(`UPDATE ${table} SET hidden_at = NULL WHERE ${idCol} = ?`).bind(r.target_id)] : hideTarget(env, kind, r.target_id, now)),
       // Behalten: Bild gilt als geprüft (F-568); Ausblenden: das Objekt ist ohnehin weg, die Melde-Sperre endet
       ...(coverKind ? [action === 'keep' ? keepCoverStmt(env, coverKind, r.target_id) : releaseCoverStmt(env, coverKind, r.target_id)] : []),
       ...(kind === 'photo' && action === 'keep' ? [env.DB.prepare('UPDATE photos SET kept_at = ? WHERE id = ?').bind(now, r.target_id)] : []),

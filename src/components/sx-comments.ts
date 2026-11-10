@@ -1,22 +1,26 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
-import type { CommentItem, CommentList } from '../services/api';
-import { cleanComment, commentLength, countLinks, linkify } from '../domain/comment-text';
+import type { CommentItem, CommentList, CommentThread } from '../services/api';
+import { COMMENTS_MODES, COMMENTS_MODE_LABEL, cleanComment, commentLength, countLinks, linkify, type CommentsMode } from '../domain/comment-text';
 import { fmtDateTime } from '../util/html';
 import { icon } from './icons';
 import { base, emit } from './shared';
 
 /**
- * Kommentare eines geteilten Törns (Konzept 4.3) – reine Darstellung, Aktionen gehen als Events raus:
- * `sx-comment-post` { body }, `sx-comment-delete` { id }, `sx-report` { kind, id, label }, `sx-login`,
- * `sx-account` ('profile'). Text wird nie als HTML ausgewertet; Links entstehen aus dem geparsten Text
- * und tragen rel="nofollow ugc noopener noreferrer".
+ * Kommentare eines Verlaufs (Konzept 4.3, 40): Törn (Panel der Törn-Ansicht) oder Beitrag (Karte im Stream) – reine
+ * Darstellung, Aktionen gehen als Events mit sich selbst als `el` raus: `sx-comment-post` { body, el },
+ * `sx-comment-delete` { id, el }, `sx-comment-subscribe` { on, el } (Glocke, F-639), `sx-comments-mode` { mode, el }
+ * (nur Beiträge, F-636), `sx-comments-load` { el } (mit `autoload`, sobald ein Verlauf ohne Daten gesetzt ist),
+ * `sx-report` { kind, id, label, key }, `sx-login`, `sx-account` ('profile'). Text wird nie als HTML ausgewertet;
+ * Links entstehen aus dem geparsten Text und tragen rel="nofollow ugc noopener noreferrer".
  * Ruhig (F-514): das Formular erscheint erst nach „Kommentieren“, Melden/Löschen je Kommentar mit Maus erst bei Hover.
- * Kommentar-Einstellung und „Törn melden“ liegen im Zahnrad-Menü des Törns (F-510).
+ * Kommentar-Einstellung und „Törn melden“ liegen beim Törn im Zahnrad-Menü (F-510); beim Beitrag stellt die Autor:in
+ * den Modus im Kopf der Kommentare (ein Einstieg je Gegenstand).
  */
 export class SxComments extends LitElement {
   static properties = {
     data: { attribute: false },
-    shareId: { type: String },
+    thread: { attribute: false },
+    autoload: { type: Boolean },
     busy: { type: Boolean },
     error: { type: String },
     draft: { type: String },
@@ -24,8 +28,10 @@ export class SxComments extends LitElement {
     writing: { type: Boolean },
   };
   declare data: CommentList | null;
-  /** Törn, zu dem die Kommentare gehören */
-  declare shareId: string;
+  /** Verlauf, zu dem die Kommentare gehören (Törn oder Beitrag, Konzept 40) */
+  declare thread: CommentThread | null;
+  /** Daten selbst anfordern (`sx-comments-load`), sobald ein Verlauf ohne Daten gesetzt ist – Beitragskarten */
+  declare autoload: boolean;
   declare busy: boolean;
   declare error: string;
   /** Text im Formular – der Controller leert ihn nach dem Absenden */
@@ -38,7 +44,8 @@ export class SxComments extends LitElement {
   constructor() {
     super();
     this.data = null;
-    this.shareId = '';
+    this.thread = null;
+    this.autoload = false;
     this.busy = false;
     this.error = '';
     this.draft = '';
@@ -196,6 +203,52 @@ export class SxComments extends LitElement {
         width: 15px;
         height: 15px;
       }
+      /* Kopf: Kommentar-Modus (Beitrag) links, Glocke rechts (Konzept 40) */
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .mode {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-1);
+        margin-right: auto;
+        min-width: 0;
+        max-width: 100%;
+        color: var(--text-2);
+        font-size: var(--fs-s);
+      }
+      .mode svg {
+        width: 15px;
+        height: 15px;
+        flex: none;
+      }
+      .mode select {
+        min-width: 0;
+        max-width: 100%;
+        min-height: 36px;
+        padding: 0 var(--s-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+      }
+      .bell {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-1);
+      }
+      .bell svg {
+        width: 16px;
+        height: 16px;
+      }
+      .bell.on {
+        color: var(--accent);
+      }
       /* Tippziele ≥ 44 px (UX N11) */
       @media (pointer: coarse) {
         .btn.small {
@@ -203,6 +256,9 @@ export class SxComments extends LitElement {
         }
         .btn.small.icon {
           width: 44px;
+        }
+        .mode select {
+          min-height: 44px;
         }
       }
     `,
@@ -212,13 +268,14 @@ export class SxComments extends LitElement {
   private restoreFocus = false;
 
   willUpdate(changed: PropertyValues<this>) {
-    // anderer Törn: Formular zu
-    if (changed.has('shareId')) this.writing = false;
+    // anderer Verlauf: Formular zu
+    if (changed.has('thread') && changed.get('thread')?.id !== this.thread?.id) this.writing = false;
     // vor dem Neuzeichnen prüfen – danach ist das fokussierte Element schon weg
     if (changed.get('writing') && !this.writing) this.restoreFocus = !!this.shadowRoot?.activeElement;
   }
 
   updated(changed: PropertyValues<this>) {
+    if (this.autoload && this.thread && !this.data && (changed.has('thread') || changed.has('autoload'))) emit(this, 'sx-comments-load', { el: this });
     if (changed.has('writing') && this.writing) this.renderRoot.querySelector<HTMLTextAreaElement>('textarea')?.focus();
     if (this.restoreFocus) {
       this.restoreFocus = false;
@@ -235,7 +292,7 @@ export class SxComments extends LitElement {
     e.preventDefault();
     const body = cleanComment(this.draft);
     if (!body || this.problem(body)) return;
-    emit(this, 'sx-comment-post', { body });
+    emit(this, 'sx-comment-post', { body, el: this });
   }
 
   private problem(body: string): string {
@@ -263,7 +320,7 @@ export class SxComments extends LitElement {
         <span class="tools">
           ${!c.isMine
             ? html`<button class="btn ghost small icon" type="button" title="Melden" aria-label="Kommentar von ${c.author.displayName} melden"
-                @click=${() => emit(this, 'sx-report', { kind: 'comment', id: c.id, label: `Kommentar von ${c.author.displayName}` })}>${icon('flag')}</button>`
+                @click=${() => emit(this, 'sx-report', { kind: 'comment', id: c.id, label: `Kommentar von ${c.author.displayName}`, ...(this.thread?.kind === 'post' ? { key: this.thread.key ?? null } : {}) })}>${icon('flag')}</button>`
             : ''}
           ${c.canDelete && this.confirm !== c.id
             ? html`<button class="btn ghost small icon danger" type="button" title="Löschen" aria-label="Kommentar von ${c.author.displayName} löschen"
@@ -277,7 +334,7 @@ export class SxComments extends LitElement {
             <span>Diesen Kommentar löschen?</span>
             <button class="btn small danger" type="button" @click=${() => {
               this.confirm = null;
-              emit(this, 'sx-comment-delete', { id: c.id });
+              emit(this, 'sx-comment-delete', { id: c.id, el: this });
             }}>${icon('trash')} Ja, löschen</button>
             <button class="btn small" type="button" @click=${() => (this.confirm = null)}>Abbrechen</button>
           </div>`
@@ -305,7 +362,7 @@ export class SxComments extends LitElement {
       case 'suspended':
         return html`<p class="note">${icon('lock')}<span>Dein Konto ist gesperrt – du kannst nicht kommentieren.</span></p>`;
       case 'off':
-        return d.mode === 'off' ? html`<p class="note">${icon('lock')}<span>Neue Kommentare sind für diesen Törn abgeschaltet.</span></p>` : '';
+        return d.mode === 'off' ? html`<p class="note">${icon('lock')}<span>Neue Kommentare sind für ${this.isPost() ? 'diesen Beitrag' : 'diesen Törn'} abgeschaltet.</span></p>` : '';
       default: {
         if (!open) return this.startButton(d);
         const body = cleanComment(this.draft);
@@ -313,27 +370,58 @@ export class SxComments extends LitElement {
         const problem = this.problem(body);
         return html`<form @submit=${this.submit}>
           <label class="sr-only" for="c-text">Dein Kommentar</label>
-          <textarea id="c-text" placeholder="Was sagst du zu diesem Törn?" .value=${this.draft} aria-describedby="c-count c-rules"
+          <textarea id="c-text" placeholder="Was sagst du zu ${this.isPost() ? 'diesem Beitrag' : 'diesem Törn'}?" .value=${this.draft} aria-describedby="c-count c-rules"
             aria-invalid=${problem ? 'true' : 'false'} @input=${(e: Event) => (this.draft = (e.target as HTMLTextAreaElement).value)}></textarea>
           <div class="row">
             <span id="c-count" class="count ${len > d.limits.maxLength ? 'over' : ''}" aria-live="polite">${problem || `${len} / ${d.limits.maxLength}`}</span>
             <button class="btn small ghost" type="button" @click=${this.cancel}>Abbrechen</button>
             <button class="btn small primary" type="submit" ?disabled=${this.busy || !body || !!problem}>${icon('comment')} Kommentieren</button>
           </div>
-          <p id="c-rules" class="sub">Reiner Text, höchstens ${d.limits.maxLinks} Links. Sichtbar für alle, die den Törn sehen.</p>
+          <p id="c-rules" class="sub">Reiner Text, höchstens ${d.limits.maxLinks} Links. Sichtbar für alle, die ${this.isPost() ? 'den Beitrag' : 'den Törn'} sehen.</p>
         </form>`;
       }
     }
   }
 
+  private isPost() {
+    return this.thread?.kind === 'post';
+  }
+
+  /**
+   * Kopf: Glocke des Verlaufs (F-639) für Angemeldete, die die Kommentare sehen – an: „Benachrichtigen an“, stumm:
+   * durchgestrichen; beim Beitrag für die Autor:in die Auswahl des Kommentar-Modus (F-636).
+   */
+  private bar(d: CommentList) {
+    const hasBell = typeof d.subscribed === 'boolean';
+    if (!hasBell && !d.canSetMode) return '';
+    const on = !!d.subscribed;
+    // fester Name, der Zustand steckt nur in aria-pressed (Screenreader: „Bei neuen Kommentaren benachrichtigen, gedrückt“)
+    const label = 'Bei neuen Kommentaren benachrichtigen';
+    return html`<div class="bar">
+      ${d.canSetMode
+        ? html`<label class="mode">${icon('comment')}
+            <select aria-label="Kommentare zu diesem Beitrag" ?disabled=${this.busy}
+              @change=${(e: Event) => emit(this, 'sx-comments-mode', { mode: (e.target as HTMLSelectElement).value as CommentsMode, el: this })}>
+              ${COMMENTS_MODES.map((m) => html`<option value=${m} ?selected=${d.mode === m}>${COMMENTS_MODE_LABEL[m]}</option>`)}
+            </select></label>`
+        : ''}
+      ${hasBell
+        ? html`<button class="btn small ghost bell ${on ? 'on' : ''}" type="button" aria-pressed=${on ? 'true' : 'false'} title=${label} aria-label=${label}
+            ?disabled=${this.busy} @click=${() => emit(this, 'sx-comment-subscribe', { on: !on, el: this })}>
+            ${icon(on ? 'bell' : 'bell-off')}<span>${on ? 'Benachrichtigen an' : 'Stumm'}</span></button>`
+        : ''}
+    </div>`;
+  }
+
   render() {
     const d = this.data;
-    if (!d) return html`<p class="sub">Lade Kommentare …</p>`;
+    if (!d) return this.error ? html`<p class="error" role="alert">${this.error}</p>` : html`<p class="sub">Lade Kommentare …</p>`;
     const hiddenForOthers = d.mode === 'hidden';
     return html`
+      ${this.bar(d)}
       ${hiddenForOthers && d.isOwner ? html`<p class="note">${icon('eyeOff')}<span>Kommentare sind für andere ausgeblendet – nur du siehst sie.</span></p>` : ''}
       ${hiddenForOthers && !d.isOwner && !d.comments.length
-        ? html`<p class="sub">Die Kommentare zu diesem Törn sind ausgeblendet.</p>`
+        ? html`<p class="sub">Die Kommentare zu ${this.isPost() ? 'diesem Beitrag' : 'diesem Törn'} sind ausgeblendet.</p>`
         : d.comments.length
           ? html`<ol aria-label="Kommentare">${d.comments.map((c) => this.item(c))}</ol>`
           : html`<p class="sub">Noch keine Kommentare.</p>`}

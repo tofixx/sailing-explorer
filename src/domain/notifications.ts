@@ -46,7 +46,7 @@ export const CHOOSABLE = ['comment', 'reaction', 'follow', 'invite', 'request', 
 export type ChoosableKind = (typeof CHOOSABLE)[number];
 export const isChoosable = oneOf(CHOOSABLE);
 export const CHOOSABLE_LABEL: Record<ChoosableKind, string> = {
-  comment: 'Kommentare auf deinen Törns und Törns, die du kommentiert hast',
+  comment: 'Kommentare zu deinen Törns und Beiträgen und dort, wo deine Glocke an ist',
   reaction: 'Reaktionen auf deine Inhalte',
   follow: 'Neue Follower',
   invite: 'Einladungen an dich',
@@ -204,8 +204,11 @@ export interface NotificationItem {
 export function mailLine(n: Pick<NotificationItem, 'kind' | 'count' | 'title'> & Partial<Pick<NotificationItem, 'what' | 'where'>>): string {
   const many = (one: string, more: string) => (n.count === 1 ? one : `${n.count} ${more}`);
   switch (n.kind) {
-    case 'comment':
-      return `${quoted(n.title)}: ${many('1 neuer Kommentar', 'neue Kommentare')}`;
+    case 'comment': {
+      // Beitrag (Konzept 40): nur der Verlauf, nie der Beitragstext
+      const target = isPostWhat(n.what) ? `${n.what === 'deinen Beitrag' ? 'Dein Beitrag' : 'Ein Beitrag'}${n.title.trim() ? ` in ${quoted(n.title)}` : ''}` : quoted(n.title);
+      return `${target}: ${many('1 neuer Kommentar', 'neue Kommentare')}`;
+    }
     case 'reaction':
       return `${n.title.trim() ? quoted(n.title) : 'Deine Neuigkeit'}: ${many('1 Reaktion', 'Reaktionen')}`;
     case 'follow':
@@ -224,6 +227,8 @@ export function mailLine(n: Pick<NotificationItem, 'kind' | 'count' | 'title'> &
   }
 }
 
+/** Kommentar im Beitrag (Konzept 40): `what` der Benachrichtigung */
+const isPostWhat = (w: string | undefined): w is 'deinen Beitrag' | 'einen Beitrag' => w === 'deinen Beitrag' || w === 'einen Beitrag';
 const short = (s: string, n = 60) => {
   const t = s.trim();
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
@@ -239,8 +244,11 @@ export function notificationText(n: Pick<NotificationItem, 'kind' | 'count' | 'a
   const who = n.actor?.name ?? 'Jemand';
   const more = n.count > 1 ? ` und ${n.count - 1} ${n.count === 2 ? 'weitere Person' : 'weitere'}` : '';
   switch (n.kind) {
-    case 'comment':
-      return n.count > 1 ? `${n.count} neue Kommentare zu ${quoted(n.title)}` : `${who} hat ${quoted(n.title)} kommentiert`;
+    case 'comment': {
+      // Beitrag (Konzept 40): „deinen Beitrag“ bzw. „einen Beitrag“ in <Verlauf> – sonst der Titel des Törns
+      const target = isPostWhat(n.what) ? `${n.what}${n.title.trim() ? ` in ${quoted(n.title)}` : ''}` : quoted(n.title);
+      return n.count > 1 ? `${n.count} neue Kommentare zu ${target}` : `${who} hat ${target} kommentiert`;
+    }
     case 'reaction':
       return `${who}${more} ${n.count > 1 ? 'haben' : 'hat'} auf ${about(n.what, n.title)} reagiert`;
     case 'follow':

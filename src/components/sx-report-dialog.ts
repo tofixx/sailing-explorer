@@ -11,6 +11,8 @@ export interface ReportTarget {
   label: string;
   /** Profil, Boot, Gruppe mit sichtbarem Titelbild – dann gibt es die Bild-Gründe (F-566) */
   image?: boolean;
+  /** Schlüssel des Verlaufs („Nur mit Link“), wenn das Ziel ihn mitbringt (Kommentar an einem Beitrag, Konzept 40) */
+  key?: string | null;
 }
 
 const KIND_LABEL: Record<ReportKind, string> = REPORT_KIND_LABEL;

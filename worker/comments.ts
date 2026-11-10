@@ -1,16 +1,20 @@
-// Kommentare an Törns (Konzept 4.1–4.3, F-110 … F-113): ein flacher Thread pro Törn, folgt der Sichtbarkeit des
-// Törns (gleiche Prüfung wie die Freigabe, inkl. Schlüssel), Spam-Grenzen pro Konto und Tages-Sammelmail.
+// Kommentare an Törns und Beiträgen (Konzept 4.1–4.3, 40; F-110 … F-113, F-635 … F-644): ein flacher Thread je Verlauf
+// (Törn oder Beitrag ohne Törn), folgt dessen Sichtbarkeit (gleiche Prüfung wie beim Ansehen, inkl. Schlüssel),
+// Spam-Grenzen pro Konto, Glocke je Verlauf (`comment_subscriptions`).
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { sha256Hex, randomId } from './crypto';
-import { HttpError, json, readJson } from './http';
+import { HttpError, json, rateLimit, readJson } from './http';
 import { adminLogStmt, isAdmin, isSuspended, SUSPENDED } from './moderation';
 import { visibleShare } from './shares';
-import { COMMENT_ID_RE, parseNotifyMode } from './validate';
-import { COMMENT_MAX, COMMENT_MAX_LINKS, cleanComment, commentProblem, type CommentsMode } from '../src/domain/comment-text';
+import { visiblePost } from './posts';
+import { COMMENT_ID_RE, parseCommentsMode, parseNotifyMode } from './validate';
+import { COMMENT_MAX, COMMENT_MAX_LINKS, cleanComment, commentProblem, isCommentsMode, type CommentsMode } from '../src/domain/comment-text';
+import { isSubscribed, isSubscriptionState, type ThreadKind } from '../src/domain/comment-thread';
+import { threadCol } from './comment-thread-sql';
 import { isMapStyleId } from '../src/domain/map-style';
 import { isGroupNotifyMode } from '../src/domain/groups';
-import { notifyComment } from './notifications';
+import { notifyComment, readThreadNotifications } from './notifications';
 import { prefsOf, savePrefs, validPrefsPatch } from './notification-mail';
 
 const HOUR = 3_600_000;
@@ -26,15 +30,19 @@ export const COMMENT_LIMITS = {
   firstDayMs: DAY,
   /** … dürfen insgesamt höchstens so viele Kommentare schreiben */
   firstDayMax: 3,
-  /** Kommentare je Törn */
+  /** Kommentare je Verlauf (Törn bzw. Beitrag) */
   perShare: 500,
 } as const;
 
 const NOT_FOUND = () => new HttpError(404, 'not_found', 'Diesen Kommentar gibt es nicht (mehr).');
+const NOUN: Record<ThreadKind, { acc: string; nom: string }> = {
+  share: { acc: 'diesen Törn', nom: 'Dieser Törn' },
+  post: { acc: 'diesen Beitrag', nom: 'Dieser Beitrag' },
+};
+const PRIVATE = { headers: { 'Cache-Control': 'private, no-store' } };
 
 interface CommentRow {
   id: string;
-  share_id: string;
   user_id: string;
   body: string;
   hidden_at: number | null;
@@ -48,11 +56,39 @@ interface CommentRow {
 /** Warum (noch) nicht kommentiert werden kann – die Oberfläche zeigt dazu den passenden Hinweis. */
 export type CommentBlock = 'login' | 'off' | 'suspended' | 'profile' | null;
 
+/** Ein Verlauf, wie ihn die Anfrage sehen darf (sonst 404 aus `visibleShare` bzw. `visiblePost`). */
+interface Thread {
+  kind: ThreadKind;
+  id: string;
+  isOwner: boolean;
+  mode: CommentsMode;
+  userId: string | null;
+  admin: boolean;
+}
+
+async function openThread(request: Request, env: Env, kind: ThreadKind, id: string): Promise<Thread> {
+  if (kind === 'share') {
+    const { row, isOwner, user } = await visibleShare(request, env, id);
+    return { kind, id: row.id, isOwner, mode: (row.comments_mode ?? 'on') as CommentsMode, userId: user?.id ?? null, admin: isAdmin(env, user?.id) };
+  }
+  // Beiträge ohne Törn (Konzept 40): Törn-Beiträge sind hier 404 – ihre Kommentare hängen am Törn
+  const p = await visiblePost(request, env, id);
+  // unbekannter Modus → keine neuen Kommentare (fail closed)
+  const mode: CommentsMode = isCommentsMode(p.commentsMode) ? p.commentsMode : 'off';
+  return { kind, id: p.id, isOwner: !!p.viewerId && p.viewerId === p.authorId, mode, userId: p.viewerId, admin: p.admin };
+}
+
+/** Sieht die Anfrage die Kommentare des Verlaufs? Bei `hidden` nur Eigentümer:in und Admins. */
+const showsComments = (t: Thread) => t.mode !== 'hidden' || t.isOwner || t.admin;
+
+/** Verweis auf den Verlauf als Werte für (share_id, post_id). */
+const refOf = (t: Pick<Thread, 'kind' | 'id'>): [string | null, string | null] => (t.kind === 'share' ? [t.id, null] : [null, t.id]);
+
 /**
  * Kommentar für die Antwort: nie mit Konto-ID oder E-Mail. Name ist der Anzeigename des Profils (Kommentieren
  * verlangt ein Profil), verlinkt nur bei öffentlichem, nicht ausgeblendetem Profil (wie F-82).
  */
-function shape(c: CommentRow, viewerId: string | null, isShareOwner: boolean, admin: boolean) {
+function shape(c: CommentRow, viewerId: string | null, isThreadOwner: boolean, admin: boolean) {
   const isMine = !!viewerId && viewerId === c.user_id;
   return {
     id: c.id,
@@ -60,13 +96,13 @@ function shape(c: CommentRow, viewerId: string | null, isShareOwner: boolean, ad
     createdAt: c.created_at,
     author: { displayName: c.display_name || 'Segler:in', handle: c.profile_visibility === 'public' ? c.handle : null },
     isMine,
-    canDelete: isMine || isShareOwner || admin,
+    canDelete: isMine || isThreadOwner || admin,
     /** nur Autor:in und Admins sehen ausgeblendete Kommentare – mit diesem Hinweis */
     hidden: !!c.hidden_at,
   };
 }
 
-const COMMENT_SELECT = `SELECT c.id, c.share_id, c.user_id, c.body, c.hidden_at, c.created_at,
+const COMMENT_SELECT = `SELECT c.id, c.user_id, c.body, c.hidden_at, c.created_at,
     p.handle, CASE WHEN p.hidden_at IS NULL THEN p.display_name END AS display_name,
     CASE WHEN p.hidden_at IS NULL THEN p.visibility END AS profile_visibility
   FROM comments c LEFT JOIN profiles p ON p.user_id = c.user_id`;
@@ -75,47 +111,62 @@ async function hasProfile(env: Env, userId: string): Promise<boolean> {
   return !!(await env.DB.prepare('SELECT 1 AS x FROM profiles WHERE user_id = ?').bind(userId).first());
 }
 
-/**
- * GET /api/shares/:id/comments – wer den Törn sehen darf (gleiche Prüfung wie die Freigabe: privat nur der
- * Eigentümer, „Nur mit Link“ mit X-Share-Key, ausgeblendet nur Eigentümer/Admins). Bei `comments_mode = hidden`
- * sehen nur Eigentümer und Admins die Kommentare. Ausgeblendete Kommentare sehen nur Autor:in und Admins.
- */
-export async function listComments(request: Request, env: Env, id: string): Promise<Response> {
-  const { row, isOwner, user } = await visibleShare(request, env, id);
-  const admin = isAdmin(env, user?.id);
-  const mode = (row.comments_mode ?? 'on') as CommentsMode;
-  const show = mode !== 'hidden' || isOwner || admin;
-  const { results } = show
-    ? await env.DB.prepare(`${COMMENT_SELECT} WHERE c.share_id = ?1 AND (c.hidden_at IS NULL OR c.user_id = ?2 OR ?3)
-         AND (?3 OR NOT EXISTS (SELECT 1 FROM users lu WHERE lu.id = c.user_id AND lu.locked_at IS NOT NULL))
-       ORDER BY c.created_at, c.id LIMIT ?4`)
-        .bind(row.id, user?.id ?? '', admin ? 1 : 0, COMMENT_LIMITS.perShare)
-        .all<CommentRow>()
-    : { results: [] as CommentRow[] };
-  let block: CommentBlock = null;
-  if (!user) block = 'login';
-  else if (mode !== 'on') block = 'off';
-  else if (await isSuspended(env, user.id)) block = 'suspended';
-  else if (!(await hasProfile(env, user.id))) block = 'profile';
-  return json({
-    mode,
-    comments: results.map((c) => shape(c, user?.id ?? null, isOwner, admin)),
-    canComment: block === null,
-    block,
-    isOwner,
-    limits: { maxLength: COMMENT_MAX, maxLinks: COMMENT_MAX_LINKS },
-  });
+/** Zeile der Glocke des Kontos im Verlauf (null = keine). */
+async function subscriptionOf(env: Env, t: Thread, userId: string) {
+  const r = await env.DB.prepare(`SELECT state FROM comment_subscriptions WHERE ${threadCol(t.kind)} = ? AND user_id = ?`).bind(t.id, userId).first<{ state: string }>();
+  return r && isSubscriptionState(r.state) ? r.state : null;
 }
 
 /**
- * POST /api/shares/:id/comments – angemeldet, mit Profil, nicht gesperrt, Törn sichtbar (sonst 404) und
- * `comments_mode = on`. Body `{ body }`; `photoId` ist für Fotos (Phase C) reserviert und wird bis dahin abgelehnt.
+ * GET /api/shares/:id/comments bzw. /api/posts/:id/comments – wer den Verlauf sehen darf (gleiche Prüfung wie beim
+ * Ansehen: privat nur Eigentümer:in, „Nur mit Link“ mit X-Share-Key, ausgeblendet nur Eigentümer:in/Admins, Beitrag
+ * nach `visiblePost`). Bei `comments_mode = hidden` sehen nur Eigentümer:in und Admins die Kommentare. Ausgeblendete
+ * Kommentare sehen nur Autor:in und Admins. `subscribed`: Glocke für Angemeldete, die die Kommentare sehen (F-639).
  */
-export async function createComment(request: Request, env: Env, id: string): Promise<Response> {
+export async function listComments(request: Request, env: Env, kind: ThreadKind, id: string): Promise<Response> {
+  const t = await openThread(request, env, kind, id);
+  const show = showsComments(t);
+  const { results } = show
+    ? await env.DB.prepare(`${COMMENT_SELECT} WHERE c.${threadCol(kind)} = ?1 AND (c.hidden_at IS NULL OR c.user_id = ?2 OR ?3)
+         AND (?3 OR NOT EXISTS (SELECT 1 FROM users lu WHERE lu.id = c.user_id AND lu.locked_at IS NOT NULL))
+       ORDER BY c.created_at, c.id LIMIT ?4`)
+        .bind(t.id, t.userId ?? '', t.admin ? 1 : 0, COMMENT_LIMITS.perShare)
+        .all<CommentRow>()
+    : { results: [] as CommentRow[] };
+  let block: CommentBlock = null;
+  if (!t.userId) block = 'login';
+  else if (t.mode !== 'on') block = 'off';
+  else if (await isSuspended(env, t.userId)) block = 'suspended';
+  else if (!(await hasProfile(env, t.userId))) block = 'profile';
+  const subscribed = t.userId && show ? isSubscribed(await subscriptionOf(env, t, t.userId), t.isOwner) : null;
+  // Beitrag (Konzept 40): Öffnen der Kommentare liest die Kommentar-Benachrichtigungen dazu (Törns: Öffnen des Törns)
+  if (t.userId && kind === 'post' && show) await readThreadNotifications(env, t.userId, t.id);
+  return json(
+    {
+      mode: t.mode,
+      comments: results.map((c) => shape(c, t.userId, t.isOwner, t.admin)),
+      canComment: block === null,
+      block,
+      isOwner: t.isOwner,
+      subscribed,
+      /** Beitrag: die Autor:in stellt den Modus im Kopf der Kommentare (Törns im Zahnrad-Menü, F-510) */
+      canSetMode: kind === 'post' && t.isOwner,
+      limits: { maxLength: COMMENT_MAX, maxLinks: COMMENT_MAX_LINKS },
+    },
+    PRIVATE,
+  );
+}
+
+/**
+ * POST /api/shares/:id/comments bzw. /api/posts/:id/comments – angemeldet, mit Profil, nicht gesperrt, Verlauf
+ * sichtbar (sonst 404) und `comments_mode = on`. Body `{ body }`; `photoId` ist für Fotos reserviert und wird
+ * abgelehnt. Der erste eigene Kommentar schaltet die Glocke an – nur ohne Zeile (stumm bleibt stumm, F-638).
+ */
+export async function createComment(request: Request, env: Env, kind: ThreadKind, id: string): Promise<Response> {
   const user = await requireUser(request, env);
-  const { row, isOwner } = await visibleShare(request, env, id);
+  const t = await openThread(request, env, kind, id);
   if (await isSuspended(env, user.id)) throw SUSPENDED();
-  if ((row.comments_mode ?? 'on') !== 'on') throw new HttpError(403, 'comments_off', 'Für diesen Törn sind Kommentare abgeschaltet.');
+  if (t.mode !== 'on') throw new HttpError(403, 'comments_off', `Für ${NOUN[kind].acc} sind Kommentare abgeschaltet.`);
   const input = await readJson<{ body?: unknown; photoId?: unknown }>(request);
   if (input.photoId !== undefined && input.photoId !== null) throw new HttpError(400, 'invalid_photo', 'Kommentare zu Fotos gibt es noch nicht.');
   if (!(await hasProfile(env, user.id))) {
@@ -137,10 +188,10 @@ export async function createComment(request: Request, env: Env, id: string): Pro
        (SELECT MAX(created_at) FROM comment_log WHERE user_id = ?1) AS last,
        (SELECT COUNT(*) FROM comment_log WHERE user_id = ?1 AND body_hash = ?4 AND created_at > ?3) AS dup,
        (SELECT created_at FROM users WHERE id = ?1) AS account_created,
-       (SELECT COUNT(*) FROM comments WHERE share_id = ?5) AS on_share`,
+       (SELECT COUNT(*) FROM comments WHERE ${threadCol(kind)} = ?5) AS on_thread`,
   )
-    .bind(user.id, now - HOUR, now - DAY, hash, row.id)
-    .first<{ hour: number; day: number; last: number | null; dup: number; account_created: number | null; on_share: number }>();
+    .bind(user.id, now - HOUR, now - DAY, hash, t.id)
+    .first<{ hour: number; day: number; last: number | null; dup: number; account_created: number | null; on_thread: number }>();
   if (!c || c.account_created === null) throw SUSPENDED(); // fail closed: Konto nicht (mehr) da
   if (c.last !== null && now - c.last < COMMENT_LIMITS.minGapMs) {
     const wait = Math.ceil((COMMENT_LIMITS.minGapMs - (now - c.last)) / 1000);
@@ -152,36 +203,80 @@ export async function createComment(request: Request, env: Env, id: string): Pro
   if (c.hour >= COMMENT_LIMITS.perHour) throw new HttpError(429, 'comment_quota', `Höchstens ${COMMENT_LIMITS.perHour} Kommentare pro Stunde – bitte später weiterschreiben.`);
   if (c.day >= COMMENT_LIMITS.perDay) throw new HttpError(429, 'comment_quota', `Höchstens ${COMMENT_LIMITS.perDay} Kommentare pro Tag – morgen geht es weiter.`);
   if (c.dup) throw new HttpError(409, 'duplicate_comment', 'Diesen Text hast du gerade schon geschrieben.');
-  if (c.on_share >= COMMENT_LIMITS.perShare) throw new HttpError(409, 'comment_share_full', 'Dieser Törn hat die höchste Zahl an Kommentaren erreicht.');
+  if (c.on_thread >= COMMENT_LIMITS.perShare) throw new HttpError(409, 'comment_share_full', `${NOUN[kind].nom} hat die höchste Zahl an Kommentaren erreicht.`);
 
   const commentId = randomId();
+  const ref = refOf(t);
   await env.DB.batch([
-    env.DB.prepare('INSERT INTO comments (id, share_id, photo_id, user_id, body, created_at) VALUES (?, ?, NULL, ?, ?, ?)').bind(commentId, row.id, user.id, body, now),
+    env.DB.prepare('INSERT INTO comments (id, share_id, post_id, photo_id, user_id, body, created_at) VALUES (?, ?, ?, NULL, ?, ?, ?)').bind(commentId, ...ref, user.id, body, now),
     env.DB.prepare('INSERT INTO comment_log (user_id, body_hash, created_at) VALUES (?, ?, ?)').bind(user.id, hash, now),
+    // Glocke an mit dem ersten eigenen Kommentar – eine vorhandene Zeile (auch „stumm“) bleibt
+    env.DB.prepare(`INSERT OR IGNORE INTO comment_subscriptions (share_id, post_id, user_id, state, created_at) VALUES (?, ?, ?, 'on', ?)`).bind(...ref, user.id, now),
   ]);
-  await notifyComment(env, row.id, user.id);
+  await notifyComment(env, kind, t.id, user.id);
   const saved = await env.DB.prepare(`${COMMENT_SELECT} WHERE c.id = ?`).bind(commentId).first<CommentRow>();
-  return json({ comment: shape(saved!, user.id, isOwner, isAdmin(env, user.id)) }, { status: 201 });
+  return json({ comment: shape(saved!, user.id, t.isOwner, isAdmin(env, user.id)) }, { status: 201 });
 }
 
-/** DELETE /api/comments/:id – Autor:in, Eigentümer des Törns oder Admin; für alle anderen 404. */
+/**
+ * PUT /api/shares/:id/comments/subscription bzw. /api/posts/:id/comments/subscription – `{ on: boolean }`: Glocke des
+ * Verlaufs an oder stumm (F-639). Wer den Verlauf und seine Kommentare sieht, auch ohne eigenen Kommentar.
+ */
+export async function setSubscription(request: Request, env: Env, kind: ThreadKind, id: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  // gegen Schleifen aus an/aus (jeder Aufruf schreibt): höchstens LINK_LIMITER je Konto und Minute
+  await rateLimit(env.LINK_LIMITER, `bell:${user.id}`);
+  const t = await openThread(request, env, kind, id);
+  if (!showsComments(t)) throw new HttpError(403, 'comments_hidden', `Die Kommentare zu ${NOUN[kind].acc} sind ausgeblendet.`);
+  const input = await readJson<{ on?: unknown }>(request);
+  if (typeof input.on !== 'boolean') throw new HttpError(400, 'invalid_body', '`on` (true oder false) angeben.');
+  const col = threadCol(kind);
+  await env.DB.prepare(
+    `INSERT INTO comment_subscriptions (share_id, post_id, user_id, state, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+     ON CONFLICT(${col}, user_id) WHERE ${col} IS NOT NULL DO UPDATE SET state = excluded.state`,
+  )
+    .bind(...refOf(t), user.id, input.on ? 'on' : 'off', Date.now())
+    .run();
+  return json({ subscribed: input.on }, PRIVATE);
+}
+
+/**
+ * PUT /api/posts/:id/comments/mode – `{ mode: 'on' | 'off' | 'hidden' }`: Kommentar-Modus eines Beitrags (F-636), nur
+ * die Autor:in (für alle anderen 404). Törns stellen ihn über `PATCH /api/shares/:id { commentsMode }`.
+ */
+export async function setPostCommentsMode(request: Request, env: Env, id: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  const t = await openThread(request, env, 'post', id);
+  if (!t.isOwner) throw NOT_FOUND();
+  const mode = parseCommentsMode((await readJson<{ mode?: unknown }>(request)).mode);
+  if (!mode) throw new HttpError(400, 'invalid_comments_mode', 'Unbekannter Kommentar-Modus.');
+  await env.DB.prepare('UPDATE posts SET comments_mode = ? WHERE id = ? AND author_id = ?').bind(mode, t.id, user.id).run();
+  return json({ mode }, PRIVATE);
+}
+
+/** DELETE /api/comments/:id – Autor:in, Eigentümer:in des Verlaufs (Törn bzw. Beitrag) oder Admin; sonst 404. */
 export async function deleteComment(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   const row = COMMENT_ID_RE.test(id)
-    ? await env.DB.prepare('SELECT c.id, c.user_id, s.user_id AS owner, s.locked_at FROM comments c JOIN shares s ON s.id = c.share_id WHERE c.id = ?')
+    ? await env.DB.prepare(
+        `SELECT c.id, c.user_id, c.post_id, COALESCE(s.user_id, p.author_id) AS owner, COALESCE(s.locked_at, g.locked_at, b.locked_at) AS locked_at
+         FROM comments c LEFT JOIN shares s ON s.id = c.share_id LEFT JOIN posts p ON p.id = c.post_id
+         LEFT JOIN groups g ON g.id = p.group_id LEFT JOIN boats b ON p.channel_kind = 'boat' AND b.id = p.channel_id WHERE c.id = ?`,
+      )
         .bind(id)
-        .first<{ id: string; user_id: string; owner: string; locked_at: number | null }>()
+        .first<{ id: string; user_id: string; post_id: string | null; owner: string | null; locked_at: number | null }>()
     : null;
   const admin = isAdmin(env, user.id);
-  // Gesperrter Törn (Konzept 18.2): Kommentare bleiben als Beleg – löschen nur Admins
+  // Gesperrter Törn bzw. gesperrte Gruppe oder gesperrtes Boot eines Beitrags (Konzept 18.2): Kommentare bleiben als
+  // Beleg – löschen nur Admins
   if (!row || (row.locked_at && !admin) || !(row.user_id === user.id || row.owner === user.id || admin)) throw NOT_FOUND();
   await removeComment(env, id);
   // Fremde Kommentare löscht nur die Moderation – ins Admin-Protokoll (Konzept 18.10)
-  if (row.user_id !== user.id && row.owner !== user.id) await adminLogStmt(env, user.id, 'delete_comment', 'share', null, `Kommentar ${id}`).run();
+  if (row.user_id !== user.id && row.owner !== user.id) await adminLogStmt(env, user.id, 'delete_comment', row.post_id ? 'post' : 'share', null, `Kommentar ${id}`).run();
   return new Response(null, { status: 204 });
 }
 
-/** Der eine Löschpfad für Kommentare (Autor, Eigentümer des Törns, Moderation): Meldungen fallen mit. */
+/** Der eine Löschpfad für Kommentare (Autor, Eigentümer:in des Verlaufs, Moderation): Meldungen fallen mit. */
 export async function removeComment(env: Env, id: string): Promise<void> {
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'comment' AND target_id = ?`).bind(id),
@@ -256,16 +351,16 @@ export async function patchSettings(request: Request, env: Env): Promise<Respons
   return json(await settingsOf(env, user.id));
 }
 
-/** Ob eine Anfrage einen Kommentar sehen darf, ist an den Törn gebunden – für Meldungen (worker/reports.ts). */
+/** Ob eine Anfrage einen Kommentar sehen darf, ist an den Verlauf gebunden – für Meldungen (worker/reports.ts). */
 export async function visibleComment(request: Request, env: Env, id: string) {
   const c = COMMENT_ID_RE.test(id)
-    ? await env.DB.prepare('SELECT id, share_id, user_id, hidden_at FROM comments WHERE id = ?').bind(id).first<{ id: string; share_id: string; user_id: string; hidden_at: number | null }>()
+    ? await env.DB.prepare('SELECT id, share_id, post_id, user_id, hidden_at FROM comments WHERE id = ?')
+        .bind(id)
+        .first<{ id: string; share_id: string | null; post_id: string | null; user_id: string; hidden_at: number | null }>()
     : null;
-  if (!c) throw NOT_FOUND();
-  const { row, isOwner } = await visibleShare(request, env, c.share_id);
-  const user = await currentUser(request, env);
-  const admin = isAdmin(env, user?.id);
-  const mine = !!user && user.id === c.user_id;
-  if ((c.hidden_at && !mine && !admin) || ((row.comments_mode ?? 'on') === 'hidden' && !isOwner && !admin)) throw NOT_FOUND();
-  return { comment: c, share: row };
+  if (!c || !(c.share_id ?? c.post_id)) throw NOT_FOUND();
+  const t = await openThread(request, env, c.share_id ? 'share' : 'post', (c.share_id ?? c.post_id)!);
+  const mine = (t.userId ?? (await currentUser(request, env))?.id) === c.user_id;
+  if ((c.hidden_at && !mine && !t.admin) || !showsComments(t)) throw NOT_FOUND();
+  return { comment: c };
 }

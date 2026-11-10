@@ -293,6 +293,7 @@ interface PostRow {
   channel_kind: string | null;
   channel_id: string | null;
   link_key: string | null;
+  comments_mode: string;
   suspended: number;
   author_public: number | null;
   harbor_ok: number | null;
@@ -307,13 +308,15 @@ interface PostRow {
  * Schlüssel zählt). Effektiv min(Beitrag, Verlauf): Gruppe, Hafen bzw. Boot müssen sichtbar sein; „Nur mit Link“ braucht
  * den Schlüssel des Beitrags (`X-Share-Key`). Törn-Zeilen sind hier keine Beiträge: Törns haben ihre eigenen Wege.
  */
-export async function visiblePost(request: Request, env: Env, id: string, allowQueryKey = false): Promise<{ id: string; authorId: string; groupId: string | null; guestVisible: boolean }> {
+export async function visiblePost(
+  request: Request, env: Env, id: string, allowQueryKey = false,
+): Promise<{ id: string; authorId: string; groupId: string | null; guestVisible: boolean; commentsMode: string; viewerId: string | null; admin: boolean }> {
   const key = requestKey(request, allowQueryKey);
   const user = await currentUser(request, env);
   const admin = isAdmin(env, user?.id);
   const p = SHARE_ID_RE.test(id)
     ? await env.DB.prepare(
-        `SELECT p.id, p.author_id, p.group_id, p.visibility, p.hidden_at, p.share_id, p.channel_kind, p.channel_id, p.link_key,
+        `SELECT p.id, p.author_id, p.group_id, p.visibility, p.hidden_at, p.share_id, p.channel_kind, p.channel_id, p.link_key, p.comments_mode,
            (u.suspended_at IS NOT NULL) AS suspended, ${publicSql('pr')} AS author_public,
            (SELECT 1 FROM harbors h WHERE p.channel_kind = 'harbor' AND h.id = p.channel_id AND h.hidden_at IS NULL) AS harbor_ok,
            b.visibility AS b_vis, b.share_key AS b_key, b.hidden_at AS b_hidden, b.locked_at AS b_locked
@@ -355,7 +358,7 @@ export async function visiblePost(request: Request, env: Env, id: string, allowQ
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }
-  return { id: p.id, authorId: p.author_id, groupId: p.group_id, guestVisible };
+  return { id: p.id, authorId: p.author_id, groupId: p.group_id, guestVisible, commentsMode: p.comments_mode, viewerId: user?.id ?? null, admin };
 }
 
 // ---------------------------------------------------------------- Löschen (F-404)
@@ -372,6 +375,8 @@ export async function removePost(env: Env, id: string): Promise<void> {
     // Galerie (F-494): Dateien, Speicher, Reaktionen und Meldungen der Fotos vor der Zeile
     ...(await galleryPhotoCleanup(env, 'SELECT ?1', id)),
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'post' AND target_id = ?`).bind(id),
+    // Meldungen zu Kommentaren des Beitrags (Konzept 40) – Kommentare und Glocken fallen mit der Zeile (ON DELETE CASCADE)
+    env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'comment' AND target_id IN (SELECT id FROM comments WHERE post_id = ?)`).bind(id),
     deletePostReactions(env, id),
     deletePostNotifications(env, id),
     env.DB.prepare(`DELETE FROM reactions WHERE subject_kind = 'activity' AND subject_id IN (SELECT id FROM activity WHERE subject_kind = 'post' AND subject_id = ?)`).bind(id),

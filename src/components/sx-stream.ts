@@ -10,6 +10,7 @@ import './sx-reactions';
 import './sx-poll';
 import './sx-gallery-post';
 import './sx-event';
+import './sx-post-comments';
 import { postKeyOf } from '../domain/posts';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
@@ -32,6 +33,7 @@ const KIND_ICON: Record<StreamItem['kind'], IconName> = {
  * Systemzeile ohne Kartenrahmen; `hideAuto` blendet sie aus (Schalter „Automatische Einträge“ auf dem Gerät).
  * Tageskarten (`days`, F-466) stehen nach Zeit zwischen den Einträgen: Zähler, die meistbeachteten Einträge und
  * „Alle anzeigen“ – meldet `sx-day-open` { scope, day, cursor } (erste bzw. weitere Seite des Tages, F-468).
+ * Beiträge haben Kommentare zum Aufklappen (`sx-post-comments`, Konzept 40, F-643); der Anker `/p/<id>` klappt sie auf.
  */
 export class SxStream extends LitElement {
   static properties = {
@@ -79,6 +81,13 @@ export class SxStream extends LitElement {
     this.manage = false;
     this.hideAuto = false;
     this.days = [];
+  }
+
+  /** „Kommentare“ unter einer Beitragskarte (nicht in der Pin-Leiste – die Karte steht unten noch einmal). */
+  private comments(i: StreamItem) {
+    const p = i.post;
+    if (i.kind !== 'post' || !p) return '';
+    return html`<sx-post-comments post-id=${p.id} .postKey=${postKeyOf(p.path)} ?open=${p.id === this.highlight}></sx-post-comments>`;
   }
 
   /** Hervorgehobene Karte einmal in den Blick holen, sobald sie gerendert ist. */
@@ -456,6 +465,7 @@ export class SxStream extends LitElement {
         ${this.content(i)} ${this.banner(i)}
         ${this.when(i)}
         ${i.reactions ? html`<sx-reactions class="reactions" .value=${i.reactions}></sx-reactions>` : ''}
+        ${asPin ? '' : this.comments(i)}
       </div>
     </li>`;
   }

@@ -1,4 +1,4 @@
-import { ApiError, communityApi, groupApi, type AdminAction, type SettingsPatch, type ShareMeta } from '../services/api';
+import { ApiError, communityApi, groupApi, type AdminAction, type CommentThread, type SettingsPatch, type ShareMeta } from '../services/api';
 import type { Store } from '../services/store';
 import type { AdminKind } from '../domain/admin';
 import type { CommentsMode, ReportReason } from '../domain/comment-text';
@@ -48,20 +48,19 @@ export class CommunityController {
 
   // ---------------------------------------------------------------- Kommentare
 
-  /** Kommentare des geöffneten Törns laden; ohne Backend oder ohne Zugriff bleibt das Panel weg. */
+  /**
+   * Kommentare des geöffneten Törns laden (Panel der Törn-Ansicht); ohne Backend oder ohne Zugriff bleibt das Panel
+   * weg. Beitragskarten haben je eine eigene `sx-comments` (Konzept 40) – sie laden über `loadThread`.
+   */
   async loadComments(share: ShareMeta, key?: string): Promise<void> {
     const same = this.current?.share.id === share.id;
     this.current = { share, key };
     const el = this.ui.comments;
-    Object.assign(el, { shareId: share.id, error: '', busy: false, ...(same ? {} : { data: null, draft: '' }) });
-    try {
-      const data = await communityApi.comments(share.id, key);
-      if (this.current?.share.id !== share.id) return;
-      el.data = data;
-      this.ui.commentsPanel.hidden = false;
-    } catch {
-      this.ui.commentsPanel.hidden = true;
-    }
+    const thread: CommentThread = { kind: 'share', id: share.id, key };
+    Object.assign(el, { thread, error: '', busy: false, ...(same ? {} : { data: null, draft: '' }) });
+    const ok = await this.loadThread(el);
+    // nur das Laden des aktuellen Verlaufs entscheidet über das Panel – ein überholtes ändert nichts
+    if (el.thread === thread) this.ui.commentsPanel.hidden = !ok;
   }
 
   hideComments(): void {
@@ -70,41 +69,70 @@ export class CommunityController {
     Object.assign(this.ui.comments, { data: null, draft: '', error: '' });
   }
 
-  private async act(fn: (cur: { share: ShareMeta; key?: string }) => Promise<void>, done?: string) {
-    const cur = this.current;
-    if (!cur) return;
-    Object.assign(this.ui.comments, { busy: true, error: '' });
+  /** Kommentare einer Instanz (Törn-Panel oder Beitragskarte) für ihren Verlauf laden; false ohne Zugriff. */
+  async loadThread(el: SxComments): Promise<boolean> {
+    const t = el.thread;
+    if (!t) return false;
     try {
-      await fn(cur);
+      const data = await communityApi.comments(t);
+      if (el.thread !== t) return false; // inzwischen ein anderer Verlauf – dessen eigenes Laden entscheidet
+      el.data = data;
+      return true;
+    } catch (e) {
+      el.error = errorText(e);
+      return false;
+    }
+  }
+
+  private async act(el: SxComments, fn: (t: CommentThread) => Promise<void>, done?: string) {
+    const t = el.thread;
+    if (!t || el.busy) return;
+    Object.assign(el, { busy: true, error: '' });
+    try {
+      await fn(t);
       if (done) this.ui.toast(done);
-      await this.loadComments(cur.share, cur.key);
+      await this.loadThread(el);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         this.store.set({ user: null });
         this.ui.openLogin('Deine Anmeldung ist abgelaufen – bitte erneut anmelden.');
       }
-      this.ui.comments.error = errorText(e);
+      el.error = errorText(e);
     } finally {
-      this.ui.comments.busy = false;
+      el.busy = false;
     }
   }
 
-  postComment(body: string) {
-    return this.act(async (cur) => {
-      await communityApi.postComment(cur.share.id, body, cur.key);
+  postComment(body: string, el: SxComments = this.ui.comments) {
+    return this.act(el, async (t) => {
+      await communityApi.postComment(t, body);
       // abgesendet: Text leeren und Formular zuklappen (F-514); bei einem Fehler bleibt beides
-      Object.assign(this.ui.comments, { draft: '', writing: false });
+      Object.assign(el, { draft: '', writing: false });
     });
   }
 
-  deleteComment(id: string) {
-    return this.act(() => communityApi.deleteComment(id), 'Kommentar gelöscht');
+  deleteComment(id: string, el: SxComments = this.ui.comments) {
+    return this.act(el, () => communityApi.deleteComment(id), 'Kommentar gelöscht');
   }
 
-  /** Eigentümer: Kommentare an / keine neuen / ausblenden. */
-  setMode(mode: CommentsMode) {
-    return this.act(async (cur) => {
-      const { share } = await communityApi.setCommentsMode(cur.share.id, mode);
+  /** Glocke des Verlaufs an bzw. stumm (F-639). */
+  subscribe(on: boolean, el: SxComments) {
+    return this.act(el, async (t) => {
+      await communityApi.subscribe(t, on);
+      this.ui.toast(on ? 'Du wirst über neue Kommentare benachrichtigt' : 'Benachrichtigungen zu diesen Kommentaren stumm');
+    });
+  }
+
+  /** Eigentümer:in: Kommentare an / keine neuen / ausblenden – Törn (Zahnrad-Menü) bzw. Beitrag (Kopf der Kommentare). */
+  setMode(mode: CommentsMode, el: SxComments = this.ui.comments) {
+    return this.act(el, async (t) => {
+      if (t.kind === 'post') {
+        await communityApi.setPostCommentsMode(t.id, mode);
+        return;
+      }
+      const cur = this.current;
+      if (!cur) return;
+      const { share } = await communityApi.setCommentsMode(t.id, mode);
       cur.share = { ...cur.share, commentsMode: share.commentsMode };
       const m = this.store.get().mode;
       if (m.kind === 'share' && m.share.id === share.id) this.store.set({ mode: { ...m, share: { ...m.share, commentsMode: share.commentsMode } } });
@@ -149,7 +177,8 @@ export class CommunityController {
     const t = this.ui.report.target;
     if (!t) return;
     // Schlüssel: Törn, Kommentare und Fotos aus der Törn-Ansicht, Profil/Boot von der geöffneten Seite.
-    const key = t.kind === 'share' || t.kind === 'comment' || t.kind === 'photo' ? this.current?.key : this.pageKey;
+    // Kommentare an Beiträgen bringen den Schlüssel ihres Verlaufs mit (Konzept 40)
+    const key = t.key !== undefined ? t.key : t.kind === 'share' || t.kind === 'comment' || t.kind === 'photo' ? this.current?.key : this.pageKey;
     Object.assign(this.ui.report, { busy: true, error: '' });
     try {
       await communityApi.report({ kind: t.kind, id: t.id, reason: d.reason, note: d.note }, key);

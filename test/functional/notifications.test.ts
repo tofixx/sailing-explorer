@@ -224,6 +224,8 @@ describe('F-250 Kommentare benachrichtigen auch Mitkommentierende (Konzept 17.9.
     for (const [i, id] of ids.entries()) {
       await db.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)').bind(id, `${id}@example.org`, now - DAY).run();
       await db.prepare('INSERT INTO comments (id, share_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?)').bind(`c${id}`.slice(0, 32), share.id, id, 'Hallo', now - 60_000 + i).run();
+      // wie beim Kommentieren über die API: Glocke an mit dem ersten Kommentar (Konzept 40, F-638)
+      await db.prepare(`INSERT INTO comment_subscriptions (share_id, user_id, state, created_at) VALUES (?, ?, 'on', ?)`).bind(share.id, id, now - 60_000 + i).run();
     }
     const actor = await s.person({ profile: 'public' });
     await comment(actor, share.id);

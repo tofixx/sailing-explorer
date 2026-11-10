@@ -1882,7 +1882,7 @@ Beiträge der Gruppen), bleibt der Stream (12.4); ein Ungelesen-Badge dafür ist
 
 | Art (`kind`) | Anlass | Empfänger | Gegenstand (`subject_kind`) |
 |---|---|---|---|
-| `comment` | Kommentar auf einem Törn | Eigentümer:in des Törns und alle, die dort schon kommentiert haben (nur öffentliche Törns, ohne ausgeblendete Kommentare und gesperrte Konten; höchstens 50, Eigentümer:in zuerst, dann die zuletzt Aktiven – 17.9.1) | `share` |
+| `comment` | Kommentar auf einem Törn bzw. (seit Konzept 40) einem Beitrag | Abonnent:innen des Verlaufs: Eigentümer:in bzw. Autor:in und alle mit Glocke „an“ – an mit dem ersten eigenen Kommentar, stumm bleibt stumm (Konzept 40; andere als die Eigentümer:in nur bei öffentlichen Törns bzw. Beiträgen „Öffentlich“/„Nur Mitglieder“, ohne gesperrte Konten; höchstens 50, Eigentümer:in zuerst, dann die zuletzt Aktiven – 17.9.1) | `share`, `post` |
 | `reaction` | Reaktion auf Törn, Foto, Beitrag, Neuigkeit | Eigentümer:in bzw. Autor:in bzw. handelnde Person der Neuigkeit | `share` (auch bei Fotos), `post`, `activity` |
 | `follow` | jemand folgt dem Profil | die Person | `user` (sie selbst) |
 | `invite` | Einladung per Profilname oder an die Adresse eines bestehenden Kontos | eingeladenes Konto | `invite` |
@@ -3397,3 +3397,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 38. GPX nachreichen: Track zu einem gespeicherten Fahrtenbuch-Eintrag (F-600 … F-607) → [`docs/concept/38-gpx-nachreichen.md`](concept/38-gpx-nachreichen.md)
 
 ## 39. Wertung „Fahrtensegeln – Brandenburger Seglerverband e. V.“: km, gegen den Strom, Bootsklasse, Langtörn (F-625 … F-632) → [`docs/concept/39-wertung-bsv.md`](concept/39-wertung-bsv.md)
+
+## 40. Kommentare an allen Beiträgen, Benachrichtigung je Verlauf mit Glocke (F-635 … F-644) → [`docs/concept/40-kommentare-ueberall.md`](concept/40-kommentare-ueberall.md)

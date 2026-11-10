@@ -94,8 +94,9 @@ export async function digestReports(env: Env, now: number): Promise<number> {
 /** Eigentümer:in, Bezeichnung und Substantiv (feste Texte), Name (Nutzertext), Ausblend-Status, ob sie Ausgeblendetes sieht. */
 const OWNER: Record<ReportKind, string> = {
   share: `SELECT user_id AS owner, 'dein Törn' AS what, 'Törn' AS noun, title AS name, hidden_at, 1 AS sees FROM shares WHERE id = ?`,
-  comment: `SELECT c.user_id AS owner, 'dein Kommentar zum Törn' AS what, 'Kommentar' AS noun, s.title AS name, c.hidden_at, 1 AS sees
-            FROM comments c JOIN shares s ON s.id = c.share_id WHERE c.id = ?`,
+  comment: `SELECT c.user_id AS owner, CASE WHEN s.id IS NULL THEN 'dein Kommentar zu einem Beitrag' ELSE 'dein Kommentar zum Törn' END AS what,
+            'Kommentar' AS noun, COALESCE(s.title, '') AS name, c.hidden_at, 1 AS sees
+            FROM comments c LEFT JOIN shares s ON s.id = c.share_id WHERE c.id = ?`,
   photo: `SELECT p.user_id AS owner, CASE WHEN s.id IS NULL THEN 'dein Foto in einem Beitrag' ELSE 'dein Foto zum Törn' END AS what, 'Foto' AS noun,
             COALESCE(s.title, '') AS name, p.hidden_at, 1 AS sees FROM photos p LEFT JOIN shares s ON s.id = p.share_id WHERE p.id = ?`,
   profile: `SELECT user_id AS owner, 'dein Profil' AS what, 'Profil' AS noun, display_name AS name, hidden_at, 0 AS sees FROM profiles WHERE user_id = ?`,
