@@ -4,10 +4,12 @@ import { whoSeesLabel, type ProfilePost } from '../domain/posts';
 import { fmtDateTime } from '../util/html';
 import { icon } from './icons';
 import { kindCardLink, POST_VISIBILITY_ICON, base, emit, highlightStyles, linkedText, postCardStyles, revealCard } from './shared';
+import './sx-post-comments';
 
 /**
  * Beiträge einer Person für Besucher (F-420): im Profil und in Gruppen, die der Betrachter sehen darf – der Server
  * prüft, hier wird nur gezeigt. „Wo steht es“ nennt die Gruppe; „Nur Mitglieder“ ist gekennzeichnet. Meldet `sx-report`.
+ * Kommentare zum Aufklappen (`sx-post-comments`, Konzept 40) – nicht in der Vorschau „Ansehen als …“.
  */
 export class SxProfilePosts extends LitElement {
   static properties = { items: { attribute: false }, preview: { type: Boolean }, highlight: { type: String } };
@@ -52,6 +54,7 @@ export class SxProfilePosts extends LitElement {
             ${p.visibility !== 'public' ? html`<span>${icon(POST_VISIBILITY_ICON[p.visibility])} ${whoSeesLabel(p.visibility, p.group?.name)}</span>` : ''}
             <span>${fmtDateTime(p.createdAt)}</span>
           </div>
+          ${this.preview ? '' : html`<sx-post-comments post-id=${p.id} ?open=${p.id === this.highlight}></sx-post-comments>`}
         </li>`,
       )}
     </ol>`;

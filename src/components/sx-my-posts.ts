@@ -1,12 +1,13 @@
 import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
 import { LOG_STATE_LABEL, logStateOn, type LogState } from '../domain/logbook';
 import {
-  MY_POST_AREAS, POST_VISIBILITY_CHOICE, REACH_LABEL, channelKey, channelName, channelPath, whereLabel, whoSeesLabel,
+  MY_POST_AREAS, POST_VISIBILITY_CHOICE, REACH_LABEL, channelKey, channelName, channelPath, postKeyOf, whereLabel, whoSeesLabel,
   type ComposeTarget, type MyPost, type MyPostArea, type PostVisibility, type Reach,
 } from '../domain/posts';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
 import { ENTITY_ICON, icon, type IconName } from './icons';
 import { POST_KIND_ICON, kindCardLink, POST_VISIBILITY_ICON, base, emit, highlightStyles, linkedText, postCardStyles, revealCard } from './shared';
+import './sx-post-comments';
 import './sx-reach-picker';
 import './sx-title-edit';
 
@@ -250,6 +251,7 @@ export class SxMyPosts extends LitElement {
         <button class="btn small ghost danger" ?disabled=${this.busy} aria-label=${voyage ? `Törn ${voyage.title} löschen` : 'Beitrag löschen'}
           @click=${() => emit(this, 'sx-my-post-delete', { id: p.id, kind: p.kind })}>${icon('trash')} Löschen</button>
       </div>
+      ${!voyage && p.visibility !== 'private' ? html`<sx-post-comments post-id=${p.id} .postKey=${postKeyOf(p.path)} ?open=${hl}></sx-post-comments>` : ''}
     </li>`;
   }
 

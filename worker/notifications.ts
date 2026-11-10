@@ -91,7 +91,7 @@ export const notifyComment = (env: Env, kind: ThreadKind, threadId: string, acto
       env, 'comment', kind, threadId, actorId,
       `SELECT u.id AS uid FROM users u LEFT JOIN comment_subscriptions cs ON cs.${col} = ?3 AND cs.user_id = u.id
        WHERE u.id IN (SELECT user_id FROM comment_subscriptions WHERE ${col} = ?3 UNION SELECT ${owner})
-         AND u.suspended_at IS NULL AND u.locked_at IS NULL
+         AND u.id IS NOT ?4 AND u.suspended_at IS NULL AND u.locked_at IS NULL
          AND ${subscribedSql('cs.state', `u.id = ${owner}`)}
          AND (u.id = ${owner} OR ${reachable})
        ORDER BY u.id = ${owner} DESC, (SELECT MAX(c.created_at) FROM comments c WHERE c.${col} = ?3 AND c.user_id = u.id) DESC, cs.created_at DESC

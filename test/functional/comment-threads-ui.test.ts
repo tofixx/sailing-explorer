@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import '../../src/components/sx-comments';
 import '../../src/components/sx-stream';
+import '../../src/components/sx-post-comments';
 
 type LitEl = HTMLElement & { updateComplete: Promise<boolean>; shadowRoot: ShadowRoot } & Record<string, unknown>;
 
@@ -82,29 +83,35 @@ describe('F-643 Kommentare unter Beitragskarten', () => {
     id: `A${id}`, kind: 'post', createdAt: Date.now(), actor: null, post: { id, body: 'Hallo', link: null, canDelete: false, path: `/p/${id}`, ...over },
   });
 
+  /** sx-post-comments der Karte zu einem Beitrag */
+  const box = (el: LitEl, id: string) => el.shadowRoot.querySelector(`sx-post-comments[post-id="${id}"]`) as LitEl | null;
+
   it('[F-643] „Kommentare“ klappt eine sx-comments für genau diesen Beitrag auf (mit Schlüssel bei „Nur mit Link“), Törns haben keinen eigenen Knopf', async () => {
     const loads = listen('sx-comments-load');
     const el = await mount('sx-stream', {
       items: [post('P1'), post('P2', { path: '/p/P2/SchluesselXYZ' }), { id: 'V1', kind: 'voyage', createdAt: Date.now(), actor: null, voyage: { id: 'S1', title: 'T', distNm: 1, startedAt: null, hasImage: false } }],
     });
-    const buttons = [...el.shadowRoot.querySelectorAll<HTMLButtonElement>('.talk > button')];
-    expect(buttons).toHaveLength(2);
-    expect(buttons[1].getAttribute('aria-expanded')).toBe('false');
-    buttons[1].click();
-    await el.updateComplete;
-    const c = el.shadowRoot.querySelector('sx-comments') as LitEl;
+    expect(el.shadowRoot.querySelectorAll('sx-post-comments')).toHaveLength(2);
+    const b = box(el, 'P2')!;
+    await b.updateComplete;
+    const btn = b.shadowRoot.querySelector('button')!;
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(btn.textContent).toContain('Kommentare');
+    btn.click();
+    await b.updateComplete;
+    const c = b.shadowRoot.querySelector('sx-comments') as LitEl;
     expect(c.thread).toEqual({ kind: 'post', id: 'P2', key: 'SchluesselXYZ' });
     await c.updateComplete;
     expect(loads).toHaveLength(1);
-    expect(buttons[1].getAttribute('aria-expanded')).toBe('true');
-    buttons[1].click();
-    await el.updateComplete;
-    expect(el.shadowRoot.querySelector('sx-comments')).toBeNull();
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    btn.click();
+    await b.updateComplete;
+    expect(b.shadowRoot.querySelector('sx-comments')).toBeNull();
   });
 
   it('[F-643] Anker /p/<id> (z. B. aus der Glocke) klappt die Kommentare der Karte auf', async () => {
     const el = await mount('sx-stream', { items: [post('P1'), post('P2')], highlight: 'P2' });
-    const c = el.shadowRoot.querySelector('sx-comments') as LitEl;
-    expect(c.thread).toMatchObject({ kind: 'post', id: 'P2' });
+    expect(box(el, 'P2')!.open).toBe(true);
+    expect(box(el, 'P1')!.open).toBe(false);
   });
 });
