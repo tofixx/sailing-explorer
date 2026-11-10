@@ -273,3 +273,46 @@ describe('Ablauf (ScoringPageController)', () => {
     expect(calls).toContain('DELETE /api/scoring/templates/preis');
   });
 });
+
+describe('Vorschlag „Fahrtensegeln – BSV“ in der Oberfläche (F-627, F-629, F-630, F-632)', () => {
+  it('[F-632] [F-627] [F-630] Editor: Einheit schaltet die Beschriftung auf km, Bootsklasse mit Faktor, Langtörn; gespeichert wie geprüft', async () => {
+    const el = await mount('sx-scoring-editor', { open: true, template: null, groupId: null });
+    await el.updateComplete;
+    const root = el.shadowRoot;
+    expect(text(root)).toContain('Punkte je sm unter Segel');
+    const unit = root.querySelector<HTMLSelectElement>('select[name="unit"]')!;
+    unit.value = 'km';
+    unit.dispatchEvent(new Event('change'));
+    await el.updateComplete;
+    expect(text(root)).toContain('Punkte je km unter Segel');
+    expect(text(root)).toContain('Langtörn über km');
+    expect(text(root)).toContain('1 sm = 1,852 km');
+    root.querySelector<HTMLSelectElement>('select[name="boatClass"]')!.value = 'optimist';
+    const set = (name: string, v: string) => (root.querySelector<HTMLInputElement>(`[name="${name}"]`)!.value = v);
+    set('name', 'BSV');
+    set('classFactor', '2');
+    set('upstream', '2');
+    set('longFrom', '200');
+    const saves = events(el, 'sx-scoring-save');
+    root.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(saves).toEqual([expect.objectContaining({ rules: expect.objectContaining({ unit: 'km', boatClass: 'optimist', classFactor: 2, upstream: 2, longFrom: 200 }) })]);
+    // vorhandene km-Vorlage öffnet in km
+    const k = await mount('sx-scoring-editor', { open: true, template: tpl({ rules: { ...BASE_RULES, unit: 'km', boatClass: 'optimist' } }), groupId: 'C1' });
+    await k.updateComplete;
+    expect(k.shadowRoot.querySelector<HTMLSelectElement>('select[name="unit"]')!.value).toBe('km');
+    expect(k.shadowRoot.querySelector<HTMLSelectElement>('select[name="boatClass"]')!.value).toBe('optimist');
+  });
+
+  it('[F-629] [F-626] Fahrtenbuch-Formular: Posten-Namen der Vorlagen als Vorschläge; binnen „Gegen den Strom (sm)“', async () => {
+    const share = { id: 'GpxShareId23456789', title: 'Havel', visibility: 'public', isOwner: true, distNm: 9, startedAt: Date.UTC(2026, 5, 13), endedAt: null, source: 'gpx', distSource: 'track', boat: null, from: null, to: null, log: { area: 'inland', upstreamNm: 2 } };
+    const bsv = tpl({ id: 'bsvfahrten', groupId: null, groupName: null, rules: { ...BASE_RULES, items: [{ name: 'Jugendtraining (ab 2 h)', points: 25, cap: 0 }] } });
+    const el = await mount('sx-logbook-form', { share, open: true, templates: [BASE_TEMPLATE, bsv] });
+    await el.updateComplete;
+    const names = [...el.shadowRoot.querySelectorAll('#lf-item-names option')].map((o) => o.getAttribute('value'));
+    expect(names).toEqual(['Jugendtraining (ab 2 h)']);
+    expect(el.shadowRoot.querySelector<HTMLInputElement>('[name="upstreamNm"]')!.value).toBe('2');
+    const saves = events(el, 'sx-logbook-save');
+    el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect((saves[0] as { patch: { log: { upstreamNm?: number } } }).patch.log.upstreamNm).toBe(2);
+  });
+});

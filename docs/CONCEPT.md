@@ -3395,3 +3395,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 37. Revier-Wärmekarte und Cluster-Pins auf der Community-Karte (F-580 … F-586) → [`docs/concept/37-revier-heatmap.md`](concept/37-revier-heatmap.md)
 
 ## 38. GPX nachreichen: Track zu einem gespeicherten Fahrtenbuch-Eintrag (F-600 … F-607) → [`docs/concept/38-gpx-nachreichen.md`](concept/38-gpx-nachreichen.md)
+
+## 39. Wertung „Fahrtensegeln – Brandenburger Seglerverband e. V.“: km, gegen den Strom, Bootsklasse, Langtörn (F-625 … F-632) → [`docs/concept/39-wertung-bsv.md`](concept/39-wertung-bsv.md)
