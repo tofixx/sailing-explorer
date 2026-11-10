@@ -19,6 +19,8 @@ import { isBackfill } from '../src/domain/logbook';
 import { RSVP_NOTIFIED } from '../src/domain/events';
 import { firstLine } from '../src/domain/posts';
 import { publicSql } from './visible-sql';
+import { subscribedSql, threadCol } from './comment-thread-sql';
+import type { ThreadKind } from '../src/domain/comment-thread';
 import {
   NOTIFICATION_LIMITS, notifyEventOf, isChoosable, type NotifyEvent, isNotificationKind, notificationText, parsePrefs, isNotificationSubject, type NotificationItem, type NotificationKind,
   type NotificationSubject,
@@ -70,26 +72,33 @@ async function write(
 }
 
 /**
- * Neuer Kommentar (Konzept 17.9.1): an die Eigentümer:in des Törns und an alle, die dort schon kommentiert haben
- * (Mitkommentierende) – nur bei öffentlichen, nicht ausgeblendeten oder gesperrten Törns (Kommentieren verlangt ohnehin
- * `comments_mode = on`), ohne ausgeblendete Kommentare und ohne gesperrte Konten. Eigentümer:in zuerst, dann die
- * zuletzt Aktiven, höchstens NOTIFICATION_LIMITS.commentFanOut Empfänger. Kanäle (Mail, Push) wählt jede:r selbst.
+ * Neuer Kommentar (Konzept 17.9.1, 40; F-637): nur an die Abonnent:innen des Verlaufs (Törn bzw. Beitrag) – die
+ * Eigentümer:in bzw. Autor:in ohne eigene Zeile und alle mit Glocke „an“ (`subscribedSql`, = `isSubscribed`); der Kanal
+ * des Beitrags hört von Kommentaren nie. Andere als die Eigentümer:in nur, solange der Verlauf sie erreichen kann: Törn
+ * öffentlich, weder ausgeblendet noch gesperrt; Beitrag „Öffentlich“ oder „Nur Mitglieder“ und nicht ausgeblendet (die
+ * Mitgliedschaft prüft das Lesen). Nie die Kommentierende selbst, nie gesperrte Konten; Eigentümer:in zuerst, dann die
+ * zuletzt Aktiven, höchstens NOTIFICATION_LIMITS.commentFanOut. Kanäle (Mail, Push) wählt jede:r selbst.
  */
-export const notifyComment = (env: Env, shareId: string, actorId: string) =>
-  safely('comment', () =>
-    deliver(
-      env, 'comment', 'share', shareId, actorId,
-      `SELECT uid FROM (
-         SELECT user_id AS uid, 0 AS o, NULL AS t FROM shares WHERE id = ?3
-         UNION ALL
-         SELECT c.user_id, 1, c.created_at FROM comments c
-           JOIN shares s ON s.id = c.share_id JOIN users u ON u.id = c.user_id
-         WHERE c.share_id = ?3 AND c.hidden_at IS NULL AND u.suspended_at IS NULL AND u.locked_at IS NULL
-           AND s.visibility = 'public' AND s.hidden_at IS NULL AND s.locked_at IS NULL
-       ) WHERE uid IS NOT ?4 GROUP BY uid ORDER BY MIN(o), MAX(t) DESC LIMIT ?6`,
+export const notifyComment = (env: Env, kind: ThreadKind, threadId: string, actorId: string) =>
+  safely('comment', () => {
+    const col = threadCol(kind);
+    const owner = kind === 'share' ? '(SELECT user_id FROM shares WHERE id = ?3)' : '(SELECT author_id FROM posts WHERE id = ?3)';
+    const reachable =
+      kind === 'share'
+        ? `EXISTS (SELECT 1 FROM shares s WHERE s.id = ?3 AND ${publicSql('s')} AND s.locked_at IS NULL)`
+        : `EXISTS (SELECT 1 FROM posts p WHERE p.id = ?3 AND p.visibility IN ('public', 'members') AND p.hidden_at IS NULL)`;
+    return deliver(
+      env, 'comment', kind, threadId, actorId,
+      `SELECT u.id AS uid FROM users u LEFT JOIN comment_subscriptions cs ON cs.${col} = ?3 AND cs.user_id = u.id
+       WHERE u.id IN (SELECT user_id FROM comment_subscriptions WHERE ${col} = ?3 UNION SELECT ${owner})
+         AND u.suspended_at IS NULL AND u.locked_at IS NULL
+         AND ${subscribedSql('cs.state', `u.id = ${owner}`)}
+         AND (u.id = ${owner} OR ${reachable})
+       ORDER BY u.id = ${owner} DESC, (SELECT MAX(c.created_at) FROM comments c WHERE c.${col} = ?3 AND c.user_id = u.id) DESC, cs.created_at DESC
+       LIMIT ?6`,
       NOTIFICATION_LIMITS.commentFanOut,
-    ),
-  );
+    );
+  });
 
 /**
  * Reaktion: an die Eigentümer:in des Törns (auch bei Fotos – Gegenstand ist dann der Törn), die Autor:in des Beitrags
@@ -368,6 +377,13 @@ export const notifyPasskey = (env: Env, userId: string) =>
 const readStmt = (env: Env, userId: string, where: string, ...args: unknown[]) =>
   env.DB.prepare(`UPDATE notifications SET read_at = ?1 WHERE user_id = ?2 AND read_at IS NULL AND ${where}`).bind(Date.now(), userId, ...args);
 
+/** Kommentare eines Beitrags geöffnet (Konzept 40): seine Kommentar-Benachrichtigungen für dieses Konto gelesen. */
+export const readThreadNotifications = (env: Env, userId: string, postId: string) =>
+  safely('read comments', async () => {
+    const res = await readStmt(env, userId, `kind = 'comment' AND subject_kind = 'post' AND subject_id = ?3`, postId).run();
+    if (res.meta.changes) await pingLive(env, [userId]);
+  });
+
 /** Einladung angesehen (Link aus der Mail, `peek`): für dieses Konto gelesen. */
 export const readInviteNotification = (env: Env, userId: string, inviteId: string) =>
   safely('read invite', () => readStmt(env, userId, `subject_kind = 'invite' AND subject_id = ?3`, inviteId).run());
@@ -443,6 +459,8 @@ interface Row {
   p_key: string | null;
   p_ck: string | null;
   p_vis: string | null;
+  /** Kommentar-Modus des Beitrags (Konzept 40) */
+  p_cmode?: string | null;
   p_kind?: string | null;
   p_susp: number | null;
   /** Veranstaltung (Konzept 30): erste Zeile = Titel, abgesagt, eigene Zusage, Anlass ohne handelnde Person */
@@ -488,7 +506,7 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
     s.hidden_at AS s_hidden, s.locked_at AS s_locked, s.comments_mode AS s_cmode,
     p.author_id AS p_author, p.hidden_at AS p_hidden, p.group_id AS p_group, pp.handle AS p_handle, a.actor_id AS a_actor,
     ${publicSql('pp')} AS p_apub, pp.display_name AS p_aname, p.link_key AS p_key,
-    p.channel_kind AS p_ck, p.visibility AS p_vis, p.kind AS p_kind, ph.name AS ph_name, pb.name AS pb_name, pb.visibility AS pb_vis,
+    p.channel_kind AS p_ck, p.visibility AS p_vis, p.kind AS p_kind, p.comments_mode AS p_cmode, ph.name AS ph_name, pb.name AS pb_name, pb.visibility AS pb_vis,
     EXISTS (SELECT 1 FROM users pu WHERE pu.id = p.author_id AND pu.suspended_at IS NOT NULL) AS p_susp,
     CASE WHEN n.kind IN ('event', 'rsvp') THEN p.body END AS p_body, (n.actor_id IS NULL) AS n_system,
     (SELECT pe.cancelled_at FROM post_events pe WHERE n.kind = 'event' AND pe.post_id = p.id) AS p_cancelled,
@@ -605,6 +623,16 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
         const what = r.kind === 'rsvp' ? '' : r.p_cancelled ? 'cancelled' : r.n_system ? 'reminder' : 'changed';
         const href = r.p_vis === 'unlisted' && r.p_key ? `/p/${r.subject_id}/${r.p_key}` : `/p/${r.subject_id}`;
         return { ...base, title: firstLine(r.p_body), what, href, ...(where ? { where } : {}) };
+      }
+      // Kommentar im Beitrag (Konzept 40, F-637): die Autor:in, solange ihr Verlauf besteht; Abonnent:innen nur, solange
+      // sie den Beitrag sehen dürfen (wie neue Beiträge, `postWhere` – „Nur mit Link“ fällt weg wie bei Törns) und die
+      // Kommentare nicht ausgeblendet sind. Titel ist der Verlauf, nie der Beitragstext (Sammelmail, `mailLine`).
+      if (r.kind === 'comment') {
+        if (r.p_author === null || r.p_hidden || r.p_susp) return null;
+        const own = r.p_author === userId;
+        const where = own ? eventWhere(r) : r.p_cmode === 'hidden' ? null : postWhere(r);
+        if (where === null) return null;
+        return { ...base, title: where, what: own ? 'deinen Beitrag' : 'einen Beitrag', href: `/p/${r.subject_id}` };
       }
       if (r.p_author !== userId || r.p_hidden) return null;
       // Beiträge haben keine eigene Seite: `/p/<id>` führt zum Anker im Heimatverlauf (F-406)

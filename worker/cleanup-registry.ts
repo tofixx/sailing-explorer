@@ -49,7 +49,9 @@ export const TABLES: Record<string, Loeschweg> = {
   invites: { cascade: ['users', 'shares', 'boats', 'groups'], durch: ['revokeInvite', 'removeBoat', 'removeGroup', 'purgeUser'], nachts: 'abgelaufen oder aufgebraucht' },
   share_crew: { cascade: ['shares', 'users'], durch: ['removeCrew', 'purgeUser', 'mergeUsers'] },
   counters: { bleibt: 'globale Zähler (Speicher), nächtlich neu berechnet' },
-  comments: { cascade: ['shares', 'users'], durch: ['removeComment', 'purgeUser'] },
+  comments: { cascade: ['shares', 'posts', 'users'], durch: ['removeComment', 'purgeUser', 'removePost'] },
+  // Glocke je Verlauf (Konzept 40): fällt mit Törn, Beitrag (jeder Löschweg) und Konto; beim Zusammenführen umgehängt
+  comment_subscriptions: { cascade: ['shares', 'posts', 'users'], durch: ['removeShare', 'removePost', 'purgeUser', 'mergeUsers'] },
   comment_log: { cascade: ['users'], durch: ['purgeUser'], nachts: 'nach 24 h' },
   reports: { durch: ['deleteShareReports', 'purgeUserReports', 'removePost', 'removeBoat', 'removeGroup', 'removeHarbor'], nachts: 'Waisen, entschiedene nach 180 Tagen (offene anonymisiert)' },
   // Törn-Fotos mit dem Törn, Galerie-Fotos (Konzept 31) mit dem Beitrag – Dateien und Zähler vorher galleryPhotoCleanup
@@ -174,7 +176,7 @@ export const KIND_COLUMNS: Record<string, Partial<Record<string, ArtWeg>> | { bl
   } satisfies Arten<ClaimKind>,
   'reports.target_kind': {
     share: all(['deleteShareReports', 'purgeUserReports']),
-    comment: all(['removeComment', 'deleteShareReports', 'purgeUserReports']),
+    comment: all(['removeComment', 'deleteShareReports', 'removePost', 'purgeUserReports']),
     photo: all(['removePhoto', 'deleteShareReports', 'galleryPhotoCleanup', 'purgeUserReports']),
     profile: all(['purgeUserReports', 'mergeUsers']),
     boat: all(['removeBoat', 'purgeUserReports']),

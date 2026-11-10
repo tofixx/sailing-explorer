@@ -165,6 +165,9 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     // Tageslimit der Titelbilder (Konzept 36) ebenso
     db.prepare('UPDATE cover_log SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('UPDATE comments SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
+    // Glocken je Verlauf (Konzept 40): gibt es dort schon eine des Ziels, gilt sie
+    db.prepare('UPDATE OR IGNORE comment_subscriptions SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
+    db.prepare('DELETE FROM comment_subscriptions WHERE user_id = ?').bind(B),
     // Beiträge samt Profil-Verlauf (Konzept 21.3): auch die Post-Zeilen der Törns wandern mit
     db.prepare(`UPDATE posts SET author_id = ?1, channel_id = CASE WHEN channel_kind = 'user' AND channel_id = ?2 THEN ?1 ELSE channel_id END WHERE author_id = ?2`).bind(A, B),
     // Pins im Profil-Verlauf (F-403) wandern mit

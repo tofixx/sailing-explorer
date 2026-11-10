@@ -110,7 +110,8 @@ export const purgeUserReports = (env: Env, userId: string): D1PreparedStatement[
   env.DB.prepare(
     `DELETE FROM reports WHERE
        (target_kind = 'share' AND target_id IN (SELECT id FROM shares WHERE user_id = ?1))
-       OR (target_kind = 'comment' AND target_id IN (SELECT id FROM comments WHERE user_id = ?1 OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)))
+       OR (target_kind = 'comment' AND target_id IN (SELECT id FROM comments WHERE user_id = ?1 OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)
+         OR post_id IN (SELECT id FROM posts WHERE author_id = ?1)))
        OR (target_kind = 'photo' AND target_id IN (SELECT id FROM photos WHERE user_id = ?1 OR share_id IN (SELECT id FROM shares WHERE user_id = ?1)))
        OR (target_kind = 'profile' AND target_id = ?1)
        OR (target_kind = 'boat' AND target_id IN (SELECT id FROM boats WHERE owner_id = ?1))

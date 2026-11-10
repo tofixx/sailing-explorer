@@ -249,11 +249,22 @@ async function preview(env: Env, kind: ReportKind, id: string) {
   }
   if (kind === 'comment') {
     const c = await env.DB.prepare(
-      'SELECT c.id, c.user_id, c.body, c.hidden_at, s.id AS share_id, s.title, s.visibility, s.share_key FROM comments c JOIN shares s ON s.id = c.share_id WHERE c.id = ?',
+      `SELECT c.id, c.user_id, c.body, c.hidden_at, c.post_id, s.id AS share_id, s.title, COALESCE(s.visibility, po.visibility) AS visibility, s.share_key
+       FROM comments c LEFT JOIN shares s ON s.id = c.share_id LEFT JOIN posts po ON po.id = c.post_id WHERE c.id = ?`,
     )
       .bind(id)
-      .first<{ id: string; user_id: string; body: string; hidden_at: number | null; share_id: string; title: string; visibility: Visibility; share_key: string | null }>();
-    return c && { title: `Kommentar zu „${c.title}“`, text: c.body, path: sharePath('s', c.share_id, c.visibility, c.share_key), visibility: c.visibility, hiddenAt: c.hidden_at, owner: await owner(c.user_id) };
+      .first<{ id: string; user_id: string; body: string; hidden_at: number | null; post_id: string | null; share_id: string | null; title: string | null; visibility: Visibility; share_key: string | null }>();
+    // Kommentar an einem Beitrag (Konzept 40): führt zur Karte
+    return (
+      c && {
+        title: c.share_id ? `Kommentar zu „${c.title}“` : 'Kommentar zu einem Beitrag',
+        text: c.body,
+        path: c.share_id ? sharePath('s', c.share_id, c.visibility, c.share_key) : `/p/${c.post_id}`,
+        visibility: c.visibility,
+        hiddenAt: c.hidden_at,
+        owner: await owner(c.user_id),
+      }
+    );
   }
   if (kind === 'photo') {
     const f = await env.DB.prepare(
