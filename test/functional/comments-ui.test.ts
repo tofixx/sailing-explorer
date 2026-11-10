@@ -60,7 +60,7 @@ const list = (over: Record<string, unknown> = {}) => ({
 describe('sx-comments', () => {
   it('[F-110] zeigt Name (Profil-Link nur mit Handle), Zeit und Text; Links klickbar mit rel nofollow ugc noopener noreferrer, nie HTML', async () => {
     const el = await mount('sx-comments', {
-      shareId: 'S1',
+      thread: { kind: 'share', id: 'S1' },
       data: list({
         comments: [
           comment({ body: 'Fotos: https://example.org/bilder. <img src=x onerror=alert(1)>' }),
@@ -81,7 +81,7 @@ describe('sx-comments', () => {
 
   it('[F-110] Formular: Zeichenzähler, zu lang oder zu viele Links sperren das Absenden; Absenden meldet den bereinigten Text', async () => {
     const posted = listen('sx-comment-post');
-    const el = await mount('sx-comments', { shareId: 'S1', data: list() });
+    const el = await mount('sx-comments', { thread: { kind: 'share', id: 'S1' }, data: list() });
     button(el, /Kommentieren/)!.click(); // Formular erst nach dem Klick (F-514)
     await el.updateComplete;
     const ta = el.shadowRoot.querySelector('textarea')!;
@@ -125,14 +125,14 @@ describe('sx-comments', () => {
   it('[F-111] Löschen mit Bestätigung; Kommentare anderer melden (Kommentar-Einstellung und „Törn melden“: F-510)', async () => {
     const deleted = listen('sx-comment-delete');
     const reports = listen('sx-report');
-    const el = await mount('sx-comments', { shareId: 'S1', data: list({ isOwner: true, comments: [comment({ canDelete: true })] }) });
+    const el = await mount('sx-comments', { thread: { kind: 'share', id: 'S1' }, data: list({ isOwner: true, comments: [comment({ canDelete: true })] }) });
     button(el, /löschen/i)!.click();
     await el.updateComplete;
     expect(el.shadowRoot.querySelector('[role="alert"]')!.textContent).toContain('Diesen Kommentar löschen?');
     button(el, /Ja, löschen/)!.click();
     expect(deleted).toMatchObject([{ id: 'C1' }]);
 
-    const visitor = await mount('sx-comments', { shareId: 'S1', data: list() });
+    const visitor = await mount('sx-comments', { thread: { kind: 'share', id: 'S1' }, data: list() });
     button(visitor, /Kommentar von Anna melden/)!.click();
     expect(reports).toEqual([{ kind: 'comment', id: 'C1', label: 'Kommentar von Anna' }]);
   });

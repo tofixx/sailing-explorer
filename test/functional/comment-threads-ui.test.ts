@@ -41,6 +41,7 @@ describe('F-643 Glocke und Modus in sx-comments', () => {
     const el = await mount('sx-comments', { thread: { kind: 'post', id: 'P1' }, data: list({ subscribed: false }) });
     const bell = el.shadowRoot.querySelector<HTMLButtonElement>('button.bell')!;
     expect(bell.getAttribute('aria-pressed')).toBe('false');
+    expect(bell.getAttribute('aria-label')).toBe('Bei neuen Kommentaren benachrichtigen');
     expect(bell.textContent).toContain('Stumm');
     bell.click();
     expect(got).toHaveLength(1);
@@ -49,6 +50,8 @@ describe('F-643 Glocke und Modus in sx-comments', () => {
     el.data = list({ subscribed: true });
     await el.updateComplete;
     expect(el.shadowRoot.querySelector('button.bell')!.getAttribute('aria-pressed')).toBe('true');
+    // Name bleibt gleich, nur der Zustand wechselt
+    expect(el.shadowRoot.querySelector('button.bell')!.getAttribute('aria-label')).toBe('Bei neuen Kommentaren benachrichtigen');
     expect(text(el)).toContain('Benachrichtigen an');
   });
 

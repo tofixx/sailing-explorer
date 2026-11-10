@@ -135,8 +135,21 @@ async function resolveTarget(request: Request, env: Env, kind: ReportKind, rawId
   return { kind, id: b.id, ownerId: role ? (user?.id ?? b.owner_id) : b.owner_id };
 }
 
-const hideTarget = (env: Env, kind: ReportKind, id: string, now: number) =>
-  env.DB.prepare(`UPDATE ${TABLE[kind].table} SET hidden_at = COALESCE(hidden_at, ?) WHERE ${TABLE[kind].idCol} = ?`).bind(now, id);
+/**
+ * Ausblenden (Meldung bzw. Moderation). Kommentar (Konzept 40): die Glocke seiner Autor:in im Verlauf geht auf stumm –
+ * wie früher, als ausgeblendete Kommentare nicht benachrichtigt wurden; Einblenden schaltet sie nicht wieder an.
+ */
+const hideTarget = (env: Env, kind: ReportKind, id: string, now: number): D1PreparedStatement[] => [
+  env.DB.prepare(`UPDATE ${TABLE[kind].table} SET hidden_at = COALESCE(hidden_at, ?) WHERE ${TABLE[kind].idCol} = ?`).bind(now, id),
+  ...(kind === 'comment'
+    ? [
+        env.DB.prepare(
+          `UPDATE comment_subscriptions SET state = 'off' WHERE (user_id, COALESCE(share_id, ''), COALESCE(post_id, '')) =
+             (SELECT user_id, COALESCE(share_id, ''), COALESCE(post_id, '') FROM comments WHERE id = ?)`,
+        ).bind(id),
+      ]
+    : []),
+];
 
 /**
  * POST /api/reports – `{ kind, id, reason, note }`; angemeldet und nicht gesperrt. `id` ist bei Profilen der
@@ -198,7 +211,7 @@ export async function createReport(request: Request, env: Env): Promise<Response
     )
       .bind(kind, target.id)
       .first<{ n: number }>();
-    if ((open?.n ?? 0) >= REPORT_LIMITS.autoHideReporters) await hideTarget(env, kind, target.id, now).run();
+    if ((open?.n ?? 0) >= REPORT_LIMITS.autoHideReporters) await env.DB.batch(hideTarget(env, kind, target.id, now));
   }
   return json({ ok: true, already }, { status: already ? 200 : 201 });
 }
@@ -425,9 +438,7 @@ export async function decideReport(request: Request, env: Env, reportId: string)
     await env.DB.prepare('DELETE FROM reports WHERE target_kind = ? AND target_id = ?').bind(kind, r.target_id).run();
   } else {
     await env.DB.batch([
-      action === 'keep'
-        ? env.DB.prepare(`UPDATE ${table} SET hidden_at = NULL WHERE ${idCol} = ?`).bind(r.target_id)
-        : hideTarget(env, kind, r.target_id, now),
+      ...(action === 'keep' ? [env.DB.prepare(`UPDATE ${table} SET hidden_at = NULL WHERE ${idCol} = ?`).bind(r.target_id)] : hideTarget(env, kind, r.target_id, now)),
       // Behalten: Bild gilt als geprüft (F-568); Ausblenden: das Objekt ist ohnehin weg, die Melde-Sperre endet
       ...(coverKind ? [action === 'keep' ? keepCoverStmt(env, coverKind, r.target_id) : releaseCoverStmt(env, coverKind, r.target_id)] : []),
       ...(kind === 'photo' && action === 'keep' ? [env.DB.prepare('UPDATE photos SET kept_at = ? WHERE id = ?').bind(now, r.target_id)] : []),

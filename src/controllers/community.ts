@@ -56,8 +56,11 @@ export class CommunityController {
     const same = this.current?.share.id === share.id;
     this.current = { share, key };
     const el = this.ui.comments;
-    Object.assign(el, { thread: { kind: 'share', id: share.id, key }, error: '', busy: false, ...(same ? {} : { data: null, draft: '' }) });
-    this.ui.commentsPanel.hidden = !(await this.loadThread(el));
+    const thread: CommentThread = { kind: 'share', id: share.id, key };
+    Object.assign(el, { thread, error: '', busy: false, ...(same ? {} : { data: null, draft: '' }) });
+    const ok = await this.loadThread(el);
+    // nur das Laden des aktuellen Verlaufs entscheidet über das Panel – ein überholtes ändert nichts
+    if (el.thread === thread) this.ui.commentsPanel.hidden = !ok;
   }
 
   hideComments(): void {
@@ -72,7 +75,7 @@ export class CommunityController {
     if (!t) return false;
     try {
       const data = await communityApi.comments(t);
-      if (el.thread !== t) return true; // inzwischen ein anderer Verlauf
+      if (el.thread !== t) return false; // inzwischen ein anderer Verlauf – dessen eigenes Laden entscheidet
       el.data = data;
       return true;
     } catch (e) {

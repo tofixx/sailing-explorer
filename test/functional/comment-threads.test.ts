@@ -158,6 +158,25 @@ describe('F-636 Sichtbarkeit und Modus wie der Beitrag', () => {
     expect((await s.send('DELETE', `/api/comments/${c3.id}`, admin.cookie)).status).toBe(204);
     expect((await listJson(owner, p.id)).comments).toHaveLength(0);
   });
+
+  it('[F-642] gesperrte Gruppe bzw. gesperrtes Boot: Kommentare an ihren Beiträgen löschen nur Admins', async () => {
+    const { owner, member, g } = await club();
+    const p = await newPost(owner, { kind: 'group', id: g.id });
+    const c = await comment(member, p.id, 'Beleg');
+    await (await s.db()).prepare('UPDATE groups SET locked_at = ? WHERE id = ?').bind(Date.now(), g.id).run();
+    expect((await s.send('DELETE', `/api/comments/${c.id}`, member.cookie)).status).toBe(404);
+    expect((await s.send('DELETE', `/api/comments/${c.id}`, owner.cookie)).status).toBe(404);
+    expect((await s.send('DELETE', `/api/comments/${c.id}`, admin.cookie)).status).toBe(204);
+    // Boot
+    const skipper = await s.person({ profile: 'public' });
+    const b = await s.boat(skipper);
+    const bp = await newPost(skipper, { kind: 'boat', id: b.id });
+    const fan = await s.person({ profile: 'public' });
+    const bc = await comment(fan, bp.id, 'Am Boot');
+    await (await s.db()).prepare('UPDATE boats SET locked_at = ? WHERE id = ?').bind(Date.now(), b.id).run();
+    expect((await s.send('DELETE', `/api/comments/${bc.id}`, fan.cookie)).status).toBe(404);
+    expect((await s.send('DELETE', `/api/comments/${bc.id}`, admin.cookie)).status).toBe(204);
+  });
 });
 
 // ---------------------------------------------------------------- F-637, F-638, F-639
@@ -237,6 +256,15 @@ describe('F-639 Glocke an/aus je Verlauf', () => {
     expect(await commentNotes(member.user.id, p.id)).toBe(1);
     expect(await commentNotes(owner.user.id, p.id)).toBe(0);
     expect((await listJson(owner, p.id)).subscribed).toBe(false);
+  });
+
+  it('[F-639] Schleifen aus an/aus: mehr als 30 Schaltungen je Minute und Konto → 429', async () => {
+    const { owner, member, g } = await club();
+    const p = await newPost(owner, { kind: 'group', id: g.id });
+    const codes: number[] = [];
+    for (let i = 0; i < 32; i++) codes.push((await bell(member, p.id, i % 2 === 0)).status);
+    expect(codes.slice(0, 30).every((c) => c === 200)).toBe(true);
+    expect(codes).toContain(429);
   });
 
   it('[F-639] auch an Törns: Mitlesende schalten ein, Eigentümer:in schaltet stumm', async () => {
@@ -330,6 +358,20 @@ describe('F-642 Melden und Moderation von Kommentaren an Beiträgen', () => {
     await (await s.db()).prepare('UPDATE comments SET hidden_at = ? WHERE id = ?').bind(Date.now(), c.id).run();
     expect((await listJson(owner, p.id)).comments).toHaveLength(0);
     expect((await listJson(member, p.id)).comments).toHaveLength(1); // Autor:in sieht ihn mit Hinweis
+  });
+
+  it('[F-642] Ausblenden durch die Moderation schaltet die Glocke der Autor:in im Verlauf stumm – Behalten nicht wieder an', async () => {
+    const { owner, member, g } = await club();
+    const p = await newPost(owner, { kind: 'group', id: g.id });
+    const c = await comment(member, p.id, 'Grenzwertig');
+    expect((await listJson(member, p.id)).subscribed).toBe(true);
+    expect((await s.send('POST', '/api/reports', owner.cookie, { kind: 'comment', id: c.id, reason: 'abuse' })).status).toBe(201);
+    const r = (await (await s.send('GET', '/api/admin/reports', admin.cookie)).json()) as { reports: Array<{ id: string; targetId: string }> };
+    const rep = r.reports.find((x) => x.targetId === c.id)!;
+    expect((await s.send('POST', `/api/admin/reports/${rep.id}`, admin.cookie, { action: 'hide' })).status).toBe(200);
+    expect((await listJson(member, p.id)).subscribed).toBe(false);
+    await comment(owner, p.id, 'Weiter geht es');
+    expect(await commentNotes(member.user.id, p.id)).toBe(0);
   });
 });
 

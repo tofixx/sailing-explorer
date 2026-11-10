@@ -4,7 +4,7 @@
 import type { Env } from './env';
 import { currentUser, requireUser } from './auth';
 import { sha256Hex, randomId } from './crypto';
-import { HttpError, json, readJson } from './http';
+import { HttpError, json, rateLimit, readJson } from './http';
 import { adminLogStmt, isAdmin, isSuspended, SUSPENDED } from './moderation';
 import { visibleShare } from './shares';
 import { visiblePost } from './posts';
@@ -224,6 +224,8 @@ export async function createComment(request: Request, env: Env, kind: ThreadKind
  */
 export async function setSubscription(request: Request, env: Env, kind: ThreadKind, id: string): Promise<Response> {
   const user = await requireUser(request, env);
+  // gegen Schleifen aus an/aus (jeder Aufruf schreibt): höchstens LINK_LIMITER je Konto und Minute
+  await rateLimit(env.LINK_LIMITER, `bell:${user.id}`);
   const t = await openThread(request, env, kind, id);
   if (!showsComments(t)) throw new HttpError(403, 'comments_hidden', `Die Kommentare zu ${NOUN[kind].acc} sind ausgeblendet.`);
   const input = await readJson<{ on?: unknown }>(request);
@@ -257,14 +259,16 @@ export async function deleteComment(request: Request, env: Env, id: string): Pro
   const user = await requireUser(request, env);
   const row = COMMENT_ID_RE.test(id)
     ? await env.DB.prepare(
-        `SELECT c.id, c.user_id, c.post_id, COALESCE(s.user_id, p.author_id) AS owner, s.locked_at FROM comments c
-         LEFT JOIN shares s ON s.id = c.share_id LEFT JOIN posts p ON p.id = c.post_id WHERE c.id = ?`,
+        `SELECT c.id, c.user_id, c.post_id, COALESCE(s.user_id, p.author_id) AS owner, COALESCE(s.locked_at, g.locked_at, b.locked_at) AS locked_at
+         FROM comments c LEFT JOIN shares s ON s.id = c.share_id LEFT JOIN posts p ON p.id = c.post_id
+         LEFT JOIN groups g ON g.id = p.group_id LEFT JOIN boats b ON p.channel_kind = 'boat' AND b.id = p.channel_id WHERE c.id = ?`,
       )
         .bind(id)
         .first<{ id: string; user_id: string; post_id: string | null; owner: string | null; locked_at: number | null }>()
     : null;
   const admin = isAdmin(env, user.id);
-  // Gesperrter Törn (Konzept 18.2): Kommentare bleiben als Beleg – löschen nur Admins
+  // Gesperrter Törn bzw. gesperrte Gruppe oder gesperrtes Boot eines Beitrags (Konzept 18.2): Kommentare bleiben als
+  // Beleg – löschen nur Admins
   if (!row || (row.locked_at && !admin) || !(row.user_id === user.id || row.owner === user.id || admin)) throw NOT_FOUND();
   await removeComment(env, id);
   // Fremde Kommentare löscht nur die Moderation – ins Admin-Protokoll (Konzept 18.10)

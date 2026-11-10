@@ -395,7 +395,8 @@ export class SxComments extends LitElement {
     const hasBell = typeof d.subscribed === 'boolean';
     if (!hasBell && !d.canSetMode) return '';
     const on = !!d.subscribed;
-    const label = on ? 'Benachrichtigungen zu neuen Kommentaren an – stumm schalten' : 'Bei neuen Kommentaren benachrichtigen';
+    // fester Name, der Zustand steckt nur in aria-pressed (Screenreader: „Bei neuen Kommentaren benachrichtigen, gedrückt“)
+    const label = 'Bei neuen Kommentaren benachrichtigen';
     return html`<div class="bar">
       ${d.canSetMode
         ? html`<label class="mode">${icon('comment')}
