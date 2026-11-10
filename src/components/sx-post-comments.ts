@@ -53,8 +53,9 @@ export class SxPostComments extends LitElement {
         width: 15px;
         height: 15px;
       }
+      /* Tippziel ≥ 44 px (UX N11) – gegen .btn.small aus base */
       @media (pointer: coarse) {
-        .btn {
+        .btn.small {
           min-height: 44px;
         }
       }
