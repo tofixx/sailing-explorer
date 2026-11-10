@@ -46,6 +46,7 @@ ein.
 
 | Eintrag | Nutzen | Aufwand | Quelle | Abhängigkeiten |
 |---|---|---|---|---|
+| **Mail-Absender auf `segeln-potsdam.de` umstellen** (Domain in Resend anlegen, DNS-Einträge SPF/DKIM/DMARC in Cloudflare setzen, dann `MAIL_FROM` in `wrangler.jsonc` von `login@sailing.wollow.ski` auf z. B. `login@segeln-potsdam.de`) | Absender passt zur Seite, weniger Spam-Verdacht | S (Betreiber + 1 Zeile) | Betreiber 10.11. | Resend-Konto und DNS macht der Betreiber; danach Mail-Zustellung testen |
 | **Moderation 1: Titelbilder absichern** (Tageslimit, Titelbild neuer Konten bis zur Freigabe zurückhalten, Entfernen nur des Bildes) | Größte Moderationslücke: Jedes Wegwerfkonto setzt sofort ein öffentliches Banner. Erster Punkt der Gruppe, sobald Moderation drankommt | S–M | [K 35](concept/35-moderation.md) 35.1/35.3 | `worker/covers.ts`, Admin-Liste |
 | **Moderation 2: CSAM-Scanning-Tool einschalten** (Cloudflare-Dashboard, Cache-Weg prüfen) | Schutz vor dem schwersten Fall, kostenlos, ohne Code | S (Betreiber) | K 35 | Mailadresse, Ablauf bei Treffer festlegen |
 | **Moderation 3: Admin-Hinweis auf offene Meldungen** (Sammelmail im Nachtlauf, Zähler am Konto-Knopf) | Meldungen liegen heute, bis jemand nachsieht | S | K 35, F-294 | Mechanismus der Sperr-Erinnerung |
