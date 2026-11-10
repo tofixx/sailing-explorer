@@ -769,9 +769,12 @@ export class App {
 
     // ---- Kommentare & Melden (Phase D) ----
     const c = this.community;
-    on<{ body: string }>('sx-comment-post', (d) => c.postComment(d.body));
-    on<{ id: string }>('sx-comment-delete', (d) => c.deleteComment(d.id));
-    on<{ mode: CommentsMode }>('sx-comments-mode', (d) => c.setMode(d.mode));
+    // `el`: die meldende Instanz (Törn-Panel oder Beitragskarte, Konzept 40); ohne `el` das Törn-Panel (Zahnrad-Menü)
+    on<{ body: string; el?: SxComments }>('sx-comment-post', (d) => c.postComment(d.body, d.el));
+    on<{ id: string; el?: SxComments }>('sx-comment-delete', (d) => c.deleteComment(d.id, d.el));
+    on<{ mode: CommentsMode; el?: SxComments }>('sx-comments-mode', (d) => c.setMode(d.mode, d.el));
+    on<{ on: boolean; el: SxComments }>('sx-comment-subscribe', (d) => c.subscribe(d.on, d.el));
+    on<{ el: SxComments }>('sx-comments-load', (d) => void c.loadThread(d.el));
     on<ReportTarget>('sx-report', (t) => c.openReport(t));
     on<{ reason: ReportReason; note: string }>('sx-report-submit', (d) => c.submitReport(d));
     on('sx-report-login', () => c.reportLogin());

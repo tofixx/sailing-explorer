@@ -1,4 +1,5 @@
 import type { LogbookEntry } from '../domain/logbook-year';
+import type { ThreadKind } from '../domain/comment-thread';
 import type { SupportTier } from '../domain/support';
 import type { SeasonStats } from '../domain/season-stats';
 import type { HeatData } from '../domain/heat';
@@ -634,12 +635,24 @@ export interface CommentItem {
 /** Warum nicht kommentiert werden kann: nicht angemeldet, abgeschaltet, gesperrt, ohne Profil. */
 export type CommentBlock = 'login' | 'off' | 'suspended' | 'profile' | null;
 
+/** Verlauf mit Kommentaren (Konzept 40): Törn oder Beitrag ohne Törn; `key` bei „Nur mit Link“ */
+export interface CommentThread {
+  kind: ThreadKind;
+  id: string;
+  key?: string | null;
+}
+const threadPath = (t: CommentThread) => `/api/${t.kind === 'post' ? 'posts' : 'shares'}/${encodeURIComponent(t.id)}/comments`;
+
 export interface CommentList {
   mode: CommentsMode;
   comments: CommentItem[];
   canComment: boolean;
   block: CommentBlock;
   isOwner: boolean;
+  /** Glocke des Verlaufs (F-639): null ohne Anmeldung bzw. wenn die Kommentare ausgeblendet sind; fehlt bei älteren Servern */
+  subscribed?: boolean | null;
+  /** Beitrag: die Autor:in stellt hier den Kommentar-Modus (F-636) */
+  canSetMode?: boolean;
   limits: { maxLength: number; maxLinks: number };
 }
 
@@ -698,12 +711,17 @@ export interface AdminReport {
 export type AdminAction = 'keep' | 'hide' | 'delete' | 'cover';
 
 export const communityApi = {
-  comments: (shareId: string, key?: string | null) => call<CommentList>(`/api/shares/${encodeURIComponent(shareId)}/comments`, keyInit(key)),
-  postComment: (shareId: string, body: string, key?: string | null) =>
-    call<{ comment: CommentItem }>(`/api/shares/${encodeURIComponent(shareId)}/comments`, {
+  comments: (t: CommentThread) => call<CommentList>(threadPath(t), keyInit(t.key)),
+  postComment: (t: CommentThread, body: string) =>
+    call<{ comment: CommentItem }>(threadPath(t), {
       ...jsonInit('POST', { body }),
-      headers: { 'Content-Type': 'application/json', ...(key ? { 'X-Share-Key': key } : {}) },
+      headers: { 'Content-Type': 'application/json', ...(t.key ? { 'X-Share-Key': t.key } : {}) },
     }),
+  /** Glocke des Verlaufs an bzw. stumm (Konzept 40, F-639) */
+  subscribe: (t: CommentThread, on: boolean) =>
+    call<{ subscribed: boolean }>(`${threadPath(t)}/subscription`, { ...jsonInit('PUT', { on }), headers: { 'Content-Type': 'application/json', ...(t.key ? { 'X-Share-Key': t.key } : {}) } }),
+  /** Kommentar-Modus eines Beitrags (nur Autor:in, F-636); Törns über setCommentsMode */
+  setPostCommentsMode: (postId: string, mode: CommentsMode) => call<{ mode: CommentsMode }>(`/api/posts/${encodeURIComponent(postId)}/comments/mode`, jsonInit('PUT', { mode })),
   deleteComment: (id: string) => call<void>(`/api/comments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   setCommentsMode: (shareId: string, commentsMode: CommentsMode) =>
     call<{ share: ShareMeta }>(`/api/shares/${encodeURIComponent(shareId)}`, jsonInit('PATCH', { commentsMode })),

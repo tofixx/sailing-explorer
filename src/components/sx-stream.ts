@@ -10,6 +10,8 @@ import './sx-reactions';
 import './sx-poll';
 import './sx-gallery-post';
 import './sx-event';
+import './sx-comments';
+import type { CommentThread } from '../services/api';
 import { postKeyOf } from '../domain/posts';
 
 const KIND_ICON: Record<StreamItem['kind'], IconName> = {
@@ -32,6 +34,8 @@ const KIND_ICON: Record<StreamItem['kind'], IconName> = {
  * Systemzeile ohne Kartenrahmen; `hideAuto` blendet sie aus (Schalter „Automatische Einträge“ auf dem Gerät).
  * Tageskarten (`days`, F-466) stehen nach Zeit zwischen den Einträgen: Zähler, die meistbeachteten Einträge und
  * „Alle anzeigen“ – meldet `sx-day-open` { scope, day, cursor } (erste bzw. weitere Seite des Tages, F-468).
+ * Beiträge haben Kommentare zum Aufklappen (Konzept 40, F-643): „Kommentare“ öffnet unter der Karte eine `sx-comments`,
+ * die ihre Daten erst dann anfordert (`sx-comments-load`); ihre Ereignisse bedient der CommunityController.
  */
 export class SxStream extends LitElement {
   static properties = {
@@ -79,6 +83,40 @@ export class SxStream extends LitElement {
     this.manage = false;
     this.hideAuto = false;
     this.days = [];
+  }
+
+  /** Beiträge mit aufgeklappten Kommentaren – je Beitrag ein fester Verlauf (gleiches Objekt über Neu-Renders) */
+  private threads = new Map<string, CommentThread>();
+
+  private toggleComments(id: string, key: string | null) {
+    if (this.threads.has(id)) this.threads.delete(id);
+    else this.threads.set(id, { kind: 'post', id, key });
+    this.requestUpdate();
+  }
+
+  /** „Kommentare“ unter einer Beitragskarte (nicht in der Pin-Leiste – die Karte steht unten noch einmal). */
+  private comments(i: StreamItem) {
+    const p = i.post;
+    if (i.kind !== 'post' || !p) return '';
+    const t = this.threads.get(p.id);
+    return html`<div class="talk">
+      <button class="btn small ghost" type="button" aria-expanded=${t ? 'true' : 'false'} aria-controls="k-${p.id}"
+        @click=${() => this.toggleComments(p.id, postKeyOf(p.path))}>${icon('comment')} Kommentare</button>
+      ${t ? html`<sx-comments id="k-${p.id}" autoload .thread=${t}></sx-comments>` : ''}
+    </div>`;
+  }
+
+  /** Beitrag, dessen Kommentare zum Anker `/p/<id>` schon einmal aufgeklappt wurden */
+  private opened: string | null = null;
+
+  /** Anker aus `/p/<id>` (auch aus der Glocke, F-644): Kommentare der Karte einmal aufklappen. */
+  willUpdate(changed: PropertyValues<this>) {
+    const h = this.highlight;
+    if (!h || h === this.opened || !(changed.has('highlight') || changed.has('items'))) return;
+    const p = this.items.find((i) => i.kind === 'post' && i.post?.id === h)?.post;
+    if (!p) return;
+    this.opened = h;
+    this.threads.set(h, { kind: 'post', id: h, key: postKeyOf(p.path) });
   }
 
   /** Hervorgehobene Karte einmal in den Blick holen, sobald sie gerendert ist. */
@@ -268,6 +306,27 @@ export class SxStream extends LitElement {
       .pins {
         margin-bottom: var(--s-3);
       }
+      /* Kommentare unter Beiträgen (Konzept 40) */
+      .talk {
+        display: grid;
+        gap: var(--s-2);
+        margin-top: var(--s-2);
+        justify-items: start;
+      }
+      .talk sx-comments {
+        justify-self: stretch;
+        padding-top: var(--s-2);
+        border-top: 1px solid var(--border-soft);
+      }
+      .talk > .btn svg {
+        width: 15px;
+        height: 15px;
+      }
+      @media (pointer: coarse) {
+        .talk > .btn {
+          min-height: 44px;
+        }
+      }
       .pins .eyebrow {
         display: flex;
         align-items: center;
@@ -456,6 +515,7 @@ export class SxStream extends LitElement {
         ${this.content(i)} ${this.banner(i)}
         ${this.when(i)}
         ${i.reactions ? html`<sx-reactions class="reactions" .value=${i.reactions}></sx-reactions>` : ''}
+        ${asPin ? '' : this.comments(i)}
       </div>
     </li>`;
   }

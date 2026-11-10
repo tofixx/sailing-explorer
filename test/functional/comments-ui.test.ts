@@ -92,7 +92,7 @@ describe('sx-comments', () => {
     const submit = button(el, /Kommentieren/)!;
     expect(submit.disabled).toBe(false);
     el.shadowRoot.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
-    expect(posted).toEqual([{ body: 'Ahoi!' }]);
+    expect(posted).toMatchObject([{ body: 'Ahoi!' }]);
 
     ta.value = 'https://a.de https://b.de https://c.de';
     ta.dispatchEvent(new Event('input'));
@@ -130,7 +130,7 @@ describe('sx-comments', () => {
     await el.updateComplete;
     expect(el.shadowRoot.querySelector('[role="alert"]')!.textContent).toContain('Diesen Kommentar löschen?');
     button(el, /Ja, löschen/)!.click();
-    expect(deleted).toEqual([{ id: 'C1' }]);
+    expect(deleted).toMatchObject([{ id: 'C1' }]);
 
     const visitor = await mount('sx-comments', { shareId: 'S1', data: list() });
     button(visitor, /Kommentar von Anna melden/)!.click();
@@ -192,7 +192,7 @@ describe('sx-account-dialog – Einstellungen und Meldungen', () => {
     const el = await mount('sx-account-dialog', { open: true, user, tab: 'settings', settings: settings({ notify }), pushAvailable: false });
     const selects = [...el.shadowRoot.querySelectorAll<HTMLSelectElement>('.channels select')];
     expect(selects).toHaveLength(7); // mit „Veranstaltungen“ (F-485)
-    expect(text(el)).toContain('Kommentare auf deinen Törns');
+    expect(text(el)).toContain('Kommentare zu deinen Törns und Beiträgen');
     // „Aus“ gibt es nicht mehr – ob ein Beitrag benachrichtigt, entscheidet die Stufe je Verlauf (F-449)
     expect([...selects[0].options].map((o) => o.value)).toEqual(['none', 'mail', 'push']);
     expect([...selects[5].options].map((o) => o.value)).toEqual(['none', 'mail', 'push']);
