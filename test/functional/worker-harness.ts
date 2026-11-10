@@ -164,8 +164,18 @@ export async function startWorker(
       const method = (rest.method || 'GET').toUpperCase();
       // Browser schicken bei Mutationen Origin mit; null = bewusst weglassen (CSRF-Test)
       if (origin !== null && method !== 'GET' && method !== 'HEAD' && !headers.has('Origin')) headers.set('Origin', origin ?? ORIGIN);
-      const res = await mf.dispatchFetch(`${ORIGIN}${path}`, { ...rest, headers } as never);
-      return res as unknown as Response;
+      const res = (await mf.dispatchFetch(`${ORIGIN}${path}`, { ...rest, headers } as never)) as unknown as Response;
+      // WebSocket-Upgrade (F-258) unverändert durchreichen – die Antwort trägt `webSocket` statt eines Bodys
+      if (res.status === 101 || (res as { webSocket?: unknown }).webSocket) return res;
+      // Körper sofort puffern: unter Last meldete undici sonst sporadisch „Body has already been read“, wenn ein Test
+      // mehrere Antworten erst nach weiteren Abrufen liest (F-90, F-606 in der Pipeline)
+      // Ein früh beantworteter Upload (413 vor dem Lesen des Bodys) kann beim Puffern mit ECONNRESET abbrechen – der Status
+      // ist dann schon da, der Body egal
+      const body = res.body && method !== 'HEAD'
+        ? await res.arrayBuffer().catch((e: unknown) => { if (res.status >= 400) return null; throw e; })
+        : null;
+      const out = new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+      return out;
     },
     db: async () => db,
     r2: async () => (await mf.getR2Bucket('TRACKS')) as unknown as R2Like,
