@@ -43,9 +43,8 @@ body {
 .app[data-empty] .sidebar {
   display: none;
 }
-/* Startseite: die Karte ist nur Hintergrund – Zoom und Ebenen würden den Stream überdecken (Konzept 12.6) */
-.app[data-empty] .leaflet-control-zoom,
-.app[data-empty] .leaflet-control-layers {
+/* Startseite: die Karte ist nur Hintergrund – der Zoom würde den Stream überdecken (Konzept 12.6) */
+.app[data-empty] .leaflet-control-zoom {
   display: none;
 }
 
@@ -137,17 +136,14 @@ body {
   font: var(--fs-s) / 1.4 var(--font);
   background: var(--map-bg);
 }
-.leaflet-bar,
-.leaflet-control-layers {
+.leaflet-bar {
   border: 1px solid var(--border) !important;
   border-radius: var(--radius) !important;
   box-shadow: var(--shadow-1) !important;
   overflow: hidden;
 }
 .leaflet-bar a,
-.leaflet-bar a:hover,
-.leaflet-control-layers,
-.leaflet-control-layers-toggle {
+.leaflet-bar a:hover {
   background-color: var(--surface) !important;
   color: var(--text) !important;
 }
@@ -156,16 +152,6 @@ body {
 }
 .leaflet-bar a:hover {
   background-color: var(--surface-hover) !important;
-}
-.leaflet-control-layers-expanded {
-  padding: var(--s-2) var(--s-3) !important;
-  color: var(--text);
-}
-.leaflet-control-layers label {
-  font-size: var(--fs-s);
-}
-.leaflet-control-layers-separator {
-  border-top-color: var(--border-soft) !important;
 }
 .leaflet-control-attribution {
   background: var(--overlay) !important;
@@ -180,12 +166,6 @@ body {
   color: var(--text) !important;
   border-color: var(--text-3) !important;
 }
-@media (prefers-color-scheme: dark) {
-  .leaflet-control-layers-toggle {
-    filter: invert(1) hue-rotate(180deg);
-  }
-}
-
 .sx-tip.leaflet-tooltip {
   background: var(--surface);
   color: var(--text);
@@ -305,9 +285,8 @@ body {
 }
 .app[data-page][data-place] .sidebar,
 .app[data-page][data-place] sx-empty-state,
-.app[data-page][data-place] .leaflet-control-zoom,
-.app[data-page][data-place] .leaflet-control-layers {
-  /* Zoom und Ebenen weg – die Quellenangabe (Lizenz) bleibt sichtbar */
+.app[data-page][data-place] .leaflet-control-zoom {
+  /* Zoom weg – die Quellenangabe (Lizenz) bleibt sichtbar */
   display: none;
 }
 .app[data-page][data-place] > sx-profile-page,
@@ -360,9 +339,10 @@ sx-map-style {
   bottom: 28px;
   z-index: 900; /* über Seitenleiste (500) und Startseite (800, Menü-Tafel mobil), unter der Kopfzeile (1000) */
 }
-/* Einbettungen: ohne Anmeldung (Cookie fehlt im fremden iframe) und ohne Konto-Bezug – kein Knopf, wie beim Passkey */
+/* Startseite und Orts-Seiten (Hafen, Verein mit Ort – auch nach einem vorher geöffneten Törn): Karte nur Hintergrund.
+   Einbettungen behalten den Knopf, aber nur mit der Grundkarte (F-663) */
 .app[data-empty] sx-map-style,
-.app[data-embed] sx-map-style {
+.app[data-page][data-place] sx-map-style {
   display: none;
 }
 @media (max-width: 760px) {
