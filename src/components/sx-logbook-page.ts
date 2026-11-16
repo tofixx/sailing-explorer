@@ -535,7 +535,7 @@ export class SxLogbookPage extends LitElement {
     return html`<section aria-labelledby="reg-h" class="regattas">
       <div class="sum-head">
         <h2 id="reg-h">Regatten${season === 'alle' ? '' : ` ${season}`}</h2>
-        <a class="btn" href="/api/me/regattas.csv?saison=${season}" download>${icon('download')} Ergebnisse (CSV)</a>
+        <a class="btn" href="/api/me/regattas.csv?saison=${season}&stand=${this.states.join(',')}" download>${icon('download')} Ergebnisse (CSV)</a>
       </div>
       <p class="note">Im Verein oder in der Klassenvereinigung sehen andere Mitglieder ein Ergebnis, wenn du den öffentlichen Eintrag dort zeigst.</p>
       <ol>

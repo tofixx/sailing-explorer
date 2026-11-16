@@ -74,9 +74,19 @@ function listLog(raw: string): Logbook {
   return items ? { ...rest, items: items.map(({ name, n }) => ({ name, n })) } : rest;
 }
 
+/** Regatta-Angabe der Eigentümer:in für Crew-Törns – geprüft wie jede Angabe; kaputte Werte ergeben nichts. */
+function crewRegatta(raw: string | null | undefined): Logbook {
+  if (!raw) return {};
+  try {
+    return readLog(JSON.stringify({ regatta: JSON.parse(raw) }));
+  } catch {
+    return {};
+  }
+}
+
 function logbookShape(r: LogbookRow, own: boolean): LogbookEntry {
   // Crew-Törns: keine Angaben der Eigentümer:in – außer der Regatta, die beide gesegelt haben (Konzept 42)
-  const log = own ? listLog(r.log) : r.crew_regatta ? readLog(JSON.stringify({ regatta: JSON.parse(r.crew_regatta) })) : {};
+  const log = own ? listLog(r.log) : crewRegatta(r.crew_regatta);
   const manual = r.source === 'manual';
   // Crew-Törns nur mit Link und Titel, wenn sie öffentlich sind – sonst Eckdaten (M1)
   const open = own || r.visibility === 'public';

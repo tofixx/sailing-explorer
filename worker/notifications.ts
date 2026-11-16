@@ -3,6 +3,7 @@
 // Lesen. Schreiben scheitert nie die eigentliche Aktion (Kommentar, Reaktion, Folgen …).
 // Bewusst ohne Abhängigkeit zu shares/groups/invites, damit diese Module es importieren können.
 import type { Env } from './env';
+import { GROUP_KIND_ACCUSATIVE, type GroupKind } from '../src/domain/groups';
 import { HttpError, json, readJson } from './http';
 import { requireUser } from './auth';
 import { canApprove, type Approvers, type GroupRole } from '../src/domain/groups';
@@ -653,7 +654,7 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
       if (!r.i_for || !r.i_kind) return null;
       // Ziel gesperrt (oder gelöscht): nichts verraten
       if (r.i_kind !== 'friend' && r.i_target === null) return null;
-      const what = r.i_kind === 'group' ? `in ${r.i_gkind === 'team' ? 'das Team' : 'den Verein'}` : (INVITE_WHAT[r.i_kind] ?? 'zu');
+      const what = r.i_kind === 'group' ? `in ${GROUP_KIND_ACCUSATIVE[r.i_gkind as GroupKind] ?? 'die Gruppe'}` : (INVITE_WHAT[r.i_kind] ?? 'zu');
       // Freundes-Einladungen haben kein Ziel. Annehmen und Ablehnen im Konto („Einladungen an dich“).
       return { ...base, title: r.i_kind === 'friend' ? '' : (r.i_target ?? ''), what, href: '/?konto=einladungen' };
     }

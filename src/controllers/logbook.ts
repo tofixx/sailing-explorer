@@ -41,7 +41,7 @@ export class LogbookController {
 
   private async openForm(share: ShareMeta | null, suggestion: LogSuggestion | null, preset: LogbookPreset | null) {
     const f = this.ui.form;
-    Object.assign(f, { share, suggestion, preset, error: '', busy: false, used: -1, groupIds: null, groupChoices: [] });
+    Object.assign(f, { share, suggestion, preset, error: '', busy: false, used: -1, groupIds: null, groupChoices: [], boatPick: null });
     // Boote und Kontingent nebenbei – das Formular geht sofort auf
     f.open = true;
     const [boats, support, scoring, groups] = await Promise.all([

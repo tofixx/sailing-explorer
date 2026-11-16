@@ -1,6 +1,6 @@
 import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
 import { photoImageUrl, shareImageUrl, type StreamItem } from '../services/api';
-import { GROUP_KIND_LABEL, streamHeadline, isAutomaticKind } from '../domain/groups';
+import { GROUP_KIND_DATIVE, GROUP_KIND_LABEL, streamHeadline, isAutomaticKind } from '../domain/groups';
 import { dayCardText, withoutAuto } from '../domain/large-groups';
 import type { ShownDay } from '../services/day-cards';
 import { fmtDate, fmtDateTime, fmtNum } from '../util/html';
@@ -373,7 +373,7 @@ export class SxStream extends LitElement {
             : html`<span>Ein neues Mitglied</span>`;
         const g = i.group;
         return html`<div class="head">${name} <span class="what">ist${g && !this.inGroup
-            ? html` ${g.kind === 'club' ? 'dem Verein' : 'dem Team'} <a href="/g/${g.slug}">${g.name}</a>`
+            ? html` ${GROUP_KIND_DATIVE[g.kind] ?? 'der Gruppe'} <a href="/g/${g.slug}">${g.name}</a>`
             : ''} beigetreten</span></div>`;
       }
       case 'boat':

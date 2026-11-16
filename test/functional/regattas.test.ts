@@ -117,6 +117,27 @@ describe('F-649 / F-650 Regatta-Übersicht im Verein', () => {
     expect((await overview(undefined, club.id)).status).toBe(401);
   });
 
+  it('[F-650] Datenschutz: private Boote ohne Namen, private Profile mit Spaßnamen der Gruppe, nicht öffentliche Einträge fehlen', async () => {
+    const owner = await s.person({ profile: 'public' });
+    const club = await s.group(owner);
+    const shy = await s.person({ supporter: true });
+    await (await s.db()).prepare(`INSERT INTO profiles (user_id, handle, display_name, bio, visibility, created_at, updated_at) VALUES (?, ?, 'Geheim', '', 'private', 0, 0)`)
+      .bind(shy.user.id, s.uniq('geheim')).run();
+    await s.join(owner, club, shy);
+    const hidden = await s.boat(shy, { name: 'Verstecktes Boot', visibility: 'private' });
+    await regatta(shy, { name: 'Stadtpokal', place: 2 }, { groupIds: [club.id], boatId: hidden.id });
+    await regatta(shy, { name: 'Geheimregatta', place: 1 }, { groupIds: [club.id], visibility: 'unlisted' });
+    const member = await s.person();
+    await s.join(owner, club, member);
+    const body = await (await overview(member, club.id)).text();
+    expect(body).not.toContain('Verstecktes Boot');
+    expect(body).not.toContain('Geheim"');
+    expect(body).not.toContain('Geheimregatta');
+    expect(body).toContain('Stadtpokal');
+    // Eigner:in sieht Anzeigenamen (wie in der Mitgliederliste)
+    expect(await (await overview(owner, club.id)).text()).toContain('"Geheim"');
+  });
+
   it('[F-650] Teams haben keine Übersicht; Klassenvereinigung schon', async () => {
     const owner = await s.person();
     const team = await s.group(owner, { kind: 'team', name: 'Regattacrew' });

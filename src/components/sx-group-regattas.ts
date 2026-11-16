@@ -67,14 +67,26 @@ export class SxGroupRegattas extends LitElement {
         font-size: var(--fs-s);
         margin: 0;
       }
-      ol {
+      /* keine Nummern neben „Platz …“ – keine Rangliste (K6) */
+      ul {
+        list-style: none;
         margin: 0;
-        padding-left: 1.2em;
+        padding: 0;
         display: grid;
         gap: var(--s-1);
       }
       li {
         overflow-wrap: anywhere;
+        min-height: 44px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0 var(--s-2);
+      }
+      li a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
       }
       a {
         color: var(--accent);
@@ -102,15 +114,15 @@ export class SxGroupRegattas extends LitElement {
             (r) => html`<article>
               <h3>${r.name}</h3>
               <p class="sub">${fmtDate(r.startedAt)}${r.organizer ? ` · ${r.organizer}` : ''}</p>
-              <ol>
+              <ul>
                 ${r.results.map(
                   (x) => html`<li>
-                    ${x.person.handle ? html`<a href="/u/${x.person.handle}">${x.person.name}</a>` : x.person.name}
-                    ${x.path ? html` – <a href=${x.path}>${placeText(x.regatta) || 'Ergebnis'}</a>` : ` – ${placeText(x.regatta)}`}
+                    ${x.person.handle ? html`<a href="/u/${x.person.handle}">${x.person.name}</a>` : html`<span>${x.person.name}</span>`}
+                    ${x.path ? html`<a href=${x.path}>${placeText(x.regatta) || 'Ergebnis'}</a>` : placeText(x.regatta) ? html`<span>${placeText(x.regatta)}</span>` : ''}
                     <span class="sub">${[resultDetails({ ...x.regatta, boatClass: x.regatta.boatClass ?? x.boatClass ?? undefined }), x.boat ?? '', roleShort(x.role)].filter(Boolean).join(' · ')}</span>
                   </li>`,
                 )}
-              </ol>
+              </ul>
             </article>`,
           )
         : html`<p class="note">Noch keine Regatten in dieser Saison. Ein Ergebnis erscheint hier, wenn ein Mitglied seinen öffentlichen Fahrtenbuch-Eintrag mit Regatta-Angaben ${here} zeigt.</p>`}

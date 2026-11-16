@@ -71,7 +71,7 @@ describe('sx-logbook-page: Regatten', () => {
     const el = await mount('sx-logbook-page', { signedIn: true, season: 2026, entries: [entry(), entry({ id: 'S2', log: {} })] });
     expect(text(el)).toContain('Regatten 2026');
     expect(text(el)).toContain('Platz 2 von 15');
-    expect(el.shadowRoot.querySelector('a[href="/api/me/regattas.csv?saison=2026"]')).not.toBeNull();
+    expect(el.shadowRoot.querySelector('a[href^="/api/me/regattas.csv?saison=2026&stand="]')).not.toBeNull();
     const none = await mount('sx-logbook-page', { signedIn: true, season: 2026, entries: [entry({ log: {} })] });
     expect(none.shadowRoot.querySelector('.regattas')).toBeNull();
   });

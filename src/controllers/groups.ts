@@ -105,6 +105,9 @@ export class GroupsController {
     void this.loadRegattas();
   }
 
+  /** laufende Nummer der letzten Regatta-Anfrage (überholte Antworten verwerfen) */
+  private regattaAsk = 0;
+
   /** Regatta-Übersicht (Konzept 42, F-650) – nur Mitglieder von Vereinen und Klassenvereinigungen; sonst kein Abschnitt. */
   async loadRegattas(season: number | null = null): Promise<void> {
     const page = this.ui.page;
@@ -117,8 +120,10 @@ export class GroupsController {
     if (season === null) page.regattas = null;
     page.regattasLoading = true;
     try {
+      const ask = (this.regattaAsk = (this.regattaAsk ?? 0) + 1);
       const data = await regattaApi.group(g.id, season).catch(() => null);
-      if (page.data?.group.id === g.id) page.regattas = data;
+      // nur die neueste Anfrage zählt (schneller Saisonwechsel, Gruppenwechsel)
+      if (ask === this.regattaAsk && page.data?.group.id === g.id) page.regattas = data;
     } finally {
       page.regattasLoading = false;
     }

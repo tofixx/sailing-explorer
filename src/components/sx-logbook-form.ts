@@ -73,6 +73,7 @@ export class SxLogbookForm extends LitElement {
     templates: { attribute: false },
     groupChoices: { attribute: false },
     groupIds: { state: true },
+    boatPick: { state: true },
     lastTemplateId: { attribute: false },
   };
   declare open: boolean;
@@ -86,6 +87,8 @@ export class SxLogbookForm extends LitElement {
   declare groupChoices: ShareGroupChoice[];
   /** geänderte Auswahl; null = unverändert (neu: Gruppen des Boots, Bearbeiten: wie gespeichert) */
   declare groupIds: string[] | null;
+  /** gewähltes Boot im Formular (für die Vorbelegung der Gruppen); null = noch nicht geändert */
+  declare boatPick: string | null;
   declare supporter: boolean;
   /** Einträge der laufenden Saison und Grenze (L1) – -1 = unbekannt */
   declare used: number;
@@ -120,6 +123,7 @@ export class SxLogbookForm extends LitElement {
     this.boats = [];
     this.groupChoices = [];
     this.groupIds = null;
+    this.boatPick = null;
     this.supporter = false;
     this.used = -1;
     this.max = LOG_LIMITS.perSeason;
@@ -381,6 +385,11 @@ export class SxLogbookForm extends LitElement {
     });
   }
 
+  /** Angezeigte Gruppen: geänderte Auswahl, sonst gespeicherte (Bearbeiten), sonst die Gruppen des gewählten Boots. */
+  private shownGroups(): string[] {
+    return this.groupIds ?? this.share?.groupIds ?? presetGroupIds(this.groupChoices, this.boatPick ?? this.share?.boat?.id ?? null);
+  }
+
   private submit(e: Event) {
     e.preventDefault();
     this.local = '';
@@ -425,7 +434,8 @@ export class SxLogbookForm extends LitElement {
       startedAt, endedAt, timed, fromHarbor: from!, toHarbor: to, distNm, boatId, visibility: this.visibility, log: log as Logbook,
       ...(title ? { title } : {}),
       ...(isVoyageRole(role) ? { ownerRole: role as VoyageRole } : {}),
-      ...(this.groupIds ? { groupIds: this.groupIds } : {}),
+      // genau die angezeigte Auswahl (sonst nähme der Server die Gruppen des Boots, auch ungesehen)
+      ...(this.groupChoices.length ? { groupIds: this.shownGroups() } : {}),
     };
     emit<LogbookSave>(this, 'sx-logbook-save', { input });
   }
@@ -558,7 +568,7 @@ export class SxLogbookForm extends LitElement {
             <input id="lf-ro" name="regattaOrganizer" maxlength=${LOG_LIMITS.regattaOrganizerMax} placeholder="z. B. Potsdamer Yacht Club" .value=${r?.organizer ?? ''} /></div>
           <div><label class="label" for="lf-rc">Klasse <span class="faint">(leer = die des Boots)</span></label>
             <select id="lf-rc" name="regattaClass"><option value="" ?selected=${!r?.boatClass}>wie das Boot</option>${boatClassOptions(r?.boatClass ?? '')}</select></div>
-          <p class="hint">Im Verein bzw. in der Klassenvereinigung sichtbar, wenn du den Eintrag dort zeigst (Gruppen unter „Sichtbarkeit“).</p>`
+          <p class="hint">Im Verein bzw. in der Klassenvereinigung sichtbar, wenn der Eintrag öffentlich ist und du ihn dort zeigst (unten „In Gruppen zeigen“).</p>`
         : ''}
       ${this.itemsBlock()}
       <p class="hint">Alles sind deine Angaben – sie stehen im Fahrtenbuch und im Meilennachweis.</p>
@@ -625,7 +635,7 @@ export class SxLogbookForm extends LitElement {
       ${this.boats.length && !gpx
         ? html`<div>
             <label class="label" for="lf-boat">Boot</label>
-            <select id="lf-boat" name="boat">
+            <select id="lf-boat" name="boat" @change=${(e: Event) => (this.boatPick = (e.target as HTMLSelectElement).value)}>
               <option value="">– kein Boot –</option>
               ${this.boats.map((b) => html`<option value=${b.id} ?selected=${s?.boat?.id === b.id}>${b.name}</option>`)}
             </select>
@@ -707,7 +717,7 @@ export class SxLogbookForm extends LitElement {
             ></sx-visibility-picker>
             <sx-share-groups
               .groups=${this.groupChoices}
-              .selected=${this.groupIds ?? s?.groupIds ?? presetGroupIds(this.groupChoices, this.field('boat') || s?.boat?.id || null)}
+              .selected=${this.shownGroups()}
               @sx-share-groups-change=${(e: CustomEvent<{ groupIds: string[] }>) => (this.groupIds = e.detail.groupIds)}
             ></sx-share-groups>`}
       ${this.local || this.error ? html`<p class="error" role="alert">${this.local || this.error}</p>` : ''}

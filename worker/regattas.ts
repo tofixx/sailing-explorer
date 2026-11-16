@@ -8,10 +8,10 @@ import { entriesOf } from './logbook-list';
 import { loadGroup, roleIn } from './groups';
 import { IN_LOGBOOK_SQL } from './logbook-sql';
 import { liveSql, notSuspendedSql, publicSql } from './visible-sql';
-import { funnyName } from '../src/domain/names';
+import { funnyName, memberAlias } from '../src/domain/names';
 import { voyageRole } from '../src/domain/crew-roles';
 import { isBoatClass } from '../src/domain/boat-class';
-import { hasRegattaOverview } from '../src/domain/groups';
+import { canManageGroup, hasRegattaOverview } from '../src/domain/groups';
 import { readLog, seasonRange } from '../src/domain/logbook';
 import { filterEntries, parseLogFilter } from '../src/domain/logbook-year';
 import { groupRegattas, regattaCsv, regattaCsvName, type ClubRegattaRow } from '../src/domain/regatta';
@@ -28,14 +28,14 @@ const seasonParam = (url: URL): number | 'alle' | null => {
 };
 
 /**
- * GET /api/me/regattas.csv?saison=2026|alle – eigene Regatta-Ergebnisse (F-648): eigene Einträge und Crew-Törns, auf
- * denen die Eigentümer:in eine Regatta angegeben hat (M1); ohne Ausgeschlossene. Ohne `saison` die vorgewählte.
+ * GET /api/me/regattas.csv?saison=2026|alle&stand= – eigene Regatta-Ergebnisse (F-648): eigene Einträge und Crew-Törns,
+ * auf denen die Eigentümer:in eine Regatta angegeben hat (M1); Stand wie der Meilennachweis. Ohne `saison` die vorgewählte.
  */
 export async function getMyRegattasCsv(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const p = seasonParam(new URL(request.url)) ?? shownSeason(Date.now());
   const { entries, truncated } = await entriesOf(env, user.id);
-  const shown = filterEntries(entries, parseLogFilter(null), p === 'alle' ? null : p);
+  const shown = filterEntries(entries, parseLogFilter(new URL(request.url).searchParams.get('stand')), p === 'alle' ? null : p);
   return withApiHeaders(
     new Response(regattaCsv(shown, truncated), {
       headers: {
@@ -67,7 +67,7 @@ interface GroupRegattaRow {
  * Klassenvereinigung (sonst 404, Teams 404). Es zählen Einträge, die ihre Eigentümer:in in dieser Gruppe zeigt
  * (`share_groups`, wie die Vereinsliste der Wertung nur öffentliche), mit Regatta-Angaben, weder ausgeblendet noch
  * gesperrt, im Fahrtenbuch, Konto nicht gesperrt und die Person ist noch Mitglied. Gezeigt werden Datum, Regatta,
- * Ergebnis, Rolle, Boot, Klasse und der Name der Person – das Zeigen in der Gruppe ist ihre Freigabe.
+ * Ergebnis, Rolle, öffentliches Boot und Klasse; Namen nach der Regel der Mitgliederliste (sonst Spaßname der Gruppe).
  */
 export async function getGroupRegattas(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
@@ -79,7 +79,7 @@ export async function getGroupRegattas(request: Request, env: Env, id: string): 
   const [from, to] = seasonRange(season);
   const { results } = await env.DB.prepare(
     `SELECT s.id, s.visibility, COALESCE(s.started_at, s.created_at) AS t, s.log, s.owner_role AS role, s.user_id AS uid,
-       pr.display_name AS name, pr.handle, ${publicSql('pr')} AS open,
+       pr.display_name AS name, pr.handle, (${publicSql('pr')} AND pr.hidden_at IS NULL) AS open,
        b.name AS boat, b.visibility AS boat_vis, b.boat_class
      FROM share_groups sg JOIN shares s ON s.id = sg.share_id
        LEFT JOIN profiles pr ON pr.user_id = s.user_id
@@ -92,6 +92,9 @@ export async function getGroupRegattas(request: Request, env: Env, id: string): 
   )
     .bind(g.id, from, to, GROUP_REGATTAS_MAX)
     .all<GroupRegattaRow>();
+  // Namen wie die Mitgliederliste (F-440, F-441): Eigner und Admins Anzeigenamen; sonst mit öffentlichem Profil der
+  // Name, ohne der Spaßname dieser Gruppe – die Übersicht verrät nichts, was die Mitgliederliste nicht zeigt.
+  const manager = canManageGroup(role);
   const rows: ClubRegattaRow[] = [];
   for (const r of results) {
     const regatta = readLog(r.log).regatta;
@@ -101,10 +104,14 @@ export async function getGroupRegattas(request: Request, env: Env, id: string): 
       startedAt: r.t,
       regatta,
       // Anzeigename aus dem Profil (die Person hat das Ergebnis hier freigegeben), sonst Spaßname; Link nur öffentlich
-      person: { name: r.name || funnyName(r.uid), handle: r.open ? r.handle : null },
+      person: {
+        name: manager ? r.name || funnyName(r.uid) : r.open && r.handle ? (r.name ?? '') : memberAlias(r.uid, g.id),
+        handle: r.open ? r.handle : null,
+      },
       role: r.role ? voyageRole(r.role) : null,
-      boat: r.boat,
-      boatClass: isBoatClass(regatta.boatClass) ? regatta.boatClass : isBoatClass(r.boat_class) ? r.boat_class : null,
+      // Boot nur, wenn es öffentlich ist (F-82) – wie Törn-Seite und Fahrtenbuch
+      boat: r.boat_vis === 'public' ? r.boat : null,
+      boatClass: isBoatClass(regatta.boatClass) ? regatta.boatClass : r.boat_vis === 'public' && isBoatClass(r.boat_class) ? r.boat_class : null,
     });
   }
   return json(

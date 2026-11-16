@@ -1,7 +1,7 @@
 import { LitElement, css, html } from 'lit';
 import type { Boat, GroupInfo, GroupInput, GroupPageData, MyGroup, PendingInvite, StreamPage } from '../services/api';
 import {
-  APPROVERS, APPROVERS_LABEL, DEFAULT_MEMBERS_VISIBLE, GROUP_KINDS, GROUP_KIND_HINT, GROUP_KIND_LABEL, hasRegattaOverview, MEMBERS_VISIBLE, MEMBERS_VISIBLE_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODES, JOIN_MODE_LABEL, JOIN_MODE_SHORT,
+  APPROVERS, APPROVERS_LABEL, DEFAULT_MEMBERS_VISIBLE, GROUP_KINDS, GROUP_KIND_HINT, GROUP_KIND_LABEL, GROUP_KIND_PLURAL, hasRegattaOverview, MEMBERS_VISIBLE, MEMBERS_VISIBLE_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODES, JOIN_MODE_LABEL, JOIN_MODE_SHORT,
   canApprove, canManageGroup, slugFromName, type Approvers, type GroupKind, type JoinMode, type MembersVisible,
 } from '../domain/groups';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
@@ -479,7 +479,7 @@ export class SxGroupPage extends LitElement {
       <legend class="label">Wer darf Beiträge schreiben?</legend>
       ${(POST_BY as readonly PostBy[]).map(
         (b) => html`<label class="opt"><input type="radio" name="postby" .checked=${current === b} @change=${() => this.set({ postBy: b })} />
-          <span><b>${POST_BY_LABEL[b]}</b>${b === defaultPostBy(kind) ? html` <span class="faint">(Standard für ${kind === 'club' ? 'Vereine' : 'Teams'})</span>` : ''}</span></label>`,
+          <span><b>${POST_BY_LABEL[b]}</b>${b === defaultPostBy(kind) ? html` <span class="faint">(Standard für ${GROUP_KIND_PLURAL[kind]})</span>` : ''}</span></label>`,
       )}
     </fieldset>`;
   }
