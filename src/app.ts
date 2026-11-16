@@ -212,7 +212,8 @@ export class App {
   private timelinePts: TimedPoint[] = [];
 
   constructor() {
-    this.map = new MapView($('#map'), { onHover: (p) => this.hover(p, 'map') });
+    this.map = new MapView($('#map'), { onHover: (p) => this.hover(p, 'map'), onBaseMap: (key) => (this.ui.mapStyle.baseMap = key) });
+    this.ui.mapStyle.baseMap = this.map.baseMap.key;
     // Törn-Arbeitsbereich (Konzept 23): genau ein Törn – Entwurf, eigener gespeicherter oder fremde Ansicht
     this.ws = new WorkspaceController(this.store, {
       ask: (req) => this.ui.confirm.ask(req),
@@ -671,6 +672,7 @@ export class App {
     // Tracks & Karte
     on<{ id: MapStyleId; scope: MapStyleScope }>('sx-map-style-apply', (d) => void this.mapStyle.choose(d.id, d.scope));
     on<{ on: boolean }>('sx-map-heat', (d) => this.heat.toggle(d.on));
+    on<{ key: string }>('sx-map-base', (d) => this.map.baseMap.set(d.key));
     on<FileList>('sx-files', (files) => void this.ws.files(files));
     on<FileList>('sx-files-add', (files) => void this.ws.add(files));
     on<string>('sx-sample', (file) => void this.ws.sample(file));

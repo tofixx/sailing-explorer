@@ -325,12 +325,11 @@ export class SxTopbar extends LitElement {
         :host([home]) .chip.status {
           display: none;
         }
-        /* F-617: rechts bleibt die Grundkarten-Wahl (Leaflet, oben rechts: 10 px Rand + 46 px Knopf) frei –
-           mittig mit je 64 px Abstand zu beiden Rändern */
+        /* F-617: oben rechts liegt keine Karten-Steuerung mehr (Grundkarte im Kartenstil-Menü, F-660) – der Chip nutzt
+           die Breite bis auf den Rand (max-width oben) */
         .chip.toern {
           min-height: 44px;
           padding-block: 0;
-          max-width: calc(100vw - 2 * 64px);
         }
         .chip .x {
           width: 44px;
