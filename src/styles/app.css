@@ -339,8 +339,10 @@ sx-map-style {
   bottom: 28px;
   z-index: 900; /* über Seitenleiste (500) und Startseite (800, Menü-Tafel mobil), unter der Kopfzeile (1000) */
 }
-/* Startseite: Karte nur Hintergrund. Einbettungen behalten den Knopf, aber nur mit der Grundkarte (F-663) */
-.app[data-empty] sx-map-style {
+/* Startseite und Orts-Seiten (Hafen, Verein mit Ort – auch nach einem vorher geöffneten Törn): Karte nur Hintergrund.
+   Einbettungen behalten den Knopf, aber nur mit der Grundkarte (F-663) */
+.app[data-empty] sx-map-style,
+.app[data-page][data-place] sx-map-style {
   display: none;
 }
 @media (max-width: 760px) {

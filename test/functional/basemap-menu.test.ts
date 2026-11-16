@@ -79,6 +79,14 @@ describe('F-660 Gruppe „Grundkarte“ im Kartenstil-Menü', () => {
     const users = files(resolve('src')).filter((f) => /control\.layers|leaflet-control-layers/.test(readFileSync(f, 'utf8')));
     expect(users).toEqual([]);
   });
+
+  it('[F-660] Startseite und Orts-Seiten (auch nach einem geöffneten Törn) zeigen den Knopf nicht', () => {
+    const css = readFileSync(resolve('src/styles/app.css'), 'utf8');
+    const hidden = /([^{}]*)\{\s*display:\s*none;?\s*\}/g;
+    const selectors = [...css.matchAll(hidden)].map((m) => m[1]).filter((s) => s.includes('sx-map-style')).join(',');
+    expect(selectors).toContain('.app[data-empty] sx-map-style');
+    expect(selectors).toContain('.app[data-page][data-place] sx-map-style');
+  });
 });
 
 describe('F-661 Grundkarte auf der Karte', () => {
@@ -147,7 +155,7 @@ describe('F-663 Einbettung', () => {
   it('[F-663] Einbettungen blenden den Knopf nicht mehr aus, die Startseite schon; app.ts setzt embed', () => {
     const css = readFileSync(resolve('src/styles/app.css'), 'utf8');
     expect(css).not.toMatch(/\[data-embed\] sx-map-style/);
-    expect(css).toMatch(/\.app\[data-empty\] sx-map-style \{\s*display: none/);
+    expect(css).toMatch(/.app[data-empty] sx-map-style[,s]/);
     expect(readFileSync(resolve('src/app.ts'), 'utf8')).toMatch(/this\.ui\.mapStyle\.embed = true/);
   });
 });
