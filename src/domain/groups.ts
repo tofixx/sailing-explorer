@@ -10,9 +10,18 @@ import type { EventView } from './events';
 
 // ---------------------------------------------------------------- Gruppen
 
-export const GROUP_KINDS = ['club', 'team'] as const;
+// Klassenvereinigung (Konzept 42, F-645): Gruppe zu einer Bootsklasse (`groups.boat_class`), wie ein Verein ohne Hafen
+export const GROUP_KINDS = ['club', 'team', 'class'] as const;
 export type GroupKind = (typeof GROUP_KINDS)[number];
-export const GROUP_KIND_LABEL: Record<GroupKind, string> = { club: 'Verein', team: 'Team' };
+export const GROUP_KIND_LABEL: Record<GroupKind, string> = { club: 'Verein', team: 'Team', class: 'Klassenvereinigung' };
+/** Kurzbeschreibung je Art im Formular „Gruppe gründen“ */
+export const GROUP_KIND_HINT: Record<GroupKind, string> = {
+  club: 'Segelverein, Hafengemeinschaft',
+  team: 'Regattacrew, Jugendgruppe, Fahrtensegler-Runde – optional in einem Verein',
+  class: 'Klassenvereinigung einer Bootsklasse (z. B. Pirat, Optimist) – Regatta-Ergebnisse ihrer Mitglieder',
+};
+/** Gruppen mit Regatta-Übersicht (F-650): Vereine und Klassenvereinigungen */
+export const hasRegattaOverview = (kind: GroupKind): boolean => kind === 'club' || kind === 'class';
 
 export const GROUP_ROLES = ['owner', 'admin', 'member'] as const;
 export type GroupRole = (typeof GROUP_ROLES)[number];

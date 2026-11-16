@@ -38,6 +38,7 @@ import { harborVisible, loadHarborByRedirect, loadHarborBySlug } from './harbors
 // ---- Admin-Bereich (Konzept 18) ----
 import { adminRoutes } from './admin-routes';
 import { scoringRoutes } from './scoring-routes';
+import { getGroupRegattas, getMyRegattasCsv } from './regattas';
 import { createClaim, getClaimState, withdrawClaim } from './claims';
 import { currentUser } from './auth';
 import { isAdmin } from './moderation';
@@ -163,6 +164,9 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/claims\/([A-Za-z0-9]+)$/, (r, env, [id]) => withdrawClaim(r, env, id)],
   // ---- Admin-Bereich (Konzept 18): worker/admin-routes.ts ----
   ...adminRoutes,
+  // ---- Regatten (Konzept 42): worker/regattas.ts ----
+  ['GET', /^\/api\/me\/regattas\.csv$/, (r, env) => getMyRegattasCsv(r, env)],
+  ['GET', /^\/api\/groups\/([A-Za-z0-9]+)\/regattas$/, (r, env, [id]) => getGroupRegattas(r, env, id)],
   // ---- Wertung (Konzept 32): worker/scoring-routes.ts ----
   ...scoringRoutes,
 ];

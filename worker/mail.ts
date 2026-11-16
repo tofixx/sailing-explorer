@@ -288,7 +288,7 @@ export function passkeyAddedMail(env: Env, to: string, origin: string, name: str
 export interface InviteMailInput {
   kind: 'boat_admin' | 'boat_member' | 'crew' | 'group' | 'friend';
   /** nur bei Gruppen: Verein oder Team */
-  groupKind?: 'club' | 'team';
+  groupKind?: 'club' | 'team' | 'class';
   /** nur bei Crew: Rolle, als die eingeladen wird (Konzept 15) */
   role?: VoyageRole;
   /** Anzeigename des Einladenden (selbst gewählt oder Spaßname) – nie die E-Mail-Adresse */
@@ -304,7 +304,7 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
   const app = env.APP_NAME;
   const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
   const who = short(m.inviter.trim() || 'Ein Segler oder eine Seglerin', 60);
-  const group = m.groupKind === 'team' ? 'das Team' : 'den Verein';
+  const group = m.groupKind === 'team' ? 'das Team' : m.groupKind === 'class' ? 'die Klassenvereinigung' : 'den Verein';
   const target = short(m.target.trim() || (m.kind === 'crew' ? 'Törn' : m.kind === 'group' ? 'Gruppe' : 'Boot'), 80);
   // „als Gast“ usw. – feste Texte, kein Nutzertext
   const asRole = m.role && m.role !== 'crew' ? `als ${VOYAGE_ROLE_SHORT[m.role]} ` : '';

@@ -113,6 +113,8 @@ export interface ManualShareInput {
   visibility: Visibility;
   ownerRole?: VoyageRole | null;
   log?: Logbook;
+  /** „In Gruppen zeigen“ (F-375); ohne Angabe die Gruppen des Boots */
+  groupIds?: string[];
 }
 
 /** Unterstützen-Konfiguration aus /api/config (null = auf diesem Server nicht eingerichtet). */
@@ -866,6 +868,8 @@ export interface GroupInfo extends Linkable {
   hiddenAt?: number | null;
   /** verifizierte Vertretung (Konzept 20.4) – nur Vereine, fehlt bei älteren Servern */
   verified?: boolean;
+  /** Bootsklasse einer Klassenvereinigung (Konzept 42) */
+  boatClass?: string | null;
   createdAt: number;
 }
 
@@ -1009,7 +1013,7 @@ export interface DiscoverMembership {
   requested: string[];
 }
 
-export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'webUrl' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy' | 'membersVisible' | 'daySummary'>> & {
+export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'webUrl' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy' | 'membersVisible' | 'daySummary' | 'boatClass'>> & {
   kind?: GroupKind;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;

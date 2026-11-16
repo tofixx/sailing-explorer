@@ -124,7 +124,7 @@ interface NewInvite {
   shareId?: string;
   groupId?: string;
   /** nur bei Gruppen: Verein oder Team (Mailtext) */
-  groupKind?: 'club' | 'team';
+  groupKind?: 'club' | 'team' | 'class';
   to: Recipient;
   maxUses: number;
   days: number;

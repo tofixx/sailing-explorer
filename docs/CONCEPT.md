@@ -3401,3 +3401,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 40. Kommentare an allen Beiträgen, Benachrichtigung je Verlauf mit Glocke (F-635 … F-644) → [`docs/concept/40-kommentare-ueberall.md`](concept/40-kommentare-ueberall.md)
 
 ## 41. Stammcrew eines Boots: Schalter, Titel, Beiträge, Törns zuordnen (F-270 … F-274) → [`docs/concept/41-stammcrew.md`](concept/41-stammcrew.md)
+
+## 42. Regatten und Klassenvereinigungen: Ergebnisse im Fahrtenbuch, Export, Übersicht im Verein (F-645 … F-651) → [`docs/concept/42-regatten.md`](concept/42-regatten.md)

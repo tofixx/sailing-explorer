@@ -23,12 +23,13 @@ Umsetzung freigegeben („autonom, Empfehlungen übernehmen“).
 | eigene Törns zuordnen | ✓ (jede Stufe von `crew_assign` schließt sie ein) | ✓ | ✓ |
 | Beiträge am Boot schreiben | Schalter (Standard aus) | ✓ | ✓ |
 | zur Stammcrew einladen | Schalter (Standard aus), direkt | ✓ | ✓ |
+| offene Stammcrew-Einladungen sehen und zurückziehen | nur eigene | ✓ | ✓ |
 | Titel setzen | nur eigenen | alle | alle |
 | aus der Stammcrew entfernen | nur sich (austreten) | alle | alle |
 | Zuordnung fremder Törns lösen (F-274) | – | ✓ | ✓ |
 | Schalter stellen | – | – (sieht sie) | ✓ |
 
-**Zuordnen (F-272):** `crew` = nur Stammcrew; `clubs` = auch Mitglieder einer Gruppe, der das Boot zugeordnet ist;
+**Zuordnen (F-272):** `crew` = nur Stammcrew; `clubs` = auch Mitglieder eines Vereins (nicht Teams, nicht ausgeblendet oder gesperrt), dem das **öffentliche** Boot zugeordnet ist;
 `anyone` = auch, wer dem **öffentlichen** Boot folgt und dessen Konto mindestens 7 Tage alt ist (Charter: Folgen ist
 der Einstieg, so taucht das Boot in der Auswahl beim Teilen und im Fahrtenbuch auf). Regel einmal in SQL
 (`ASSIGNABLE_SQL`, `worker/boat-crew.ts`) für Auswahl (`GET /api/boats` → `assignable`) und Prüfung (`checkBoat`). Ein

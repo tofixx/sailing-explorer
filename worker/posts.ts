@@ -25,7 +25,7 @@ import { GROUP_LIMITS } from '../src/domain/limits';
 import { galleryPhotoCleanup } from './photo-keys';
 import { assertGalleryQuota, galleryQuota } from './post-photos';
 import { cleanComment, commentLength, countLinks } from '../src/domain/comment-text';
-import { POST_MAX_LINKS, STREAM_PAGE, canManageGroup, decodeCursor, encodeCursor, parsePostLink, type GroupKind, type GroupRole } from '../src/domain/groups';
+import { GROUP_KIND_LABEL, POST_MAX_LINKS, STREAM_PAGE, canManageGroup, decodeCursor, encodeCursor, parsePostLink, type GroupKind, type GroupRole } from '../src/domain/groups';
 import {
   canChoosePostVisibility, canManageChannel, canSeePost, defaultPostVisibility, widensAudience, canWriteInGroup, channelKey, channelPath, effectivePostBy, effectivePostVisibility, isChannelKind, isMyPostArea,
   COMPOSE_LIMITS, hasKindCard, isPostVisibility, isReach, postVisibilityChoices, reachChoices, reachFor, reachTargets, shareKindOf,
@@ -240,7 +240,7 @@ export async function getPost(request: Request, env: Env, id: string): Promise<R
     : p.where?.kind === 'boat' ? `/b/${p.where.id}`
     : item.actor ? `/u/${item.actor.handle}` : ownHandle ? `/u/${ownHandle}` : null;
   const where =
-    item.group ? `${item.group.kind === 'team' ? 'Team' : 'Verein'} ${item.group.name}`
+    item.group ? `${GROUP_KIND_LABEL[item.group.kind] ?? 'Gruppe'} ${item.group.name}`
     : p.where ? `${p.where.kind === 'harbor' ? 'Hafen' : 'Boot'} ${p.where.name}`
     : item.actor ? `Profil von ${item.actor.displayName}` : 'Profil';
   // im Verlauf steht, was dort für alle mit Zugang erscheint; die Autor:in findet alles in „Mein Verlauf“. Umfragen im

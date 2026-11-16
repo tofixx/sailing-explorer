@@ -14,6 +14,7 @@ import './sx-follow';
 import './sx-place-picker';
 import './sx-stream';
 import './sx-boat-crew';
+import { GROUP_KIND_LABEL, type GroupKind } from '../domain/groups';
 import type { BoatCrew } from '../services/boat-crew-api';
 import './sx-claim';
 import './sx-verified-badge';
@@ -777,7 +778,7 @@ export class SxProfilePage extends LitElement {
         ? html`<section>
             <h2 class="eyebrow">Vereine und Teams im Hafen</h2>
             <div class="cards">
-              ${this.harborGroups(d).map((g) => html`<a class="card" href="/g/${g.slug}"><span class="t">${icon(groupIcon(g.kind))}${g.name}</span><span class="s">${g.kind === 'club' ? 'Verein' : 'Team'}</span></a>`)}
+              ${this.harborGroups(d).map((g) => html`<a class="card" href="/g/${g.slug}"><span class="t">${icon(groupIcon(g.kind))}${g.name}</span><span class="s">${GROUP_KIND_LABEL[g.kind as GroupKind] ?? 'Gruppe'}</span></a>`)}
             </div>
           </section>`
         : ''}

@@ -5,6 +5,7 @@ import {
 } from '../domain/logbook-year';
 import { SCORING_NOTE, pointsByTemplate, scoreEntry, templateFor, templateLabel, usesTemplates, type ScoringTemplate } from '../domain/scoring';
 import { SCORING_PATH } from '../services/url-state';
+import { placeText, regattaEntries, resultDetails } from '../domain/regatta';
 import { lifetimeReview, seasonReview } from '../domain/season-review';
 import type { SeasonImageState } from './sx-season-review';
 import './sx-season-badges';
@@ -181,6 +182,33 @@ export class SxLogbookPage extends LitElement {
       h2 {
         margin: 0;
         font-size: var(--fs-l);
+      }
+      .regattas ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: var(--s-2);
+      }
+      .reg {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0 var(--s-3);
+        min-width: 0;
+      }
+      .reg .when {
+        color: var(--text-2);
+        font-variant-numeric: tabular-nums;
+      }
+      .reg .what {
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      .reg .res {
+        grid-column: 2;
+        color: var(--text-2);
+        font-size: var(--fs-s);
+        overflow-wrap: anywhere;
       }
       .sum-head {
         display: flex;
@@ -465,7 +493,8 @@ export class SxLogbookPage extends LitElement {
           ${this.truncated ? html`<p class="note" role="status">Nur die neuesten ${LOGBOOK_MAX_ENTRIES} Einträge sind geladen – ältere fehlen in Übersicht und CSV.</p>` : nothing}
           ${this.totals(logbookTotals(everything))}
           ${this.lifetime()}
-        </section>`;
+        </section>
+        ${this.regattas(everything, 'alle')}`;
     }
     const shown = filterEntries(this.entries, this.states, season);
     // Punkte nur, wenn ein gezeigter Eintrag mehr als „Nur Meilen“ zählt (F-505)
@@ -488,11 +517,37 @@ export class SxLogbookPage extends LitElement {
         ${review.voyages ? html`<sx-season-badges .badges=${review.badges}></sx-season-badges>` : ''}
         ${this.points(shown)}
       </section>
+      ${this.regattas(shown, season)}
       <section aria-label="Einträge ${season}">
         ${shown.length
           ? html`<ol>${shown.map((e) => this.entry(e))}</ol>`
           : html`<p class="empty">${inSeason ? 'Keine Einträge mit diesem Filter.' : 'Keine Einträge in dieser Saison.'}</p>`}
       </section>`;
+  }
+
+  /**
+   * „Regatten“ (Konzept 42, F-647, F-648): eigene Regatta-Ergebnisse und die der Crew-Törns der gezeigten Saison bzw.
+   * aller Saisons, mit CSV. Ohne Regatta-Angaben kein Abschnitt.
+   */
+  private regattas(list: LogbookEntry[], season: number | 'alle') {
+    const rows = regattaEntries(list);
+    if (!rows.length) return nothing;
+    return html`<section aria-labelledby="reg-h" class="regattas">
+      <div class="sum-head">
+        <h2 id="reg-h">Regatten${season === 'alle' ? '' : ` ${season}`}</h2>
+        <a class="btn" href="/api/me/regattas.csv?saison=${season}" download>${icon('download')} Ergebnisse (CSV)</a>
+      </div>
+      <p class="note">Im Verein oder in der Klassenvereinigung sehen andere Mitglieder ein Ergebnis, wenn du den öffentlichen Eintrag dort zeigst.</p>
+      <ol>
+        ${rows.map(
+          (e) => html`<li class="reg">
+            <span class="when">${fmtDate(e.startedAt)}</span>
+            <span class="what">${e.path ? html`<a href=${e.path}>${e.log.regatta.name}</a>` : e.log.regatta.name}${e.own ? '' : html` <span class="faint">(Crew)</span>`}</span>
+            <span class="res">${[placeText(e.log.regatta), resultDetails(e.log.regatta), e.boat ?? '', roleText(e)].filter(Boolean).join(' · ')}</span>
+          </li>`,
+        )}
+      </ol>
+    </section>`;
   }
 
   render() {

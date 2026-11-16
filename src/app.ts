@@ -782,6 +782,8 @@ export class App {
     on<Partial<{ post: boolean; invite: boolean; assign: AssignMode }>>('sx-boat-crew-rights', (d) => this.boatCrew.rights(d));
     on<{ boatId: string; shareId: string }>('sx-boat-unassign', (d) => this.boatCrew.unassign(d.shareId));
     on<{ id: string }>('sx-boat-crew-revoke', (d) => this.boatCrew.revoke(d.id));
+    // Regatten (Konzept 42)
+    on<{ season: number }>('sx-group-regattas-season', (d) => this.groups.loadRegattas(d.season));
     on('sx-logout', () => s.logout());
     on('sx-account-delete', () => s.deleteAccount());
 
