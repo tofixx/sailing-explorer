@@ -12,7 +12,8 @@ import { getMyProfile, getProfile, putMyProfile } from './profiles';
 import { LISTED, getDiscover, getDiscoverStats } from './discover';
 import { getHeat, putShareHeat } from './heat';
 import { confirmCrew, setCrewRole, setOwnerRole, unconfirmCrew } from './crew-roles';
-import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteCrew, inviteFriend, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
+import { getBoatCrew, removeCrewMember, setCrewRights, setCrewTitle, unassignShare } from './boat-crew';
+import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteBoatCrew, inviteCrew, inviteFriend, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
 import { withPageHeaders } from './security';
 import { createCheckout, freeShares, getSupport, stripeWebhook, supportConfig } from './supporter';
 import { runRetention } from './retention';
@@ -106,6 +107,13 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/boats\/([A-Za-z0-9]+)\/admins$/, (r, env, [id]) => listBoatAdmins(r, env, id)],
   ['POST', /^\/api\/boats\/([A-Za-z0-9]+)\/invites$/, (r, env, [id]) => inviteBoatAdmin(r, env, id)],
   ['DELETE', /^\/api\/boats\/([A-Za-z0-9]+)\/admins\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => removeBoatAdmin(r, env, id, who)],
+  // ---- Stammcrew (Konzept 41): worker/boat-crew.ts, Einladen in worker/invites.ts ----
+  ['GET', /^\/api\/boats\/([A-Za-z0-9]+)\/crew$/, (r, env, [id]) => getBoatCrew(r, env, id)],
+  ['POST', /^\/api\/boats\/([A-Za-z0-9]+)\/crew\/invites$/, (r, env, [id]) => inviteBoatCrew(r, env, id)],
+  ['PUT', /^\/api\/boats\/([A-Za-z0-9]+)\/crew-rights$/, (r, env, [id]) => setCrewRights(r, env, id)],
+  ['PATCH', /^\/api\/boats\/([A-Za-z0-9]+)\/crew\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => setCrewTitle(r, env, id, who)],
+  ['DELETE', /^\/api\/boats\/([A-Za-z0-9]+)\/crew\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => removeCrewMember(r, env, id, who)],
+  ['DELETE', /^\/api\/boats\/([A-Za-z0-9]+)\/shares\/([A-Za-z0-9]+)$/, (r, env, [id, sid]) => unassignShare(r, env, id, sid)],
   ['POST', /^\/api\/invites$/, (r, env) => inviteFriend(r, env)],
   ['POST', /^\/api\/invites\/peek$/, (r, env) => peekInvite(r, env)],
   ['POST', /^\/api\/invites\/accept$/, (r, env) => acceptInvite(r, env)],

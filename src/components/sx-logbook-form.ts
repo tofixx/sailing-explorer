@@ -75,7 +75,8 @@ export class SxLogbookForm extends LitElement {
   declare share: ShareMeta | null;
   /** neuer Eintrag aus einer Veranstaltung (Konzept 30, F-487): Datum, Titel, Verweis */
   declare preset: LogbookPreset | null;
-  declare boats: Boat[];
+  /** verwaltete und zuordenbare Boote (F-272) – nur ID und Name */
+  declare boats: Array<Pick<Boat, 'id' | 'name'>>;
   declare supporter: boolean;
   /** Einträge der laufenden Saison und Grenze (L1) – -1 = unbekannt */
   declare used: number;

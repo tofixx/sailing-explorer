@@ -11,7 +11,7 @@ import { recordPost, syncPostActivity, type PostForActivity } from './activity';
 import { deletePostReactions } from './reaction-cleanup';
 import { deletePostNotifications } from './notification-cleanup';
 import { GROUP_NOT_FOUND, canViewGroup, loadGroup, roleIn } from './groups';
-import { roleFor } from './boats';
+import { boatInsider, roleFor } from './boats';
 import { removeShare } from './shares';
 import { isSupporter, visibilityRequiresSupport } from './supporter';
 import { SHARE_ID_RE, timingSafeEqual } from './validate';
@@ -338,7 +338,7 @@ export async function visiblePost(
     const channelVisible =
       kind === 'group' ? !!g && canViewGroup(g, role, key, admin)
       : kind === 'harbor' ? !!p.harbor_ok
-      : kind === 'boat' ? !!p.b_vis && canView({ visibility: p.b_vis, shareKey: p.b_key, hiddenAt: p.b_hidden, lockedAt: p.b_locked }, { manager: !!boatRole, key: null, admin })
+      : kind === 'boat' ? !!p.b_vis && canView({ visibility: p.b_vis, shareKey: p.b_key, hiddenAt: p.b_hidden, lockedAt: p.b_locked }, { manager: !!boatRole || (await boatInsider(env, user?.id, p.channel_id ?? '')), key: null, admin })
       : true;
     ok = canSeePost(
       { visibility: p.visibility, channel: kind, hidden: !!p.hidden_at, authorSuspended: !!p.suspended, authorPublic: !!p.author_public },

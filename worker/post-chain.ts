@@ -2,10 +2,11 @@
 // je Verlauf, beim Schreiben aufgelöst (Verein des Teams, Heimathafen, Hafen des Boots). Reine Regeln in
 // src/domain/posts.ts; hier nur die Abfragen. Ohne Abhängigkeit zu posts.ts, damit es dort importiert werden kann.
 import type { Env } from './env';
+import { canPostOnBoat, crewRights } from '../src/domain/boat-crew';
 import { isAdmin } from './moderation';
 import type { GroupKind, GroupRole } from '../src/domain/groups';
 import {
-  canChoosePostVisibility, canWriteInGroup, canWriteInHarbor, canWriteOnBoat, effectivePostBy, postVisibilityChoices, reachOptions,
+  canChoosePostVisibility, canWriteInGroup, canWriteInHarbor, effectivePostBy, postVisibilityChoices, reachOptions,
   type ChannelKind, type ChannelRef, type ComposeTarget, type ReachChain,
 } from '../src/domain/posts';
 import { liveSql, publicSql } from './visible-sql';
@@ -61,10 +62,13 @@ interface BoatChainRow {
 }
 
 /** Boote mit Hafen; `?1` Konto – nur eigene bzw. verwaltete, nicht gesperrte. */
+// Stammcrew nur mit Schalter „Beiträge“ (F-271, gleiche Regel wie canPostOnBoat in src/domain/boat-crew.ts)
 const BOAT_CHAIN_SQL = `SELECT b.id, b.name, b.visibility, b.hidden_at, h.id AS h_id, h.name AS h_name,
-    CASE WHEN b.owner_id = ?1 THEN 'owner' ELSE 'admin' END AS role FROM boats b
+    CASE WHEN b.owner_id = ?1 THEN 'owner' WHEN EXISTS (SELECT 1 FROM boat_admins a WHERE a.boat_id = b.id AND a.user_id = ?1) THEN 'admin' ELSE 'crew' END AS role,
+    b.crew_post FROM boats b
   LEFT JOIN harbors h ON h.id = b.harbor_id AND h.hidden_at IS NULL
-  WHERE b.locked_at IS NULL AND (b.owner_id = ?1 OR EXISTS (SELECT 1 FROM boat_admins a WHERE a.boat_id = b.id AND a.user_id = ?1))`;
+  WHERE b.locked_at IS NULL AND (b.owner_id = ?1 OR EXISTS (SELECT 1 FROM boat_admins a WHERE a.boat_id = b.id AND a.user_id = ?1)
+    OR (b.crew_post = 1 AND EXISTS (SELECT 1 FROM boat_crew c WHERE c.boat_id = b.id AND c.user_id = ?1)))`;
 
 const boatChannel = (r: BoatChainRow): WritableChannel => ({
   kind: 'boat',
@@ -118,8 +122,8 @@ export async function writableChannel(env: Env, userId: string, kind: ChannelKin
       return r && canWriteInGroup(r.role, effectivePostBy(r.kind, r.post_by)) ? groupChannel(r) : null;
     }
     case 'boat': {
-      const r = await env.DB.prepare(`${BOAT_CHAIN_SQL} AND b.id = ?2`).bind(userId, id).first<BoatChainRow & { role: 'owner' | 'admin' }>();
-      return r && canWriteOnBoat(r.role) ? boatChannel(r) : null;
+      const r = await env.DB.prepare(`${BOAT_CHAIN_SQL} AND b.id = ?2`).bind(userId, id).first<BoatChainRow & { role: 'owner' | 'admin' | 'crew'; crew_post: number }>();
+      return r && canPostOnBoat(r.role, crewRights(r)) ? boatChannel(r) : null;
     }
     case 'harbor': {
       const h = await env.DB.prepare('SELECT id, slug, name, created_by FROM harbors WHERE id = ? AND hidden_at IS NULL').bind(id).first<{ id: string; slug: string; name: string; created_by: string | null }>();

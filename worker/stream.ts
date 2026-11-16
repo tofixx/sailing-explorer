@@ -8,7 +8,7 @@ import { loadGroup, loadGroupBySlug, visibleGroup } from './groups';
 import { harborVisible, loadHarbor, loadHarborBySlug, HARBOR_NOT_FOUND } from './harbors';
 import { homeShape, homeStmt, type HomeRow } from './home';
 import { isAdmin } from './moderation';
-import { roleFor } from './boats';
+import { boatInsider } from './boats';
 import { canView, requestKey } from './access';
 import { BOAT_ID_RE } from './validate';
 import { reachAtLeastSql } from './reach-sql';
@@ -269,9 +269,10 @@ const cursorOf = (request: Request): StreamCursor => {
 
 /** Ziele des persönlichen Streams als [Art, ID]-Paare (eindeutig, höchstens STREAM_TARGETS_MAX) und die Heimat. */
 export async function personalTargets(env: Env, userId: string): Promise<{ keys: Array<[string, string] | [string, string, number]>; home: HomeRow | null; groups: number }> {
-  const [groups, boats, follows, clubTeams, teamMates, home] = await env.DB.batch([
+  const [groups, boats, crewBoats, follows, clubTeams, teamMates, home] = await env.DB.batch([
     env.DB.prepare(TARGET_SQL.groups).bind(userId),
     env.DB.prepare(TARGET_SQL.boats).bind(userId),
+    env.DB.prepare(TARGET_SQL.crewBoats).bind(userId),
     env.DB.prepare(TARGET_SQL.follows).bind(userId),
     env.DB.prepare(TARGET_SQL.clubTeams).bind(userId),
     env.DB.prepare(TARGET_SQL.teamMates).bind(userId),
@@ -286,7 +287,7 @@ export async function personalTargets(env: Env, userId: string): Promise<{ keys:
   };
   add('user', userId);
   if (homeRow?.harbor_id) add('harbor', homeRow.harbor_id);
-  for (const res of [groups, clubTeams, boats, follows, teamMates]) for (const r of res.results as Array<{ k: string; id: string; t?: number }>) add(r.k, r.id, !!r.t);
+  for (const res of [groups, clubTeams, boats, crewBoats, follows, teamMates]) for (const r of res.results as Array<{ k: string; id: string; t?: number }>) add(r.k, r.id, !!r.t);
   return { keys: [...keys.values()], home: homeRow, groups: groups.results.length };
 }
 
@@ -510,8 +511,9 @@ export async function boatStream(request: Request, env: Env, id: string): Promis
   const b = BOAT_ID_RE.test(id)
     ? await env.DB.prepare('SELECT id, visibility, share_key, hidden_at, locked_at FROM boats WHERE id = ?').bind(id).first<{ id: string; visibility: Visibility; share_key: string | null; hidden_at: number | null; locked_at: number | null }>()
     : null;
-  const role = b && user ? await roleFor(env, user.id, b.id) : null;
-  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key, hiddenAt: b.hidden_at, lockedAt: b.locked_at }, { manager: !!role, key, admin: isAdmin(env, user?.id) })) {
+  // Verwalter und Stammcrew (F-273) sehen das Boot auch bei „Nur ich“ – nie aus dem öffentlichen Cache
+  const role = b ? await boatInsider(env, user?.id, b.id) : false;
+  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key, hiddenAt: b.hidden_at, lockedAt: b.locked_at }, { manager: role, key, admin: isAdmin(env, user?.id) })) {
     await countKeyFailure(env, request, key);
     throw new HttpError(404, 'not_found', 'Dieses Boot gibt es nicht oder es ist privat.');
   }

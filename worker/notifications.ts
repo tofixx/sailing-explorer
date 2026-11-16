@@ -200,7 +200,7 @@ function postAudience(kind: string, event: NotifyEvent): { ids: string; joins: s
     case 'boat':
       return {
         ids: `SELECT id, MAX(rel) AS rel FROM (SELECT owner_id AS id, 1 AS rel FROM boats WHERE id = ?6
-          UNION ALL SELECT user_id, 1 FROM boat_admins WHERE boat_id = ?6
+          UNION ALL SELECT x.user_id, 1 FROM (SELECT user_id FROM boat_admins WHERE boat_id = ?6 UNION ALL SELECT user_id FROM boat_crew WHERE boat_id = ?6) x
           UNION ALL SELECT user_id, 0 FROM follows WHERE target_kind = 'boat' AND target_id = ?6) GROUP BY id`,
         joins: follow('boat'),
         ok: higherUnlessMuted(event),
@@ -262,7 +262,8 @@ export const notifyShare = (env: Env, shareId: string) =>
         SELECT m.user_id AS id FROM share_groups sg JOIN group_members m ON m.group_id = sg.group_id WHERE sg.share_id = ?3
         UNION SELECT f.user_id FROM share_groups sg JOIN follows f ON f.target_kind = 'group' AND f.target_id = sg.group_id WHERE sg.share_id = ?3
         UNION SELECT owner_id FROM boats WHERE id = ?6
-        UNION SELECT user_id FROM boat_admins WHERE boat_id = ?6
+        -- Verwalter und Stammcrew in einem Glied (D1 erlaubt nur wenige UNION-Glieder je SELECT)
+        UNION SELECT x.user_id FROM (SELECT user_id FROM boat_admins WHERE boat_id = ?6 UNION ALL SELECT user_id FROM boat_crew WHERE boat_id = ?6) x
         UNION SELECT user_id FROM follows WHERE target_kind = 'boat' AND target_id = ?6
       ) c JOIN users u ON u.id = c.id
       WHERE u.suspended_at IS NULL AND u.locked_at IS NULL
@@ -280,7 +281,8 @@ export const notifyShare = (env: Env, shareId: string) =>
                     AND ${ok(followLevelSql('f'))})
           -- Boot nur, wenn „Sichtbar bis“ den Hafen abdeckt (wie shareTargetStmts, F-427); ausdrückliches „Stumm“ gewinnt
           OR (${boatReach} AND NOT EXISTS (SELECT 1 FROM follows fm WHERE fm.user_id = u.id AND fm.target_kind = 'boat' AND fm.target_id = ?6 AND fm.notify_level = 'muted')
-              AND (u.id IN (SELECT owner_id FROM boats WHERE id = ?6) OR u.id IN (SELECT user_id FROM boat_admins WHERE boat_id = ?6)) AND ${ok()})
+              AND (u.id IN (SELECT owner_id FROM boats WHERE id = ?6) OR u.id IN (SELECT user_id FROM boat_admins WHERE boat_id = ?6)
+                OR u.id IN (SELECT user_id FROM boat_crew WHERE boat_id = ?6)) AND ${ok()})
           OR (${boatReach} AND EXISTS (SELECT 1 FROM follows f JOIN boats b ON b.id = f.target_id AND b.visibility = 'public' AND b.hidden_at IS NULL
                   WHERE f.target_kind = 'boat' AND f.target_id = ?6 AND f.user_id = u.id AND ${ok(followLevelSql('f'))}))
         )
@@ -544,7 +546,7 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
   ORDER BY n.updated_at DESC
   LIMIT ?4`;
 
-const INVITE_WHAT: Record<string, string> = { boat_admin: 'als Admin für das Boot', crew: 'in die Crew von', friend: 'zum gegenseitigen Folgen' };
+const INVITE_WHAT: Record<string, string> = { boat_admin: 'als Admin für das Boot', boat_member: 'in die Stammcrew des Boots', crew: 'in die Crew von', friend: 'zum gegenseitigen Folgen' };
 
 /**
  * Darf die Empfängerin einen Beitrag (neu, Veranstaltung) aus der Glocke sehen – und wie heißt sein Verlauf? Gruppe:

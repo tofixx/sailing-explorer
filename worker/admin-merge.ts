@@ -191,6 +191,12 @@ export async function mergeUsers(request: Request, env: Env, id: string): Promis
     ).bind(A, B),
     db.prepare('UPDATE boat_admins SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     db.prepare('DELETE FROM boat_admins WHERE user_id = ?1 AND boat_id IN (SELECT id FROM boats WHERE owner_id = ?1)').bind(A),
+    // Stammcrew: doppelte und eigene bzw. verwaltete Boote fallen weg, der Rest wandert (F-270)
+    db.prepare(
+      `DELETE FROM boat_crew WHERE user_id = ?2 AND (boat_id IN (SELECT boat_id FROM boat_crew WHERE user_id = ?1)
+         OR boat_id IN (SELECT id FROM boats WHERE owner_id = ?1) OR boat_id IN (SELECT boat_id FROM boat_admins WHERE user_id = ?1))`,
+    ).bind(A, B),
+    db.prepare('UPDATE boat_crew SET user_id = ?1 WHERE user_id = ?2').bind(A, B),
     // Gruppen: in beiden Mitglied → höhere Rolle (Eigner > Admin > Mitglied)
     db.prepare('UPDATE groups SET owner_id = ?1 WHERE owner_id = ?2').bind(A, B),
     db.prepare(

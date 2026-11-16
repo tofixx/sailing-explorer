@@ -2,7 +2,6 @@ import type { Env } from './env';
 import { notifyShare } from './notifications';
 import { readShareReach, sharePostStmt } from './post-sql';
 import { currentUser, requireUser } from './auth';
-import { canManageBoat } from './boats';
 import { randomId } from './crypto';
 import { HttpError, clientIp, countKeyFailure, json, rateLimit, readBodyCapped, readJson, withApiHeaders } from './http';
 import { canView, nextShareKey, requestKey } from './access';
@@ -20,6 +19,7 @@ import { EXPIRES_SQL, TRACK_EXPIRES_SQL } from './expiry-sql';
 import { shareContext } from './share-context';
 import { voyageRole, type VoyageRole } from '../src/domain/crew-roles';
 import { clearConfirmations } from './crew-cleanup';
+import { canAssignBoat } from './boat-crew';
 export { EXPIRES_SQL };
 import { DEFAULT_VISIBILITY, canChooseVisibility, sharePath, type Visibility } from '../src/domain/visibility';
 import { isReach, type Reach } from '../src/domain/posts';
@@ -190,10 +190,14 @@ export function assertMediaAllowed(row: Pick<ShareRow, 'source'>): void {
   if (row.source === 'manual') throw new HttpError(409, 'no_media_manual', 'Fahrtenbuch-Einträge ohne GPX haben keine Fotos und kein Übersichtsbild.');
 }
 
-/** Ein Boot darf nur zugeordnet werden, wenn man es verwalten darf. */
-export async function checkBoat(env: Env, userId: string, boatId: unknown): Promise<string | null> {
+/**
+ * Ein Boot darf zugeordnet werden, wenn man es verwaltet oder die Schalter der Stammcrew es erlauben (F-272). Das
+ * bisherige Boot (`current`) bleibt erlaubt, auch wenn das Recht inzwischen fehlt – Speichern anderer Felder soll nicht scheitern.
+ */
+export async function checkBoat(env: Env, userId: string, boatId: unknown, current: string | null = null): Promise<string | null> {
   if (boatId === null || boatId === '' || boatId === undefined) return null;
-  if (typeof boatId !== 'string' || !BOAT_ID_RE.test(boatId) || !(await canManageBoat(env, userId, boatId))) {
+  if (typeof boatId === 'string' && boatId === current) return current;
+  if (typeof boatId !== 'string' || !BOAT_ID_RE.test(boatId) || !(await canAssignBoat(env, userId, boatId))) {
     throw new HttpError(400, 'invalid_boat', 'Dieses Boot kannst du nicht zuordnen.');
   }
   return boatId;
@@ -406,7 +410,7 @@ export async function updateShare(request: Request, env: Env, id: string): Promi
     row.visibility = v;
   }
   row.share_key = nextShareKey(previous, row.visibility, row.share_key, body.rotateKey === true, true);
-  if (body.boatId !== undefined) row.boat_id = await checkBoat(env, user.id, body.boatId);
+  if (body.boatId !== undefined) row.boat_id = await checkBoat(env, user.id, body.boatId, row.boat_id);
   if (body.view !== undefined) row.view = cleanView(body.view);
   // Kommentare an/aus/ausgeblendet (Konzept 4.1) – gesperrte Konten dürfen weiter abschalten.
   if (body.commentsMode !== undefined) {

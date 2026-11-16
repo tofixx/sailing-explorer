@@ -262,7 +262,7 @@ export interface Crew {
   invites: PendingInvite[];
 }
 
-export type InviteKind = 'boat_admin' | 'crew' | 'group' | 'friend';
+export type InviteKind = 'boat_admin' | 'boat_member' | 'crew' | 'group' | 'friend';
 
 export interface InvitePeek {
   kind: InviteKind;
@@ -521,7 +521,8 @@ export const api = {
   profile: (handle: string, key?: string | null, preview?: ProfilePreview | null) =>
     call<ProfilePageData>(`/api/profiles/${encodeURIComponent(handle)}${preview ? `?as=${encodeURIComponent(previewParam(preview))}` : ''}`, keyInit(key)),
 
-  myBoats: () => call<{ boats: Boat[] }>('/api/boats'),
+  /** `assignable`: Boote, denen ich nur zuordnen darf (Stammcrew u. a., F-272) */
+  myBoats: () => call<{ boats: Boat[]; assignable?: Array<Pick<Boat, 'id' | 'name'>> }>('/api/boats'),
   createBoat: (b: BoatInput) => call<{ boat: Boat }>('/api/boats', jsonInit('POST', b)),
   updateBoat: (id: string, b: BoatInput) => call<{ boat: Boat }>(`/api/boats/${encodeURIComponent(id)}`, jsonInit('PATCH', b)),
   deleteBoat: (id: string) => call<void>(`/api/boats/${encodeURIComponent(id)}`, { method: 'DELETE' }),

@@ -7,6 +7,7 @@ import type { LogSuggestion } from '../domain/logbook-suggest';
 import { errorText } from './session';
 import type { LogbookPreset } from '../domain/events';
 import { scoringApi } from '../services/scoring-api';
+import { boatChoices } from '../services/boat-crew-api';
 
 /** Wie das Formular aufgeht: mit Vorschlägen aus dem Track (GPX-Törn) und was nach dem Speichern passiert. */
 export interface LogbookStart {
@@ -50,7 +51,7 @@ export class LogbookController {
       scoringApi.mine().catch(() => null),
     ]);
     Object.assign(f, {
-      boats: boats.boats,
+      boats: boatChoices(boats),
       // Vorlagen nur für Vereinsmitglieder (F-501) – sonst kein Feld, die Vorlage des Eintrags bleibt
       templates: scoring?.clubs?.length ? scoring.templates : [],
       lastTemplateId: scoring?.lastTemplateId ?? null,

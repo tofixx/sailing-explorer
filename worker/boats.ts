@@ -7,6 +7,7 @@ import { HttpError, countKeyFailure, json, readJson } from './http';
 import { canView, nextShareKey, requestKey } from './access';
 import { isAdmin, logLockedView } from './moderation';
 import { publicShares } from './shares';
+import { assignableBoats } from './boat-crew';
 import { clearBoatConfirmations } from './crew-cleanup';
 import { boatCleanup, recordHarborBoat } from './activity';
 import { harborFromBoatInput, type HarborRow } from './harbors';
@@ -61,6 +62,16 @@ const NOT_FOUND = () => new HttpError(404, 'not_found', 'Dieses Boot gibt es nic
 /** Eigner oder eingetragener Admin. */
 export async function canManageBoat(env: Env, userId: string, boatId: string): Promise<boolean> {
   return (await roleFor(env, userId, boatId)) !== null;
+}
+
+/**
+ * Sieht das Konto das Boot von innen – Eigner, Admin oder Stammcrew (F-273)? Für Sichtbarkeit (Bootsseite, Verlauf,
+ * Beiträge), nie für Verwalter-Rechte (dafür roleFor).
+ */
+export async function boatInsider(env: Env, userId: string | null | undefined, boatId: string): Promise<boolean> {
+  if (!userId) return false;
+  if (await roleFor(env, userId, boatId)) return true;
+  return !!(await env.DB.prepare('SELECT 1 AS n FROM boat_crew WHERE boat_id = ? AND user_id = ?').bind(boatId, userId).first());
 }
 
 /** Rolle des Kontos am Boot: Eigner, Admin oder keine (auch bei unbekanntem oder gesperrtem Boot, Konzept 18.2). */
@@ -189,7 +200,10 @@ function setHarbor(b: BoatRow, harbor: HarborRow | null | undefined): void {
   b.harbor_name = harbor?.name ?? null;
 }
 
-/** GET /api/boats – Boote, die ich besitze oder verwalte. */
+/**
+ * GET /api/boats – Boote, die ich besitze oder verwalte; dazu `assignable`: Boote, denen ich eigene Törns zuordnen
+ * darf, ohne sie zu verwalten (Stammcrew, Vereinsboote, offene Charterboote – F-272).
+ */
 export async function listMyBoats(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const { results } = await env.DB.prepare(
@@ -197,7 +211,7 @@ export async function listMyBoats(request: Request, env: Env): Promise<Response>
   )
     .bind(user.id)
     .all<BoatRow>();
-  return json({ boats: results.map((b) => boatShape(b, b.owner_id === user.id ? 'owner' : 'admin')) });
+  return json({ boats: results.map((b) => boatShape(b, b.owner_id === user.id ? 'owner' : 'admin')), assignable: await assignableBoats(env, user.id) });
 }
 
 /** POST /api/boats – Boot anlegen; der Anlegende wird Eigner. */
@@ -234,7 +248,9 @@ export async function getBoat(request: Request, env: Env, id: string): Promise<R
   const b = BOAT_ID_RE.test(id) ? await env.DB.prepare(`${BOAT_SELECT} WHERE b.id = ?`).bind(id).first<BoatRow>() : null;
   const user = await currentUser(request, env);
   const role = b && user ? await roleFor(env, user.id, id) : null;
-  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key ?? null, hiddenAt: b.hidden_at ?? null, lockedAt: b.locked_at ?? null }, { manager: !!role, key, admin: isAdmin(env, user?.id) })) {
+  // Die Stammcrew sieht ihr Boot auch bei „Nur ich“ – wie Mitglieder ihre geschlossene Gruppe (F-273); verwalten kann sie nichts.
+  const crew = !!b && !role && (await boatInsider(env, user?.id, id));
+  if (!b || !canView({ visibility: b.visibility, shareKey: b.share_key ?? null, hiddenAt: b.hidden_at ?? null, lockedAt: b.locked_at ?? null }, { manager: !!role || crew, key, admin: isAdmin(env, user?.id) })) {
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }
@@ -292,7 +308,7 @@ export async function deleteBoat(request: Request, env: Env, id: string): Promis
 }
 
 /**
- * Der eine Löschpfad für Boote (Eigner, Moderation): Titelbild, Zuordnungen, Admins, Einladungen, Meldungen, Folgen
+ * Der eine Löschpfad für Boote (Eigner, Moderation): Titelbild, Zuordnungen, Admins, Stammcrew, Einladungen, Meldungen, Folgen
  * und Aktivitäten; Törns bleiben und verlieren nur die Zuordnung.
  */
 export async function removeBoat(env: Env, id: string): Promise<void> {
@@ -305,6 +321,7 @@ export async function removeBoat(env: Env, id: string): Promise<void> {
     ...clearBoatConfirmations(env, '= ?', id),
     env.DB.prepare('UPDATE shares SET boat_id = NULL WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM boat_admins WHERE boat_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM boat_crew WHERE boat_id = ?').bind(id),
     env.DB.prepare('DELETE FROM invites WHERE boat_id = ?').bind(id),
     env.DB.prepare(`DELETE FROM reports WHERE target_kind = 'boat' AND target_id = ?`).bind(id),
     env.DB.prepare('DELETE FROM boats WHERE id = ?').bind(id),
