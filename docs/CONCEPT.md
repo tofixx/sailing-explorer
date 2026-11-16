@@ -1847,7 +1847,9 @@ Diagramme und die Bedeutungsfarben (`--c-speed` usw.) ändern sich nicht.
 **Bedienung (Entscheidung des Betreibers):** ein Knopf mit Ebenen-Symbol („Kartenstil“; bis F-531 ein Zahnrad, das nach UX N6 nur noch dem Seiten-Menü gehört) unten rechts über der Karte (nur in
 der Törn-Ansicht, nicht in Einbettungen) öffnet ein kleines Menü mit den Stilen (Name, Farbverlauf, Haken am geltenden).
 Ein Klick wendet den Stil sofort an – kein „Übernehmen“, kein „Nur jetzt“. Angemeldet stehen darunter „… als Standard
-setzen“ (für den geltenden Stil) und „Standard entfernen“. Mobil kommt das Menü als Sheet vom unteren Rand.
+setzen“ (für den geltenden Stil) und „Standard entfernen“. Mobil kommt das Menü als Sheet vom unteren Rand (scrollt, wenn es höher als der Bildschirm wird).
+Zwischen Stilen und „Revier“ steht die Gruppe „Grundkarte“ (Kacheln, F-660/F-661): der einzige Weg zur Grundkarte – die
+frühere Leaflet-Ebenen-Steuerung oben rechts ist entfallen (UX N1, ein Ebenen-Knopf statt zwei).
 
 **Speicherung und Vorrang:** Die Auswahl gilt sofort und bis die Seite neu geladen bzw. neu geöffnet wird (auch über
 Törn-Wechsel hinweg); sie liegt nur im Speicher der Seite. Der Profil-Standard liegt in `users.map_style` (Migration 0019, NULL = keiner) und

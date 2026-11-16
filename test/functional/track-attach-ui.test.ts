@@ -27,6 +27,7 @@ vi.mock('../../src/map/map-view', async () => {
       showPlace = v.fn();
       photos = { set: v.fn(), highlight: v.fn(), focus: v.fn(), startPlacing: v.fn(), stopPlacing: v.fn(), callbacks: {} };
       heat = { set: v.fn(), fitHotspot: v.fn(() => false) };
+      baseMap = { key: 'osm-de', set: v.fn() };
     },
   };
 });
