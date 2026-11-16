@@ -20,6 +20,7 @@ export class BaseMapLayer {
   ) {
     this.current = defaultBaseMap(MAP_LANG, scheme.matches);
     this.tile(this.current).addTo(map);
+    onChange(this.current.key);
     scheme.addEventListener('change', () => {
       if (!this.chosen) this.show(defaultBaseMap(MAP_LANG, scheme.matches));
     });

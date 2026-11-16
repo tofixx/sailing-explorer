@@ -339,9 +339,8 @@ sx-map-style {
   bottom: 28px;
   z-index: 900; /* über Seitenleiste (500) und Startseite (800, Menü-Tafel mobil), unter der Kopfzeile (1000) */
 }
-/* Einbettungen: ohne Anmeldung (Cookie fehlt im fremden iframe) und ohne Konto-Bezug – kein Knopf, wie beim Passkey */
-.app[data-empty] sx-map-style,
-.app[data-embed] sx-map-style {
+/* Startseite: Karte nur Hintergrund. Einbettungen behalten den Knopf, aber nur mit der Grundkarte (F-663) */
+.app[data-empty] sx-map-style {
   display: none;
 }
 @media (max-width: 760px) {

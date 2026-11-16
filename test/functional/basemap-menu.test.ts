@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Grundkarte im Kartenstil-Menü (F-660 … F-662, UX N1): eine Gruppe „Grundkarte“ statt der Leaflet-Ebenen-Steuerung.
+// Grundkarte im Kartenstil-Menü (F-660 … F-663, UX N1): eine Gruppe „Grundkarte“ statt der Leaflet-Ebenen-Steuerung.
 import L from 'leaflet';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -82,7 +82,7 @@ describe('F-660 Gruppe „Grundkarte“ im Kartenstil-Menü', () => {
 });
 
 describe('F-661 Grundkarte auf der Karte', () => {
-  it('[F-661] ohne Wahl gilt der Standard nach Farbschema und MAP_LANG und folgt einem Schemawechsel', () => {
+  it('[F-661] ohne Wahl gilt der Standard nach Farbschema und MAP_LANG (schon beim Start gemeldet) und folgt einem Schemawechsel', () => {
     const map = leafletMap();
     const s = scheme(false);
     const seen: string[] = [];
@@ -94,7 +94,7 @@ describe('F-661 Grundkarte auf der Karte', () => {
     s.flip(true);
     expect(layer.key).toBe(night.key);
     expect(tileUrls(map)).toEqual([night.url]);
-    expect(seen).toEqual([night.key]);
+    expect(seen).toEqual([day.key, night.key]);
     map.remove();
   });
 
@@ -108,7 +108,7 @@ describe('F-661 Grundkarte auf der Karte', () => {
     s.flip(true);
     expect(layer.key).toBe('esri-ocean');
     expect(tileUrls(map)).toEqual([BASE_MAPS.find((m) => m.key === 'esri-ocean')!.url]);
-    expect(seen).toEqual(['esri-ocean']);
+    expect(seen).toEqual([defaultBaseMap(MAP_LANG, false).key, 'esri-ocean']);
     expect(map.getContainer().querySelector('.leaflet-control-layers')).toBeNull();
     map.remove();
   });
@@ -116,10 +116,38 @@ describe('F-661 Grundkarte auf der Karte', () => {
 
 describe('F-662 Menü mobil', () => {
   it('[F-662] mobil scrollt das Sheet unter der Kopfzeile; alle Einträge sind mindestens 44 px hoch', async () => {
-    const el = await mount();
+    const el = await mount({ signedIn: true, current: 'classic', profileStyle: 'classic' });
     const css = cssOf((el.constructor as unknown as { elementStyles: unknown }).elementStyles);
-    expect(css).toMatch(/@media \(max-width: 760px\) \{ \.menu \{[^}]*max-height: calc\(100dvh - var\(--topbar-h, 56px\)\);[^}]*overflow-y: auto/);
+    const mobile = css.slice(css.indexOf('@media (max-width: 760px) { .menu { max-height'));
+    expect(mobile).toMatch(/^@media \(max-width: 760px\) \{ \.menu \{[^}]*max-height: calc\(100dvh - var\(--topbar-h, 56px\)\);[^}]*overflow-y: auto[^}]*\} \.btn\.small\.action \{ min-height: 44px; \}/);
     expect(css).toMatch(/\.item \{[^}]*min-height: 44px/);
+    // Standard-Knöpfe sind .action (mobil 44 px), alle anderen Einträge .item
+    const buttons = [...el.shadowRoot.querySelectorAll<HTMLButtonElement>('.menu button')];
+    expect(buttons.filter((b) => b.classList.contains('action')).length).toBe(2);
+    expect(buttons.every((b) => b.classList.contains('item') || b.classList.contains('action'))).toBe(true);
     expect(el.shadowRoot.querySelectorAll('.item.base').length).toBe(BASE_MAPS.length);
+  });
+});
+
+describe('F-663 Einbettung', () => {
+  it('[F-663] eingebettet zeigt das Menü nur die Grundkarten – ohne Stile, Revier und Standard-Knöpfe', async () => {
+    const el = await mount({ embed: true, baseMap: 'osm-de', signedIn: true, profileStyle: 'classic' });
+    const toggle = el.shadowRoot.querySelector('.toggle')!;
+    expect(toggle.getAttribute('aria-label')).toBe('Grundkarte');
+    expect(el.shadowRoot.querySelector('#ms-h')!.textContent).toBe('Grundkarte');
+    const buttons = [...el.shadowRoot.querySelectorAll<HTMLButtonElement>('.menu button')];
+    expect(buttons.map((b) => b.textContent!.trim())).toEqual(BASE_MAPS.map((m) => m.label));
+    expect(el.shadowRoot.querySelector('.heat, .action, .bar, .hint')).toBeNull();
+    const got: unknown[] = [];
+    el.addEventListener('sx-map-base', (e) => got.push((e as CustomEvent).detail));
+    buttons.find((b) => b.textContent!.includes('Seekarte'))!.click();
+    expect(got).toEqual([{ key: 'esri-ocean' }]);
+  });
+
+  it('[F-663] Einbettungen blenden den Knopf nicht mehr aus, die Startseite schon; app.ts setzt embed', () => {
+    const css = readFileSync(resolve('src/styles/app.css'), 'utf8');
+    expect(css).not.toMatch(/\[data-embed\] sx-map-style/);
+    expect(css).toMatch(/\.app\[data-empty\] sx-map-style \{\s*display: none/);
+    expect(readFileSync(resolve('src/app.ts'), 'utf8')).toMatch(/this\.ui\.mapStyle\.embed = true/);
   });
 });

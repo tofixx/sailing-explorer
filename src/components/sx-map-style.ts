@@ -14,6 +14,7 @@ export type MapStyleScope = 'now' | 'profile' | 'reset';
  * oder der Standard entfernen.
  * Dazu die Gruppe „Grundkarte“ (Kacheln, F-660 – der einzige Weg dorthin, UX N1) und der Schalter „Revier“
  * (Wärmekarte der öffentlichen Törns, Konzept 37, F-584); beide lassen das Menü beim Umschalten offen.
+ * In Einbettungen (`embed`, F-663) nur die Grundkarten – ohne Stile, Revier und Standard-Knöpfe.
  * Reine Darstellung – Events `sx-map-style-apply` { id, scope }, `sx-map-base` { key }, `sx-map-heat` { on }.
  */
 export class SxMapStyle extends LitElement {
@@ -26,6 +27,7 @@ export class SxMapStyle extends LitElement {
     error: { type: String },
     heat: { type: Boolean },
     baseMap: { type: String },
+    embed: { type: Boolean },
   };
   declare open: boolean;
   /** gerade geltender Stil */
@@ -39,6 +41,8 @@ export class SxMapStyle extends LitElement {
   declare heat: boolean;
   /** Schlüssel der geltenden Grundkarte (`BASE_MAPS`) */
   declare baseMap: string;
+  /** Einbettung (F-663): nur die Gruppe „Grundkarte“ */
+  declare embed: boolean;
 
   constructor() {
     super();
@@ -50,6 +54,7 @@ export class SxMapStyle extends LitElement {
     this.error = '';
     this.heat = false;
     this.baseMap = '';
+    this.embed = false;
   }
 
   static styles = [
@@ -88,6 +93,9 @@ export class SxMapStyle extends LitElement {
           max-height: calc(100dvh - var(--topbar-h, 56px));
           overflow-y: auto;
           overscroll-behavior: contain;
+        }
+        .btn.small.action {
+          min-height: 44px;
         }
       }
     `,
@@ -149,45 +157,56 @@ export class SxMapStyle extends LitElement {
         : ''}`;
   }
 
+  /** Gruppe „Grundkarte“ (F-660) – in Einbettungen das ganze Menü (F-663) */
+  private baseMaps() {
+    return BASE_MAPS.map((m) => {
+      const on = m.key === this.baseMap;
+      return html`<button class="item base" type="button" aria-pressed=${on}
+        @click=${() => (on ? this.close() : emit(this, 'sx-map-base', { key: m.key }))}>
+        <span class="mark">${on ? icon('check') : ''}</span>
+        <span>${m.label}</span>
+      </button>`;
+    });
+  }
+
+  private full() {
+    return html`<p class="title" id="ms-h">Kartenstil</p>
+      ${MAP_STYLE_IDS.map((id) => {
+        const s = MAP_STYLES[id];
+        const on = id === this.current;
+        return html`<button class="item" type="button" aria-pressed=${on} ?disabled=${this.busy} title=${s.description}
+          @click=${() => (on ? this.close() : this.apply(id, 'now'))}>
+          <span class="mark">${on ? icon('check') : ''}</span>
+          <span>${s.label}${this.signedIn && id === this.profileStyle ? html`<small>Standard</small>` : ''}</span>
+          <span class="bar" style="background:${rampCss(s.ramp)}" aria-hidden="true"></span>
+        </button>`;
+      })}
+      <hr />
+      <div class="group" role="group" aria-labelledby="mb-h">
+        <p class="title" id="mb-h">Grundkarte</p>
+        ${this.baseMaps()}
+      </div>
+      <hr />
+      <button class="item heat" type="button" aria-pressed=${this.heat} title="Wärmekarte der öffentlichen Törns – ohne Namen, Zeiten, Anfang und Ende"
+        @click=${() => emit(this, 'sx-map-heat', { on: !this.heat })}>
+        <span class="mark">${this.heat ? icon('check') : ''}</span>
+        <span>Revier<small>wo gesegelt wird</small></span>
+      </button>
+      <hr />
+      ${this.profileActions()}
+      ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}`;
+  }
+
   render() {
+    // Einbettung (F-663): nur die Grundkarte – ohne Konto-Bezug (kein Standard) und ohne Community-Ebene
+    const name = this.embed ? 'Grundkarte' : 'Kartenstil';
     return html`<div @keydown=${this.onKey} @focusout=${this.onFocusOut}>
-      <button class="btn icon toggle" type="button" aria-label="Kartenstil" title="Kartenstil"
+      <button class="btn icon toggle" type="button" aria-label=${name} title=${name}
         aria-expanded=${this.open} aria-controls="ms" @click=${() => (this.open ? this.close() : (this.open = true))}>
         ${icon('layers')}
       </button>
       <div class="menu" id="ms" role="group" aria-labelledby="ms-h" ?hidden=${!this.open}>
-        <p class="title" id="ms-h">Kartenstil</p>
-        ${MAP_STYLE_IDS.map((id) => {
-          const s = MAP_STYLES[id];
-          const on = id === this.current;
-          return html`<button class="item" type="button" aria-pressed=${on} ?disabled=${this.busy} title=${s.description}
-            @click=${() => (on ? this.close() : this.apply(id, 'now'))}>
-            <span class="mark">${on ? icon('check') : ''}</span>
-            <span>${s.label}${this.signedIn && id === this.profileStyle ? html`<small>Standard</small>` : ''}</span>
-            <span class="bar" style="background:${rampCss(s.ramp)}" aria-hidden="true"></span>
-          </button>`;
-        })}
-        <hr />
-        <div class="group" role="group" aria-labelledby="mb-h">
-          <p class="title" id="mb-h">Grundkarte</p>
-          ${BASE_MAPS.map((m) => {
-            const on = m.key === this.baseMap;
-            return html`<button class="item base" type="button" aria-pressed=${on}
-              @click=${() => (on ? this.close() : emit(this, 'sx-map-base', { key: m.key }))}>
-              <span class="mark">${on ? icon('check') : ''}</span>
-              <span>${m.label}</span>
-            </button>`;
-          })}
-        </div>
-        <hr />
-        <button class="item heat" type="button" aria-pressed=${this.heat} title="Wärmekarte der öffentlichen Törns – ohne Namen, Zeiten, Anfang und Ende"
-          @click=${() => emit(this, 'sx-map-heat', { on: !this.heat })}>
-          <span class="mark">${this.heat ? icon('check') : ''}</span>
-          <span>Revier<small>wo gesegelt wird</small></span>
-        </button>
-        <hr />
-        ${this.profileActions()}
-        ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
+        ${this.embed ? html`<p class="title" id="ms-h">Grundkarte</p>${this.baseMaps()}` : this.full()}
       </div>
     </div>`;
   }
