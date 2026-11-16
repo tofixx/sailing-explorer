@@ -155,7 +155,7 @@ describe('F-663 Einbettung', () => {
   it('[F-663] Einbettungen blenden den Knopf nicht mehr aus, die Startseite schon; app.ts setzt embed', () => {
     const css = readFileSync(resolve('src/styles/app.css'), 'utf8');
     expect(css).not.toMatch(/\[data-embed\] sx-map-style/);
-    expect(css).toMatch(/.app[data-empty] sx-map-style[,s]/);
+    expect(css).toContain('.app[data-empty] sx-map-style,');
     expect(readFileSync(resolve('src/app.ts'), 'utf8')).toMatch(/this\.ui\.mapStyle\.embed = true/);
   });
 });
