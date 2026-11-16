@@ -41,7 +41,8 @@ function listen(name: string) {
 describe('sx-cover – zurückgehaltenes Titelbild', () => {
   it('[F-563] Hinweis mit Datum bei neuen Konten, „gemeldet“ bei Melde-Sperre, nichts bei öffentlichen Bildern', async () => {
     const cover = { kind: 'u', targetId: 'anna', src: '/api/covers/u/anna/abc123', canEdit: true };
-    const until = new Date('2026-11-10T12:00:00+01:00').getTime();
+    // fest in der Zukunft, damit der Test nicht mit dem Kalender kippt (vorher 2026 – ab 11.11.2026 rot)
+    const until = new Date('2099-11-10T12:00:00+01:00').getTime();
     const fresh = await mount('sx-cover', { ...cover, heldUntil: until });
     expect(text(fresh)).toContain('Noch nicht öffentlich');
     expect(text(fresh)).toContain('ab 10.11.');

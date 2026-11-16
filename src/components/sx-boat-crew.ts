@@ -13,7 +13,8 @@ import type { InviteCreateDetail } from './sx-invite-box';
  * einladen nur mit Schalter. Eigner und Admins: Titel setzen, entfernen, einladen; der Eigner stellt die Schalter.
  *
  * Events (bubbles): `sx-boat-crew-invite` { to, done }, `sx-boat-crew-title` { userId, title },
- * `sx-boat-crew-remove` { userId } ('me' = austreten), `sx-boat-crew-rights` { post? | invite? | assign? }.
+ * `sx-boat-crew-remove` { userId } ('me' = austreten), `sx-boat-crew-rights` { post? | invite? | assign? },
+ * `sx-boat-crew-revoke` { id } (offene Einladung zurückziehen).
  */
 export class SxBoatCrew extends LitElement {
   static properties = {
@@ -205,11 +206,12 @@ export class SxBoatCrew extends LitElement {
       ${this.manager ? html`<p class="sub">Die Stammcrew ordnet ihre Törns dem Boot zu und liest seine Neuigkeiten. Verwalten kann sie nichts.</p>` : ''}
       ${this.manager ? this.rights(c) : ''}
       ${c.canInvite
-        ? html`<sx-invite-box .link=${this.link} ?busy=${this.busy}
+        ? html`<sx-invite-box .link=${this.link} ?busy=${this.busy} .pending=${c.invites ?? []}
             link-note="Nur jetzt sichtbar · 14 Tage gültig · bis zu 10 Personen."
             recipient-label="E-Mail-Adresse oder Profilname"
             share-title=${inviteShareTitle()} share-text=${inviteShareText({ kind: 'boat_member', target: this.boatName })}
-            @invite-create=${(e: CustomEvent<InviteCreateDetail>) => emit(this, 'sx-boat-crew-invite', { to: e.detail.to, done: e.detail.done })}></sx-invite-box>`
+            @invite-create=${(e: CustomEvent<InviteCreateDetail>) => emit(this, 'sx-boat-crew-invite', { to: e.detail.to, done: e.detail.done })}
+            @invite-revoke=${(e: CustomEvent<{ id: string }>) => emit(this, 'sx-boat-crew-revoke', { id: e.detail.id })}></sx-invite-box>`
         : ''}
       ${c.standing === 'crew'
         ? this.confirm === 'me'

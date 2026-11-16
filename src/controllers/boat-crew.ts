@@ -1,6 +1,6 @@
 // Stammcrew auf der Bootsseite (Konzept 41, F-270 … F-274): laden, einladen, Titel, entfernen, Schalter, Zuordnung
 // lösen. Die Seite (sx-profile-page) zeigt nur an; Daten liegen in `page.data.crew`.
-import type { InviteTo } from '../services/api';
+import { api, type InviteTo } from '../services/api';
 import { boatCrewApi } from '../services/boat-crew-api';
 import type { AssignMode } from '../domain/boat-crew';
 import type { SxProfilePage } from '../components/sx-profile-page';
@@ -62,6 +62,11 @@ export class BoatCrewController {
 
   remove(userId: string) {
     return this.act((id) => boatCrewApi.remove(id, userId), userId === 'me' ? 'Du bist nicht mehr in der Stammcrew' : 'Aus der Stammcrew entfernt');
+  }
+
+  /** Offene Einladung zurückziehen (Verwalter bzw. wer eingeladen hat). */
+  revoke(inviteId: string) {
+    return this.act(() => api.revokeInvite(inviteId), 'Einladung zurückgezogen');
   }
 
   rights(patch: Partial<{ post: boolean; invite: boolean; assign: AssignMode }>) {

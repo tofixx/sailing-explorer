@@ -9,7 +9,7 @@ beforeAll(async () => {
   h = await startWorker({}, { migrateBefore: '0050' });
   const db = await h.db();
   await db.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)').bind('MigCrewUserAAAAAAA', 'mig-crew@example.org', 1).run();
-  await db.prepare(`INSERT INTO boats (id, owner_id, name, visibility, created_at, updated_at) VALUES ('MigCrewBoatAAAAAAA', 'MigCrewUserAAAAAAA', 'Alt', 'public', 1, 1)`).run();
+  await db.prepare(`INSERT INTO boats (id, owner_id, name, visibility, created_at, updated_at) VALUES (?, ?, 'Alt', 'public', 1, 1)`).bind('MigCrewBoatAAAAAAA', 'MigCrewUserAAAAAAA').run();
   expect(migrationFiles({ from: '0050' })[0]).toBe('0050_boat_crew.sql');
   await applyMigrations(db, migrationFiles({ from: '0050' }));
 }, 60_000);

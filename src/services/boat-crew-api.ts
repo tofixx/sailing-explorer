@@ -1,5 +1,5 @@
 // API der Stammcrew (Konzept 41, F-270 … F-274) – eigenes Modul neben api.ts, wie scoring-api.ts.
-import { call, jsonInit, type Boat, type InviteCreated, type InviteTo } from './api';
+import { call, jsonInit, type Boat, type InviteCreated, type InviteTo, type PendingInvite } from './api';
 import type { AssignMode, BoatStanding, CrewRights } from '../domain/boat-crew';
 
 export interface BoatCrewMember {
@@ -20,6 +20,8 @@ export interface BoatCrew {
   members: BoatCrewMember[];
   /** Mitglieder ohne öffentliches Profil (nur gezählt) */
   others: number;
+  /** offene Einladungen – nur für Eigner und Admins */
+  invites: PendingInvite[];
 }
 
 /** Boot zur Auswahl beim Teilen und im Fahrtenbuch: verwaltete und zuordenbare (F-272). */

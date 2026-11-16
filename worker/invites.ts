@@ -91,10 +91,16 @@ const inviteLink = (request: Request, token: string) => `${new URL(request.url).
 /** Lokal im Log-Modus: Link direkt zurückgeben (wie beim Login), damit man ohne Mailserver testen kann. */
 const devLink = (request: Request, env: Env, link: string) => (env.MAIL_PROVIDER === 'log' && isDevHost(new URL(request.url)) ? link : undefined);
 
-const pendingSql = (col: 'boat_id' | 'share_id' | 'group_id') =>
+/** Offene Einladungen eines Ziels; an Booten getrennt nach Art (Admins bzw. Stammcrew, Konzept 41). */
+const pendingSql = (col: 'boat_id' | 'share_id' | 'group_id', kind?: 'boat_admin' | 'boat_member') =>
   `SELECT i.id, i.email, i.max_uses, i.uses, i.created_at, i.expires_at, p.display_name AS invitee_name, p.handle AS invitee_handle
    FROM invites i LEFT JOIN profiles p ON p.user_id = i.invitee_id
-   WHERE i.${col} = ? AND i.expires_at > ? AND i.uses < i.max_uses ORDER BY i.created_at`;
+   WHERE i.${col} = ? AND i.expires_at > ? AND i.uses < i.max_uses${kind ? ` AND i.kind = '${kind}'` : ''} ORDER BY i.created_at`;
+
+/** Offene Stammcrew-Einladungen eines Boots für Eigner und Admins (Liste mit Zurückziehen). */
+export async function pendingCrewInvites(env: Env, boatId: string) {
+  return (await env.DB.prepare(pendingSql('boat_id', 'boat_member')).bind(boatId, Date.now()).all<InviteRow>()).results.map(inviteShape);
+}
 
 async function count(env: Env, sql: string, ...args: unknown[]): Promise<number> {
   return (await env.DB.prepare(sql).bind(...args).first<{ n: number }>())?.n ?? 0;
@@ -250,7 +256,7 @@ export async function listBoatAdmins(request: Request, env: Env, id: string): Pr
   )
     .bind(id)
     .all<{ user_id: string; created_at: number; handle: string | null; display_name: string | null; visibility: string | null }>();
-  const invites = owner ? (await env.DB.prepare(pendingSql('boat_id')).bind(id, Date.now()).all<InviteRow>()).results.map(inviteShape) : [];
+  const invites = owner ? (await env.DB.prepare(pendingSql('boat_id', 'boat_admin')).bind(id, Date.now()).all<InviteRow>()).results.map(inviteShape) : [];
   return json({
     role,
     admins: results.map((a) => ({
@@ -283,7 +289,7 @@ export async function inviteBoatAdmin(request: Request, env: Env, id: string): P
   const now = Date.now();
   const used =
     (await count(env, 'SELECT COUNT(*) AS n FROM boat_admins WHERE boat_id = ?', id)) +
-    (await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE boat_id = ? AND expires_at > ? AND uses < max_uses', id, now));
+    (await count(env, `SELECT COUNT(*) AS n FROM invites WHERE kind = 'boat_admin' AND boat_id = ? AND expires_at > ? AND uses < max_uses`, id, now));
   if (used >= INVITE_LIMITS.adminsPerBoat) throw new HttpError(409, 'quota', `Ein Boot hat höchstens ${INVITE_LIMITS.adminsPerBoat} Admins (offene Einladungen zählen mit).`);
   const boat = await env.DB.prepare('SELECT name FROM boats WHERE id = ?').bind(id).first<{ name: string }>();
   const { invite, link } = await createInvite(request, env, user, {
@@ -638,6 +644,8 @@ async function acceptLoaded(env: Env, user: User, inv: LoadedInvite) {
   }
   if (!(await claim(env, inv.id))) throw INVALID();
   const now = Date.now();
+  // Wer Admin wird, verlässt die Stammcrew (kein Doppel, Konzept 41)
+  if (boat) await env.DB.prepare('DELETE FROM boat_crew WHERE boat_id = ? AND user_id = ?').bind(targetId, user.id).run();
   await (boat
     ? env.DB.prepare('INSERT OR IGNORE INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)').bind(targetId, user.id, now)
     : env.DB.prepare('INSERT OR IGNORE INTO share_crew (share_id, user_id, created_at, role) VALUES (?, ?, ?, ?)').bind(targetId, user.id, now, inviteRole(inv))
@@ -650,15 +658,20 @@ async function acceptBoatCrewInvite(env: Env, inv: LoadedInvite, user: User) {
   const boatId = inv.boat_id!;
   const result = { kind: inv.kind, path: `/b/${boatId}`, target: inv.boat_name };
   if (await isMember(env, inv, user.id)) return { ...result, already: true };
+  const full = () => new HttpError(409, 'quota', 'Die Stammcrew dieses Boots ist voll.');
+  if ((await count(env, 'SELECT COUNT(*) AS n FROM boat_crew WHERE boat_id = ?', boatId)) >= INVITE_LIMITS.crewPerBoat) throw full();
   if (!(await claim(env, inv.id))) throw INVALID();
-  // Grenze atomar in derselben Anweisung (Muster R 10)
+  // Grenze zusätzlich atomar in derselben Anweisung (Muster R 10)
   const res = await env.DB.prepare(
     `INSERT OR IGNORE INTO boat_crew (boat_id, user_id, created_at) SELECT ?1, ?2, ?3
      WHERE (SELECT COUNT(*) FROM boat_crew WHERE boat_id = ?1) < ?4`,
   )
     .bind(boatId, user.id, Date.now(), INVITE_LIMITS.crewPerBoat)
     .run();
-  if (!res.meta.changes) throw new HttpError(409, 'quota', 'Die Stammcrew dieses Boots ist voll.');
+  if (!res.meta.changes) {
+    if (await isMember(env, inv, user.id)) return { ...result, already: true };
+    throw full();
+  }
   return { ...result, already: false };
 }
 
@@ -779,12 +792,14 @@ export async function declineMyInvite(request: Request, env: Env, id: string): P
 export async function revokeInvite(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   const row = await env.DB.prepare(
-    `SELECT i.id, i.group_id, CASE WHEN i.kind = 'friend' THEN i.inviter_id ELSE COALESCE(b.owner_id, s.user_id) END AS owner FROM invites i
+    `SELECT i.id, i.kind, i.boat_id, i.inviter_id, i.group_id, CASE WHEN i.kind = 'friend' THEN i.inviter_id ELSE COALESCE(b.owner_id, s.user_id) END AS owner FROM invites i
      LEFT JOIN boats b ON b.id = i.boat_id LEFT JOIN shares s ON s.id = i.share_id WHERE i.id = ?`,
   )
     .bind(id)
-    .first<{ id: string; group_id: string | null; owner: string | null }>();
-  const allowed = !!row && (row.group_id ? canManageGroup(await roleIn(env, user.id, row.group_id)) : row.owner === user.id);
+    .first<{ id: string; kind: string; boat_id: string | null; inviter_id: string; group_id: string | null; owner: string | null }>();
+  // Stammcrew (Konzept 41): auch Admins des Boots und wer eingeladen hat
+  const crewInvite = row?.kind === 'boat_member' && !!row.boat_id && (row.inviter_id === user.id || !!(await roleFor(env, user.id, row.boat_id)));
+  const allowed = !!row && (row.group_id ? canManageGroup(await roleIn(env, user.id, row.group_id)) : row.owner === user.id || crewInvite);
   if (!row || !allowed) throw new HttpError(404, 'not_found', 'Diese Einladung gibt es nicht (mehr).');
   await env.DB.batch([deleteInviteNotifications(env, id), env.DB.prepare('DELETE FROM invites WHERE id = ?').bind(id)]);
   return new Response(null, { status: 204 });

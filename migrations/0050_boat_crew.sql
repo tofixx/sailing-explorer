@@ -13,4 +13,5 @@ CREATE INDEX boat_crew_user ON boat_crew(user_id);
 -- Schalter des Eigners für die Stammcrew: Beiträge am Boot, weitere einladen, wer eigene Törns zuordnen darf.
 ALTER TABLE boats ADD COLUMN crew_post INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE boats ADD COLUMN crew_invite INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE boats ADD COLUMN crew_assign TEXT NOT NULL DEFAULT 'crew';   -- crew | clubs | anyone
+-- crew_assign: crew | clubs | anyone
+ALTER TABLE boats ADD COLUMN crew_assign TEXT NOT NULL DEFAULT 'crew';

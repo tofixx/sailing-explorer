@@ -138,6 +138,35 @@ describe('F-270 Stammcrew: einladen, Liste, Titel, austreten', () => {
   });
 });
 
+describe('F-270 Einladungen der Stammcrew getrennt von Admins (Review)', () => {
+  it('[F-270] offene Stammcrew-Einladungen zählen nicht gegen Admins, stehen nicht in der Admin-Liste; Admins ziehen sie zurück; neuer Admin verlässt die Stammcrew', async () => {
+    const owner = await s.person();
+    const boat = await s.boat(owner);
+    // zehn offene Stammcrew-Einladungen direkt (das Anlege-Limit pro Minute gilt hier nicht als Prüfgegenstand)
+    for (let i = 0; i < 10; i++) {
+      await (await s.db()).prepare(`INSERT INTO invites (id, token_hash, kind, boat_id, inviter_id, email, max_uses, uses, created_at, expires_at)
+        VALUES (?, ?, 'boat_member', ?, ?, ?, 1, 0, ?, ?)`).bind(`CrewInv${i}${boat.id}`.slice(0, 18), `h${i}${boat.id}`, boat.id, owner.user.id, s.email('sc'), Date.now(), Date.now() + DAY).run();
+    }
+    const adm = await s.person();
+    const inv = await s.send('POST', `/api/boats/${boat.id}/invites`, owner.cookie, { email: adm.email });
+    expect(inv.status, await inv.clone().text()).toBe(201);
+    const admins = (await (await s.send('GET', `/api/boats/${boat.id}/admins`, owner.cookie)).json()) as { invites: unknown[] };
+    expect(admins.invites).toHaveLength(1);
+    const crewList = (await (await crewOf(boat.id, owner)).json()) as { invites: Array<{ id: string }> };
+    expect(crewList.invites).toHaveLength(10);
+    // Admin (über die Datenbank) zieht eine Stammcrew-Einladung zurück
+    await (await s.db()).prepare('INSERT INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)').bind(boat.id, admin.user.id, Date.now()).run();
+    expect((await s.send('DELETE', `/api/invites/${crewList.invites[0].id}`, admin.cookie)).status).toBe(204);
+    // Stammcrew wird Admin: die Stammcrew-Zeile fällt weg
+    const both = await s.person();
+    await joinCrew(owner, boat.id, both);
+    const res = await s.send('POST', `/api/boats/${boat.id}/invites`, owner.cookie, { email: both.email });
+    const { devLink } = (await res.json()) as { devLink: string };
+    expect((await s.send('POST', '/api/invites/accept', both.cookie, { token: tokenOf(devLink) })).status).toBe(200);
+    expect(await isCrew(boat.id, both.user.id)).toBe(false);
+  });
+});
+
 describe('F-271 Beiträge am Boot', () => {
   it('[F-271] Stammcrew schreibt nur mit Schalter; der Verlauf bietet das Boot dann zum Schreiben an', async () => {
     const owner = await s.person();

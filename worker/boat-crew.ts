@@ -6,6 +6,7 @@ import { currentUser, requireUser } from './auth';
 import { HttpError, json, readJson } from './http';
 import { assertActive, isAdmin } from './moderation';
 import { roleFor } from './boats';
+import { pendingCrewInvites } from './invites';
 import { syncShareActivity } from './activity';
 import { clearConfirmations } from './crew-cleanup';
 import { canView, requestKey } from './access';
@@ -52,14 +53,16 @@ export async function isBoatCrew(env: Env, userId: string, boatId: string): Prom
 
 /**
  * Boote, denen das Konto eigene Törns zuordnen darf, ohne sie zu verwalten (F-272): Stammcrew; bei „clubs“ auch
- * Mitglieder einer Gruppe des Boots; bei „anyone“ auch, wer dem öffentlichen Boot folgt und dessen Konto alt genug ist.
+ * Mitglieder eines (nicht ausgeblendeten, nicht gesperrten) Vereins des öffentlichen Boots; bei „anyone“ auch, wer dem öffentlichen Boot folgt und dessen Konto alt genug ist.
  * `?1` Konto, `?2` Stichtag für das Kontoalter (`BOAT_CREW_LIMITS.anyoneMinAgeMs`).
  */
 const ASSIGNABLE_SQL = `SELECT b.id, b.name FROM boats b
   WHERE b.locked_at IS NULL AND b.hidden_at IS NULL AND b.owner_id <> ?1
     AND NOT EXISTS (SELECT 1 FROM boat_admins a WHERE a.boat_id = b.id AND a.user_id = ?1)
     AND (EXISTS (SELECT 1 FROM boat_crew c WHERE c.boat_id = b.id AND c.user_id = ?1)
-      OR (b.crew_assign IN ('clubs', 'anyone') AND EXISTS (SELECT 1 FROM group_boats gb JOIN group_members m ON m.group_id = gb.group_id WHERE gb.boat_id = b.id AND m.user_id = ?1))
+      OR (b.crew_assign IN ('clubs', 'anyone') AND b.visibility = 'public' AND EXISTS (SELECT 1 FROM group_boats gb
+          JOIN groups g ON g.id = gb.group_id AND g.kind = 'club' AND g.hidden_at IS NULL AND g.locked_at IS NULL
+          JOIN group_members m ON m.group_id = gb.group_id WHERE gb.boat_id = b.id AND m.user_id = ?1))
       OR (b.crew_assign = 'anyone' AND b.visibility = 'public'
           AND EXISTS (SELECT 1 FROM follows f WHERE f.user_id = ?1 AND f.target_kind = 'boat' AND f.target_id = b.id)
           AND EXISTS (SELECT 1 FROM users u WHERE u.id = ?1 AND u.created_at <= ?2)))`;
@@ -127,6 +130,7 @@ export async function getBoatCrew(request: Request, env: Env, id: string): Promi
       isSelf: r.user_id === user?.id,
     })),
     others: results.length - shown.length,
+    invites: manager ? await pendingCrewInvites(env, id) : [],
   });
 }
 
@@ -136,6 +140,7 @@ export async function setCrewRights(request: Request, env: Env, id: string): Pro
   const s = await boatStanding(env, user.id, id);
   if (!s || !s.standing) throw NOT_FOUND();
   if (s.standing !== 'owner') throw new HttpError(403, 'forbidden', 'Was die Stammcrew darf, legt der Eigner fest.');
+  await assertActive(env, user);
   const body = await readJson<{ post?: unknown; invite?: unknown; assign?: unknown }>(request);
   const next = { ...s.rights };
   if (body.post !== undefined) next.post = body.post === true;

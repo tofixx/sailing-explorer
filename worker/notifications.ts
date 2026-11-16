@@ -513,7 +513,8 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
     CASE WHEN n.kind IN ('event', 'rsvp') THEN p.body END AS p_body, (n.actor_id IS NULL) AS n_system,
     (SELECT pe.cancelled_at FROM post_events pe WHERE n.kind = 'event' AND pe.post_id = p.id) AS p_cancelled,
     EXISTS (SELECT 1 FROM event_rsvps er WHERE n.kind = 'event' AND er.post_id = p.id AND er.user_id = n.user_id AND er.status IN (${RSVP_NOTIFIED.map((x) => `'${x}'`).join(', ')})) AS p_rsvp,
-    (pb.owner_id = n.user_id OR EXISTS (SELECT 1 FROM boat_admins ba WHERE ba.boat_id = pb.id AND ba.user_id = n.user_id)) AS pb_role,
+    (pb.owner_id = n.user_id OR EXISTS (SELECT 1 FROM boat_admins ba WHERE ba.boat_id = pb.id AND ba.user_id = n.user_id)
+      OR EXISTS (SELECT 1 FROM boat_crew bc WHERE bc.boat_id = pb.id AND bc.user_id = n.user_id)) AS pb_role,
     g.slug AS g_slug, g.name AS g_name, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden,
     g.locked_at AS g_locked, g.approve_by AS g_approve, gm.role AS g_role,
     EXISTS (SELECT 1 FROM group_requests r WHERE r.group_id = g.id) AS g_open,
