@@ -1,7 +1,6 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { METRICS, rampColor, smoothedMetric, type Range } from '../domain/metrics';
-import { BASE_MAPS, MAP_LANG, defaultBaseMap } from '../domain/basemaps';
 import { compassName } from '../domain/geo';
 import { MAP_STYLES, type MapStyle } from '../domain/map-style';
 import type { MetricKey, Track, TrackPoint } from '../domain/types';
@@ -10,10 +9,12 @@ import { cssVar, escapeHtml, fmtDateTime, fmtNum } from '../util/html';
 import { endpointPin, waveChevron, waveChevronSize, windBadge, windBadgeSize } from './glyphs';
 import { PhotoLayer } from './photo-layer';
 import { HeatLayer } from './heat-layer';
-import { addBaseMapControl } from './basemap-control';
+import { BaseMapLayer } from './base-map';
 
 export interface MapCallbacks {
   onHover: (p: TrackPoint | null) => void;
+  /** geltende Grundkarte (F-660/F-661) – für den Haken im Kartenstil-Menü */
+  onBaseMap?: (key: string) => void;
 }
 
 /** Anzahl Farbstufen: benachbarte Segmente gleicher Stufe werden zu einer Polylinie. */
@@ -47,6 +48,8 @@ export class MapView {
   readonly photos: PhotoLayer;
   /** Ebene „Revier“ (Konzept 37) – Daten setzt der HeatController */
   readonly heat: HeatLayer;
+  /** Grundkarte (F-661) – gewählt im Kartenstil-Menü */
+  readonly baseMap: BaseMapLayer;
 
   constructor(
     private el: HTMLElement,
@@ -54,23 +57,8 @@ export class MapView {
   ) {
     this.map = L.map(el, { zoomControl: false, preferCanvas: true, attributionControl: true }).setView([54.4, 12.7], 8);
 
-    // Grundkarten (src/domain/basemaps.ts). Standard folgt dem Farbschema und der Sprache der Beschriftung (MAP_LANG):
-    // tagsüber deutsch beschriftet, nachts ohne Beschriftung – die Daten (Track, Wind, Wellen) bleiben im Vordergrund.
-    const layers = new Map(
-      BASE_MAPS.map((m) => [m.key, L.tileLayer(m.url, { maxZoom: m.maxZoom, maxNativeZoom: m.maxNativeZoom, attribution: m.attribution })]),
-    );
-    const bases = Object.fromEntries(BASE_MAPS.map((m) => [m.label, layers.get(m.key)!]));
-    const auto = (isDark: boolean) => layers.get(defaultBaseMap(MAP_LANG, isDark).key)!;
-    const dark = matchMedia('(prefers-color-scheme: dark)');
-    let current = auto(dark.matches).addTo(this.map);
-    this.map.on('baselayerchange', (e: L.LayersControlEvent) => (current = e.layer as L.TileLayer));
-    // Folgt dem Systemschema, solange der Nutzer keine eigene Wahl getroffen hat.
-    dark.addEventListener('change', () => {
-      if (current !== auto(true) && current !== auto(false)) return;
-      current.remove();
-      current = auto(dark.matches).addTo(this.map);
-    });
-    addBaseMapControl(this.map, bases);
+    // Grundkarte: Standard nach Farbschema und MAP_LANG, Wahl im Kartenstil-Menü (F-660, F-661)
+    this.baseMap = new BaseMapLayer(this.map, (key) => this.cb.onBaseMap?.(key));
     L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(this.map);
     // Zoom unten (mit dem Daumen erreichbar), über dem Maßstab: Leaflet stapelt in unteren Ecken das zuletzt Hinzugefügte oben
     L.control.zoom({ position: 'bottomleft', zoomInTitle: 'Hineinzoomen', zoomOutTitle: 'Herauszoomen' }).addTo(this.map);

@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 // Überlauf bei 375 px (F-615 … F-617): Anmelde-Dialog nach „Link senden“, Startseite mit langem Bootsnamen,
-// Törn-Chip über der Grundkarten-Wahl.
-import L from 'leaflet';
+// Törn-Chip über der Karte.
 import { afterEach, describe, expect, it } from 'vitest';
 import { dialogStyles } from '../../src/components/shared';
 import '../../src/components/sx-login-dialog';
@@ -9,7 +8,6 @@ import '../../src/components/sx-discover';
 import { SxEmptyState } from '../../src/components/sx-empty-state';
 import { SxTopbar } from '../../src/components/sx-topbar';
 import { SxEventDialog } from '../../src/components/sx-event-dialog';
-import { addBaseMapControl } from '../../src/map/basemap-control';
 
 type LitEl = HTMLElement & { updateComplete: Promise<boolean>; shadowRoot: ShadowRoot } & Record<string, unknown>;
 
@@ -66,19 +64,12 @@ describe('Überlauf bei 375 px', () => {
     expect(css).toMatch(/\.chip > span \{[^}]*min-width: 0;[^}]*text-overflow: ellipsis/);
   });
 
-  it('[F-617] Törn-Chip lässt auf dem Handy rechts Platz für die Grundkarten-Wahl, die „Grundkarte“ heißt', () => {
-    expect(media(cssOf(SxTopbar.styles), '(max-width: 760px) { :host([home])')).toMatch(
-      /\.chip\.toern \{[^}]*max-width: calc\(100vw - 2 \* 64px\)/,
-    );
-    const el = document.createElement('div');
-    document.body.append(el);
-    const map = L.map(el).setView([54.4, 12.7], 8);
-    const ctl = addBaseMapControl(map, { Tag: L.layerGroup(), Nacht: L.layerGroup() });
-    const toggle = ctl.getContainer()!.querySelector<HTMLElement>('.leaflet-control-layers-toggle')!;
-    expect(toggle.title).toBe('Grundkarte');
-    expect(toggle.getAttribute('aria-label')).toBe('Grundkarte');
-    expect(ctl.getContainer()!.closest('.leaflet-top.leaflet-right')).not.toBeNull();
-    map.remove();
+  it('[F-617] Törn-Chip nutzt auf dem Handy die Breite bis auf den Rand – oben rechts liegt keine Karten-Steuerung mehr', () => {
+    const css = cssOf(SxTopbar.styles);
+    expect(media(css, '(max-width: 1150px)')).toMatch(/\.chip\.status \{[^}]*max-width: calc\(100vw - 2 \* var\(--s-4\)\)/);
+    const mobile = media(css, '(max-width: 760px) { :host([home])');
+    expect(mobile).toMatch(/\.chip\.toern \{[^}]*min-height: 44px/);
+    expect(mobile).not.toMatch(/64px/); // kein Freiraum mehr für Leaflets Ebenen-Knopf
   });
 
   it('[F-615] Dialoge mit eigener .body-Regel behalten die Spalte minmax(0, 1fr) (Termin-Dialog)', () => {

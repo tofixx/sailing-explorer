@@ -1,4 +1,5 @@
 import { LitElement, css, html, type PropertyValues } from 'lit';
+import { BASE_MAPS } from '../domain/basemaps';
 import { MAP_STYLES, MAP_STYLE_IDS, type MapStyleId } from '../domain/map-style';
 import { rampCss } from '../domain/metrics';
 import { icon } from './icons';
@@ -11,8 +12,10 @@ export type MapStyleScope = 'now' | 'profile' | 'reset';
  * Kartenstil: Ebenen-Knopf unten rechts über der Karte, klappt ein Menü mit den Stilen auf (Knöpfe mit aria-pressed).
  * Ein Klick wendet den Stil sofort an (bis zum Neuladen); angemeldet lässt sich der geltende Stil als Standard setzen
  * oder der Standard entfernen.
- * Dazu der Schalter „Revier“ (Wärmekarte der öffentlichen Törns, Konzept 37, F-584) – bleibt offen beim Umschalten.
- * Reine Darstellung – Events `sx-map-style-apply` { id, scope }, `sx-map-heat` { on }.
+ * Dazu die Gruppe „Grundkarte“ (Kacheln, F-660 – der einzige Weg dorthin, UX N1) und der Schalter „Revier“
+ * (Wärmekarte der öffentlichen Törns, Konzept 37, F-584); beide lassen das Menü beim Umschalten offen.
+ * In Einbettungen (`embed`, F-663) nur die Grundkarten – ohne Stile, Revier und Standard-Knöpfe.
+ * Reine Darstellung – Events `sx-map-style-apply` { id, scope }, `sx-map-base` { key }, `sx-map-heat` { on }.
  */
 export class SxMapStyle extends LitElement {
   static properties = {
@@ -23,6 +26,8 @@ export class SxMapStyle extends LitElement {
     busy: { type: Boolean },
     error: { type: String },
     heat: { type: Boolean },
+    baseMap: { type: String },
+    embed: { type: Boolean },
   };
   declare open: boolean;
   /** gerade geltender Stil */
@@ -34,6 +39,10 @@ export class SxMapStyle extends LitElement {
   declare error: string;
   /** Ebene „Revier“ (Konzept 37) an */
   declare heat: boolean;
+  /** Schlüssel der geltenden Grundkarte (`BASE_MAPS`) */
+  declare baseMap: string;
+  /** Einbettung (F-663): nur die Gruppe „Grundkarte“ */
+  declare embed: boolean;
 
   constructor() {
     super();
@@ -44,6 +53,8 @@ export class SxMapStyle extends LitElement {
     this.busy = false;
     this.error = '';
     this.heat = false;
+    this.baseMap = '';
+    this.embed = false;
   }
 
   static styles = [
@@ -71,6 +82,21 @@ export class SxMapStyle extends LitElement {
       }
       .action {
         justify-content: flex-start;
+      }
+      .group {
+        display: grid;
+        gap: 2px;
+      }
+      /* mobil (Sheet) mit drei Gruppen höher als ein kleines Handy: im Sheet scrollen statt oben abzuschneiden (F-662) */
+      @media (max-width: 760px) {
+        .menu {
+          max-height: calc(100dvh - var(--topbar-h, 56px));
+          overflow-y: auto;
+          overscroll-behavior: contain;
+        }
+        .btn.small.action {
+          min-height: 44px;
+        }
       }
     `,
   ];
@@ -131,33 +157,56 @@ export class SxMapStyle extends LitElement {
         : ''}`;
   }
 
+  /** Gruppe „Grundkarte“ (F-660) – in Einbettungen das ganze Menü (F-663) */
+  private baseMaps() {
+    return BASE_MAPS.map((m) => {
+      const on = m.key === this.baseMap;
+      return html`<button class="item base" type="button" aria-pressed=${on}
+        @click=${() => (on ? this.close() : emit(this, 'sx-map-base', { key: m.key }))}>
+        <span class="mark">${on ? icon('check') : ''}</span>
+        <span>${m.label}</span>
+      </button>`;
+    });
+  }
+
+  private full() {
+    return html`<p class="title" id="ms-h">Kartenstil</p>
+      ${MAP_STYLE_IDS.map((id) => {
+        const s = MAP_STYLES[id];
+        const on = id === this.current;
+        return html`<button class="item" type="button" aria-pressed=${on} ?disabled=${this.busy} title=${s.description}
+          @click=${() => (on ? this.close() : this.apply(id, 'now'))}>
+          <span class="mark">${on ? icon('check') : ''}</span>
+          <span>${s.label}${this.signedIn && id === this.profileStyle ? html`<small>Standard</small>` : ''}</span>
+          <span class="bar" style="background:${rampCss(s.ramp)}" aria-hidden="true"></span>
+        </button>`;
+      })}
+      <hr />
+      <div class="group" role="group" aria-labelledby="mb-h">
+        <p class="title" id="mb-h">Grundkarte</p>
+        ${this.baseMaps()}
+      </div>
+      <hr />
+      <button class="item heat" type="button" aria-pressed=${this.heat} title="Wärmekarte der öffentlichen Törns – ohne Namen, Zeiten, Anfang und Ende"
+        @click=${() => emit(this, 'sx-map-heat', { on: !this.heat })}>
+        <span class="mark">${this.heat ? icon('check') : ''}</span>
+        <span>Revier<small>wo gesegelt wird</small></span>
+      </button>
+      <hr />
+      ${this.profileActions()}
+      ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}`;
+  }
+
   render() {
+    // Einbettung (F-663): nur die Grundkarte – ohne Konto-Bezug (kein Standard) und ohne Community-Ebene
+    const name = this.embed ? 'Grundkarte' : 'Kartenstil';
     return html`<div @keydown=${this.onKey} @focusout=${this.onFocusOut}>
-      <button class="btn icon toggle" type="button" aria-label="Kartenstil" title="Kartenstil"
+      <button class="btn icon toggle" type="button" aria-label=${name} title=${name}
         aria-expanded=${this.open} aria-controls="ms" @click=${() => (this.open ? this.close() : (this.open = true))}>
         ${icon('layers')}
       </button>
       <div class="menu" id="ms" role="group" aria-labelledby="ms-h" ?hidden=${!this.open}>
-        <p class="title" id="ms-h">Kartenstil</p>
-        ${MAP_STYLE_IDS.map((id) => {
-          const s = MAP_STYLES[id];
-          const on = id === this.current;
-          return html`<button class="item" type="button" aria-pressed=${on} ?disabled=${this.busy} title=${s.description}
-            @click=${() => (on ? this.close() : this.apply(id, 'now'))}>
-            <span class="mark">${on ? icon('check') : ''}</span>
-            <span>${s.label}${this.signedIn && id === this.profileStyle ? html`<small>Standard</small>` : ''}</span>
-            <span class="bar" style="background:${rampCss(s.ramp)}" aria-hidden="true"></span>
-          </button>`;
-        })}
-        <hr />
-        <button class="item heat" type="button" aria-pressed=${this.heat} title="Wärmekarte der öffentlichen Törns – ohne Namen, Zeiten, Anfang und Ende"
-          @click=${() => emit(this, 'sx-map-heat', { on: !this.heat })}>
-          <span class="mark">${this.heat ? icon('check') : ''}</span>
-          <span>Revier<small>wo gesegelt wird</small></span>
-        </button>
-        <hr />
-        ${this.profileActions()}
-        ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
+        ${this.embed ? html`<p class="title" id="ms-h">Grundkarte</p>${this.baseMaps()}` : this.full()}
       </div>
     </div>`;
   }
