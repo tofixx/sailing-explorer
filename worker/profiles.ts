@@ -19,6 +19,7 @@ import { galleryPhotos } from './gallery';
 import { visitorPosts } from './posts';
 import { parseProfilePreview, type PreviewOptions } from '../src/domain/posts';
 import type { GroupKind } from '../src/domain/groups';
+import { seasonTableMode } from '../src/domain/season-table';
 
 interface ProfileRow {
   user_id: string;
@@ -30,6 +31,8 @@ interface ProfileRow {
   share_key: string | null;
   /** per Meldung oder Admin ausgeblendet (0009) */
   hidden_at?: number | null;
+  /** Jahresansicht im Profil (0052, Konzept 43): private | public */
+  season_table?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -46,6 +49,8 @@ function profileShape(p: ProfileRow, isSelf: boolean) {
     shareKey: isSelf ? p.share_key : null,
     link: isSelf ? sharePath('u', p.handle, p.visibility, p.share_key) : null,
     isSelf,
+    // Jahresansicht (F-667): für sich selbst die Einstellung, für andere nur, ob sie gezeigt wird
+    seasonTable: seasonTableMode(p.season_table),
     /** nur für sich selbst und nur, wenn das Profil bis zur Prüfung ausgeblendet ist (Konzept 4.4) */
     ...(isSelf && p.hidden_at ? { hiddenAt: p.hidden_at } : {}),
   };

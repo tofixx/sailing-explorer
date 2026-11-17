@@ -3406,3 +3406,5 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 41. Stammcrew eines Boots: Schalter, Titel, Beiträge, Törns zuordnen (F-270 … F-274) → [`docs/concept/41-stammcrew.md`](concept/41-stammcrew.md)
 
 ## 42. Regatten und Klassenvereinigungen: Ergebnisse im Fahrtenbuch, Export, Übersicht im Verein (F-645 … F-651) → [`docs/concept/42-regatten.md`](concept/42-regatten.md)
+
+## 43. Jahresansicht der Fahrten und Regatten im Profil (F-665 … F-669) → [`docs/concept/43-jahresansicht.md`](concept/43-jahresansicht.md)

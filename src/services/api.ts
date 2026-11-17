@@ -20,6 +20,7 @@ import type { HarborRef } from '../domain/harbors';
 import type { ClaimKind, MyClaim } from '../domain/claims';
 import type { MapStyleId } from '../domain/map-style';
 import type { VoyageRole } from '../domain/crew-roles';
+import type { SeasonTableMode } from '../domain/season-table';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 import type { NotificationItem, NotificationKind, NotifyLevel, NotifyPrefs } from '../domain/notifications';
 import type { DistSource, LatLon, LogState, Logbook, ShareSource } from '../domain/logbook';
@@ -165,6 +166,8 @@ export interface Profile extends Linkable {
   displayName: string;
   bio: string;
   isSelf: boolean;
+  /** Jahresansicht der Fahrten und Regatten (Konzept 43): nur ich bzw. alle, die das Profil sehen – fehlt bei älteren Servern */
+  seasonTable?: SeasonTableMode;
 }
 
 export interface Boat extends Linkable {

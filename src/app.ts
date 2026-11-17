@@ -63,6 +63,8 @@ import type { AssignMode } from './domain/boat-crew';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
 import { BoatCrewController } from './controllers/boat-crew';
+import { SeasonTableController } from './controllers/season-table';
+import type { SeasonTableMode } from './domain/season-table';
 import { UnreadController } from './controllers/unread';
 
 import { MapStyleController } from './controllers/map-style';
@@ -184,6 +186,7 @@ export class App {
   private discover: DiscoverController;
   private social: SocialController;
   private boatCrew: BoatCrewController;
+  private seasonTable: SeasonTableController;
   private claims = new ClaimController((msg, ms) => this.toast(msg, ms));
   private posts = new PostsController({ page: this.ui.page, toast: (msg, ms) => this.toast(msg, ms) });
   private unread: UnreadController;
@@ -290,6 +293,7 @@ export class App {
       },
       ready: () => this.session.backendReady,
     });
+    this.seasonTable = new SeasonTableController({ page: this.ui.page, toast: (msg) => this.toast(msg) });
     this.boatCrew = new BoatCrewController({
       page: this.ui.page,
       toast: (msg) => this.toast(msg),
@@ -788,6 +792,7 @@ export class App {
     on<{ id: string }>('sx-boat-crew-revoke', (d) => this.boatCrew.revoke(d.id));
     // Regatten (Konzept 42)
     on<{ season: number }>('sx-group-regattas-season', (d) => this.groups.loadRegattas(d.season));
+    on<{ mode: SeasonTableMode }>('sx-season-table-mode', (d) => this.seasonTable.setMode(d.mode));
     on('sx-logout', () => s.logout());
     on('sx-account-delete', () => s.deleteAccount());
 
@@ -1081,6 +1086,8 @@ export class App {
         // eigene Seite: „Mein Verlauf“ mit allem, auch Privatem (F-401)
         page.myPosts = null;
         if (d.profile.isSelf) this.pageReady = this.posts.openOwn();
+        // Jahresansicht (Konzept 43): eigene immer, fremde nur freigegeben
+        void this.seasonTable.load(d.profile.handle, route.key ?? null);
       } else {
         const d = await api.boat(route.id, route.key);
         page.data = { kind: 'boat', ...d };

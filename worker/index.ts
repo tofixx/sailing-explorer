@@ -9,6 +9,7 @@ import { getMyLogbook, getMyLogbookCsv } from './logbook-list';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
+import { getSeasonTable, putSeasonTable } from './season-table';
 import { LISTED, getDiscover, getDiscoverStats } from './discover';
 import { getHeat, putShareHeat } from './heat';
 import { confirmCrew, setCrewRole, setOwnerRole, unconfirmCrew } from './crew-roles';
@@ -83,6 +84,8 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/account$/, (r, env) => deleteAccount(r, env)],
   ['GET', /^\/api\/me\/profile$/, (r, env) => getMyProfile(r, env)],
   ['PUT', /^\/api\/me\/profile$/, (r, env) => putMyProfile(r, env)],
+  // Jahresansicht im Profil (Konzept 43): worker/season-table.ts
+  ['PUT', /^\/api\/me\/season-table$/, (r, env) => putSeasonTable(r, env)],
   ['GET', /^\/api\/me\/support$/, (r, env) => getSupport(r, env)],
   // Fahrtenbuch nach Jahren und Meilennachweis (Konzept 27)
   ['GET', /^\/api\/me\/logbook$/, (r, env) => getMyLogbook(r, env)],
@@ -100,6 +103,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['POST', /^\/api\/support\/checkout$/, (r, env) => createCheckout(r, env)],
   ['POST', /^\/api\/webhooks\/stripe$/, (r, env) => stripeWebhook(r, env)],
   ['GET', /^\/api\/profiles\/([A-Za-z0-9-]+)$/, (r, env, [h]) => getProfile(r, env, h)],
+  ['GET', /^\/api\/profiles\/([A-Za-z0-9-]+)\/seasons$/, (r, env, [h]) => getSeasonTable(r, env, h)],
   ['GET', /^\/api\/boats$/, (r, env) => listMyBoats(r, env)],
   ['POST', /^\/api\/boats$/, (r, env) => createBoat(r, env)],
   ['GET', /^\/api\/boats\/([A-Za-z0-9]+)$/, (r, env, [id]) => getBoat(r, env, id)],

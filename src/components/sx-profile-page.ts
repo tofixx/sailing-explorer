@@ -14,6 +14,8 @@ import './sx-follow';
 import './sx-place-picker';
 import './sx-stream';
 import './sx-boat-crew';
+import './sx-season-table';
+import type { SeasonTableData } from '../services/season-table-api';
 import { GROUP_KIND_LABEL, type GroupKind } from '../domain/groups';
 import type { BoatCrew } from '../services/boat-crew-api';
 import './sx-claim';
@@ -36,7 +38,7 @@ const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
 };
 
 export type PageData =
-  | ({ kind: 'profile' } & ProfilePageData)
+  | ({ kind: 'profile'; seasons?: SeasonTableData | null } & ProfilePageData)
   /** Bootsseite mit Neuigkeiten des Boots (F-425) */
   | ({ kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[]; stream?: StreamPage | null; crew?: BoatCrew | null } & PageMedia)
   /** Hafenseite /h/<slug> (Konzept 12.2) mit Neuigkeiten des Hafens */
@@ -71,6 +73,7 @@ export class SxProfilePage extends LitElement {
     inviteLink: { type: String },
     inviteBusy: { type: Boolean },
     crewBusy: { type: Boolean },
+    seasonBusy: { type: Boolean },
     crewLink: { type: String },
     inviting: { state: true },
   };
@@ -99,6 +102,8 @@ export class SxProfilePage extends LitElement {
   declare inviteBusy: boolean;
   /** Stammcrew (Konzept 41): Aufruf läuft, frisch erzeugter Einladungslink */
   declare crewBusy: boolean;
+  /** Jahresansicht (Konzept 43): Schalter wird gespeichert */
+  declare seasonBusy: boolean;
   declare crewLink: string;
   /** „Freunde einladen“ auf der eigenen Seite aufgeklappt (Zahnrad, F-592) */
   declare inviting: boolean;
@@ -124,6 +129,7 @@ export class SxProfilePage extends LitElement {
     this.inviteLink = null;
     this.inviteBusy = false;
     this.crewBusy = false;
+    this.seasonBusy = false;
     this.crewLink = '';
     this.inviting = false;
   }
@@ -564,6 +570,11 @@ export class SxProfilePage extends LitElement {
       ${this.inviteSection(d)}
       ${this.stats(d.stats)}
       ${this.posts(d)}
+      ${d.seasons
+        ? html`<section aria-labelledby="seasons-t"><h2 class="eyebrow" id="seasons-t">Fahrten und Regatten nach Saison</h2>
+            <sx-season-table .rows=${d.seasons.rows} ?self=${d.seasons.self} mode=${d.seasons.mode} ?profile-private=${p.visibility !== 'public'}
+              ?busy=${this.seasonBusy} ?truncated=${d.seasons.truncated}></sx-season-table></section>`
+        : ''}
       ${d.boats.length
         ? html`<section>
             <h2 class="eyebrow">Boote</h2>
