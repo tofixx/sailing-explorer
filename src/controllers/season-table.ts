@@ -13,11 +13,12 @@ interface SeasonTableUi {
 export class SeasonTableController {
   constructor(private ui: SeasonTableUi) {}
 
-  /** Für die eigene Seite immer, für andere nur, wenn freigegeben – sonst kein Abschnitt. */
+  /** Für die eigene Seite immer, für andere nur, wenn freigegeben – sonst kein Abschnitt. Auch nach Vorschau und Neuladen. */
   async load(handle: string, key: string | null = null): Promise<void> {
     const d = this.ui.page.data;
     if (d?.kind !== 'profile' || (!d.profile.isSelf && d.profile.seasonTable !== 'public')) return;
-    const seasons = await seasonTableApi.get(handle, key).catch(() => null);
+    // Vorschau „Ansehen als …“: so, wie andere die Ansicht sehen (nur öffentliche Fahrten, ohne Schalter)
+    const seasons = await seasonTableApi.get(handle, key, !!d.preview).catch(() => null);
     const now = this.ui.page.data;
     if (now?.kind === 'profile' && now.profile.handle === handle) this.ui.page.data = { ...now, seasons };
   }

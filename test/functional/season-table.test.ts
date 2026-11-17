@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startWorker, type Harness } from './worker-harness';
 import { social, type Person } from './social-helpers';
 import { rowsOfSeason, seasonSummaries, seasonTableMode, type SeasonRow } from '../../src/domain/season-table';
+import { filterEntries, logbookTotals, type LogbookEntry } from '../../src/domain/logbook-year';
 
 const DAY = 86_400_000;
 let h: Harness;
@@ -33,6 +34,15 @@ interface Table { mode: string; self: boolean; rows: Array<{ title: string | nul
 const table = (handle: string, p?: Person) => s.send('GET', `/api/profiles/${handle}/seasons`, p?.cookie);
 
 describe('F-665 Jahresansicht: Regeln', () => {
+  it('[F-665] Summen stimmen mit „Mein Fahrtenbuch“ überein (Anzahl und Seemeilen je Saison)', () => {
+    const e = (t: number, nm: number) => ({ id: String(t), own: true, path: null, title: null, startedAt: t, endedAt: null, timed: false, source: 'manual', distNm: nm,
+      distSource: 'stated', from: null, to: null, role: null, roleConfirmed: false, boat: null, boatClass: null, logState: 'confirmed', log: {} }) as unknown as LogbookEntry;
+    const entries = [e(Date.UTC(2026, 4, 1), 7.3), e(Date.UTC(2026, 7, 1), 2.2)];
+    const rows: SeasonRow[] = entries.map((x) => ({ path: null, title: null, startedAt: x.startedAt, distNm: x.distNm, recorded: false, role: null, boat: null, own: true, regatta: null }));
+    const t = logbookTotals(filterEntries(entries, ['confirmed', 'suggested'], 2026));
+    expect(seasonSummaries(rows)[0]).toMatchObject({ voyages: t.count, nm: Math.round(t.nm * 10) / 10 });
+  });
+
   it('[F-665] Summen je Saison (ab November die nächste), beste Platzierung, Fahrten einer Saison', () => {
     const row = (t: number, nm: number, recorded: boolean, place?: number): SeasonRow => ({
       path: null, title: 'x', startedAt: t, distNm: nm, recorded, role: null, boat: null, own: true, regatta: place ? { name: 'R', place } : null,
@@ -68,6 +78,12 @@ describe('F-666 / F-667 Eigene Ansicht und Freigabe', () => {
     expect(shown.rows.map((r) => r.title)).toEqual(['Öffentlich']);
     expect(shown.rows[0].regatta?.name).toBe('Havelpokal');
     expect(((await (await s.send('GET', `/api/profiles/${handle}`, undefined)).json()) as { profile: { seasonTable: string } }).profile.seasonTable).toBe('public');
+
+    // Vorschau der eigenen Seite: die Sicht der anderen; Fremde dürfen das nicht anfragen
+    const asOthers = (await (await s.send('GET', `/api/profiles/${handle}/seasons?as=andere`, me.cookie)).json()) as Table;
+    expect(asOthers.self).toBe(false);
+    expect(asOthers.rows.map((r) => r.title)).toEqual(['Öffentlich']);
+    expect((await s.send('GET', `/api/profiles/${handle}/seasons?as=andere`, other.cookie)).status).toBe(400);
 
     // zurück auf „nur ich“
     expect((await s.send('PUT', '/api/me/season-table', me.cookie, { mode: 'private' })).status).toBe(200);

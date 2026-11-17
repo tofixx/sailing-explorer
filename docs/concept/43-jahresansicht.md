@@ -20,6 +20,11 @@ und Regatten.“* Umgesetzt nach den Empfehlungen (autonom).
 | Je Saison | Saison · Fahrten · sm · davon aufgezeichnet · Regatten · bester Platz |
 | Fahrten der gewählten Saison | Datum · Fahrt (Link, Crew markiert) · sm (* = angegeben) · Boot · Rolle · Regatta mit Platz und Details |
 
+**Crew-Törns zählen in der Ansicht mit** (als „Crew“ markiert) – anders als die Kennzahlen im Profilkopf, die nur eigene
+Törns zählen (10.8 Frage 4). Die Jahresansicht ist das persönliche Fahrtenbuch in Kurzform, und dort zählen Crew-Törns
+seit M1 mit. **Vorschau „Ansehen als …“ (F-423)** zeigt die Ansicht so, wie andere sie sehen (`?as=andere`). Ein
+gesperrtes Konto zeigt anderen keine Zeilen.
+
 Die eigene Ansicht ersetzt „Mein Fahrtenbuch“ nicht (dort Filter, Zusatzangaben, Punkte, CSV, Druck) – sie ist die
 schnelle Jahresübersicht auf dem Profil. Ein Einstieg je Aufgabe (N1): exportiert wird weiter im Fahrtenbuch.
 

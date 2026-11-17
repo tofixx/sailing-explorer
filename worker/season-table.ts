@@ -39,11 +39,12 @@ const PUBLIC_SQL = (own: boolean) => `SELECT s.id, s.title, COALESCE(s.started_a
   FROM ${own ? 'shares s' : 'share_crew c JOIN shares s ON s.id = c.share_id'}
     LEFT JOIN boats b ON b.id = s.boat_id AND ${liveSql('b')}
   WHERE ${own ? 's.user_id = ?1' : 'c.user_id = ?1 AND s.user_id <> ?1'} AND s.visibility = 'public' AND ${liveSql('s')}
-    AND ${notSuspendedSql('s.user_id')} AND ${IN_LOGBOOK_SQL}
+    AND ${notSuspendedSql('s.user_id')} AND ${notSuspendedSql('?1')} AND ${IN_LOGBOOK_SQL}
   ORDER BY t DESC LIMIT ?2`;
 
 /**
- * GET /api/profiles/:handle/seasons – Jahresansicht (F-665, F-666). Wer das Profil nicht sehen darf, bekommt dieselbe
+ * GET /api/profiles/:handle/seasons[?as=andere] – Jahresansicht (F-665, F-666); `as=andere` (nur eigene Seite): die Sicht
+ * der anderen für die Vorschau „Ansehen als …“. Wer das Profil nicht sehen darf, bekommt dieselbe
  * 404 wie beim Profil; andere als die Person selbst 404, solange sie die Ansicht nicht zeigt.
  */
 export async function getSeasonTable(request: Request, env: Env, rawHandle: string): Promise<Response> {
@@ -55,8 +56,12 @@ export async function getSeasonTable(request: Request, env: Env, rawHandle: stri
         .first<{ user_id: string; visibility: Visibility; share_key: string | null; hidden_at: number | null; season_table: string }>()
     : null;
   const user = await currentUser(request, env);
-  const self = !!p && user?.id === p.user_id;
-  if (!p || !canView({ visibility: p.visibility, shareKey: p.share_key, hiddenAt: p.hidden_at }, { manager: self, key, admin: isAdmin(env, user?.id) })) {
+  const owner = !!p && user?.id === p.user_id;
+  // Vorschau der eigenen Seite (F-423): die Sicht der anderen, nie die eigene volle Ansicht
+  const asOthers = new URL(request.url).searchParams.get('as') === 'andere';
+  if (asOthers && !owner) throw new HttpError(400, 'invalid_preview', 'Diese Vorschau gibt es nur für die eigene Seite.');
+  const self = owner && !asOthers;
+  if (!p || !canView({ visibility: p.visibility, shareKey: p.share_key, hiddenAt: p.hidden_at }, { manager: owner, key, admin: isAdmin(env, user?.id) })) {
     await countKeyFailure(env, request, key);
     throw NOT_FOUND();
   }

@@ -10,8 +10,8 @@ export interface SeasonTableData {
 }
 
 export const seasonTableApi = {
-  /** Für sich selbst immer; für andere nur, wenn freigegeben (sonst 404). */
-  get: (handle: string, key?: string | null) =>
-    call<SeasonTableData>(`/api/profiles/${encodeURIComponent(handle)}/seasons`, key ? { headers: { 'X-Share-Key': key } } : {}),
+  /** Für sich selbst immer; für andere nur, wenn freigegeben (sonst 404). `asOthers`: Vorschau der eigenen Seite – die Sicht der anderen (F-423) */
+  get: (handle: string, key?: string | null, asOthers = false) =>
+    call<SeasonTableData>(`/api/profiles/${encodeURIComponent(handle)}/seasons${asOthers ? '?as=andere' : ''}`, key ? { headers: { 'X-Share-Key': key } } : {}),
   setMode: (mode: SeasonTableMode) => call<{ mode: SeasonTableMode }>('/api/me/season-table', jsonInit('PUT', { mode })),
 };

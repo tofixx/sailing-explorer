@@ -188,7 +188,8 @@ export class App {
   private boatCrew: BoatCrewController;
   private seasonTable: SeasonTableController;
   private claims = new ClaimController((msg, ms) => this.toast(msg, ms));
-  private posts = new PostsController({ page: this.ui.page, toast: (msg, ms) => this.toast(msg, ms) });
+  // Neu geladene eigene Seite (Vorschau, „Mein Verlauf“): Jahresansicht nachladen (Konzept 43)
+  private posts = new PostsController({ page: this.ui.page, toast: (msg, ms) => this.toast(msg, ms), profileReloaded: (handle) => void this.seasonTable.load(handle) });
   private unread: UnreadController;
   private compose: ComposeController;
   private polls: PollController;
