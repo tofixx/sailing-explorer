@@ -6,6 +6,7 @@ import { disablePush } from '../services/push';
 import { deviceName } from '../domain/device';
 import { communityApi, passkeyApi, groupApi } from '../services/api';
 import { inviteAcceptedText } from '../domain/invite-text';
+import { boatChoices } from '../services/boat-crew-api';
 import type { VoyageRole } from '../domain/crew-roles';
 import { plausibleGpx } from '../domain/logbook';
 import { shareSummary } from '../domain/summary';
@@ -694,7 +695,7 @@ export class SessionController {
     });
     this.refreshImage();
     if (s.user) {
-      api.myBoats().then((r) => (this.ui.share.boats = r.boats), () => {});
+      api.myBoats().then((r) => (this.ui.share.boats = boatChoices(r)), () => {});
       api.shareGroups().then((r) => (this.ui.share.groupChoices = r.groups), () => {});
       this.refreshSupport();
     }

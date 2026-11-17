@@ -13,6 +13,11 @@ import { VISIBILITY_ICON } from './sx-visibility-picker';
 import './sx-follow';
 import './sx-place-picker';
 import './sx-stream';
+import './sx-boat-crew';
+import './sx-season-table';
+import type { SeasonTableData } from '../services/season-table-api';
+import { GROUP_KIND_LABEL, type GroupKind } from '../domain/groups';
+import type { BoatCrew } from '../services/boat-crew-api';
 import './sx-claim';
 import './sx-verified-badge';
 import './sx-page-media';
@@ -33,9 +38,9 @@ const PAGE_VISIBILITY: Record<Linkable['visibility'], string> = {
 };
 
 export type PageData =
-  | ({ kind: 'profile' } & ProfilePageData)
+  | ({ kind: 'profile'; seasons?: SeasonTableData | null } & ProfilePageData)
   /** Bootsseite mit Neuigkeiten des Boots (F-425) */
-  | ({ kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[]; stream?: StreamPage | null } & PageMedia)
+  | ({ kind: 'boat'; boat: Boat; stats: PageStats; voyages: ShareMeta[]; social?: FollowStats; clubs?: GroupRef[]; stream?: StreamPage | null; crew?: BoatCrew | null } & PageMedia)
   /** Hafenseite /h/<slug> (Konzept 12.2) mit Neuigkeiten des Hafens */
   | ({ kind: 'harbor'; stream?: StreamPage | null } & HarborPageData)
   /** einzelne Karte `/p/<id>` (F-406): Verlauf nicht sichtbar, „Nur mit Link“ oder nicht mehr im Verlauf zu finden */
@@ -67,6 +72,9 @@ export class SxProfilePage extends LitElement {
     /** frisch erzeugter Link aus „Freunde einladen“ (F-592) – nur einmal sichtbar */
     inviteLink: { type: String },
     inviteBusy: { type: Boolean },
+    crewBusy: { type: Boolean },
+    seasonBusy: { type: Boolean },
+    crewLink: { type: String },
     inviting: { state: true },
   };
   declare data: PageData | null;
@@ -92,6 +100,11 @@ export class SxProfilePage extends LitElement {
   declare hideAuto: boolean;
   declare inviteLink: string | null;
   declare inviteBusy: boolean;
+  /** Stammcrew (Konzept 41): Aufruf läuft, frisch erzeugter Einladungslink */
+  declare crewBusy: boolean;
+  /** Jahresansicht (Konzept 43): Schalter wird gespeichert */
+  declare seasonBusy: boolean;
+  declare crewLink: string;
   /** „Freunde einladen“ auf der eigenen Seite aufgeklappt (Zahnrad, F-592) */
   declare inviting: boolean;
 
@@ -115,6 +128,9 @@ export class SxProfilePage extends LitElement {
     this.supporter = false;
     this.inviteLink = null;
     this.inviteBusy = false;
+    this.crewBusy = false;
+    this.seasonBusy = false;
+    this.crewLink = '';
     this.inviting = false;
   }
 
@@ -291,8 +307,17 @@ export class SxProfilePage extends LitElement {
       }
       .cards {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr));
         gap: var(--s-3);
+      }
+      .card-wrap {
+        display: grid;
+        gap: var(--s-1);
+        min-width: 0;
+      }
+      .card-wrap button {
+        justify-self: start;
+        min-height: 44px;
       }
       a.card {
         display: grid;
@@ -391,15 +416,21 @@ export class SxProfilePage extends LitElement {
     onMapStyles,
   ];
 
-  private voyages(list: CrewVoyage[]) {
+  /** `unassignFrom`: Bootsseite für Eigner und Admins – je Törn „Zuordnung lösen“ (F-274). */
+  private voyages(list: CrewVoyage[], unassignFrom: string | null = null) {
     if (!list.length) return html`<div class="empty">Noch keine öffentlichen Törns.</div>`;
-    return html`<div class="cards">
-      ${list.map(
-        (v) => html`<a class="card" href="/s/${v.id}">
+    const card = (v: CrewVoyage) => html`<a class="card" href="/s/${v.id}">
           <span class="t">${icon(v.source === 'manual' ? 'book' : 'map')}${v.title}</span>
           <span class="s">${v.summary || `${fmtNum(v.distNm, 1)} sm`}${v.source === 'manual' ? html` ${logbookTag()}` : ''}</span>
           <span class="s">${v.boat ? html`${icon(ENTITY_ICON.boat)} ${v.boat.name} · ` : ''}${fmtDate(v.startedAt ?? v.createdAt)}${v.crewRole ? ` · als ${VOYAGE_ROLE_SHORT[v.crewRole]}` : ''}</span>
-        </a>`,
+        </a>`;
+    return html`<div class="cards">
+      ${list.map((v) =>
+        unassignFrom
+          ? html`<div class="card-wrap">${card(v)}
+              <button class="btn ghost small" ?disabled=${this.crewBusy} aria-label="Zuordnung zum Boot lösen: ${v.title}"
+                @click=${() => emit(this, 'sx-boat-unassign', { boatId: unassignFrom, shareId: v.id })}>${icon('x')} Zuordnung lösen</button></div>`
+          : card(v),
       )}
     </div>`;
   }
@@ -539,6 +570,11 @@ export class SxProfilePage extends LitElement {
       ${this.inviteSection(d)}
       ${this.stats(d.stats)}
       ${this.posts(d)}
+      ${d.seasons
+        ? html`<section aria-labelledby="seasons-t"><h2 class="eyebrow" id="seasons-t">Fahrten und Regatten nach Saison</h2>
+            <sx-season-table .rows=${d.seasons.rows} ?self=${d.seasons.self} mode=${d.seasons.mode} ?profile-private=${p.visibility !== 'public'}
+              ?busy=${this.seasonBusy} ?truncated=${d.seasons.truncated}></sx-season-table></section>`
+        : ''}
       ${d.boats.length
         ? html`<section>
             <h2 class="eyebrow">Boote</h2>
@@ -587,12 +623,16 @@ export class SxProfilePage extends LitElement {
       ${b.role && b.hiddenAt ? html`<p class="note-hidden" role="status">${icon('eyeOff')} Gemeldet – für andere ausgeblendet bis zur Prüfung.</p>` : ''}
       ${this.stats(d.stats)}
       <section aria-labelledby="boat-news">
-        <div class="news-head"><h2 class="eyebrow" id="boat-news">Neuigkeiten</h2>${b.role ? writePostButton(this) : ''}</div>
+        <div class="news-head"><h2 class="eyebrow" id="boat-news">Neuigkeiten</h2>${b.role || d.crew?.canPost ? writePostButton(this) : ''}</div>
         <sx-stream scope="boat" ?hide-auto=${this.hideAuto} .items=${d.stream?.items ?? []} .cursor=${d.stream?.cursor ?? null} ?loading=${this.streamLoading} .highlight=${this.highlight} .pins=${this.pins} ?manage=${this.manage}
-          empty-text="Noch keine Neuigkeiten zu diesem Boot. Beiträge von Eigner und Boots-Admins erscheinen hier."></sx-stream>
+          empty-text="Noch keine Neuigkeiten zu diesem Boot. Beiträge von Eigner, Boots-Admins und – wenn freigeschaltet – der Stammcrew erscheinen hier."></sx-stream>
       </section>
+      ${d.crew && (d.crew.standing || d.crew.members.length || d.crew.others)
+        ? html`<section aria-labelledby="boat-crew"><h2 class="eyebrow" id="boat-crew">Stammcrew</h2>
+            <sx-boat-crew .crew=${d.crew} boat-name=${b.name} ?busy=${this.crewBusy} .link=${this.crewLink}></sx-boat-crew></section>`
+        : ''}
       <sx-gallery .photos=${d.photos ?? []} heading="Fotos"></sx-gallery>
-      <section><h2 class="eyebrow">Törns</h2>${this.voyages(d.voyages)}</section>
+      <section><h2 class="eyebrow">Törns</h2>${this.voyages(d.voyages, b.role ? b.id : null)}</section>
     `;
   }
 
@@ -749,7 +789,7 @@ export class SxProfilePage extends LitElement {
         ? html`<section>
             <h2 class="eyebrow">Vereine und Teams im Hafen</h2>
             <div class="cards">
-              ${this.harborGroups(d).map((g) => html`<a class="card" href="/g/${g.slug}"><span class="t">${icon(groupIcon(g.kind))}${g.name}</span><span class="s">${g.kind === 'club' ? 'Verein' : 'Team'}</span></a>`)}
+              ${this.harborGroups(d).map((g) => html`<a class="card" href="/g/${g.slug}"><span class="t">${icon(groupIcon(g.kind))}${g.name}</span><span class="s">${GROUP_KIND_LABEL[g.kind as GroupKind] ?? 'Gruppe'}</span></a>`)}
             </div>
           </section>`
         : ''}

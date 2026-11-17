@@ -2047,8 +2047,8 @@ Umsetzung: `migrations/0022_crew_roles.sql`, `src/domain/crew-roles.ts`, `worker
 | Gleichzeitigkeit | Skipper-Prüfung, „Rolle noch die gelesene“ (sonst 409 `role_changed`) und „bin noch Skipper“ beim Bestätigen stehen jeweils in derselben SQL-Anweisung; dazu ein eindeutiger Teilindex „ein Skipper je Törn“ |
 | Löschen | mit Törn und Crew-Eintrag; Boot gelöscht (auch mit dem Konto des Eigners) → Bestätigungen der Törns fallen; Konto der Skipper:in gelöscht → Bestätigung bleibt ohne Konto-ID |
 
-Noch offen (eigene Schritte): Stammcrew-Schalter, Titel, Boot-Beiträge und „Törns zuordnen“ (F-270 … F-274, brauchen
-`boat_admins.role` aus ROLLEN.md Schritt 1); Meilennachweis-Export und „In mein Fahrtenbuch übernehmen“ (F-277, F-278,
+Stammcrew-Schalter, Titel, Boot-Beiträge und „Törns zuordnen“ (F-270 … F-274): umgesetzt in Konzept 41 (eigene Tabelle
+`boat_crew` statt `boat_admins.role`). Meilennachweis-Export und „In mein Fahrtenbuch übernehmen“ (F-277, F-278,
 mit dem Fahrtenbuch); Ausnahme M1 (Eckdaten nicht öffentlicher Törns im eigenen Nachweis) ist mit dem Fahrtenbuch nach Jahren umgesetzt (Konzept 27.3, F-456).
 
 ## 19. Fahrtenbuch – Törns ohne GPX-Datei
@@ -3402,3 +3402,9 @@ aus Foren bzw. Dritt-Anleitungen, daher in der Anleitung allgemein formuliert.
 ## 39. Wertung „Fahrtensegeln – Brandenburger Seglerverband e. V.“: km, gegen den Strom, Bootsklasse, Langtörn (F-625 … F-632) → [`docs/concept/39-wertung-bsv.md`](concept/39-wertung-bsv.md)
 
 ## 40. Kommentare an allen Beiträgen, Benachrichtigung je Verlauf mit Glocke (F-635 … F-644) → [`docs/concept/40-kommentare-ueberall.md`](concept/40-kommentare-ueberall.md)
+
+## 41. Stammcrew eines Boots: Schalter, Titel, Beiträge, Törns zuordnen (F-270 … F-274) → [`docs/concept/41-stammcrew.md`](concept/41-stammcrew.md)
+
+## 42. Regatten und Klassenvereinigungen: Ergebnisse im Fahrtenbuch, Export, Übersicht im Verein (F-645 … F-651) → [`docs/concept/42-regatten.md`](concept/42-regatten.md)
+
+## 43. Jahresansicht der Fahrten und Regatten im Profil (F-665 … F-669) → [`docs/concept/43-jahresansicht.md`](concept/43-jahresansicht.md)

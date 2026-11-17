@@ -1,5 +1,6 @@
 // Fahrtenbuch (Konzept 19, F-300 … F-312): Törns ohne GPX und Fahrtenbuch-Angaben an jedem Törn. Reine Regeln ohne DOM
 // und Netz – genutzt vom Worker (Prüfen, Anlegen) und von der Oberfläche (Formular, Anzeige, Plausibilität vorab).
+import { isBoatClass } from './boat-class';
 import { cleanComment, commentLength } from './comment-text';
 import { METERS_PER_NM, haversine } from './geo';
 import { fmtNum } from './format';
@@ -47,6 +48,10 @@ export const LOG_LIMITS = {
   mastMax: 50,
   regattaNameMax: 80,
   regattaMax: 999,
+  /** Veranstalter (Konzept 42) */
+  regattaOrganizerMax: 80,
+  /** Gesamtpunkte einer Serie, eine Nachkommastelle */
+  regattaPointsMax: 9999,
   itemsMax: 10,
   itemNameMax: 40,
   itemNoteMax: 200,
@@ -113,7 +118,11 @@ export interface Logbook {
   mast?: number;
   /** davon gegen den Strom auf stark strömenden Gewässern (≥ 5 km/h), sm – nur binnen (Konzept 39, F-626) */
   upstreamNm?: number;
-  regatta?: { name: string; place?: number; starters?: number };
+  /**
+   * Regatta-Ergebnis (Konzept 27.4, erweitert in Konzept 42): Name, Platz, Starter; dazu Veranstalter, Wettfahrten,
+   * Gesamtpunkte und Bootsklasse (BOAT_CLASSES, sonst die des Boots).
+   */
+  regatta?: { name: string; place?: number; starters?: number; organizer?: string; races?: number; points?: number; boatClass?: string };
   items?: LogItem[];
   /** aus einer Veranstaltung übernommen (Konzept 30, F-487) – nur ein Verweis, die Veranstaltung darf verschwinden */
   eventId?: string;
@@ -217,7 +226,22 @@ function parseExtra(o: Record<string, unknown>, log: Logbook): string | null {
     const starters = empty(r.starters) ? undefined : num(r.starters, 1, L.regattaMax, true);
     if (place === null || starters === null) return `Regatta: Platz und Starter 1 bis ${L.regattaMax}.`;
     if (place !== undefined && starters !== undefined && place > starters) return 'Regatta: Der Platz liegt über der Zahl der Starter.';
-    log.regatta = { name, ...(place !== undefined ? { place } : {}), ...(starters !== undefined ? { starters } : {}) };
+    const organizer = empty(r.organizer) ? '' : line(r.organizer);
+    if (commentLength(organizer) > L.regattaOrganizerMax) return `Regatta: Veranstalter mit höchstens ${L.regattaOrganizerMax} Zeichen.`;
+    const races = empty(r.races) ? undefined : num(r.races, 1, L.regattaMax, true);
+    if (races === null) return `Regatta: Wettfahrten 1 bis ${L.regattaMax}.`;
+    const points = empty(r.points) ? undefined : num(r.points, 0, L.regattaPointsMax, false);
+    if (points === null) return `Regatta: Punkte 0 bis ${L.regattaPointsMax}.`;
+    if (!empty(r.boatClass) && !isBoatClass(r.boatClass)) return 'Regatta: unbekannte Bootsklasse.';
+    log.regatta = {
+      name,
+      ...(place !== undefined ? { place } : {}),
+      ...(starters !== undefined ? { starters } : {}),
+      ...(organizer ? { organizer } : {}),
+      ...(races !== undefined ? { races } : {}),
+      ...(points !== undefined ? { points: Math.round(points * 10) / 10 } : {}),
+      ...(isBoatClass(r.boatClass) ? { boatClass: r.boatClass } : {}),
+    };
   }
   if (!empty(o.items)) {
     if (!Array.isArray(o.items)) return 'Posten: ungültige Angabe.';

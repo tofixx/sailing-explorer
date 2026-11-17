@@ -45,6 +45,7 @@ export const TABLES: Record<string, Loeschweg> = {
   profiles: { cascade: ['users'], durch: ['purgeUser', 'mergeUsers'] },
   boats: { cascade: ['users'], durch: ['removeBoat', 'purgeUser'] },
   boat_admins: { cascade: ['users', 'boats'], durch: ['removeBoatAdmin', 'removeBoat', 'purgeUser', 'mergeUsers'] },
+  boat_crew: { cascade: ['users', 'boats'], durch: ['removeCrewMember', 'removeBoat', 'purgeUser', 'mergeUsers', 'adminOwner'] },
   supports: { bleibt: 'Zahlungsnachweis: nach Kontolöschung ohne Konto-ID', nachts: '10 Jahre nach Ablauf, Gutscheine 2 Jahre' },
   invites: { cascade: ['users', 'shares', 'boats', 'groups'], durch: ['revokeInvite', 'removeBoat', 'removeGroup', 'purgeUser'], nachts: 'abgelaufen oder aufgebraucht' },
   share_crew: { cascade: ['shares', 'users'], durch: ['removeCrew', 'purgeUser', 'mergeUsers'] },

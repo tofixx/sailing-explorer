@@ -1,7 +1,7 @@
 import { LitElement, css, html } from 'lit';
 import type { Boat, GroupInfo, GroupInput, GroupPageData, MyGroup, PendingInvite, StreamPage } from '../services/api';
 import {
-  APPROVERS, APPROVERS_LABEL, DEFAULT_MEMBERS_VISIBLE, GROUP_KIND_LABEL, MEMBERS_VISIBLE, MEMBERS_VISIBLE_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODES, JOIN_MODE_LABEL, JOIN_MODE_SHORT,
+  APPROVERS, APPROVERS_LABEL, DEFAULT_MEMBERS_VISIBLE, GROUP_KINDS, GROUP_KIND_HINT, GROUP_KIND_LABEL, GROUP_KIND_PLURAL, hasRegattaOverview, MEMBERS_VISIBLE, MEMBERS_VISIBLE_LABEL, GROUP_ROLE_LABEL, GROUP_VISIBILITY_HINT, GROUP_VISIBILITY_LABEL, JOIN_MODES, JOIN_MODE_LABEL, JOIN_MODE_SHORT,
   canApprove, canManageGroup, slugFromName, type Approvers, type GroupKind, type JoinMode, type MembersVisible,
 } from '../domain/groups';
 import { COVER_FOCUS_DEFAULT } from '../domain/cover';
@@ -10,6 +10,10 @@ import { POST_BY, POST_BY_LABEL, canWriteInGroup, defaultPostBy, effectivePostBy
 import { VISIBILITIES, sharePath, type Visibility } from '../domain/visibility';
 import { fmtNum, plural } from '../util/html';
 import { ENTITY_ICON, entityTile, groupIcon, icon } from './icons';
+import { boatClassOptions } from './boat-class-options';
+import './sx-group-regattas';
+import type { GroupRegattas } from '../services/regatta-api';
+import { regattaSeasons } from '../domain/regatta';
 import { base, emit, offerFollow, onMapStyles, pageMenuReveal, webLink, webLinkStyles, tileStyles, writePostButton } from './shared';
 import './sx-page-menu';
 import type { PageMenuItem } from './sx-page-menu';
@@ -51,6 +55,8 @@ export class SxGroupPage extends LitElement {
     signedIn: { type: Boolean },
     supporter: { type: Boolean },
     myBoats: { attribute: false },
+    regattas: { attribute: false },
+    regattasLoading: { type: Boolean },
     clubs: { attribute: false },
     inviteLink: { type: String },
     formError: { type: String },
@@ -72,6 +78,9 @@ export class SxGroupPage extends LitElement {
   /** darf „Nur mit Link“ und „Geschlossen“ wählen (E1) */
   declare supporter: boolean;
   declare myBoats: Boat[];
+  /** Regatta-Übersicht (Konzept 42, F-650) – nur Mitglieder von Vereinen und Klassenvereinigungen */
+  declare regattas: GroupRegattas | null;
+  declare regattasLoading: boolean;
   /** Vereine, die man verwaltet (für Teams) */
   declare clubs: MyGroup[];
   /** frisch erzeugter Einladungslink – nur einmal sichtbar */
@@ -96,6 +105,8 @@ export class SxGroupPage extends LitElement {
     this.signedIn = false;
     this.supporter = false;
     this.myBoats = [];
+    this.regattas = null;
+    this.regattasLoading = false;
     this.clubs = [];
     this.inviteLink = null;
     this.formError = '';
@@ -377,11 +388,18 @@ export class SxGroupPage extends LitElement {
       ${create
         ? html`<fieldset class="opts" style="border:0;padding:0;margin:0">
             <legend class="label">Art</legend>
-            ${(['club', 'team'] as GroupKind[]).map(
-              (k) => html`<label class="opt"><input type="radio" name="kind" .checked=${d.kind === k} @change=${() => this.set({ kind: k, parentId: k === 'club' ? null : d.parentId })} />
-                <span><b>${GROUP_KIND_LABEL[k]}</b><small>${k === 'club' ? 'Segelverein, Hafengemeinschaft, Klassenvereinigung' : 'Regattacrew, Jugendgruppe, Fahrtensegler-Runde – optional in einem Verein'}</small></span></label>`,
+            ${(GROUP_KINDS as readonly GroupKind[]).map(
+              (k) => html`<label class="opt"><input type="radio" name="kind" .checked=${d.kind === k} @change=${() => this.set({ kind: k, parentId: k === 'team' ? d.parentId : null })} />
+                <span><b>${GROUP_KIND_LABEL[k]}</b><small>${GROUP_KIND_HINT[k]}</small></span></label>`,
             )}
           </fieldset>`
+        : ''}
+      ${(create ? d.kind : g?.kind) === 'class'
+        ? html`<label><span class="label">Bootsklasse</span>
+            <select required .value=${d.boatClass ?? g?.boatClass ?? ''} @change=${(e: Event) => this.set({ boatClass: (e.target as HTMLSelectElement).value })}>
+              <option value="" ?selected=${!(d.boatClass ?? g?.boatClass)}>Bitte wählen …</option>
+              ${boatClassOptions(d.boatClass ?? g?.boatClass ?? '')}
+            </select></label>`
         : ''}
       <label><span class="label">Name</span>
         <input type="text" maxlength="80" required .value=${d.name ?? ''}
@@ -461,7 +479,7 @@ export class SxGroupPage extends LitElement {
       <legend class="label">Wer darf Beiträge schreiben?</legend>
       ${(POST_BY as readonly PostBy[]).map(
         (b) => html`<label class="opt"><input type="radio" name="postby" .checked=${current === b} @change=${() => this.set({ postBy: b })} />
-          <span><b>${POST_BY_LABEL[b]}</b>${b === defaultPostBy(kind) ? html` <span class="faint">(Standard für ${kind === 'club' ? 'Vereine' : 'Teams'})</span>` : ''}</span></label>`,
+          <span><b>${POST_BY_LABEL[b]}</b>${b === defaultPostBy(kind) ? html` <span class="faint">(Standard für ${GROUP_KIND_PLURAL[kind]})</span>` : ''}</span></label>`,
       )}
     </fieldset>`;
   }
@@ -744,6 +762,9 @@ export class SxGroupPage extends LitElement {
           .pins=${this.pins} ?manage=${this.manage}
           empty-text="Noch keine Neuigkeiten in dieser Gruppe."></sx-stream>
       </section>
+      ${g.role && hasRegattaOverview(g.kind) && (this.regattas || this.regattasLoading)
+        ? html`<section aria-labelledby="reg-t"><sx-group-regattas .data=${this.regattas} .seasons=${regattaSeasons(Date.now())} ?loading=${this.regattasLoading}></sx-group-regattas></section>`
+        : ''}
       <sx-gallery .photos=${d.photos ?? []} heading="Fotos aus Törns von Mitgliedern und Booten"></sx-gallery>
       ${this.members(d)}
       ${this.boats(d)}

@@ -21,12 +21,16 @@ import { deleteInviteNotifications } from './notification-cleanup';
 import { prefsOf } from './notification-mail';
 import { isSelfRole, voyageRole, type VoyageRole } from '../src/domain/crew-roles';
 import { skipperOf } from './crew-roles';
+import { boatStanding } from './boat-crew';
+import { BOAT_CREW_LIMITS, canInviteToCrew } from '../src/domain/boat-crew';
 import { notSuspendedSql, publicSql } from './visible-sql';
 
 const DAY = 86_400_000;
 
 /** Missbrauchsgrenzen (Konzept 10.5) – gleich für kostenlos und Unterstützer. */
 export const INVITE_LIMITS = {
+  /** Stammcrew je Boot (offene Einladungen zählen mit), siehe BOAT_CREW_LIMITS */
+  crewPerBoat: BOAT_CREW_LIMITS.members,
   perUserPerDay: 20,
   adminsPerBoat: 10,
   crewPerShare: 30,
@@ -87,10 +91,16 @@ const inviteLink = (request: Request, token: string) => `${new URL(request.url).
 /** Lokal im Log-Modus: Link direkt zurückgeben (wie beim Login), damit man ohne Mailserver testen kann. */
 const devLink = (request: Request, env: Env, link: string) => (env.MAIL_PROVIDER === 'log' && isDevHost(new URL(request.url)) ? link : undefined);
 
-const pendingSql = (col: 'boat_id' | 'share_id' | 'group_id') =>
+/** Offene Einladungen eines Ziels; an Booten getrennt nach Art (Admins bzw. Stammcrew, Konzept 41). */
+const pendingSql = (col: 'boat_id' | 'share_id' | 'group_id', kind?: 'boat_admin' | 'boat_member') =>
   `SELECT i.id, i.email, i.max_uses, i.uses, i.created_at, i.expires_at, p.display_name AS invitee_name, p.handle AS invitee_handle
    FROM invites i LEFT JOIN profiles p ON p.user_id = i.invitee_id
-   WHERE i.${col} = ? AND i.expires_at > ? AND i.uses < i.max_uses ORDER BY i.created_at`;
+   WHERE i.${col} = ? AND i.expires_at > ? AND i.uses < i.max_uses${kind ? ` AND i.kind = '${kind}'` : ''} ORDER BY i.created_at`;
+
+/** Offene Stammcrew-Einladungen eines Boots für Eigner und Admins (Liste mit Zurückziehen). */
+export async function pendingCrewInvites(env: Env, boatId: string) {
+  return (await env.DB.prepare(pendingSql('boat_id', 'boat_member')).bind(boatId, Date.now()).all<InviteRow>()).results.map(inviteShape);
+}
 
 async function count(env: Env, sql: string, ...args: unknown[]): Promise<number> {
   return (await env.DB.prepare(sql).bind(...args).first<{ n: number }>())?.n ?? 0;
@@ -114,7 +124,7 @@ interface NewInvite {
   shareId?: string;
   groupId?: string;
   /** nur bei Gruppen: Verein oder Team (Mailtext) */
-  groupKind?: 'club' | 'team';
+  groupKind?: 'club' | 'team' | 'class';
   to: Recipient;
   maxUses: number;
   days: number;
@@ -164,9 +174,9 @@ const isSelf = (to: Recipient, user: User) => !!to && ('email' in to ? to.email 
  * Bei Einladungen über den Profilnamen ist die Person öffentlich bekannt – „schon dabei“ verrät dann nichts.
  * Bei Adressen wird bewusst nicht geprüft, sonst ließe sich ausprobieren, welche Adresse zu wem gehört.
  */
-async function checkNotMember(env: Env, to: Recipient, table: 'boat_admins' | 'share_crew' | 'group_members', id: string) {
+async function checkNotMember(env: Env, to: Recipient, table: 'boat_admins' | 'boat_crew' | 'share_crew' | 'group_members', id: string) {
   if (!to || 'email' in to) return;
-  const col = table === 'boat_admins' ? 'boat_id' : table === 'share_crew' ? 'share_id' : 'group_id';
+  const col = table === 'boat_admins' || table === 'boat_crew' ? 'boat_id' : table === 'share_crew' ? 'share_id' : 'group_id';
   if (await count(env, `SELECT COUNT(*) AS n FROM ${table} WHERE ${col} = ? AND user_id = ?`, id, to.userId)) {
     throw new HttpError(409, 'already_member', `${to.name} ist schon dabei.`);
   }
@@ -246,7 +256,7 @@ export async function listBoatAdmins(request: Request, env: Env, id: string): Pr
   )
     .bind(id)
     .all<{ user_id: string; created_at: number; handle: string | null; display_name: string | null; visibility: string | null }>();
-  const invites = owner ? (await env.DB.prepare(pendingSql('boat_id')).bind(id, Date.now()).all<InviteRow>()).results.map(inviteShape) : [];
+  const invites = owner ? (await env.DB.prepare(pendingSql('boat_id', 'boat_admin')).bind(id, Date.now()).all<InviteRow>()).results.map(inviteShape) : [];
   return json({
     role,
     admins: results.map((a) => ({
@@ -279,7 +289,7 @@ export async function inviteBoatAdmin(request: Request, env: Env, id: string): P
   const now = Date.now();
   const used =
     (await count(env, 'SELECT COUNT(*) AS n FROM boat_admins WHERE boat_id = ?', id)) +
-    (await count(env, 'SELECT COUNT(*) AS n FROM invites WHERE boat_id = ? AND expires_at > ? AND uses < max_uses', id, now));
+    (await count(env, `SELECT COUNT(*) AS n FROM invites WHERE kind = 'boat_admin' AND boat_id = ? AND expires_at > ? AND uses < max_uses`, id, now));
   if (used >= INVITE_LIMITS.adminsPerBoat) throw new HttpError(409, 'quota', `Ein Boot hat höchstens ${INVITE_LIMITS.adminsPerBoat} Admins (offene Einladungen zählen mit).`);
   const boat = await env.DB.prepare('SELECT name FROM boats WHERE id = ?').bind(id).first<{ name: string }>();
   const { invite, link } = await createInvite(request, env, user, {
@@ -299,6 +309,34 @@ export async function removeBoatAdmin(request: Request, env: Env, id: string, wh
   const res = await env.DB.prepare('DELETE FROM boat_admins WHERE boat_id = ? AND user_id = ?').bind(id, target).run();
   if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Diese Person ist kein Admin dieses Boots.');
   return new Response(null, { status: 204 });
+}
+
+// ---------------------------------------------------------------- Stammcrew eines Boots (Konzept 41)
+
+/**
+ * POST /api/boats/:id/crew/invites – Eigner und Admins, die Stammcrew mit Schalter „Einladen“ (F-270): `{ email }`,
+ * `{ handle }` oder `{}` (Einladungslink). 14 Tage; höchstens 50 in der Stammcrew, offene Einladungen zählen mit.
+ * Wer verwaltet, ist nicht auch Stammcrew (409 `already_member` bei Profilnamen, beim Annehmen ohne Verbrauch).
+ */
+export async function inviteBoatCrew(request: Request, env: Env, id: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  const s = await boatStanding(env, user.id, id);
+  if (!s || !s.standing) throw BOAT_NOT_FOUND();
+  if (!canInviteToCrew(s.standing, s.rights)) throw new HttpError(403, 'forbidden', 'Zur Stammcrew laden Eigner und Admins ein.');
+  await inviteGuard(env, user);
+  const to = await readRecipient(env, await readJson<{ email?: unknown; handle?: unknown }>(request), true);
+  if (isSelf(to, user)) throw new HttpError(409, 'own_object', 'Du gehörst schon zu diesem Boot.');
+  await checkNotMember(env, to, 'boat_crew', id);
+  const now = Date.now();
+  const used =
+    (await count(env, 'SELECT COUNT(*) AS n FROM boat_crew WHERE boat_id = ?', id)) +
+    (await count(env, `SELECT COUNT(*) AS n FROM invites WHERE kind = 'boat_member' AND boat_id = ? AND expires_at > ? AND uses < max_uses`, id, now));
+  if (used >= INVITE_LIMITS.crewPerBoat) throw new HttpError(409, 'quota', `Eine Stammcrew hat höchstens ${INVITE_LIMITS.crewPerBoat} Personen (offene Einladungen zählen mit).`);
+  const boat = await env.DB.prepare('SELECT name FROM boats WHERE id = ?').bind(id).first<{ name: string }>();
+  const { invite, link } = await createInvite(request, env, user, {
+    kind: 'boat_member', boatId: id, to, maxUses: to ? 1 : Math.min(10, INVITE_LIMITS.crewPerBoat - used), days: INVITE_LIMITS.crewDays, targetName: boat?.name ?? '',
+  });
+  return json({ invite, link: to ? undefined : link, devLink: to ? devLink(request, env, link) : undefined }, { status: 201 });
 }
 
 // ---------------------------------------------------------------- Crew
@@ -504,7 +542,7 @@ const usable = (row: LoadedInvite | null): row is LoadedInvite =>
 /** Eigentümer des Ziels – bei Einladungen ohne Ziel die einladende Person. */
 const ownerOf = (inv: LoadedInvite) => (inv.kind === 'friend' ? inv.inviter_id : (inv.boat_owner ?? inv.share_owner ?? inv.group_owner));
 const targetOf = (inv: LoadedInvite) =>
-  inv.kind === 'boat_admin' ? inv.boat_name : inv.kind === 'group' ? inv.group_name : inv.kind === 'friend' ? null : inv.share_title;
+  inv.kind === 'boat_admin' || inv.kind === 'boat_member' ? inv.boat_name : inv.kind === 'group' ? inv.group_name : inv.kind === 'friend' ? null : inv.share_title;
 
 /** Gültige Einladung zum Token – ungültige Form, unbekannt, abgelaufen oder aufgebraucht: 400 und Fehlversuch (pro IP). */
 async function loadInvite(request: Request, env: Env, token: unknown): Promise<LoadedInvite> {
@@ -524,6 +562,11 @@ async function loadInvite(request: Request, env: Env, token: unknown): Promise<L
 async function isMember(env: Env, inv: LoadedInvite, userId: string): Promise<boolean> {
   if (inv.kind === 'group') return !!(await count(env, 'SELECT COUNT(*) AS n FROM group_members WHERE group_id = ? AND user_id = ?', inv.group_id, userId));
   if (inv.kind === 'friend') return !!(await count(env, `SELECT COUNT(*) AS n FROM follows WHERE user_id = ? AND target_kind = 'user' AND target_id = ?`, userId, inv.inviter_id));
+  // Stammcrew: wer das Boot schon verwaltet, braucht sie nicht (zählt als „schon dabei“)
+  if (inv.kind === 'boat_member') {
+    return !!(await count(env, `SELECT COUNT(*) AS n FROM boats b WHERE b.id = ?1 AND (b.owner_id = ?2
+      OR EXISTS (SELECT 1 FROM boat_admins a WHERE a.boat_id = b.id AND a.user_id = ?2) OR EXISTS (SELECT 1 FROM boat_crew c WHERE c.boat_id = b.id AND c.user_id = ?2))`, inv.boat_id, userId));
+  }
   return inv.kind === 'boat_admin'
     ? !!(await count(env, 'SELECT COUNT(*) AS n FROM boat_admins WHERE boat_id = ? AND user_id = ?', inv.boat_id, userId))
     : !!(await count(env, 'SELECT COUNT(*) AS n FROM share_crew WHERE share_id = ? AND user_id = ?', inv.share_id, userId));
@@ -575,6 +618,7 @@ async function acceptLoaded(env: Env, user: User, inv: LoadedInvite) {
   // Keine Bindung an Adresse oder Konto (Entscheidung 28.10.2026): wer den Link hat, nimmt mit seinem Konto an.
   if (inv.kind === 'group') return acceptGroupInvite(env, inv, user);
   if (inv.kind === 'friend') return acceptFriendInvite(env, inv, user);
+  if (inv.kind === 'boat_member') return acceptBoatCrewInvite(env, inv, user);
   const boat = inv.kind === 'boat_admin';
   const targetId = (boat ? inv.boat_id : inv.share_id)!;
   const result = {
@@ -600,10 +644,34 @@ async function acceptLoaded(env: Env, user: User, inv: LoadedInvite) {
   }
   if (!(await claim(env, inv.id))) throw INVALID();
   const now = Date.now();
+  // Wer Admin wird, verlässt die Stammcrew (kein Doppel, Konzept 41)
+  if (boat) await env.DB.prepare('DELETE FROM boat_crew WHERE boat_id = ? AND user_id = ?').bind(targetId, user.id).run();
   await (boat
     ? env.DB.prepare('INSERT OR IGNORE INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)').bind(targetId, user.id, now)
     : env.DB.prepare('INSERT OR IGNORE INTO share_crew (share_id, user_id, created_at, role) VALUES (?, ?, ?, ?)').bind(targetId, user.id, now, inviteRole(inv))
   ).run();
+  return { ...result, already: false };
+}
+
+/** Stammcrew-Einladung einlösen (F-270): Eigner, Admins und Stammcrew verbrauchen nichts; höchstens 50 je Boot. */
+async function acceptBoatCrewInvite(env: Env, inv: LoadedInvite, user: User) {
+  const boatId = inv.boat_id!;
+  const result = { kind: inv.kind, path: `/b/${boatId}`, target: inv.boat_name };
+  if (await isMember(env, inv, user.id)) return { ...result, already: true };
+  const full = () => new HttpError(409, 'quota', 'Die Stammcrew dieses Boots ist voll.');
+  if ((await count(env, 'SELECT COUNT(*) AS n FROM boat_crew WHERE boat_id = ?', boatId)) >= INVITE_LIMITS.crewPerBoat) throw full();
+  if (!(await claim(env, inv.id))) throw INVALID();
+  // Grenze zusätzlich atomar in derselben Anweisung (Muster R 10)
+  const res = await env.DB.prepare(
+    `INSERT OR IGNORE INTO boat_crew (boat_id, user_id, created_at) SELECT ?1, ?2, ?3
+     WHERE (SELECT COUNT(*) FROM boat_crew WHERE boat_id = ?1) < ?4`,
+  )
+    .bind(boatId, user.id, Date.now(), INVITE_LIMITS.crewPerBoat)
+    .run();
+  if (!res.meta.changes) {
+    if (await isMember(env, inv, user.id)) return { ...result, already: true };
+    throw full();
+  }
   return { ...result, already: false };
 }
 
@@ -724,12 +792,14 @@ export async function declineMyInvite(request: Request, env: Env, id: string): P
 export async function revokeInvite(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   const row = await env.DB.prepare(
-    `SELECT i.id, i.group_id, CASE WHEN i.kind = 'friend' THEN i.inviter_id ELSE COALESCE(b.owner_id, s.user_id) END AS owner FROM invites i
+    `SELECT i.id, i.kind, i.boat_id, i.inviter_id, i.group_id, CASE WHEN i.kind = 'friend' THEN i.inviter_id ELSE COALESCE(b.owner_id, s.user_id) END AS owner FROM invites i
      LEFT JOIN boats b ON b.id = i.boat_id LEFT JOIN shares s ON s.id = i.share_id WHERE i.id = ?`,
   )
     .bind(id)
-    .first<{ id: string; group_id: string | null; owner: string | null }>();
-  const allowed = !!row && (row.group_id ? canManageGroup(await roleIn(env, user.id, row.group_id)) : row.owner === user.id);
+    .first<{ id: string; kind: string; boat_id: string | null; inviter_id: string; group_id: string | null; owner: string | null }>();
+  // Stammcrew (Konzept 41): auch Admins des Boots und wer eingeladen hat
+  const crewInvite = row?.kind === 'boat_member' && !!row.boat_id && (row.inviter_id === user.id || !!(await roleFor(env, user.id, row.boat_id)));
+  const allowed = !!row && (row.group_id ? canManageGroup(await roleIn(env, user.id, row.group_id)) : row.owner === user.id || crewInvite);
   if (!row || !allowed) throw new HttpError(404, 'not_found', 'Diese Einladung gibt es nicht (mehr).');
   await env.DB.batch([deleteInviteNotifications(env, id), env.DB.prepare('DELETE FROM invites WHERE id = ?').bind(id)]);
   return new Response(null, { status: 204 });

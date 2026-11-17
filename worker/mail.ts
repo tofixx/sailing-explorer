@@ -286,9 +286,9 @@ export function passkeyAddedMail(env: Env, to: string, origin: string, name: str
 }
 
 export interface InviteMailInput {
-  kind: 'boat_admin' | 'crew' | 'group' | 'friend';
+  kind: 'boat_admin' | 'boat_member' | 'crew' | 'group' | 'friend';
   /** nur bei Gruppen: Verein oder Team */
-  groupKind?: 'club' | 'team';
+  groupKind?: 'club' | 'team' | 'class';
   /** nur bei Crew: Rolle, als die eingeladen wird (Konzept 15) */
   role?: VoyageRole;
   /** Anzeigename des Einladenden (selbst gewählt oder Spaßname) – nie die E-Mail-Adresse */
@@ -304,19 +304,21 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
   const app = env.APP_NAME;
   const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
   const who = short(m.inviter.trim() || 'Ein Segler oder eine Seglerin', 60);
-  const group = m.groupKind === 'team' ? 'das Team' : 'den Verein';
+  const group = m.groupKind === 'team' ? 'das Team' : m.groupKind === 'class' ? 'die Klassenvereinigung' : 'den Verein';
   const target = short(m.target.trim() || (m.kind === 'crew' ? 'Törn' : m.kind === 'group' ? 'Gruppe' : 'Boot'), 80);
   // „als Gast“ usw. – feste Texte, kein Nutzertext
   const asRole = m.role && m.role !== 'crew' ? `als ${VOYAGE_ROLE_SHORT[m.role]} ` : '';
   const what =
     m.kind === 'friend'
       ? `zu ${app} ein – Törns teilen, Boote, Vereine und Teams rund ums Segeln`
-      : m.kind === 'boat_admin' ? `das Boot „${target}“ bei ${app} mitzuverwalten` : m.kind === 'group' ? `in ${group} „${target}“ bei ${app}` : `${asRole}in die Crew des Törns „${target}“ bei ${app}`;
+      : m.kind === 'boat_admin' ? `das Boot „${target}“ bei ${app} mitzuverwalten` : m.kind === 'boat_member' ? `in die Stammcrew des Boots „${target}“ bei ${app}` : m.kind === 'group' ? `in ${group} „${target}“ bei ${app}` : `${asRole}in die Crew des Törns „${target}“ bei ${app}`;
   const whatHtml =
     m.kind === 'friend'
       ? `zu <b>${escapeHtml(app)}</b> ein – Törns teilen, Boote, Vereine und Teams rund ums Segeln`
       : m.kind === 'boat_admin'
       ? `das Boot <b>„${escapeHtml(target)}“</b> bei <b>${escapeHtml(app)}</b> mitzuverwalten`
+      : m.kind === 'boat_member'
+        ? `in die Stammcrew des Boots <b>„${escapeHtml(target)}“</b> bei <b>${escapeHtml(app)}</b>`
       : m.kind === 'group'
         ? `in ${group} <b>„${escapeHtml(target)}“</b> bei <b>${escapeHtml(app)}</b>`
         : `${asRole}in die Crew des Törns <b>„${escapeHtml(target)}“</b> bei <b>${escapeHtml(app)}</b>`;
@@ -326,6 +328,8 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
       ? 'Nimmst du an, folgt ihr einander und seht eure Neuigkeiten.'
       : m.kind === 'boat_admin'
       ? 'Als Admin kannst du die Bootsseite bearbeiten und deine Törns dem Boot zuordnen.'
+      : m.kind === 'boat_member'
+        ? 'In der Stammcrew ordnest du deine Törns dem Boot zu und liest die Neuigkeiten des Boots – verwalten kannst du es nicht.'
       : m.kind === 'group'
         ? 'Als Mitglied siehst du die Neuigkeiten der Gruppe und kannst deine Boote zuordnen.'
         : 'Mit deinem Profil erscheinst du dann auf dem Törn, sobald er öffentlich ist.';
@@ -342,6 +346,8 @@ export function inviteMail(env: Env, to: string, m: InviteMailInput): Mail {
       ? `${who} lädt dich zu ${app} ein`
       : m.kind === 'boat_admin'
       ? `${app}: Einladung als Admin für „${target}“`
+      : m.kind === 'boat_member'
+        ? `${app}: Einladung in die Stammcrew von „${target}“`
       : m.kind === 'group'
         ? `${app}: Einladung in „${target}“`
         : `${app}: Einladung in die Crew von „${target}“`;

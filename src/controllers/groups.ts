@@ -1,3 +1,5 @@
+import { regattaApi } from '../services/regatta-api';
+import { hasRegattaOverview } from '../domain/groups';
 import { ApiError, api, groupApi, socialApi, type DiscoverGroup, type FollowKind, type GroupInput, type InviteTo, type StreamFilter, type StreamPage } from '../services/api';
 import { locate, nearCenter, readNearPrefs, writeNearPrefs, type NearPrefs } from '../services/near-prefs';
 import { roundCoord, type NearRadius, type StreamMode } from '../domain/near';
@@ -100,6 +102,31 @@ export class GroupsController {
       g.role ? api.myBoats().then((r) => r.boats).catch(() => []) : Promise.resolve([]),
     ]);
     Object.assign(page, { stream, myBoats: boats });
+    void this.loadRegattas();
+  }
+
+  /** laufende Nummer der letzten Regatta-Anfrage (überholte Antworten verwerfen) */
+  private regattaAsk = 0;
+
+  /** Regatta-Übersicht (Konzept 42, F-650) – nur Mitglieder von Vereinen und Klassenvereinigungen; sonst kein Abschnitt. */
+  async loadRegattas(season: number | null = null): Promise<void> {
+    const page = this.ui.page;
+    const g = page.data?.group;
+    if (!g?.role || !hasRegattaOverview(g.kind)) {
+      page.regattas = null;
+      return;
+    }
+    // neue Gruppe (ohne Saisonwahl): alte Übersicht nicht stehen lassen
+    if (season === null) page.regattas = null;
+    page.regattasLoading = true;
+    try {
+      const ask = (this.regattaAsk = (this.regattaAsk ?? 0) + 1);
+      const data = await regattaApi.group(g.id, season).catch(() => null);
+      // nur die neueste Anfrage zählt (schneller Saisonwechsel, Gruppenwechsel)
+      if (ask === this.regattaAsk && page.data?.group.id === g.id) page.regattas = data;
+    } finally {
+      page.regattasLoading = false;
+    }
   }
 
   async openCreate(): Promise<void> {

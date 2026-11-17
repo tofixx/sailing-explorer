@@ -3,6 +3,7 @@
 // Lesen. Schreiben scheitert nie die eigentliche Aktion (Kommentar, Reaktion, Folgen …).
 // Bewusst ohne Abhängigkeit zu shares/groups/invites, damit diese Module es importieren können.
 import type { Env } from './env';
+import { GROUP_KIND_ACCUSATIVE, type GroupKind } from '../src/domain/groups';
 import { HttpError, json, readJson } from './http';
 import { requireUser } from './auth';
 import { canApprove, type Approvers, type GroupRole } from '../src/domain/groups';
@@ -200,7 +201,7 @@ function postAudience(kind: string, event: NotifyEvent): { ids: string; joins: s
     case 'boat':
       return {
         ids: `SELECT id, MAX(rel) AS rel FROM (SELECT owner_id AS id, 1 AS rel FROM boats WHERE id = ?6
-          UNION ALL SELECT user_id, 1 FROM boat_admins WHERE boat_id = ?6
+          UNION ALL SELECT x.user_id, 1 FROM (SELECT user_id FROM boat_admins WHERE boat_id = ?6 UNION ALL SELECT user_id FROM boat_crew WHERE boat_id = ?6) x
           UNION ALL SELECT user_id, 0 FROM follows WHERE target_kind = 'boat' AND target_id = ?6) GROUP BY id`,
         joins: follow('boat'),
         ok: higherUnlessMuted(event),
@@ -262,7 +263,8 @@ export const notifyShare = (env: Env, shareId: string) =>
         SELECT m.user_id AS id FROM share_groups sg JOIN group_members m ON m.group_id = sg.group_id WHERE sg.share_id = ?3
         UNION SELECT f.user_id FROM share_groups sg JOIN follows f ON f.target_kind = 'group' AND f.target_id = sg.group_id WHERE sg.share_id = ?3
         UNION SELECT owner_id FROM boats WHERE id = ?6
-        UNION SELECT user_id FROM boat_admins WHERE boat_id = ?6
+        -- Verwalter und Stammcrew in einem Glied (D1 erlaubt nur wenige UNION-Glieder je SELECT)
+        UNION SELECT x.user_id FROM (SELECT user_id FROM boat_admins WHERE boat_id = ?6 UNION ALL SELECT user_id FROM boat_crew WHERE boat_id = ?6) x
         UNION SELECT user_id FROM follows WHERE target_kind = 'boat' AND target_id = ?6
       ) c JOIN users u ON u.id = c.id
       WHERE u.suspended_at IS NULL AND u.locked_at IS NULL
@@ -280,7 +282,8 @@ export const notifyShare = (env: Env, shareId: string) =>
                     AND ${ok(followLevelSql('f'))})
           -- Boot nur, wenn „Sichtbar bis“ den Hafen abdeckt (wie shareTargetStmts, F-427); ausdrückliches „Stumm“ gewinnt
           OR (${boatReach} AND NOT EXISTS (SELECT 1 FROM follows fm WHERE fm.user_id = u.id AND fm.target_kind = 'boat' AND fm.target_id = ?6 AND fm.notify_level = 'muted')
-              AND (u.id IN (SELECT owner_id FROM boats WHERE id = ?6) OR u.id IN (SELECT user_id FROM boat_admins WHERE boat_id = ?6)) AND ${ok()})
+              AND (u.id IN (SELECT owner_id FROM boats WHERE id = ?6) OR u.id IN (SELECT user_id FROM boat_admins WHERE boat_id = ?6)
+                OR u.id IN (SELECT user_id FROM boat_crew WHERE boat_id = ?6)) AND ${ok()})
           OR (${boatReach} AND EXISTS (SELECT 1 FROM follows f JOIN boats b ON b.id = f.target_id AND b.visibility = 'public' AND b.hidden_at IS NULL
                   WHERE f.target_kind = 'boat' AND f.target_id = ?6 AND f.user_id = u.id AND ${ok(followLevelSql('f'))}))
         )
@@ -511,7 +514,8 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
     CASE WHEN n.kind IN ('event', 'rsvp') THEN p.body END AS p_body, (n.actor_id IS NULL) AS n_system,
     (SELECT pe.cancelled_at FROM post_events pe WHERE n.kind = 'event' AND pe.post_id = p.id) AS p_cancelled,
     EXISTS (SELECT 1 FROM event_rsvps er WHERE n.kind = 'event' AND er.post_id = p.id AND er.user_id = n.user_id AND er.status IN (${RSVP_NOTIFIED.map((x) => `'${x}'`).join(', ')})) AS p_rsvp,
-    (pb.owner_id = n.user_id OR EXISTS (SELECT 1 FROM boat_admins ba WHERE ba.boat_id = pb.id AND ba.user_id = n.user_id)) AS pb_role,
+    (pb.owner_id = n.user_id OR EXISTS (SELECT 1 FROM boat_admins ba WHERE ba.boat_id = pb.id AND ba.user_id = n.user_id)
+      OR EXISTS (SELECT 1 FROM boat_crew bc WHERE bc.boat_id = pb.id AND bc.user_id = n.user_id)) AS pb_role,
     g.slug AS g_slug, g.name AS g_name, g.visibility AS g_vis, g.share_key AS g_key, g.hidden_at AS g_hidden,
     g.locked_at AS g_locked, g.approve_by AS g_approve, gm.role AS g_role,
     EXISTS (SELECT 1 FROM group_requests r WHERE r.group_id = g.id) AS g_open,
@@ -544,7 +548,7 @@ const LIST_SQL = `SELECT n.id, n.kind, n.subject_kind, n.subject_id, n.count, n.
   ORDER BY n.updated_at DESC
   LIMIT ?4`;
 
-const INVITE_WHAT: Record<string, string> = { boat_admin: 'als Admin für das Boot', crew: 'in die Crew von', friend: 'zum gegenseitigen Folgen' };
+const INVITE_WHAT: Record<string, string> = { boat_admin: 'als Admin für das Boot', boat_member: 'in die Stammcrew des Boots', crew: 'in die Crew von', friend: 'zum gegenseitigen Folgen' };
 
 /**
  * Darf die Empfängerin einen Beitrag (neu, Veranstaltung) aus der Glocke sehen – und wie heißt sein Verlauf? Gruppe:
@@ -650,7 +654,7 @@ function shape(r: Row, userId: string): Omit<NotificationItem, 'text'> | null {
       if (!r.i_for || !r.i_kind) return null;
       // Ziel gesperrt (oder gelöscht): nichts verraten
       if (r.i_kind !== 'friend' && r.i_target === null) return null;
-      const what = r.i_kind === 'group' ? `in ${r.i_gkind === 'team' ? 'das Team' : 'den Verein'}` : (INVITE_WHAT[r.i_kind] ?? 'zu');
+      const what = r.i_kind === 'group' ? `in ${GROUP_KIND_ACCUSATIVE[r.i_gkind as GroupKind] ?? 'die Gruppe'}` : (INVITE_WHAT[r.i_kind] ?? 'zu');
       // Freundes-Einladungen haben kein Ziel. Annehmen und Ablehnen im Konto („Einladungen an dich“).
       return { ...base, title: r.i_kind === 'friend' ? '' : (r.i_target ?? ''), what, href: '/?konto=einladungen' };
     }

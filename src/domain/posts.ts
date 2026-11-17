@@ -1,7 +1,7 @@
 // Beiträge als Grundtyp (Konzept 21, F-400 … F-406): reine Regeln ohne DOM und Netz – Arten, Verläufe („wo steht es“),
 // Sichtbarkeit („wer sieht es“), Reichweite („Sichtbar bis“), wer sieht und wer schreibt. Genutzt von Worker
 // (Prüfen beim Schreiben und Lesen) und Oberfläche (Texte, Auswahl).
-import type { GroupKind, GroupRole } from './groups';
+import { GROUP_KIND_LABEL, type GroupKind, type GroupRole } from './groups';
 import { POST_MAX, canManageGroup } from './groups';
 import { POLL_LIMITS } from './polls';
 import { EVENT_LIMITS } from './events';
@@ -332,7 +332,7 @@ export const channelKey = (c: ChannelRef): string => (c.kind === 'user' ? 'user'
 export function channelName(c: ChannelRef): string {
   switch (c.kind) {
     case 'group':
-      return `${c.groupKind === 'team' ? 'Team' : 'Verein'} ${c.name}`;
+      return `${GROUP_KIND_LABEL[c.groupKind] ?? 'Gruppe'} ${c.name}`;
     case 'harbor':
       return `Hafen ${c.name}`;
     case 'boat':

@@ -10,9 +10,24 @@ import type { EventView } from './events';
 
 // ---------------------------------------------------------------- Gruppen
 
-export const GROUP_KINDS = ['club', 'team'] as const;
+// Klassenvereinigung (Konzept 42, F-645): Gruppe zu einer Bootsklasse (`groups.boat_class`), wie ein Verein ohne Hafen
+export const GROUP_KINDS = ['club', 'team', 'class'] as const;
 export type GroupKind = (typeof GROUP_KINDS)[number];
-export const GROUP_KIND_LABEL: Record<GroupKind, string> = { club: 'Verein', team: 'Team' };
+export const GROUP_KIND_LABEL: Record<GroupKind, string> = { club: 'Verein', team: 'Team', class: 'Klassenvereinigung' };
+/** Kurzbeschreibung je Art im Formular „Gruppe gründen“ */
+export const GROUP_KIND_HINT: Record<GroupKind, string> = {
+  club: 'Segelverein, Hafengemeinschaft',
+  team: 'Regattacrew, Jugendgruppe, Fahrtensegler-Runde – optional in einem Verein',
+  class: 'Klassenvereinigung einer Bootsklasse (z. B. Pirat, Optimist) – Regatta-Ergebnisse ihrer Mitglieder',
+};
+/** „dem Verein“, „dem Team“, „der Klassenvereinigung“ – für Sätze wie „ist … beigetreten“ */
+export const GROUP_KIND_DATIVE: Record<GroupKind, string> = { club: 'dem Verein', team: 'dem Team', class: 'der Klassenvereinigung' };
+/** „den Verein“, „das Team“, „die Klassenvereinigung“ – für „in …“ */
+export const GROUP_KIND_ACCUSATIVE: Record<GroupKind, string> = { club: 'den Verein', team: 'das Team', class: 'die Klassenvereinigung' };
+export const GROUP_KIND_PLURAL: Record<GroupKind, string> = { club: 'Vereine', team: 'Teams', class: 'Klassenvereinigungen' };
+
+/** Gruppen mit Regatta-Übersicht (F-650): Vereine und Klassenvereinigungen */
+export const hasRegattaOverview = (kind: GroupKind): boolean => kind === 'club' || kind === 'class';
 
 export const GROUP_ROLES = ['owner', 'admin', 'member'] as const;
 export type GroupRole = (typeof GROUP_ROLES)[number];
@@ -333,7 +348,7 @@ export function streamHeadline(i: StreamItem): string {
       return `${who(i, 'Ein:e Segler:in')}: ${n === 1 ? '1 neues Foto' : `${fmtNum(n, 0)} neue Fotos`} zu ${i.voyage?.title ?? 'einem Törn'}`;
     }
     case 'member':
-      return `${who(i, 'Ein neues Mitglied')} ist ${i.group ? `${i.group.kind === 'club' ? 'dem Verein' : 'dem Team'} ${i.group.name}` : 'der Gruppe'} beigetreten`;
+      return `${who(i, 'Ein neues Mitglied')} ist ${i.group ? `${GROUP_KIND_DATIVE[i.group.kind] ?? 'der Gruppe'} ${i.group.name}` : 'der Gruppe'} beigetreten`;
     case 'boat':
       return i.group ? `Neues Boot in ${i.group.name}: ${i.boat?.name ?? 'Boot'}` : `Neues Boot: ${i.boat?.name ?? 'Boot'}`;
     case 'post':

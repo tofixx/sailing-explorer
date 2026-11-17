@@ -8,7 +8,14 @@ import type { LogState } from '../domain/logbook';
 import { errorText } from './session';
 
 export class PostsController {
-  constructor(private ui: { page: SxProfilePage; toast: (msg: string, ms?: number) => void }) {}
+  constructor(
+    private ui: {
+      page: SxProfilePage;
+      toast: (msg: string, ms?: number) => void;
+      /** eigene Seite neu geladen (Vorschau, Neuladen) – Abschnitte nachladen, die nicht im Profil stehen (Jahresansicht) */
+      profileReloaded?: (handle: string) => void;
+    },
+  ) {}
 
   private get page() {
     return this.ui.page;
@@ -91,6 +98,7 @@ export class PostsController {
     try {
       const d = await api.profile(handle, null, preview);
       this.page.data = { kind: 'profile', ...d };
+      this.ui.profileReloaded?.(handle);
       this.page.renderRoot.querySelector('.page')?.scrollIntoView({ block: 'start' });
       if (!preview) await this.openOwn();
     } catch (e) {
@@ -105,6 +113,7 @@ export class PostsController {
     try {
       const d = await api.profile(handle);
       this.page.data = { kind: 'profile', ...d };
+      this.ui.profileReloaded?.(handle);
     } catch {
       // Kennzahlen bleiben dann alt – die Liste unten zählt
     }

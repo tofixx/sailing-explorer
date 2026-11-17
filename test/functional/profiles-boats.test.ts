@@ -63,7 +63,7 @@ describe('F-41 Profil', () => {
     const res = await putProfile(cookie, { handle, displayName: 'Anna', bio: 'Jollen und Ostsee' });
     expect(res.status).toBe(200);
     expect((await getJson<{ profile: unknown }>(res)).profile).toEqual({
-      handle, displayName: 'Anna', bio: 'Jollen und Ostsee', visibility: 'public', shareKey: null, link: `/u/${handle}`, isSelf: true,
+      handle, displayName: 'Anna', bio: 'Jollen und Ostsee', visibility: 'public', shareKey: null, link: `/u/${handle}`, isSelf: true, seasonTable: 'private',
     });
     const mine = await getJson<{ profile: { handle: string }; exists: boolean }>(await send('GET', '/api/me/profile', cookie));
     expect(mine).toMatchObject({ exists: true, profile: { handle } });

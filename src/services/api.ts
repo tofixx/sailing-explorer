@@ -20,6 +20,7 @@ import type { HarborRef } from '../domain/harbors';
 import type { ClaimKind, MyClaim } from '../domain/claims';
 import type { MapStyleId } from '../domain/map-style';
 import type { VoyageRole } from '../domain/crew-roles';
+import type { SeasonTableMode } from '../domain/season-table';
 import type { ReactionKind, ReactionSubject, ReactionSummary } from '../domain/reactions';
 import type { NotificationItem, NotificationKind, NotifyLevel, NotifyPrefs } from '../domain/notifications';
 import type { DistSource, LatLon, LogState, Logbook, ShareSource } from '../domain/logbook';
@@ -113,6 +114,8 @@ export interface ManualShareInput {
   visibility: Visibility;
   ownerRole?: VoyageRole | null;
   log?: Logbook;
+  /** „In Gruppen zeigen“ (F-375); ohne Angabe die Gruppen des Boots */
+  groupIds?: string[];
 }
 
 /** Unterstützen-Konfiguration aus /api/config (null = auf diesem Server nicht eingerichtet). */
@@ -163,6 +166,8 @@ export interface Profile extends Linkable {
   displayName: string;
   bio: string;
   isSelf: boolean;
+  /** Jahresansicht der Fahrten und Regatten (Konzept 43): nur ich bzw. alle, die das Profil sehen – fehlt bei älteren Servern */
+  seasonTable?: SeasonTableMode;
 }
 
 export interface Boat extends Linkable {
@@ -262,7 +267,7 @@ export interface Crew {
   invites: PendingInvite[];
 }
 
-export type InviteKind = 'boat_admin' | 'crew' | 'group' | 'friend';
+export type InviteKind = 'boat_admin' | 'boat_member' | 'crew' | 'group' | 'friend';
 
 export interface InvitePeek {
   kind: InviteKind;
@@ -521,7 +526,8 @@ export const api = {
   profile: (handle: string, key?: string | null, preview?: ProfilePreview | null) =>
     call<ProfilePageData>(`/api/profiles/${encodeURIComponent(handle)}${preview ? `?as=${encodeURIComponent(previewParam(preview))}` : ''}`, keyInit(key)),
 
-  myBoats: () => call<{ boats: Boat[] }>('/api/boats'),
+  /** `assignable`: Boote, denen ich nur zuordnen darf (Stammcrew u. a., F-272) */
+  myBoats: () => call<{ boats: Boat[]; assignable?: Array<Pick<Boat, 'id' | 'name'>> }>('/api/boats'),
   createBoat: (b: BoatInput) => call<{ boat: Boat }>('/api/boats', jsonInit('POST', b)),
   updateBoat: (id: string, b: BoatInput) => call<{ boat: Boat }>(`/api/boats/${encodeURIComponent(id)}`, jsonInit('PATCH', b)),
   deleteBoat: (id: string) => call<void>(`/api/boats/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -865,6 +871,8 @@ export interface GroupInfo extends Linkable {
   hiddenAt?: number | null;
   /** verifizierte Vertretung (Konzept 20.4) – nur Vereine, fehlt bei älteren Servern */
   verified?: boolean;
+  /** Bootsklasse einer Klassenvereinigung (Konzept 42) */
+  boatClass?: string | null;
   createdAt: number;
 }
 
@@ -1008,7 +1016,7 @@ export interface DiscoverMembership {
   requested: string[];
 }
 
-export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'webUrl' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy' | 'membersVisible' | 'daySummary'>> & {
+export type GroupInput = Partial<Pick<GroupInfo, 'name' | 'slug' | 'description' | 'webUrl' | 'homePort' | 'visibility' | 'joinMode' | 'approveBy' | 'postBy' | 'membersVisible' | 'daySummary' | 'boatClass'>> & {
   kind?: GroupKind;
   /** Hafen (Konzept 13.3): ID, null = keiner; hat Vorrang vor homePort */
   harborId?: string | null;

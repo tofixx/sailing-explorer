@@ -379,6 +379,7 @@ export async function adminOwner(request: Request, env: Env, rawKind: string, id
     await env.DB.batch([
       env.DB.prepare('UPDATE boats SET owner_id = ?, updated_at = ? WHERE id = ?').bind(to, now, id),
       env.DB.prepare('DELETE FROM boat_admins WHERE boat_id = ? AND user_id = ?').bind(id, to),
+      env.DB.prepare('DELETE FROM boat_crew WHERE boat_id = ? AND user_id = ?').bind(id, to),
       env.DB.prepare('INSERT OR IGNORE INTO boat_admins (boat_id, user_id, created_at) VALUES (?, ?, ?)').bind(id, before, now),
       ...(viaOwner ? releaseViaLockStmts(env, 'boat', id) : []),
       log,

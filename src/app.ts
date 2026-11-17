@@ -59,8 +59,12 @@ import type { SxGroupPage } from './components/sx-group-page';
 import type { SxHomeFeed } from './components/sx-home-feed';
 import type { SxGuestSlider } from './components/sx-guest-slider';
 import type { FollowKind, GroupInput, InviteTo } from './services/api';
+import type { AssignMode } from './domain/boat-crew';
 // ---- Verein, Hafen, Team und Reaktionen (Konzept 12) ----
 import { SocialController } from './controllers/social';
+import { BoatCrewController } from './controllers/boat-crew';
+import { SeasonTableController } from './controllers/season-table';
+import type { SeasonTableMode } from './domain/season-table';
 import { UnreadController } from './controllers/unread';
 
 import { MapStyleController } from './controllers/map-style';
@@ -181,8 +185,11 @@ export class App {
   private groups: GroupsController;
   private discover: DiscoverController;
   private social: SocialController;
+  private boatCrew: BoatCrewController;
+  private seasonTable: SeasonTableController;
   private claims = new ClaimController((msg, ms) => this.toast(msg, ms));
-  private posts = new PostsController({ page: this.ui.page, toast: (msg, ms) => this.toast(msg, ms) });
+  // Neu geladene eigene Seite (Vorschau, „Mein Verlauf“): Jahresansicht nachladen (Konzept 43)
+  private posts = new PostsController({ page: this.ui.page, toast: (msg, ms) => this.toast(msg, ms), profileReloaded: (handle) => void this.seasonTable.load(handle) });
   private unread: UnreadController;
   private compose: ComposeController;
   private polls: PollController;
@@ -286,6 +293,15 @@ export class App {
         this.markSeen();
       },
       ready: () => this.session.backendReady,
+    });
+    this.seasonTable = new SeasonTableController({ page: this.ui.page, toast: (msg) => this.toast(msg) });
+    this.boatCrew = new BoatCrewController({
+      page: this.ui.page,
+      toast: (msg) => this.toast(msg),
+      reloadBoat: () => {
+        const d = this.ui.page.data;
+        if (d?.kind === 'boat') void this.openPage({ kind: 'boat', id: d.boat.id });
+      },
     });
     this.social = new SocialController(this.store, {
       page: this.ui.page,
@@ -768,6 +784,16 @@ export class App {
     on<string>('sx-my-invite-decline', (id) => s.declineMyInvite(id));
     on<{ boatId: string; userId: string }>('sx-boat-admin-remove', (d) => s.removeAdmin(d.boatId, d.userId));
     on<string>('sx-boat-leave', (id) => s.leaveBoat(id));
+    // Stammcrew (Konzept 41)
+    on<{ to: InviteTo | null; done?: () => void }>('sx-boat-crew-invite', (d) => this.boatCrew.invite(d.to, d.done));
+    on<{ userId: string; title: string }>('sx-boat-crew-title', (d) => this.boatCrew.title(d.userId, d.title));
+    on<{ userId: string }>('sx-boat-crew-remove', (d) => this.boatCrew.remove(d.userId));
+    on<Partial<{ post: boolean; invite: boolean; assign: AssignMode }>>('sx-boat-crew-rights', (d) => this.boatCrew.rights(d));
+    on<{ boatId: string; shareId: string }>('sx-boat-unassign', (d) => this.boatCrew.unassign(d.shareId));
+    on<{ id: string }>('sx-boat-crew-revoke', (d) => this.boatCrew.revoke(d.id));
+    // Regatten (Konzept 42)
+    on<{ season: number }>('sx-group-regattas-season', (d) => this.groups.loadRegattas(d.season));
+    on<{ mode: SeasonTableMode }>('sx-season-table-mode', (d) => this.seasonTable.setMode(d.mode));
     on('sx-logout', () => s.logout());
     on('sx-account-delete', () => s.deleteAccount());
 
@@ -1061,12 +1087,17 @@ export class App {
         // eigene Seite: „Mein Verlauf“ mit allem, auch Privatem (F-401)
         page.myPosts = null;
         if (d.profile.isSelf) this.pageReady = this.posts.openOwn();
+        // Jahresansicht (Konzept 43): eigene immer, fremde nur freigegeben
+        void this.seasonTable.load(d.profile.handle, route.key ?? null);
       } else {
         const d = await api.boat(route.id, route.key);
         page.data = { kind: 'boat', ...d };
         document.title = `${d.boat.name} · ${APP_NAME}`;
         // Neuigkeiten des Boots (F-425) und „+ Neu → Text“ mit diesem Boot
         this.pageReady = this.social.loadBoatStream(route.key);
+        // Stammcrew (Konzept 41): Liste, Schalter, Einladen – nebenbei
+        Object.assign(page, { crewLink: '', crewBusy: false });
+        void this.boatCrew.load(route.key);
         this.compose.setContext({ kind: 'boat', id: d.boat.id });
         void this.pins.open({ kind: 'boat', id: d.boat.id });
       }

@@ -11,11 +11,14 @@ import { SCORING_NOTE, defaultTemplateId, templateItemNames, templateLabel, type
 import type { Visibility } from '../domain/visibility';
 import type { LogbookPreset } from '../domain/events';
 import type { SxHarborPicker } from './sx-harbor-picker';
+import { boatClassOptions } from './boat-class-options';
 import { icon } from './icons';
 import { base, dialogStyles, emit } from './shared';
 import './sx-harbor-picker';
 import './sx-place-picker';
 import './sx-visibility-picker';
+import './sx-share-groups';
+import { presetGroupIds, type ShareGroupChoice } from '../domain/groups';
 
 type Pos = { lat: number; lon: number };
 
@@ -68,6 +71,9 @@ export class SxLogbookForm extends LitElement {
     items: { state: true },
     filled: { state: true },
     templates: { attribute: false },
+    groupChoices: { attribute: false },
+    groupIds: { state: true },
+    boatPick: { state: true },
     lastTemplateId: { attribute: false },
   };
   declare open: boolean;
@@ -75,7 +81,14 @@ export class SxLogbookForm extends LitElement {
   declare share: ShareMeta | null;
   /** neuer Eintrag aus einer Veranstaltung (Konzept 30, F-487): Datum, Titel, Verweis */
   declare preset: LogbookPreset | null;
-  declare boats: Boat[];
+  /** verwaltete und zuordenbare Boote (F-272) – nur ID und Name */
+  declare boats: Array<Pick<Boat, 'id' | 'name'>>;
+  /** „In Gruppen zeigen“ (F-375) – auch für Einträge ohne GPX, damit Regatten im Verein erscheinen (Konzept 42, F-649) */
+  declare groupChoices: ShareGroupChoice[];
+  /** geänderte Auswahl; null = unverändert (neu: Gruppen des Boots, Bearbeiten: wie gespeichert) */
+  declare groupIds: string[] | null;
+  /** gewähltes Boot im Formular (für die Vorbelegung der Gruppen); null = noch nicht geändert */
+  declare boatPick: string | null;
   declare supporter: boolean;
   /** Einträge der laufenden Saison und Grenze (L1) – -1 = unbekannt */
   declare used: number;
@@ -108,6 +121,9 @@ export class SxLogbookForm extends LitElement {
     this.share = null;
     this.preset = null;
     this.boats = [];
+    this.groupChoices = [];
+    this.groupIds = null;
+    this.boatPick = null;
     this.supporter = false;
     this.used = -1;
     this.max = LOG_LIMITS.perSeason;
@@ -341,7 +357,13 @@ export class SxLogbookForm extends LitElement {
       bridges: this.field('bridges'),
       mast: this.field('mast'),
       upstreamNm: this.field('upstreamNm'),
-      regatta: regatta ? { name: regatta, place: this.field('regattaPlace'), starters: this.field('regattaStarters') } : undefined,
+      // Regatta (Konzept 27.4, erweitert in Konzept 42): Ergebnis, Veranstalter, Wettfahrten, Punkte, Klasse
+      regatta: regatta
+        ? {
+            name: regatta, place: this.field('regattaPlace'), starters: this.field('regattaStarters'), organizer: this.field('regattaOrganizer'),
+            races: this.field('regattaRaces'), points: this.field('regattaPoints').replace(',', '.'), boatClass: this.field('regattaClass'),
+          }
+        : undefined,
       items: this.items,
       // ohne Feld (kein Verein, Vorlagen nicht geladen) bleibt die Vorlage des Eintrags unverändert (F-501)
       templateId: this.templates.length ? this.field('templateId') : this.share?.log?.templateId,
@@ -361,6 +383,11 @@ export class SxLogbookForm extends LitElement {
       id: this.share!.id,
       patch: { log, fromHarbor: from, toHarbor: this.roundTrip ? from : this.harbor('to') },
     });
+  }
+
+  /** Angezeigte Gruppen: geänderte Auswahl, sonst gespeicherte (Bearbeiten), sonst die Gruppen des gewählten Boots. */
+  private shownGroups(): string[] {
+    return this.groupIds ?? this.share?.groupIds ?? presetGroupIds(this.groupChoices, this.boatPick ?? this.share?.boat?.id ?? null);
   }
 
   private submit(e: Event) {
@@ -396,6 +423,7 @@ export class SxLogbookForm extends LitElement {
       const patch: SharePatch = {
         startedAt, endedAt, timed, distNm, log: log as Logbook, boatId, visibility: this.visibility,
         ...(title ? { title } : {}),
+        ...(this.groupIds ? { groupIds: this.groupIds } : {}),
         ...(from ? { fromHarbor: from } : {}),
         toHarbor: to,
       };
@@ -406,6 +434,8 @@ export class SxLogbookForm extends LitElement {
       startedAt, endedAt, timed, fromHarbor: from!, toHarbor: to, distNm, boatId, visibility: this.visibility, log: log as Logbook,
       ...(title ? { title } : {}),
       ...(isVoyageRole(role) ? { ownerRole: role as VoyageRole } : {}),
+      // genau die angezeigte Auswahl (sonst nähme der Server die Gruppen des Boots, auch ungesehen)
+      ...(this.groupChoices.length ? { groupIds: this.shownGroups() } : {}),
     };
     emit<LogbookSave>(this, 'sx-logbook-save', { input });
   }
@@ -529,7 +559,16 @@ export class SxLogbookForm extends LitElement {
         ? html`<div class="row">
             <div><label class="label" for="lf-rp">Platz</label><input id="lf-rp" name="regattaPlace" inputmode="numeric" .value=${numValue(r?.place)} /></div>
             <div><label class="label" for="lf-rs">Starter</label><input id="lf-rs" name="regattaStarters" inputmode="numeric" .value=${numValue(r?.starters)} /></div>
-          </div>`
+          </div>
+          <div class="row">
+            <div><label class="label" for="lf-rr">Wettfahrten</label><input id="lf-rr" name="regattaRaces" inputmode="numeric" .value=${numValue(r?.races)} /></div>
+            <div><label class="label" for="lf-rpt">Punkte</label><input id="lf-rpt" name="regattaPoints" inputmode="decimal" .value=${r?.points !== undefined ? String(r.points).replace('.', ',') : ''} /></div>
+          </div>
+          <div><label class="label" for="lf-ro">Veranstalter <span class="faint">(optional)</span></label>
+            <input id="lf-ro" name="regattaOrganizer" maxlength=${LOG_LIMITS.regattaOrganizerMax} placeholder="z. B. Potsdamer Yacht Club" .value=${r?.organizer ?? ''} /></div>
+          <div><label class="label" for="lf-rc">Klasse <span class="faint">(leer = die des Boots)</span></label>
+            <select id="lf-rc" name="regattaClass"><option value="" ?selected=${!r?.boatClass}>wie das Boot</option>${boatClassOptions(r?.boatClass ?? '')}</select></div>
+          <p class="hint">Im Verein bzw. in der Klassenvereinigung sichtbar, wenn der Eintrag öffentlich ist und du ihn dort zeigst (unten „In Gruppen zeigen“).</p>`
         : ''}
       ${this.itemsBlock()}
       <p class="hint">Alles sind deine Angaben – sie stehen im Fahrtenbuch und im Meilennachweis.</p>
@@ -596,7 +635,7 @@ export class SxLogbookForm extends LitElement {
       ${this.boats.length && !gpx
         ? html`<div>
             <label class="label" for="lf-boat">Boot</label>
-            <select id="lf-boat" name="boat">
+            <select id="lf-boat" name="boat" @change=${(e: Event) => (this.boatPick = (e.target as HTMLSelectElement).value)}>
               <option value="">– kein Boot –</option>
               ${this.boats.map((b) => html`<option value=${b.id} ?selected=${s?.boat?.id === b.id}>${b.name}</option>`)}
             </select>
@@ -675,7 +714,12 @@ export class SxLogbookForm extends LitElement {
               .supporter=${this.supporter}
               .current=${s?.visibility ?? null}
               @sx-visibility-change=${(e: CustomEvent<{ value: Visibility }>) => (this.visibility = e.detail.value)}
-            ></sx-visibility-picker>`}
+            ></sx-visibility-picker>
+            <sx-share-groups
+              .groups=${this.groupChoices}
+              .selected=${this.shownGroups()}
+              @sx-share-groups-change=${(e: CustomEvent<{ groupIds: string[] }>) => (this.groupIds = e.detail.groupIds)}
+            ></sx-share-groups>`}
       ${this.local || this.error ? html`<p class="error" role="alert">${this.local || this.error}</p>` : ''}
       <div class="foot">
         <span class="hint">${!s && this.used >= 0 ? `${this.used} von ${this.max} Fahrtenbuch-Einträgen in dieser Saison` : ''}</span>

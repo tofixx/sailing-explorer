@@ -12,7 +12,9 @@ export const STREAM_TARGETS_MAX = 1600;
 export const TARGET_SQL = {
   // stumm geschaltete Mitgliedschaften und Folgen (F-346, Stufe „Stumm“ F-449) liefern keine Neuigkeiten
   groups: `SELECT 'group' AS k, group_id AS id FROM group_members WHERE user_id = ?1 AND notify_level IS NOT 'muted'`,
+  // Stammcrew liest ihr Boot mit (F-273); höchstens zwei UNION-Glieder je Abfrage
   boats: `SELECT 'boat' AS k, id FROM boats WHERE owner_id = ?1 UNION SELECT 'boat', boat_id FROM boat_admins WHERE user_id = ?1`,
+  crewBoats: `SELECT 'boat' AS k, boat_id AS id FROM boat_crew WHERE user_id = ?1`,
   // Folgen einer Gruppe mit Liste „nur Mitglieder“: nur Text-Beiträge (`t` = 1, F-442) – Folgende sind keine Mitglieder
   follows: `SELECT f.target_kind AS k, f.target_id AS id,
       (f.target_kind = 'group' AND EXISTS (SELECT 1 FROM groups g WHERE g.id = f.target_id AND g.members_visible IS NOT 'public')) AS t

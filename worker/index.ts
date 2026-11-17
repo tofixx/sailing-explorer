@@ -9,10 +9,12 @@ import { getMyLogbook, getMyLogbookCsv } from './logbook-list';
 import { canViewShare, createShare, deleteShare, getShareData, getShareImage, getShareMeta, getShareRow, listShares, putShareImage, updateShare } from './shares';
 import { createBoat, deleteBoat, getBoat, listMyBoats, updateBoat } from './boats';
 import { getMyProfile, getProfile, putMyProfile } from './profiles';
+import { getSeasonTable, putSeasonTable } from './season-table';
 import { LISTED, getDiscover, getDiscoverStats } from './discover';
 import { getHeat, putShareHeat } from './heat';
 import { confirmCrew, setCrewRole, setOwnerRole, unconfirmCrew } from './crew-roles';
-import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteCrew, inviteFriend, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
+import { getBoatCrew, removeCrewMember, setCrewRights, setCrewTitle, unassignShare } from './boat-crew';
+import { acceptInvite, acceptMyInvite, declineMyInvite, getCrew, inviteBoatAdmin, inviteBoatCrew, inviteCrew, inviteFriend, listBoatAdmins, listMyInvites, peekInvite, removeBoatAdmin, removeCrew, revokeInvite } from './invites';
 import { withPageHeaders } from './security';
 import { createCheckout, freeShares, getSupport, stripeWebhook, supportConfig } from './supporter';
 import { runRetention } from './retention';
@@ -37,6 +39,7 @@ import { harborVisible, loadHarborByRedirect, loadHarborBySlug } from './harbors
 // ---- Admin-Bereich (Konzept 18) ----
 import { adminRoutes } from './admin-routes';
 import { scoringRoutes } from './scoring-routes';
+import { getGroupRegattas, getMyRegattasCsv } from './regattas';
 import { createClaim, getClaimState, withdrawClaim } from './claims';
 import { currentUser } from './auth';
 import { isAdmin } from './moderation';
@@ -81,6 +84,8 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/account$/, (r, env) => deleteAccount(r, env)],
   ['GET', /^\/api\/me\/profile$/, (r, env) => getMyProfile(r, env)],
   ['PUT', /^\/api\/me\/profile$/, (r, env) => putMyProfile(r, env)],
+  // Jahresansicht im Profil (Konzept 43): worker/season-table.ts
+  ['PUT', /^\/api\/me\/season-table$/, (r, env) => putSeasonTable(r, env)],
   ['GET', /^\/api\/me\/support$/, (r, env) => getSupport(r, env)],
   // Fahrtenbuch nach Jahren und Meilennachweis (Konzept 27)
   ['GET', /^\/api\/me\/logbook$/, (r, env) => getMyLogbook(r, env)],
@@ -98,6 +103,7 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['POST', /^\/api\/support\/checkout$/, (r, env) => createCheckout(r, env)],
   ['POST', /^\/api\/webhooks\/stripe$/, (r, env) => stripeWebhook(r, env)],
   ['GET', /^\/api\/profiles\/([A-Za-z0-9-]+)$/, (r, env, [h]) => getProfile(r, env, h)],
+  ['GET', /^\/api\/profiles\/([A-Za-z0-9-]+)\/seasons$/, (r, env, [h]) => getSeasonTable(r, env, h)],
   ['GET', /^\/api\/boats$/, (r, env) => listMyBoats(r, env)],
   ['POST', /^\/api\/boats$/, (r, env) => createBoat(r, env)],
   ['GET', /^\/api\/boats\/([A-Za-z0-9]+)$/, (r, env, [id]) => getBoat(r, env, id)],
@@ -106,6 +112,13 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['GET', /^\/api\/boats\/([A-Za-z0-9]+)\/admins$/, (r, env, [id]) => listBoatAdmins(r, env, id)],
   ['POST', /^\/api\/boats\/([A-Za-z0-9]+)\/invites$/, (r, env, [id]) => inviteBoatAdmin(r, env, id)],
   ['DELETE', /^\/api\/boats\/([A-Za-z0-9]+)\/admins\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => removeBoatAdmin(r, env, id, who)],
+  // ---- Stammcrew (Konzept 41): worker/boat-crew.ts, Einladen in worker/invites.ts ----
+  ['GET', /^\/api\/boats\/([A-Za-z0-9]+)\/crew$/, (r, env, [id]) => getBoatCrew(r, env, id)],
+  ['POST', /^\/api\/boats\/([A-Za-z0-9]+)\/crew\/invites$/, (r, env, [id]) => inviteBoatCrew(r, env, id)],
+  ['PUT', /^\/api\/boats\/([A-Za-z0-9]+)\/crew-rights$/, (r, env, [id]) => setCrewRights(r, env, id)],
+  ['PATCH', /^\/api\/boats\/([A-Za-z0-9]+)\/crew\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => setCrewTitle(r, env, id, who)],
+  ['DELETE', /^\/api\/boats\/([A-Za-z0-9]+)\/crew\/([A-Za-z0-9]+)$/, (r, env, [id, who]) => removeCrewMember(r, env, id, who)],
+  ['DELETE', /^\/api\/boats\/([A-Za-z0-9]+)\/shares\/([A-Za-z0-9]+)$/, (r, env, [id, sid]) => unassignShare(r, env, id, sid)],
   ['POST', /^\/api\/invites$/, (r, env) => inviteFriend(r, env)],
   ['POST', /^\/api\/invites\/peek$/, (r, env) => peekInvite(r, env)],
   ['POST', /^\/api\/invites\/accept$/, (r, env) => acceptInvite(r, env)],
@@ -155,6 +168,9 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ['DELETE', /^\/api\/claims\/([A-Za-z0-9]+)$/, (r, env, [id]) => withdrawClaim(r, env, id)],
   // ---- Admin-Bereich (Konzept 18): worker/admin-routes.ts ----
   ...adminRoutes,
+  // ---- Regatten (Konzept 42): worker/regattas.ts ----
+  ['GET', /^\/api\/me\/regattas\.csv$/, (r, env) => getMyRegattasCsv(r, env)],
+  ['GET', /^\/api\/groups\/([A-Za-z0-9]+)\/regattas$/, (r, env, [id]) => getGroupRegattas(r, env, id)],
   // ---- Wertung (Konzept 32): worker/scoring-routes.ts ----
   ...scoringRoutes,
 ];

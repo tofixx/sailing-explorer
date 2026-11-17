@@ -95,7 +95,8 @@ export class SxShareDialog extends LitElement {
   declare busy: boolean;
   declare error: string;
   declare result: ShareResult | null;
-  declare boats: Boat[];
+  /** verwaltete und zuordenbare Boote (F-272) – nur ID und Name */
+  declare boats: Array<Pick<Boat, 'id' | 'name'>>;
   /** eigene Gruppen für „In Gruppen zeigen“ (F-373) */
   declare groupChoices: ShareGroupChoice[];
   /** im Formular gewähltes Boot (für die Vorauswahl der Gruppen) */

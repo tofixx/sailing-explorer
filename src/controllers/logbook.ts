@@ -7,6 +7,7 @@ import type { LogSuggestion } from '../domain/logbook-suggest';
 import { errorText } from './session';
 import type { LogbookPreset } from '../domain/events';
 import { scoringApi } from '../services/scoring-api';
+import { boatChoices } from '../services/boat-crew-api';
 
 /** Wie das Formular aufgeht: mit Vorschlägen aus dem Track (GPX-Törn) und was nach dem Speichern passiert. */
 export interface LogbookStart {
@@ -40,17 +41,20 @@ export class LogbookController {
 
   private async openForm(share: ShareMeta | null, suggestion: LogSuggestion | null, preset: LogbookPreset | null) {
     const f = this.ui.form;
-    Object.assign(f, { share, suggestion, preset, error: '', busy: false, used: -1 });
+    Object.assign(f, { share, suggestion, preset, error: '', busy: false, used: -1, groupIds: null, groupChoices: [], boatPick: null });
     // Boote und Kontingent nebenbei – das Formular geht sofort auf
     f.open = true;
-    const [boats, support, scoring] = await Promise.all([
+    const [boats, support, scoring, groups] = await Promise.all([
       api.myBoats().catch(() => ({ boats: [] })),
       api.support().catch(() => null),
       // Wertungsvorlagen (F-501): ohne Antwort bleibt „Nur Meilen“
       scoringApi.mine().catch(() => null),
+      // „In Gruppen zeigen“ (F-375) – ohne Antwort keine Auswahl, der Server nimmt die Gruppen des Boots
+      api.shareGroups().catch(() => ({ groups: [] })),
     ]);
     Object.assign(f, {
-      boats: boats.boats,
+      boats: boatChoices(boats),
+      groupChoices: groups.groups,
       // Vorlagen nur für Vereinsmitglieder (F-501) – sonst kein Feld, die Vorlage des Eintrags bleibt
       templates: scoring?.clubs?.length ? scoring.templates : [],
       lastTemplateId: scoring?.lastTemplateId ?? null,

@@ -36,6 +36,8 @@ interface LogbookRow {
   boat_class: string | null;
   /** `log.timed` – auch für Crew-Törns, deren Angaben sie sonst nicht sehen */
   log_timed: number | null;
+  /** Crew-Törns: nur die Regatta-Angabe der Eigentümer:in (Konzept 42, wie Eckdaten nach M1) */
+  crew_regatta?: string | null;
   hf_slug: string | null;
   hf_name: string | null;
   ht_slug: string | null;
@@ -59,8 +61,8 @@ const OWN_SQL = `SELECT ${OWN_COLS}
   WHERE s.user_id = ?1 AND s.locked_at IS NULL
   ORDER BY t DESC LIMIT ?2`;
 
-/** Crew-Törns anderer nach M1: Stand aus der Bestätigung, nie die Angaben der Eigentümer:in. */
-const CREW_SQL = `SELECT ${LOGBOOK_COLS}, '{}' AS log, CASE WHEN c.confirmed_at IS NOT NULL THEN 'confirmed' ELSE 'suggested' END AS log_state,
+/** Crew-Törns anderer nach M1: Stand aus der Bestätigung, nie die Angaben der Eigentümer:in (außer der Regatta, Konzept 42). */
+const CREW_SQL = `SELECT ${LOGBOOK_COLS}, '{}' AS log, json_extract(s.log, '$.regatta') AS crew_regatta, CASE WHEN c.confirmed_at IS NOT NULL THEN 'confirmed' ELSE 'suggested' END AS log_state,
     c.role AS role, (c.confirmed_at IS NOT NULL) AS confirmed
   FROM share_crew c JOIN shares s ON s.id = c.share_id ${LOGBOOK_JOINS}
   WHERE c.user_id = ?1 AND s.user_id <> ?1 AND ${CREW_LOGBOOK_SQL}
@@ -72,8 +74,19 @@ function listLog(raw: string): Logbook {
   return items ? { ...rest, items: items.map(({ name, n }) => ({ name, n })) } : rest;
 }
 
+/** Regatta-Angabe der Eigentümer:in für Crew-Törns – geprüft wie jede Angabe; kaputte Werte ergeben nichts. */
+function crewRegatta(raw: string | null | undefined): Logbook {
+  if (!raw) return {};
+  try {
+    return readLog(JSON.stringify({ regatta: JSON.parse(raw) }));
+  } catch {
+    return {};
+  }
+}
+
 function logbookShape(r: LogbookRow, own: boolean): LogbookEntry {
-  const log = own ? listLog(r.log) : {};
+  // Crew-Törns: keine Angaben der Eigentümer:in – außer der Regatta, die beide gesegelt haben (Konzept 42)
+  const log = own ? listLog(r.log) : crewRegatta(r.crew_regatta);
   const manual = r.source === 'manual';
   // Crew-Törns nur mit Link und Titel, wenn sie öffentlich sind – sonst Eckdaten (M1)
   const open = own || r.visibility === 'public';
@@ -103,7 +116,7 @@ function logbookShape(r: LogbookRow, own: boolean): LogbookEntry {
 }
 
 /** Alle Einträge des Kontos (eigene und Crew), neueste zuerst; `truncated`: mehr als LOGBOOK_MAX_ENTRIES. */
-async function entriesOf(env: Env, userId: string): Promise<{ entries: LogbookEntry[]; truncated: boolean }> {
+export async function entriesOf(env: Env, userId: string): Promise<{ entries: LogbookEntry[]; truncated: boolean }> {
   const [own, crew] = await env.DB.batch<LogbookRow>([
     env.DB.prepare(OWN_SQL).bind(userId, LOGBOOK_MAX_ENTRIES),
     env.DB.prepare(CREW_SQL).bind(userId, LOGBOOK_MAX_ENTRIES),
